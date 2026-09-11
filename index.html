@@ -5447,29 +5447,23 @@ function renderAcLetterPreview(){
   `;
 }
 
-async function printAcLetter(){
-  const content = document.getElementById('acLetterPreview').innerHTML;
-  let photoHtml = '';
-  const photoUrl = acCurrentCase && acCurrentCase.case.referral_receipt_photo_url;
-  if(photoUrl){
-    showToast('جارٍ التجهيز للطباعة...', 'ok');
-    const dataUrl = await toDataUrl(photoUrl);
-    if(dataUrl){
-      photoHtml = '<div style="page-break-before:always;padding-top:20px;text-align:center;">' +
-        '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + dataUrl + '" style="max-width:45%;border:1px solid #999;">' +
-        '</div>';
-    }
-  }
-  document.getElementById('printArea').innerHTML = '<div dir="rtl" style="font-family:Arial;font-size:13pt;line-height:2;padding:10px;">' + content + photoHtml + '</div>';
-  document.body.classList.add('printing-record');
-  window.print();
-}
+/* ============================================================
+   منطق مشترك لخطابات الإحالة (المتابعة الأكاديمية / إدارة الصف)
+   ------------------------------------------------------------
+   الخطابان مختلفان بالمحتوى والنموذج القانوني (renderAcLetterPreview
+   وrenderReferralLetterPreview يبقيان منفصلين لأن نص كل خطاب مختلف)،
+   لكن آلية توليد PDF، الطباعة، المشاركة عبر واتساب، تصدير Word، تأكيد
+   الإصدار، ورفع/حذف صورة إثبات التسليم كانت مكررة حرفيًا بين المسارين.
+   تم توحيدها هنا بدوال عامة تأخذ إعدادات كل مسار عبر كائن تهيئة (cfg)،
+   مع إبقاء أسماء الدوال الأصلية (printAcLetter, uploadReferralReceiptPhoto...)
+   كأغلفة رقيقة (thin wrappers) حتى تبقى كل أزرار الواجهة (onclick) تعمل
+   بلا أي تعديل عليها.
+   ============================================================ */
 
-async function buildAcLetterPdfBlob(){
+async function buildLetterPdfBlob(previewElId, photoUrl){
   await ensurePdfLibs();
   const area = document.getElementById('pdfRenderArea');
-  const letterHtml = document.getElementById('acLetterPreview').innerHTML;
+  const letterHtml = document.getElementById(previewElId).innerHTML;
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF('p', 'pt', 'a4');
@@ -5490,13 +5484,12 @@ async function buildAcLetterPdfBlob(){
   const letterCanvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
   addCanvasAsPage(letterCanvas, true);
 
-  const photoUrl = acCurrentCase && acCurrentCase.case.referral_receipt_photo_url;
   if(photoUrl){
     const dataUrl = await toDataUrl(photoUrl);
     if(dataUrl){
       area.innerHTML = '<div dir="rtl" style="font-family:Arial;padding:30px;background:#fff;text-align:center;">' +
         '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + dataUrl + '" style="max-width:60%;border:1px solid #999;">' +
+        '<img src="' + escapeHtml(dataUrl) + '" style="max-width:60%;border:1px solid #999;">' +
         '</div>';
       await new Promise(r => setTimeout(r, 80));
       const photoCanvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
@@ -5507,15 +5500,32 @@ async function buildAcLetterPdfBlob(){
   return pdf.output('blob');
 }
 
-async function downloadAcLetterPDF(){
+async function printLetterContent(previewElId, photoUrl){
+  const content = document.getElementById(previewElId).innerHTML;
+  let photoHtml = '';
+  if(photoUrl){
+    showToast('جارٍ التجهيز للطباعة...', 'ok');
+    const dataUrl = await toDataUrl(photoUrl);
+    if(dataUrl){
+      photoHtml = '<div style="page-break-before:always;padding-top:20px;text-align:center;">' +
+        '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
+        '<img src="' + escapeHtml(dataUrl) + '" style="max-width:45%;border:1px solid #999;">' +
+        '</div>';
+    }
+  }
+  document.getElementById('printArea').innerHTML = '<div dir="rtl" style="font-family:Arial;font-size:13pt;line-height:2;padding:10px;">' + content + photoHtml + '</div>';
+  document.body.classList.add('printing-record');
+  window.print();
+}
+
+async function downloadLetterPdfFile(buildBlobFn, studentName, letterLabel){
   try{
     showToast('جارٍ تجهيز PDF...', 'ok');
-    const blob = await buildAcLetterPdfBlob();
-    const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
+    const blob = await buildBlobFn();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'خطاب إحالة - ' + studentName + '.pdf';
+    a.download = letterLabel + ' - ' + studentName + '.pdf';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -5526,15 +5536,14 @@ async function downloadAcLetterPDF(){
   }
 }
 
-async function shareAcLetterWhatsApp(){
+async function shareLetterWhatsApp(buildBlobFn, studentName, letterLabel){
   try{
     showToast('جارٍ تجهيز الملف...', 'ok');
-    const blob = await buildAcLetterPdfBlob();
-    const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
-    const fileName = 'خطاب إحالة - ' + studentName + '.pdf';
+    const blob = await buildBlobFn();
+    const fileName = letterLabel + ' - ' + studentName + '.pdf';
     const file = new File([blob], fileName, { type: 'application/pdf' });
     if(navigator.canShare && navigator.canShare({ files: [file] })){
-      await navigator.share({ files: [file], title: 'خطاب إحالة', text: 'خطاب إحالة الطالب ' + studentName });
+      await navigator.share({ files: [file], title: letterLabel, text: letterLabel + ' الطالب ' + studentName });
     } else {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -5549,86 +5558,155 @@ async function shareAcLetterWhatsApp(){
   }
 }
 
-async function downloadAcLetterWordFile(){
-  const content = document.getElementById('acLetterPreview').innerHTML;
+async function downloadLetterWordFile(previewElId, photoUrl, studentName, letterLabel){
+  const content = document.getElementById(previewElId).innerHTML;
   let photoHtml = '';
-  const photoUrl = acCurrentCase && acCurrentCase.case.referral_receipt_photo_url;
   if(photoUrl){
     showToast('جارٍ تجهيز الملف...', 'ok');
     const dataUrl = await toDataUrl(photoUrl);
     if(dataUrl){
       photoHtml = '<br clear="all" style="page-break-before:always;">' +
         '<h3 style="text-align:center;margin-bottom:14px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + dataUrl + '" width="170" style="width:45mm;max-width:45%;display:block;margin:0 auto;border:1px solid #999;">';
+        '<img src="' + escapeHtml(dataUrl) + '" width="170" style="width:45mm;max-width:45%;display:block;margin:0 auto;border:1px solid #999;">';
+    } else {
+      showToast('تعذّر تضمين الصورة — سيُنزَّل الخطاب بدونها', 'error');
     }
   }
-  const fullHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>خطاب إحالة</title></head><body dir='rtl' style='font-family:Arial;font-size:13pt;line-height:2;'>" + content + photoHtml + "</body></html>";
-  const blob2 = new Blob(['\ufeff', fullHtml], { type: 'application/msword' });
+  const fullHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>" + letterLabel + "</title></head><body dir='rtl' style='font-family:Arial;font-size:13pt;line-height:2;'>" + content + photoHtml + "</body></html>";
+  const blob2 = new Blob(['﻿', fullHtml], { type: 'application/msword' });
   const url = URL.createObjectURL(blob2);
   const a = document.createElement('a');
-  const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
-  a.href = url; a.download = 'خطاب إحالة - ' + studentName + '.doc';
+  a.href = url; a.download = letterLabel + ' - ' + studentName + '.doc';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-async function confirmAcLetterIssued(){
-  if(!acCurrentCase) return;
-  const num = document.getElementById('acOutgoingNumber').value.trim();
+async function confirmLetterIssued(cfg){
+  const ref = cfg.currentRef();
+  if(!ref) return;
+  const entity = ref[cfg.entityKey];
+  const num = document.getElementById(cfg.outgoingNumberId).value.trim();
   if(!num){ showToast('أدخل الرقم الصادر أولًا', 'error'); return; }
-  const { error } = await sb.from('academic_cases').update({
+  const { error } = await sb.from(cfg.table).update({
     referral_letter_generated: true,
     referral_letter_number: num
-  }).eq('id', acCurrentCase.case.id);
+  }).eq('id', entity.id);
   if(error){ showToast('تعذّر الحفظ: ' + error.message, 'error'); return; }
 
   const nextNum = (parseInt(num, 10) || 0) + 1;
   await sb.from('classroom_letter_counters').upsert({ teacher_id: currentUser.id, next_number: nextNum, updated_at: new Date().toISOString() });
 
-  acCurrentCase.case.referral_letter_generated = true;
-  acCurrentCase.case.referral_letter_number = num;
-  await refreshAcBadges();
+  entity.referral_letter_generated = true;
+  entity.referral_letter_number = num;
+  await cfg.refreshBadges();
 
   showToast('تم تأكيد إصدار الخطاب — الآن ارفع صورة التوقيع بعد الطباعة', 'ok');
-  document.getElementById('acPhotoUploadSection').style.display = 'block';
+  document.getElementById(cfg.uploadSectionId).style.display = 'block';
 }
 
-async function uploadAcReceiptPhoto(event){
+async function uploadLetterReceiptPhoto(event, cfg){
   const file = event.target.files[0];
-  if(!file || !acCurrentCase) return;
+  const ref = cfg.currentRef();
+  if(!file || !ref) return;
+  const entity = ref[cfg.entityKey];
   try{
     showToast('جارٍ ضغط الصورة...', 'ok');
     const compressed = await compressImageFile(file, 1280, 0.72);
     showToast('جارٍ رفع الصورة (' + Math.round(compressed.size / 1024) + ' كيلوبايت)...', 'ok');
-    const path = currentUser.id + '/academic/' + acCurrentCase.case.id + '_' + Date.now() + '.jpg';
+    const path = currentUser.id + '/' + cfg.pathSegment + '/' + entity.id + '_' + Date.now() + '.jpg';
     const { error: upErr } = await sb.storage.from('shawahid-photos').upload(path, compressed, { contentType: 'image/jpeg' });
     if(upErr) throw upErr;
     const { data: pub } = sb.storage.from('shawahid-photos').getPublicUrl(path);
 
-    const { error } = await sb.from('academic_cases').update({ referral_receipt_photo_url: pub.publicUrl }).eq('id', acCurrentCase.case.id);
+    const { error } = await sb.from(cfg.table).update({ referral_receipt_photo_url: pub.publicUrl }).eq('id', entity.id);
     if(error) throw error;
 
-    acCurrentCase.case.referral_receipt_photo_url = pub.publicUrl;
-    document.getElementById('acPhotoPreviewImg').src = pub.publicUrl;
-    document.getElementById('acPhotoPreviewBox').style.display = 'block';
-    showToast('تم رفع الصورة وحفظها كشاهد على الإحالة', 'ok');
-    await refreshAcBadges();
+    entity.referral_receipt_photo_url = pub.publicUrl;
+    document.getElementById(cfg.previewImgId).src = pub.publicUrl;
+    document.getElementById(cfg.previewBoxId).style.display = 'block';
+    showToast(cfg.successUploadMsg, 'ok');
+    await cfg.refreshBadges();
   } catch(err){
     showToast('تعذّر رفع الصورة: ' + err.message, 'error');
   }
   event.target.value = '';
 }
 
-async function deleteAcReceiptPhoto(){
-  if(!acCurrentCase) return;
+async function deleteLetterReceiptPhoto(cfg){
+  const ref = cfg.currentRef();
+  if(!ref) return;
+  const entity = ref[cfg.entityKey];
   const ok = await showConfirm('حذف صورة إثبات التسليم؟');
   if(!ok) return;
-  const { error } = await sb.from('academic_cases').update({ referral_receipt_photo_url: null }).eq('id', acCurrentCase.case.id);
+  const { error } = await sb.from(cfg.table).update({ referral_receipt_photo_url: null }).eq('id', entity.id);
   if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
-  acCurrentCase.case.referral_receipt_photo_url = null;
-  document.getElementById('acPhotoPreviewBox').style.display = 'none';
+  entity.referral_receipt_photo_url = null;
+  document.getElementById(cfg.previewBoxId).style.display = 'none';
   showToast('تم حذف الصورة', 'ok');
-  await refreshAcBadges();
+  await cfg.refreshBadges();
+}
+
+/* إعدادات مسار "المتابعة الأكاديمية" */
+const AC_LETTER_CFG = {
+  table: 'academic_cases',
+  currentRef: () => acCurrentCase,
+  entityKey: 'case',
+  pathSegment: 'academic',
+  previewImgId: 'acPhotoPreviewImg',
+  previewBoxId: 'acPhotoPreviewBox',
+  uploadSectionId: 'acPhotoUploadSection',
+  outgoingNumberId: 'acOutgoingNumber',
+  successUploadMsg: 'تم رفع الصورة وحفظها كشاهد على الإحالة',
+  refreshBadges: () => refreshAcBadges()
+};
+
+/* إعدادات مسار "إدارة الصف" (خطاب التحويل السلوكي) */
+const RL_LETTER_CFG = {
+  table: 'classroom_incidents',
+  currentRef: () => rlCurrentIncident,
+  entityKey: 'incident',
+  pathSegment: 'referrals',
+  previewImgId: 'rlPhotoPreviewImg',
+  previewBoxId: 'rlPhotoPreviewBox',
+  uploadSectionId: 'rlPhotoUploadSection',
+  outgoingNumberId: 'rlOutgoingNumber',
+  successUploadMsg: 'تم رفع الصورة وحفظها كشاهد على التحويل',
+  refreshBadges: () => refreshCrmPendingBadges()
+};
+
+async function printAcLetter(){
+  return printLetterContent('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url);
+}
+
+async function buildAcLetterPdfBlob(){
+  return buildLetterPdfBlob('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url);
+}
+
+async function downloadAcLetterPDF(){
+  const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
+  return downloadLetterPdfFile(buildAcLetterPdfBlob, studentName, 'خطاب إحالة');
+}
+
+async function shareAcLetterWhatsApp(){
+  const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
+  return shareLetterWhatsApp(buildAcLetterPdfBlob, studentName, 'خطاب إحالة');
+}
+
+async function downloadAcLetterWordFile(){
+  const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
+  return downloadLetterWordFile('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url, studentName, 'خطاب إحالة');
+}
+
+async function confirmAcLetterIssued(){
+  return confirmLetterIssued(AC_LETTER_CFG);
+}
+
+async function uploadAcReceiptPhoto(event){
+  return uploadLetterReceiptPhoto(event, AC_LETTER_CFG);
+}
+
+async function deleteAcReceiptPhoto(){
+  return deleteLetterReceiptPhoto(AC_LETTER_CFG);
 }
 
 /* رسم الحقول المرنة داخل صندوق التعديل */
@@ -6486,164 +6564,30 @@ function renderReferralLetterPreview(){
 }
 
 async function buildReferralLetterPdfBlob(){
-  await ensurePdfLibs();
-  const area = document.getElementById('pdfRenderArea');
-  const letterHtml = document.getElementById('rlPreview').innerHTML;
-
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF('p', 'pt', 'a4');
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-
-  const addCanvasAsPage = (canvas, isFirst) => {
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
-    const imgWidth = canvas.width * ratio;
-    const imgHeight = canvas.height * ratio;
-    const x = (pageWidth - imgWidth) / 2;
-    if(!isFirst) pdf.addPage();
-    pdf.addImage(imgData, 'JPEG', x, 0, imgWidth, imgHeight);
-  };
-
-  area.innerHTML = '<div dir="rtl" style="font-family:Arial;font-size:14px;line-height:2;padding:30px;background:#fff;">' + letterHtml + '</div>';
-  await new Promise(r => setTimeout(r, 80));
-  const letterCanvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-  addCanvasAsPage(letterCanvas, true);
-
-  const photoUrl = rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url;
-  if(photoUrl){
-    const dataUrl = await toDataUrl(photoUrl);
-    if(dataUrl){
-      area.innerHTML = '<div dir="rtl" style="font-family:Arial;padding:30px;background:#fff;text-align:center;">' +
-        '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + dataUrl + '" style="max-width:60%;border:1px solid #999;">' +
-        '</div>';
-      await new Promise(r => setTimeout(r, 80));
-      const photoCanvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-      addCanvasAsPage(photoCanvas, false);
-    }
-  }
-
-  area.innerHTML = '';
-  return pdf.output('blob');
+  return buildLetterPdfBlob('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url);
 }
 
 async function downloadReferralLetterPDF(){
-  try{
-    showToast('جارٍ تجهيز PDF...', 'ok');
-    const blob = await buildReferralLetterPdfBlob();
-    const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'خطاب تحويل - ' + studentName + '.pdf';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    showToast('تم تنزيل PDF', 'ok');
-  } catch(err){
-    showToast('تعذّر إنشاء PDF: ' + err.message, 'error');
-  }
+  const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
+  return downloadLetterPdfFile(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل');
 }
 
 async function shareReferralLetterWhatsApp(){
-  try{
-    showToast('جارٍ تجهيز الملف...', 'ok');
-    const blob = await buildReferralLetterPdfBlob();
-    const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
-    const fileName = 'خطاب تحويل - ' + studentName + '.pdf';
-    const file = new File([blob], fileName, { type: 'application/pdf' });
-
-    if(navigator.canShare && navigator.canShare({ files: [file] })){
-      await navigator.share({ files: [file], title: 'خطاب تحويل', text: 'خطاب تحويل الطالب ' + studentName });
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
-      showToast('تم تنزيل الملف — أرفقه يدويًا داخل واتساب', 'ok');
-      window.open('https://wa.me/', '_blank');
-    }
-  } catch(err){
-    if(err.name !== 'AbortError'){
-      showToast('تعذّر المشاركة: ' + err.message, 'error');
-    }
-  }
+  const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
+  return shareLetterWhatsApp(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل');
 }
 
 async function printReferralLetter(){
-  const content = document.getElementById('rlPreview').innerHTML;
-  let photoHtml = '';
-  const photoUrl = rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url;
-  if(photoUrl){
-    showToast('جارٍ التجهيز للطباعة...', 'ok');
-    const dataUrl = await toDataUrl(photoUrl);
-    if(dataUrl){
-      photoHtml = '<div style="page-break-before:always;padding-top:20px;text-align:center;">' +
-        '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + dataUrl + '" style="max-width:45%;border:1px solid #999;">' +
-        '</div>';
-    }
-  }
-  document.getElementById('printArea').innerHTML = '<div dir="rtl" style="font-family:Arial;font-size:13pt;line-height:2;padding:10px;">' + content + photoHtml + '</div>';
-  document.body.classList.add('printing-record');
-  window.print();
+  return printLetterContent('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url);
 }
 
 async function downloadReferralLetterWordFile(){
-  const content = document.getElementById('rlPreview').innerHTML;
-  let photoHtml = '';
-  const photoUrl = rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url;
-  if(photoUrl){
-    showToast('جارٍ تجهيز الملف...', 'ok');
-    const dataUrl = await toDataUrl(photoUrl);
-    if(dataUrl){
-      photoHtml = '<br clear="all" style="page-break-before:always;">' +
-        '<h3 style="text-align:center;margin-bottom:14px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + dataUrl + '" width="170" style="width:45mm;max-width:45%;display:block;margin:0 auto;border:1px solid #999;">';
-    } else {
-      showToast('تعذّر تضمين الصورة — سيُنزَّل الخطاب بدونها', 'error');
-    }
-  }
-  const fullHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>خطاب تحويل</title></head><body dir='rtl' style='font-family:Arial;font-size:13pt;line-height:2;'>" + content + photoHtml + "</body></html>";
-  const blob2 = new Blob(['\ufeff', fullHtml], { type: 'application/msword' });
-  const url = URL.createObjectURL(blob2);
-  const a = document.createElement('a');
   const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
-  a.href = url;
-  a.download = 'خطاب تحويل - ' + studentName + '.doc';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return downloadLetterWordFile('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url, studentName, 'خطاب تحويل');
 }
 
 async function confirmReferralLetterIssued(){
-  if(!rlCurrentIncident) return;
-  const num = document.getElementById('rlOutgoingNumber').value.trim();
-  if(!num){ showToast('أدخل الرقم الصادر أولًا', 'error'); return; }
-  const { incident } = rlCurrentIncident;
-
-  const { error } = await sb.from('classroom_incidents').update({
-    referral_letter_generated: true,
-    referral_letter_number: num
-  }).eq('id', incident.id);
-  if(error){ showToast('تعذّر الحفظ: ' + error.message, 'error'); return; }
-
-  const nextNum = (parseInt(num, 10) || 0) + 1;
-  await sb.from('classroom_letter_counters').upsert({ teacher_id: currentUser.id, next_number: nextNum, updated_at: new Date().toISOString() });
-
-  rlCurrentIncident.incident.referral_letter_generated = true;
-  rlCurrentIncident.incident.referral_letter_number = num;
-  await refreshCrmPendingBadges();
-
-  showToast('تم تأكيد إصدار الخطاب — الآن ارفع صورة التوقيع بعد الطباعة', 'ok');
-  document.getElementById('rlPhotoUploadSection').style.display = 'block';
+  return confirmLetterIssued(RL_LETTER_CFG);
 }
 
 function compressImageFile(file, maxDim, quality){
@@ -6674,39 +6618,11 @@ function compressImageFile(file, maxDim, quality){
 }
 
 async function uploadReferralReceiptPhoto(event){
-  const file = event.target.files[0];
-  if(!file || !rlCurrentIncident) return;
-  try{
-    showToast('جارٍ ضغط الصورة...', 'ok');
-    const compressed = await compressImageFile(file, 1280, 0.72);
-    showToast('جارٍ رفع الصورة (' + Math.round(compressed.size / 1024) + ' كيلوبايت)...', 'ok');
-    const path = currentUser.id + '/referrals/' + rlCurrentIncident.incident.id + '_' + Date.now() + '.jpg';
-    const { error: upErr } = await sb.storage.from('shawahid-photos').upload(path, compressed, { contentType: 'image/jpeg' });
-    if(upErr) throw upErr;
-    const { data: pub } = sb.storage.from('shawahid-photos').getPublicUrl(path);
-
-    const { error } = await sb.from('classroom_incidents').update({ referral_receipt_photo_url: pub.publicUrl }).eq('id', rlCurrentIncident.incident.id);
-    if(error) throw error;
-
-    rlCurrentIncident.incident.referral_receipt_photo_url = pub.publicUrl;
-    document.getElementById('rlPhotoPreviewImg').src = pub.publicUrl;
-    document.getElementById('rlPhotoPreviewBox').style.display = 'block';
-    showToast('تم رفع الصورة وحفظها كشاهد على التحويل', 'ok');
-  } catch(err){
-    showToast('تعذّر رفع الصورة: ' + err.message, 'error');
-  }
-  event.target.value = '';
+  return uploadLetterReceiptPhoto(event, RL_LETTER_CFG);
 }
 
 async function deleteReferralReceiptPhoto(){
-  if(!rlCurrentIncident) return;
-  const ok = await showConfirm('حذف صورة إثبات التسليم؟');
-  if(!ok) return;
-  const { error } = await sb.from('classroom_incidents').update({ referral_receipt_photo_url: null }).eq('id', rlCurrentIncident.incident.id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
-  rlCurrentIncident.incident.referral_receipt_photo_url = null;
-  document.getElementById('rlPhotoPreviewBox').style.display = 'none';
-  showToast('تم حذف الصورة', 'ok');
+  return deleteLetterReceiptPhoto(RL_LETTER_CFG);
 }
 
 async function deleteCrmIncident(id){
@@ -10034,6 +9950,19 @@ drop policy if exists "المسؤول يشوف كل الشواهد" on public.sh
 create policy "المسؤول يشوف كل الشواهد"
   on public.shawahid for select using (public.is_admin(auth.uid()));
 
+/* تحصين إضافي: التحقق أن photo_urls مصفوفة نصوص وأن كل رابط فيها فعلاً
+   رابط تخزين Supabase علني ضمن bucket الصور — يمنع أي مستخدم من إدخال
+   قيمة تعسّفية (مثل كود حقن HTML/JS) عبر نداء مباشر لواجهة الإدراج،
+   حتى لو تجاوز واجهة التطبيق نفسها. */
+alter table public.shawahid drop constraint if exists shawahid_photo_urls_valid;
+alter table public.shawahid add constraint shawahid_photo_urls_valid check (
+  jsonb_typeof(photo_urls) = 'array'
+  and not exists (
+    select 1 from jsonb_array_elements_text(photo_urls) as u(url)
+    where url !~ '^https://[a-z0-9]+\.supabase\.co/storage/v1/object/(public|sign)/shawahid-photos/'
+  )
+);
+
 drop policy if exists "المسؤول يحذف أي شاهد" on public.shawahid;
 create policy "المسؤول يحذف أي شاهد"
   on public.shawahid for delete using (public.is_admin(auth.uid()));
@@ -11071,7 +11000,7 @@ function adminRenderRecCard(r){
   const date = r.created_at ? new Date(r.created_at).toLocaleDateString('ar-SA') : '';
   const photos = (r.photo_urls || []);
   const photosHtml = photos.length
-    ? '<div class="rec-photos">' + photos.map(u => `<img src="${u}">`).join('') + '</div>' : '';
+    ? '<div class="rec-photos">' + photos.map(u => `<img src="${escapeHtml(u)}">`).join('') + '</div>' : '';
   const descSnippet = (r.description || '').slice(0, 140);
   const title = r.lesson_title || r.class_name || 'بدون عنوان';
   const refLine = r.ref_number ? `<div class="rec-ref">الرقم المرجعي: <b>${escapeHtml(r.ref_number)}</b></div>` : '';
@@ -12312,7 +12241,7 @@ function renderRecCard(r){
   const date = r.created_at ? new Date(r.created_at).toLocaleDateString('ar-SA') : '';
   const photos = (r.photo_urls || []);
   const photosHtml = photos.length
-    ? '<div class="rec-photos">' + photos.map(u => `<img src="${u}">`).join('') + '</div>'
+    ? '<div class="rec-photos">' + photos.map(u => `<img src="${escapeHtml(u)}">`).join('') + '</div>'
     : '';
   const descSnippet = (r.description || '').slice(0, 160);
   const title = r.lesson_title || r.class_name || 'بدون عنوان';
@@ -12345,9 +12274,16 @@ function renderRecCard(r){
 }
 
 function escapeHtml(str){
-  const div = document.createElement('div');
-  div.textContent = str || '';
-  return div.innerHTML;
+  /* تهريب كامل يشمل علامتي الاقتباس (المفردة والمزدوجة) لأن الدالة تُستخدم
+     داخل نصوص HTML وداخل قيم الخصائص (attributes) على حد سواء — النسخة
+     السابقة (المعتمدة على textContent/innerHTML) كانت تهرّب < > & فقط،
+     فأي قيمة تحتوي على " كانت تكسر خصائص مثل value="..." أو src="..." */
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /* ============ الخطوات ============ */
@@ -12697,7 +12633,7 @@ function makeSlot(source){
     const reader = new FileReader();
     reader.onload = (ev) => {
       label.classList.add('filled');
-      label.innerHTML = `<img src="${ev.target.result}"><button type="button" class="remove" title="حذف">×</button>`;
+      label.innerHTML = `<img src="${escapeHtml(ev.target.result)}"><button type="button" class="remove" title="حذف">×</button>`;
       label._file = file;
       selectedPhotoFiles.push({ slot: label, file });
       label.querySelector('.remove').addEventListener('click', (ev2) => {
@@ -12748,7 +12684,7 @@ function makeExistingSlot(url){
   label.dataset.existingUrl = url;
 
   if(isImageUrl(url)){
-    label.innerHTML = `<img src="${url}"><button type="button" class="remove" title="حذف">×</button>`;
+    label.innerHTML = `<img src="${escapeHtml(url)}"><button type="button" class="remove" title="حذف">×</button>`;
   } else {
     /* مستند محفوظ سابقًا: يُعرض كبطاقة قابلة للفتح */
     const name = decodeURIComponent((url.split('/').pop() || 'ملف').split('?')[0]);
@@ -12798,16 +12734,16 @@ async function saveShahid(){
     const existingUrls = Array.from(grid.querySelectorAll('.photo-slot[data-existing-url]'))
       .map(el => el.dataset.existingUrl);
 
-    /* رفع الصور الجديدة فقط */
-    const newUrls = [];
-    for(const item of selectedPhotoFiles){
+    /* رفع الصور الجديدة فقط — بالتوازي بدل التتابع لتسريع الحفظ عند إرفاق
+       أكثر من صورة (المسارات فريدة أصلاً عبر الوقت + رقم عشوائي فلا خطر تعارض) */
+    const newUrls = await Promise.all(selectedPhotoFiles.map(async (item) => {
       const ext = item.file.name.split('.').pop() || 'jpg';
       const path = `${currentUser.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: upErr } = await sb.storage.from('shawahid-photos').upload(path, item.file);
       if(upErr) throw upErr;
       const { data: pub } = sb.storage.from('shawahid-photos').getPublicUrl(path);
-      newUrls.push(pub.publicUrl);
-    }
+      return pub.publicUrl;
+    }));
     const photoUrls = existingUrls.concat(newUrls);
 
     /* جمع الخطوات */
@@ -13179,7 +13115,7 @@ function buildPdfHtml(rec, photoDataUrls){
   const imgItems = photoDataUrls.filter(u => typeof u === 'string' && (u.startsWith('data:image') || isImageUrl(u)));
   const docItems = (rec.photo_urls || []).filter(u => !isImageUrl(u));
   const photosHtml = (imgItems.length || docItems.length)
-    ? `${imgItems.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;">${imgItems.map(u => `<img src="${u}" style="width:92px;height:68px;object-fit:cover;border:1px solid #D8D2C4;">`).join('')}</div>` : ''}
+    ? `${imgItems.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;">${imgItems.map(u => `<img src="${escapeHtml(u)}" style="width:92px;height:68px;object-fit:cover;border:1px solid #D8D2C4;">`).join('')}</div>` : ''}
        ${docItems.length ? `<div style="margin-top:${imgItems.length ? '6px' : '0'};font-size:10px;color:#3F3B31;">
           <b>مستندات مرفقة:</b> ${docItems.map(u => escapeHtml(decodeURIComponent((u.split('/').pop()||'ملف').split('?')[0]))).join(' • ')}
        </div>` : ''}`

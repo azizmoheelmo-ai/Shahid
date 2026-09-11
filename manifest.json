@@ -1,0 +1,27 @@
+{
+  "name": "شاهد على الأداء الوظيفي",
+  "short_name": "شاهد الأداء",
+  "description": "تطبيق متابعة الأداء الوظيفي للمعلم: خطة الأداء، الشواهد، التقييم الذاتي، إدارة الصف، والمتابعة الأكاديمية.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "ar",
+  "dir": "rtl",
+  "background_color": "#F7F5F0",
+  "theme_color": "#1B3245",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
