@@ -1,0 +1,1227 @@
+  :root{
+    --navy:#1B3245;
+    --navy-deep:#101E2B;
+    --gold:#A9852E;
+    --paper:#F7F5F0;
+    --card:#FFFFFF;
+    --line:#D8D2C4;
+    --ink:#232323;
+    --muted:#6B6659;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    font-family:'Cairo', sans-serif;
+    color:var(--ink);
+    padding:28px 14px 60px;
+  }
+  .wrap{max-width:850px;margin:0 auto;padding-bottom:70px;}
+  .sheet{
+    background:var(--card);
+    border:1px solid var(--line);
+    box-shadow:0 1px 3px rgba(0,0,0,.06);
+  }
+  .band{
+    background:var(--navy);
+    color:#fff;
+    padding:26px 32px 22px;
+    position:relative;
+  }
+  .band::after{
+    content:"";
+    position:absolute;
+    right:0;left:0;bottom:0;
+    height:4px;
+    background:var(--gold);
+  }
+  .band h1{
+    font-family:'Amiri', serif;
+    font-size:26px;
+    font-weight:700;
+    margin:0 0 4px;
+  }
+  .band p{
+    margin:0;
+    font-size:13.5px;
+    color:#C9D2DA;
+    letter-spacing:.2px;
+  }
+
+  /* ===== شريط علوي بعد الدخول ===== */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:#fff;
+    border:1px solid var(--line);
+    border-bottom:none;
+    padding:10px 18px;
+    font-size:12.5px;
+  }
+  .topbar .who{color:var(--muted);}
+  .topbar .who b{color:var(--navy);}
+  .topbar .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .topbar button{
+    font-family:'Cairo', sans-serif;
+    font-size:12px;
+    font-weight:600;
+    padding:7px 14px;
+    border:1px solid var(--navy);
+    background:#fff;
+    color:var(--navy);
+    cursor:pointer;
+  }
+  .topbar button:hover{background:var(--navy);color:#fff;}
+  .topbar button.ghost{border-color:var(--line);color:var(--muted);}
+  .topbar button.ghost:hover{background:#F1EEE6;color:var(--ink);}
+
+  /* ===== الصفحة الرئيسية ===== */
+  .home-profile{padding:20px 32px 6px;}
+  .hp-row{
+    display:flex;
+    justify-content:space-between;
+    padding:9px 0;
+    border-bottom:1px dashed var(--line);
+    font-size:14px;
+  }
+  .hp-row:last-child{border-bottom:none;}
+  .hp-label{color:var(--muted);font-size:12px;}
+  .hp-value{color:var(--ink);font-weight:600;}
+
+  /* ===== الحقول المرنة في تعديل البيانات ===== */
+  .pe-field{margin-bottom:12px;}
+  .pe-field-head{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+  .pe-label{
+    flex:1;
+    font-family:'Cairo', sans-serif;
+    font-size:11.5px;
+    color:var(--muted);
+    border:none;
+    border-bottom:1px dashed var(--line);
+    background:transparent;
+    padding:2px 0 4px;
+  }
+  .pe-label:focus{outline:none;border-bottom-color:var(--gold);color:var(--ink);}
+  .pe-remove{
+    flex:0 0 auto;
+    width:22px;height:22px;
+    border:none;background:transparent;
+    color:var(--line);
+    font-size:16px;line-height:1;
+    cursor:pointer;
+  }
+  .pe-remove:hover{color:#B23A3A;}
+  .home-edit-wrap{padding:2px 32px 18px;}
+
+  .cycle-card{
+    margin:0 32px 18px;
+    background:#F4F0E4;
+    border-right:3px solid var(--gold);
+    padding:12px 16px;
+  }
+  .cycle-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:6px;
+  }
+  .cycle-label{font-size:11px;color:var(--muted);}
+  .cycle-badge{
+    font-size:12px;font-weight:700;color:var(--navy);
+    background:#fff;border:1px solid var(--gold);
+    padding:2px 12px;
+  }
+  .cycle-tip{margin:0;font-size:12.5px;color:#4A4636;line-height:1.8;}
+
+  .stage-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;}
+  .stage-filter button{
+    font-family:'Cairo', sans-serif;
+    font-size:11px;
+    padding:6px 12px;
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--muted);
+    cursor:pointer;
+  }
+  .stage-filter button.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .stage-tag{
+    display:inline-block;
+    font-size:10px;
+    color:var(--muted);
+    border:1px solid var(--line);
+    padding:1px 8px;
+    margin-bottom:4px;
+  }
+  .home-section-label{
+    font-size:11px;
+    font-weight:800;
+    color:var(--muted);
+    letter-spacing:.5px;
+    padding:0 32px;
+    margin:4px 0 8px;
+  }
+  .home-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+    padding:0 32px 22px;
+  }
+  .home-btn{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    padding:26px 14px;
+    border:1px solid var(--navy);
+    background:#fff;
+    color:var(--navy);
+    cursor:pointer;
+    font-family:'Cairo', sans-serif;
+  }
+  .home-btn:hover{background:#F1EEE6;}
+  .home-btn.primary{background:var(--navy);color:#fff;}
+  .home-btn.primary:hover{background:var(--navy-deep);}
+  .home-btn.tool{
+    padding:16px 12px;
+    border-color:var(--line);
+    background:#FCFBF9;
+  }
+  .home-btn.tool .hb-title{font-size:13.5px;}
+  .home-btn.tool .hb-sub{font-size:10.5px;}
+  .home-btn .hb-title{font-size:16px;font-weight:800;}
+  .home-btn .hb-sub{font-size:11.5px;opacity:.85;}
+  @media (max-width:640px){
+    .home-actions{grid-template-columns:1fr;}
+  }
+
+  /* ===== التنبيهات المنبثقة (Toast) ===== */
+  .toast-container{
+    position:fixed;
+    /* ترتفع فوق الشريط السفلي الثابت (#bottomTabBar) حتى لا تختفي التنبيهات
+       خلفه أو تتداخل بصريًا معه بعد تسجيل الدخول */
+    bottom:calc(64px + env(safe-area-inset-bottom, 0px));
+    left:0;right:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:8px;
+    z-index:9999;
+    pointer-events:none;
+  }
+  .toast{
+    background:var(--navy);
+    color:#fff;
+    padding:11px 20px;
+    font-size:13px;
+    font-family:'Cairo', sans-serif;
+    box-shadow:0 4px 14px rgba(0,0,0,.18);
+    max-width:90vw;
+    text-align:center;
+    opacity:0;
+    transform:translateY(10px);
+    transition:opacity .25s, transform .25s;
+  }
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast.ok{background:#215C34;}
+  .toast.error{background:#8A2C2C;}
+  /* توست "تراجع" — يحتاج pointer-events:auto لأن الحاوية الأصل معطّلة النقر افتراضيًا */
+  .toast-undo{
+    pointer-events:auto;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background:var(--navy-deep);
+  }
+  .toast-undo-btn{
+    background:none;
+    border:1px solid #C9D2DA;
+    border-radius:4px;
+    color:#fff;
+    font-family:'Cairo', sans-serif;
+    font-size:12px;
+    font-weight:700;
+    padding:4px 12px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .toast-undo-btn:hover{background:rgba(255,255,255,.12);}
+
+  /* ===== نافذة تأكيد مخصصة ===== */
+  .confirm-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(16,30,43,.55);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:9998;
+    padding:20px;
+  }
+  .confirm-box{
+    background:#fff;
+    max-width:340px;
+    width:100%;
+    padding:24px 22px;
+    box-shadow:0 8px 28px rgba(0,0,0,.25);
+    max-height:85vh;
+    overflow-y:auto;
+  }
+  .confirm-box p{
+    margin:0 0 20px;
+    font-size:14px;
+    color:var(--ink);
+    line-height:1.8;
+    text-align:center;
+  }
+  .confirm-actions{display:flex;gap:10px;}
+
+  /* ===== أزرار اختيار مصدر الصورة ===== */
+  .photo-src-btn{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    width:100%;
+    padding:13px 15px;
+    border:1px solid var(--line);
+    background:#FCFBF9;
+    cursor:pointer;
+    text-align:right;
+    font-family:'Cairo', sans-serif;
+    font-size:13.5px;
+    color:var(--ink);
+    line-height:1.6;
+  }
+  .photo-src-btn:hover{background:#F1EEE6;border-color:var(--gold);}
+  .photo-src-btn .ps-icon{font-size:22px;flex:0 0 auto;}
+  .photo-src-btn .ps-sub{font-size:11px;color:var(--muted);font-weight:400;}
+
+  /* ===== بطاقة المستند (غير الصور) ===== */
+  .photo-slot.is-doc{
+    background:#F7F5F0;
+    border-style:solid;
+    border-color:var(--line);
+  }
+  .doc-card{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:5px;
+    width:100%;
+    height:100%;
+    padding:8px;
+    text-align:center;
+  }
+  .doc-icon{font-size:30px;line-height:1;}
+  .doc-name{
+    font-size:11px;
+    color:var(--navy);
+    font-weight:700;
+    word-break:break-all;
+    line-height:1.4;
+  }
+  .doc-size{font-size:10px;color:var(--muted);}
+  .doc-open{
+    font-size:10.5px;
+    color:var(--gold);
+    text-decoration:underline;
+    margin-top:2px;
+  }
+  .confirm-actions .btn{flex:1;justify-content:center;}
+
+  /* ===== شارة الرقم المرجعي وتاريخ التعديل ===== */
+  .rec-ref{
+    font-size:10.5px;
+    color:var(--muted);
+    letter-spacing:.3px;
+    margin-bottom:4px;
+  }
+  .rec-ref b{color:var(--navy);}
+
+  /* ===== الحضور والغياب ===== */
+  .class-card{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 16px;
+    border:1px solid var(--line);
+    background:#fff;
+    margin-bottom:10px;
+    cursor:pointer;
+  }
+  .class-card:hover{border-color:var(--gold);}
+  .class-card .cc-name{font-weight:700;color:var(--navy);font-size:14px;}
+  .class-card .cc-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
+  .class-card .cc-count{
+    font-size:11px;color:#fff;background:var(--navy);
+    padding:3px 10px;border-radius:10px;
+  }
+
+  .student-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:8px 12px;
+    border-bottom:1px solid var(--line);
+    font-size:13px;
+  }
+  .student-row:last-child{border-bottom:none;}
+  .student-row .sr-remove{
+    border:none;background:transparent;color:var(--muted);
+    font-size:15px;cursor:pointer;
+  }
+  .student-row .sr-remove:hover{color:#B23A3A;}
+
+  .att-row{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    padding:12px 14px;
+    border:1px solid var(--line);
+    background:#FCFBF9;
+  }
+  .att-row:nth-child(even){background:#F7F5F0;}
+  .att-row .att-name{font-size:13.5px;font-weight:700;color:var(--navy);}
+  .att-status-btns{display:grid;grid-template-columns:repeat(4, 1fr);gap:6px;}
+  .att-status-btns button{
+    font-family:'Cairo', sans-serif;
+    font-size:11.5px;
+    padding:8px 6px;
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--muted);
+    cursor:pointer;
+    text-align:center;
+  }
+  .att-status-btns button.sel-حاضر.active{background:#215C34;color:#fff;border-color:#215C34;}
+  .att-status-btns button.sel-غائب.active{background:#B23A3A;color:#fff;border-color:#B23A3A;}
+  .att-status-btns button.sel-متأخر.active{background:#A9852E;color:#fff;border-color:#A9852E;}
+  .att-status-btns button.sel-مستأذن.active{background:#3A5F8A;color:#fff;border-color:#3A5F8A;}
+  .att-extra{
+    background:#F1EEE6;
+    border:1px solid var(--line);
+    padding:8px 10px;
+  }
+
+  /* ===== تقرير الحضور ===== */
+  .report-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .report-table th, .report-table td{
+    border:1px solid var(--line);
+    padding:8px 10px;
+    text-align:center;
+  }
+  .report-table th{background:#1B3245;color:#fff;font-weight:700;}
+  .report-table tbody tr:nth-child(even){background:#F7F5F0;}
+  .report-table td:first-child{text-align:right;font-weight:600;}
+  .report-detail-item{
+    padding:8px 12px;
+    border-bottom:1px solid var(--line);
+    font-size:12.5px;
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+
+  /* ===== لوحة تحكم المسؤول ===== */
+  .admin-stats{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:1px;
+    background:var(--line);
+    border-bottom:1px solid var(--line);
+  }
+  .admin-stat-card{
+    background:#fff;
+    padding:18px 14px;
+    text-align:center;
+  }
+  .admin-stat-card .num{font-size:24px;font-weight:800;color:var(--navy);}
+  .admin-stat-card .lbl{font-size:11px;color:var(--muted);margin-top:4px;}
+  @media (max-width:640px){
+    .admin-stats{grid-template-columns:1fr 1fr;}
+  }
+  .admin-elem-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:8px 4px;
+    border-bottom:1px dashed var(--line);
+    font-size:12.5px;
+  }
+  .admin-elem-row:last-child{border-bottom:none;}
+  .admin-elem-row .bar-wrap{flex:1;background:#F1EEE6;height:8px;margin:0 10px;position:relative;}
+  .admin-elem-row .bar-fill{background:var(--gold);height:100%;}
+
+  .growth-chart{
+    display:flex;
+    align-items:flex-end;
+    gap:8px;
+    height:120px;
+    padding:10px 4px 0;
+  }
+  .growth-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .growth-bar{width:100%;background:var(--navy);min-height:2px;}
+  .growth-bar-label{font-size:9.5px;color:var(--muted);text-align:center;}
+  .growth-bar-count{font-size:10px;color:var(--navy);font-weight:700;}
+
+  .rank-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:8px 4px;
+    border-bottom:1px dashed var(--line);
+    font-size:12.5px;
+  }
+  .rank-row:last-child{border-bottom:none;}
+  .rank-row .rank-num{
+    flex:0 0 22px;height:22px;border-radius:50%;
+    background:var(--navy);color:#fff;font-size:10.5px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .rank-row .rank-name{flex:1;padding:0 10px;}
+  .rank-row .rank-count{font-weight:700;color:var(--gold);}
+
+  .profile-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:10px 4px;
+    border-bottom:1px solid var(--line);
+    font-size:12.5px;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .profile-row:last-child{border-bottom:none;}
+  .profile-row .pr-name{font-weight:700;color:var(--navy);}
+  .profile-row .pr-sub{font-size:11px;color:var(--muted);}
+  .profile-row.disabled-row{opacity:.55;}
+  .badge-admin{
+    font-size:10px;background:var(--gold);color:#fff;
+    padding:2px 8px;margin-right:6px;
+  }
+
+  .elem-mgmt-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 4px;
+    border-bottom:1px solid var(--line);
+    flex-wrap:wrap;
+  }
+  .elem-mgmt-row:last-child{border-bottom:none;}
+  .elem-mgmt-row input[type=text]{flex:1;min-width:160px;}
+  .elem-mgmt-row input[type=number]{width:70px;}
+
+  /* ===== الزر العائم لإضافة شاهد جديد ===== */
+  .bottom-tab-btn{color:var(--muted);transition:background .15s, color .15s;}
+  .bottom-tab-btn.active{background:#F0EEE6;color:var(--navy);font-weight:700;}
+  .fab-btn{
+    position:fixed;
+    bottom:78px;
+    left:18px;
+    width:56px;
+    height:56px;
+    border-radius:50%;
+    background:var(--navy);
+    color:#fff;
+    border:none;
+    font-size:28px;
+    line-height:1;
+    box-shadow:0 4px 14px rgba(0,0,0,.28);
+    cursor:pointer;
+    z-index:500;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .fab-btn:hover{background:var(--navy-deep);}
+  @media print{
+    .fab-btn{display:none !important;}
+  }
+
+  /* ===== خطة الأداء السنوية ===== */
+  .plan-row{
+    border:1px solid var(--line);
+    background:#FCFBF9;
+    padding:14px 16px;
+    margin-bottom:12px;
+  }
+  .plan-row-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .plan-row.plan-collapsed{
+    padding:12px 16px;
+    background:#fff;
+  }
+  .plan-row.plan-collapsed .plan-row-head{margin-bottom:0;}
+  .plan-row.plan-collapsed .plan-row-body{display:none;}
+  .plan-row-chev{
+    font-size:12px;
+    color:var(--gold);
+    flex:0 0 auto;
+  }
+  .plan-badge-level{
+    font-size:10.5px;font-weight:800;color:#fff;background:var(--navy);
+    padding:2px 9px;border-radius:10px;
+  }
+  .plan-badge-count{
+    font-size:10.5px;font-weight:700;color:#6B5420;background:#F4F0E4;
+    border:1px solid #E0C48A;padding:2px 9px;border-radius:10px;
+  }
+  .plan-badge-count.done{color:#215C34;background:#EAF3EC;border-color:#3E8A57;}
+  .plan-elem-name{font-weight:700;color:var(--navy);font-size:13.5px;}
+  .plan-elem-weight{
+    font-size:10.5px;color:var(--muted);
+    border:1px solid var(--line);padding:1px 8px;border-radius:10px;
+  }
+  .plan-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+  @media (max-width:640px){ .plan-fields{grid-template-columns:1fr;} }
+  .plan-fields label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;}
+  .plan-progress-wrap{margin-top:8px;}
+  .plan-progress-bar{
+    background:#F1EEE6;height:9px;position:relative;overflow:hidden;
+  }
+  .plan-progress-fill{background:var(--gold);height:100%;transition:width .3s;}
+  .plan-progress-fill.done{background:#215C34;}
+  .plan-progress-text{
+    font-size:11px;color:var(--muted);margin-top:5px;display:flex;justify-content:space-between;
+  }
+  .plan-progress-text b{color:var(--navy);}
+  .plan-detail-toggle{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:8px 10px;
+    background:#F1EEE6;
+    border:1px solid var(--line);
+    cursor:pointer;
+    margin-bottom:2px;
+  }
+  .plan-detail-toggle:hover{background:#EAE5D8;}
+  .plan-tpl-wrap{
+    background:#F4F0E4;
+    border-right:3px solid var(--gold);
+    padding:9px 12px;
+    margin-bottom:10px;
+  }
+
+  /* ===== بطاقة هدف فردي داخل عنصر الخطة ===== */
+  .plan-goals-list{display:flex;flex-direction:column;gap:12px;margin-bottom:10px;}
+  .goal-card{
+    border:1px solid var(--gold);
+    background:#FFFDF8;
+    padding:12px 16px;
+  }
+  .goal-card-head{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .goal-card-head-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+  }
+  .goal-card-head-top .left{
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .goal-card.goal-collapsed{padding:10px 16px;}
+  .goal-card.goal-collapsed .goal-card-head{margin-bottom:0;}
+  .goal-card:not(.goal-collapsed) .goal-card-head{margin-bottom:10px;}
+  .goal-card.goal-collapsed .goal-card-body{display:none;}
+  .goal-summary{
+    font-size:12px;
+    color:var(--muted);
+    line-height:1.6;
+    white-space:normal;
+    word-break:break-word;
+  }
+  .goal-delete-btn{
+    border:none;
+    background:transparent;
+    color:#B23A3A;
+    font-size:11px;
+    cursor:pointer;
+    padding:2px 6px;
+    flex:0 0 auto;
+  }
+  .goal-delete-btn:hover{text-decoration:underline;}
+
+  /* ===== تنبيه التغطية الناقصة ===== */
+  .home-progress-suggest{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    padding:10px 12px;
+    background:#F1EEE6;
+    border-right:3px solid var(--gold);
+    font-size:12px;
+    color:var(--navy);
+    cursor:pointer;
+  }
+  .home-progress-suggest:hover{background:#EAE5D8;}
+  .home-progress-suggest .hp-arrow{
+    font-size:11px;
+    font-weight:800;
+    color:var(--gold);
+    white-space:nowrap;
+  }
+  .home-progress-suggest.done{
+    background:#EAF3EC;
+    border-right-color:#3E8A57;
+    color:#215C34;
+    font-weight:700;
+    cursor:default;
+    justify-content:center;
+  }
+
+  .coverage-alert{
+    margin:0 32px 16px;
+    background:#FBF3E6;
+    border:1px solid #E0C48A;
+    border-right:4px solid var(--gold);
+    padding:12px 15px;
+    font-size:12.5px;
+    color:#6B5420;
+    cursor:pointer;
+    line-height:1.8;
+  }
+  .coverage-alert:hover{background:#F7EBD6;}
+  .coverage-alert b{color:#5A4517;}
+
+  /* ===== التقييم الذاتي ===== */
+  .self-row{
+    border:1px solid var(--line);
+    background:#FCFBF9;
+    padding:14px 16px;
+    margin-bottom:12px;
+  }
+  .self-row-head{
+    display:flex;justify-content:space-between;align-items:center;
+    gap:8px;flex-wrap:wrap;margin-bottom:10px;
+    cursor:pointer;user-select:none;
+  }
+  .self-row.self-collapsed{padding:12px 16px;background:#fff;}
+  .self-row.self-collapsed .self-row-head{margin-bottom:0;}
+  .self-row.self-collapsed .self-row-body{display:none;}
+  .self-badge-gap{
+    font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:10px;
+  }
+  .self-badge-gap.match{color:#215C34;background:#EAF3EC;border:1px solid #3E8A57;}
+  .self-badge-gap.below{color:#6B5420;background:#FBF3E6;border:1px solid #E0C48A;}
+  .self-badge-gap.above{color:#2C4A72;background:#EDF1F7;border:1px solid #3A5F8A;}
+  .self-elem-name{font-weight:700;color:var(--navy);font-size:13.5px;}
+  .self-context{
+    display:flex;gap:14px;flex-wrap:wrap;
+    font-size:11.5px;color:var(--muted);
+    background:#F1EEE6;padding:8px 12px;margin-bottom:10px;
+  }
+  .self-context b{color:var(--navy);}
+  .self-gap{
+    font-size:11.5px;padding:6px 12px;margin-top:8px;
+  }
+  .self-gap.match{background:#EAF3EC;color:#215C34;border-right:3px solid #3E8A57;}
+  .self-gap.below{background:#FBF3E6;color:#6B5420;border-right:3px solid var(--gold);}
+  .self-gap.above{background:#EDF1F7;color:#2C4A72;border-right:3px solid #3A5F8A;}
+
+  .roster-toggle{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    cursor:pointer;
+  }
+  .filter-toggle{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    cursor:pointer;
+    padding:9px 13px;
+    background:#F7F5F0;
+    border:1px solid var(--line);
+    font-size:12.5px;
+    color:var(--navy);
+    font-weight:700;
+  }
+  .filter-toggle:hover{background:#F1EEE6;}
+  .roster-chevron{
+    font-size:11.5px;
+    color:var(--navy);
+    border:1px solid var(--navy);
+    padding:4px 12px;
+  }
+  .roster-chevron:hover{background:#F1EEE6;}
+  #studentsList{
+    max-height:260px;
+    overflow-y:auto;
+    border:1px solid var(--line);
+  }
+  .student-row:nth-child(even){background:#F7F5F0;}
+
+  /* ===== شاشة تسجيل الدخول ===== */
+  .auth-card{
+    max-width:420px;
+    margin:60px auto;
+    background:#fff;
+    border:1px solid var(--line);
+    box-shadow:0 1px 3px rgba(0,0,0,.06);
+  }
+  .auth-tabs{display:flex;border-bottom:1px solid var(--line);}
+  .auth-tabs button{
+    flex:1;
+    padding:13px;
+    border:none;
+    background:#F1EEE6;
+    color:var(--muted);
+    font-family:'Cairo', sans-serif;
+    font-size:13.5px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .auth-tabs button.active{background:#fff;color:var(--navy);border-bottom:3px solid var(--gold);}
+  .auth-body{padding:26px 24px;}
+  .auth-body label{
+    display:block;font-size:12px;color:var(--muted);margin:0 0 5px;
+  }
+  .auth-body input{
+    width:100%;
+    font-family:'Cairo', sans-serif;
+    font-size:14px;
+    border:1px solid var(--line);
+    background:#FCFBF9;
+    padding:10px 12px;
+    margin-bottom:14px;
+  }
+  .auth-body input:focus{outline:none;border-color:var(--gold);}
+  .auth-submit{
+    width:100%;
+    padding:11px;
+    border:none;
+    background:var(--navy);
+    color:#fff;
+    font-family:'Cairo', sans-serif;
+    font-size:14px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .auth-submit:hover{background:var(--navy-deep);}
+  .auth-submit:disabled{opacity:.6;cursor:default;}
+  .google-signin-btn{
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    padding:10px;
+    border:1px solid var(--line);
+    background:#fff;
+    font-family:'Cairo', sans-serif;
+    font-size:13.5px;
+    font-weight:700;
+    color:var(--ink);
+    cursor:pointer;
+  }
+  .google-signin-btn:hover{background:#F7F5F0;border-color:var(--gold);}
+  .google-signin-btn:disabled{opacity:.6;cursor:default;}
+  .auth-msg{
+    margin-top:12px;
+    font-size:12.5px;
+    padding:10px 12px;
+    display:none;
+  }
+  .auth-msg.error{display:block;background:#FBEAEA;color:#8A2C2C;border-right:3px solid #B23A3A;}
+  .auth-msg.ok{display:block;background:#EAF3EC;color:#215C34;border-right:3px solid #3E8A57;}
+
+  .meta{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:0;
+    border-bottom:1px solid var(--line);
+  }
+  .meta .cell{
+    padding:12px 16px;
+    border-left:1px solid var(--line);
+  }
+  .meta .cell:last-child{border-left:none;}
+  .meta label{
+    display:block;
+    font-size:11px;
+    color:var(--muted);
+    margin-bottom:4px;
+  }
+  .meta input{
+    width:100%;
+    border:none;
+    background:transparent;
+    font-family:'Cairo', sans-serif;
+    font-size:14.5px;
+    color:var(--ink);
+    border-bottom:1px dashed var(--line);
+    padding:2px 0 5px;
+  }
+  .meta input:focus{outline:none;border-bottom-color:var(--gold);}
+
+  .section{
+    padding:22px 32px;
+    border-bottom:1px solid var(--line);
+  }
+  .section:last-of-type{border-bottom:none;}
+  .section h2{
+    font-size:15px;
+    margin:0 0 12px;
+    color:var(--navy);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .section h2::before{
+    content:"";
+    width:5px;height:16px;
+    background:var(--gold);
+    display:inline-block;
+  }
+
+  .example-callout{
+    margin-top:10px;
+    background:#F4F0E4;
+    border-right:3px solid var(--gold);
+    padding:10px 14px;
+  }
+  .example-label{
+    display:block;
+    font-size:11px;
+    font-weight:700;
+    color:var(--gold);
+    letter-spacing:.2px;
+    margin-bottom:4px;
+  }
+  .example-callout p{
+    margin:0;
+    font-size:13px;
+    line-height:1.9;
+    color:#4A4636;
+  }
+
+  .strategy-box{
+    width:100%;
+    background:#F1EEE6;
+    border:1px solid var(--line);
+    padding:14px 16px;
+    font-family:'Cairo', sans-serif;
+    font-size:13.5px;
+    line-height:2;
+    color:#413D33;
+    resize:vertical;
+  }
+  .strategy-box:focus{outline:none;border-color:var(--gold);}
+  .strategy-box::placeholder{color:#8A8574;}
+
+  textarea, .goal-input{
+    width:100%;
+    font-family:'Cairo', sans-serif;
+    font-size:14px;
+    border:1px solid var(--line);
+    background:#FCFBF9;
+    padding:10px 12px;
+    resize:vertical;
+    color:var(--ink);
+  }
+  textarea:focus, .goal-input:focus{outline:none;border-color:var(--gold);}
+
+  .steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
+  .steps li{
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+  }
+  .steps .num{
+    flex:0 0 26px;
+    height:26px;
+    border-radius:50%;
+    background:var(--navy);
+    color:#fff;
+    font-size:12.5px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin-top:2px;
+  }
+  .steps textarea{flex:1;min-height:38px;}
+  .steps .remove-step{
+    flex:0 0 24px;
+    height:24px;
+    border:none;
+    background:transparent;
+    color:var(--muted);
+    font-size:16px;
+    line-height:1;
+    cursor:pointer;
+    margin-top:4px;
+  }
+  .steps .remove-step:hover{color:#B23A3A;}
+
+  .photo-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(160px,1fr));
+    gap:12px;
+    margin-bottom:12px;
+  }
+  .photo-slot{
+    aspect-ratio:4/3;
+    border:1.5px dashed var(--line);
+    background:#FCFBF9;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    font-size:12px;
+    color:var(--muted);
+    cursor:pointer;
+    position:relative;
+    overflow:hidden;
+    transition:border-color .15s;
+  }
+  .photo-slot:hover{border-color:var(--gold);}
+  .photo-slot img{
+    width:100%;height:100%;object-fit:cover;
+    display:block;
+  }
+  .photo-slot .remove{
+    position:absolute;
+    top:4px;left:4px;
+    background:rgba(20,20,20,.65);
+    color:#fff;
+    border:none;
+    width:22px;height:22px;
+    border-radius:50%;
+    font-size:13px;
+    line-height:1;
+    cursor:pointer;
+    display:none;
+  }
+  .photo-slot.filled .remove{display:block;}
+  .add-photo-btn{
+    border:1px solid var(--navy);
+    background:#fff;
+    color:var(--navy);
+    padding:8px 18px;
+    font-family:'Cairo', sans-serif;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .add-photo-btn:hover{background:var(--navy);color:#fff;}
+
+  .impact{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+  }
+  .impact .field label{
+    font-size:12px;color:var(--muted);display:block;margin-bottom:6px;
+  }
+
+  .sign{
+    display:grid;
+    grid-template-columns:1fr;
+    max-width:280px;
+    gap:24px;
+    padding:22px 32px 6px;
+  }
+  .sign .box{
+    border-top:1px solid var(--ink);
+    padding-top:8px;
+    font-size:12.5px;
+    color:var(--muted);
+  }
+
+  .footer{
+    text-align:center;
+    padding:14px;
+    font-size:11.5px;
+    color:var(--muted);
+    letter-spacing:.3px;
+  }
+  .footer b{color:var(--navy);}
+
+  .action-row{
+    padding:6px 32px 22px;
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .btn{
+    font-family:'Cairo', sans-serif;
+    font-size:13px;
+    font-weight:600;
+    padding:9px 20px;
+    border:none;
+    cursor:pointer;
+  }
+  .btn-primary{background:var(--navy);color:#fff;}
+  .btn-primary:hover{background:var(--navy-deep);}
+  .btn-primary:disabled{opacity:.6;cursor:default;}
+  .btn-outline{background:#fff;color:var(--navy);border:1px solid var(--navy);}
+  .btn-outline:hover{background:var(--navy);color:#fff;}
+  .btn-danger{background:#fff;color:#B23A3A;border:1px solid #B23A3A;}
+  .btn-danger:hover{background:#B23A3A;color:#fff;}
+  .btn-whatsapp{background:#fff;color:#25863F;border:1px solid #25863F;}
+  .btn-whatsapp:hover{background:#25863F;color:#fff;}
+  .save-msg{
+    padding:0 32px 16px;
+    font-size:12.5px;
+  }
+  .save-msg.ok{color:#215C34;}
+  .save-msg.error{color:#8A2C2C;}
+
+  .photo-slot .ph-text{pointer-events:none;}
+  .photo-slot input[type=file]{
+    position:absolute;
+    width:0.1px;height:0.1px;
+    opacity:0;
+    overflow:hidden;
+  }
+
+  /* ===== قائمة شواهدي ===== */
+  .list-card{
+    background:#fff;
+    border:1px solid var(--line);
+    box-shadow:0 1px 3px rgba(0,0,0,.06);
+  }
+  .list-header{
+    padding:18px 26px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .list-header h2{margin:0;font-size:16px;color:var(--navy);}
+  .rec{
+    padding:16px 26px;
+    border-bottom:1px solid var(--line);
+  }
+  .rec:last-child{border-bottom:none;}
+  .rec-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:6px;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .rec-title{font-weight:700;color:var(--navy);font-size:14px;}
+  .rec-date{font-size:11.5px;color:var(--muted);}
+  .rec-desc{font-size:13px;color:#413D33;line-height:1.8;margin:6px 0;}
+  .rec-photos{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .rec-photos img{width:72px;height:54px;object-fit:cover;border:1px solid var(--line);}
+  .empty-state{padding:40px 26px;text-align:center;color:var(--muted);font-size:13.5px;}
+  .friendly-empty{
+    padding:44px 26px;
+    text-align:center;
+  }
+  .friendly-empty .fe-icon{font-size:34px;margin-bottom:10px;}
+  .friendly-empty .fe-title{font-size:15px;font-weight:800;color:var(--navy);margin-bottom:6px;}
+  .friendly-empty .fe-sub{font-size:12.5px;color:var(--muted);line-height:1.8;margin:0 0 18px;max-width:320px;margin-left:auto;margin-right:auto;}
+  .loading-state{padding:40px 26px;text-align:center;color:var(--muted);font-size:13.5px;}
+  .rec-actions{display:flex;gap:8px;margin-top:10px;}
+  .rec-actions .btn{padding:6px 14px;font-size:12px;}
+
+  /* ===== تجميع الشواهد حسب المعيار ===== */
+  .criterion-group{border-bottom:1px solid var(--line);}
+  .criterion-group:last-child{border-bottom:none;}
+  .criterion-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 26px;
+    background:#F7F5F0;
+    cursor:pointer;
+    user-select:none;
+  }
+  .criterion-head:hover{background:#F1EEE6;}
+  .criterion-head .left{display:flex;align-items:center;gap:10px;}
+  .criterion-head .dot{
+    width:7px;height:7px;border-radius:50%;background:var(--gold);flex:0 0 auto;
+  }
+  .criterion-head .name{font-weight:700;color:var(--navy);font-size:13.5px;}
+  .criterion-head .weight{
+    font-size:11px;color:var(--muted);
+    border:1px solid var(--line);
+    padding:1px 8px;
+    border-radius:10px;
+  }
+  .criterion-head .count{
+    font-size:11.5px;
+    color:#fff;
+    background:var(--navy);
+    padding:2px 10px;
+    border-radius:10px;
+    font-weight:700;
+  }
+  .criterion-head .count.zero{background:var(--line);color:var(--muted);}
+  .criterion-head .chevron{
+    font-size:12px;color:var(--muted);
+    transition:transform .15s;
+  }
+  .criterion-group.open .chevron{transform:rotate(180deg);}
+  .criterion-body{display:none;padding:4px 0;}
+  .criterion-group.open .criterion-body{display:block;}
+  .criterion-actions{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    padding:8px 14px;
+    margin-bottom:4px;
+  }
+  .criterion-empty{
+    padding:14px 26px 18px;
+    font-size:12.5px;
+    color:var(--muted);
+  }
+
+  /* ===== قالب الطباعة الفردي ===== */
+  #printArea{display:none;}
+  #printArea .pr-line{font-size:14px;padding:4px 0;border-bottom:1px dashed var(--line);}
+  #printArea .pr-box{font-size:13.5px;line-height:1.9;background:#F1EEE6;border:1px solid var(--line);padding:12px 14px;white-space:pre-wrap;}
+  #printArea .pr-photos{display:flex;gap:10px;flex-wrap:wrap;}
+  #printArea .pr-photos img{width:105px;height:78px;object-fit:cover;border:1px solid var(--line);}
+  .meta .cell div.pr-val{font-size:14px;padding:2px 0 5px;min-height:18px;}
+
+  @media print{
+    body.printing-record > *:not(#printArea){display:none !important;}
+    body.printing-record #printArea{display:block !important;}
+    body.printing-record{padding:0;background:#fff;}
+  }
+
+  @media print{
+    body{background:#fff;padding:0;}
+    .action-row, .topbar, #bottomTabBar, #betaNoticeBar{display:none;}
+    .sheet{border:none;box-shadow:none;}
+    .photo-slot{border-style:solid;}
+    textarea, .meta input{border:none !important;}
+    .remove-step{display:none !important;}
+    .add-photo-btn{display:none !important;}
+  }
+
+  @media (max-width:640px){
+    .meta{grid-template-columns:1fr 1fr;}
+    .impact{grid-template-columns:1fr;}
+    .sign{grid-template-columns:1fr;}
+    .topbar{flex-direction:column;gap:8px;align-items:stretch;}
+  }
