@@ -1,0 +1,26 @@
+name: CI
+
+# يشتغل تلقائيًا على كل push وكل Pull Request — يفحص صحة صياغة الكود
+# ويشغّل اختبارات الوحدة، بدون أي اعتماديات خارجية (Node.js فقط، بدون npm install).
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: فحص صياغة JavaScript (index.html + sw.js)
+        run: node scripts/check-syntax.js
+
+      - name: تشغيل اختبارات الوحدة
+        run: node --test tests/*.test.js
