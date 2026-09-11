@@ -242,6 +242,27 @@
   .toast.show{opacity:1;transform:translateY(0);}
   .toast.ok{background:#215C34;}
   .toast.error{background:#8A2C2C;}
+  /* توست "تراجع" — يحتاج pointer-events:auto لأن الحاوية الأصل معطّلة النقر افتراضيًا */
+  .toast-undo{
+    pointer-events:auto;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background:var(--navy-deep);
+  }
+  .toast-undo-btn{
+    background:none;
+    border:1px solid #C9D2DA;
+    border-radius:4px;
+    color:#fff;
+    font-family:'Cairo', sans-serif;
+    font-size:12px;
+    font-weight:700;
+    padding:4px 12px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .toast-undo-btn:hover{background:rgba(255,255,255,.12);}
 
   /* ===== نافذة تأكيد مخصصة ===== */
   .confirm-overlay{
@@ -1229,11 +1250,11 @@
 </div>
 <div style="height:30px;"></div>
 
-<div id="toastContainer" class="toast-container"></div>
+<div id="toastContainer" class="toast-container" role="status" aria-live="polite"></div>
 
-<div id="photoSourceModal" class="confirm-overlay" style="display:none;" onclick="if(event.target===this)closePhotoSourcePicker()">
+<div id="photoSourceModal" class="confirm-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="photoSourceModalTitle" onclick="if(event.target===this)closePhotoSourcePicker()">
   <div class="confirm-box" style="max-width:330px;">
-    <p style="margin:0 0 16px;font-size:14px;font-weight:700;color:var(--navy);text-align:center;">من أين تريد إضافة الصورة؟</p>
+    <p id="photoSourceModalTitle" style="margin:0 0 16px;font-size:14px;font-weight:700;color:var(--navy);text-align:center;">من أين تريد إضافة الصورة؟</p>
     <div style="display:flex;flex-direction:column;gap:9px;">
       <button class="photo-src-btn" onclick="pickPhotoSource('gallery')">
         <span class="ps-icon">🖼️</span>
@@ -1248,7 +1269,7 @@
   </div>
 </div>
 
-<div id="confirmModal" class="confirm-overlay" style="display:none;">
+<div id="confirmModal" class="confirm-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="confirmMsg">
   <div class="confirm-box">
     <p id="confirmMsg">هل أنت متأكد؟</p>
     <div class="confirm-actions">
@@ -1268,7 +1289,7 @@
     <div class="auth-body" id="authBody">
       <div id="signupNameField" style="display:none;">
         <label>الاسم الكامل</label>
-        <input type="text" id="authName" placeholder="مثال: محمد العتيبي">
+        <input type="text" id="authName" maxlength="150" placeholder="مثال: محمد العتيبي">
         <p style="font-size:11px;color:var(--muted);margin:-4px 0 12px;">تقدر تضيف المدرسة والمادة والفصل لاحقًا من "تعديل البيانات" في صفحتك الرئيسية.</p>
       </div>
       <label>البريد الإلكتروني</label>
@@ -1532,14 +1553,14 @@
           </div>
           <div id="acRegisterBody" style="display:none;margin-top:10px;">
             <div style="position:relative;margin-bottom:8px;">
-              <input class="goal-input" id="acStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="renderAcStudentResults()" onfocus="renderAcStudentResults()">
+              <input class="goal-input" id="acStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderAcStudentResults()" onfocus="renderAcStudentResults()">
               <input type="hidden" id="acStudentId">
               <div id="acStudentResults" style="display:none;position:absolute;z-index:5;background:#fff;border:1px solid var(--line);width:100%;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
             </div>
-            <input class="goal-input" id="acSubject" placeholder="المادة الدراسية" style="margin-bottom:8px;">
-            <textarea class="goal-input" id="acWeakness" placeholder="وصف الضعف / المهارة غير المتقنة" rows="2" style="margin-bottom:4px;"></textarea>
+            <input class="goal-input" id="acSubject" maxlength="150" placeholder="المادة الدراسية" style="margin-bottom:8px;">
+            <textarea class="goal-input" id="acWeakness" maxlength="2000" placeholder="وصف الضعف / المهارة غير المتقنة" rows="2" style="margin-bottom:4px;"></textarea>
             <div id="acWeaknessChips" style="display:none;margin-bottom:8px;flex-wrap:wrap;gap:5px;"></div>
-            <textarea class="goal-input" id="acPlan" placeholder="وصف الخطة العلاجية (الإجراءات، الزمن المتوقع)" rows="3" style="margin-bottom:4px;"></textarea>
+            <textarea class="goal-input" id="acPlan" maxlength="3000" placeholder="وصف الخطة العلاجية (الإجراءات، الزمن المتوقع)" rows="3" style="margin-bottom:4px;"></textarea>
             <div id="acPlanChips" style="display:none;margin-bottom:8px;flex-wrap:wrap;gap:5px;"></div>
             <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">نوع الحصص العلاجية</label>
             <select class="goal-input" id="acSessionType" style="margin-bottom:8px;">
@@ -1561,7 +1582,7 @@
           <button class="btn btn-outline" id="acFilterBtn_pending" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('pending')">⚠ بانتظار الخطاب</button>
           <button class="btn btn-outline" id="acFilterBtn_undocumented" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('undocumented')">📷 غير موثّق</button>
         </div>
-        <input class="goal-input" id="acCasesSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="renderAcCases()">
+        <input class="goal-input" id="acCasesSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderAcCases()">
         <div id="acCasesList"></div>
       </div>
 
@@ -1581,7 +1602,7 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
           <div style="flex:1;min-width:120px;">
             <label style="font-size:11px;color:var(--muted);">الرقم الصادر</label>
-            <input class="goal-input" id="acOutgoingNumber" oninput="renderAcLetterPreview()">
+            <input class="goal-input" id="acOutgoingNumber" maxlength="30" oninput="renderAcLetterPreview()">
           </div>
           <div style="flex:1;min-width:140px;">
             <label style="font-size:11px;color:var(--muted);">التاريخ</label>
@@ -1589,7 +1610,7 @@
           </div>
           <div style="flex:1;min-width:150px;">
             <label style="font-size:11px;color:var(--muted);">يُوجَّه إلى</label>
-            <input class="goal-input" id="acLetterRecipient" oninput="renderAcLetterPreview()">
+            <input class="goal-input" id="acLetterRecipient" maxlength="150" oninput="renderAcLetterPreview()">
           </div>
         </div>
 
@@ -1655,7 +1676,7 @@
       <div id="settingsProfileBody" class="section" style="display:none;">
         <button class="btn btn-outline" style="margin-bottom:16px;" onclick="showSettingsSection('menu')">→ رجوع لقائمة الإعدادات</button>
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">الاسم</label>
-        <input class="goal-input" id="peName" type="text" style="margin-bottom:14px;">
+        <input class="goal-input" id="peName" type="text" maxlength="150" style="margin-bottom:14px;">
         <div id="peCustomFields"></div>
         <button class="btn btn-outline" style="padding:6px 14px;font-size:12px;margin-bottom:14px;" onclick="addCustomField()">+ إضافة معلومة</button>
         <div>
@@ -1766,13 +1787,13 @@
           </div>
           <div id="crmRegisterBody" style="display:none;margin-top:10px;">
             <div style="position:relative;margin-bottom:8px;">
-              <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="renderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
+              <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
               <input type="hidden" id="crmIncidentStudentId">
               <div id="crmIncidentStudentResults" style="display:none;position:absolute;z-index:5;background:#fff;border:1px solid var(--line);width:100%;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
             </div>
             <select class="goal-input" id="crmIncidentType" style="margin-bottom:8px;" onchange="refreshOccurrencePreview()"><option value="">اختر نوع المخالفة</option></select>
             <div id="crmOccurrencePreview" style="display:none;"></div>
-            <textarea class="goal-input" id="crmIncidentNotes" placeholder="ملاحظة (اختياري)" rows="2" style="margin:10px 0;"></textarea>
+            <textarea class="goal-input" id="crmIncidentNotes" maxlength="2000" placeholder="ملاحظة (اختياري)" rows="2" style="margin:10px 0;"></textarea>
             <button class="btn btn-primary" onclick="saveClassroomIncident()">حفظ الحادثة</button>
           </div>
         </div>
@@ -1791,7 +1812,7 @@
               <button class="btn btn-outline" id="crmFilterBtn_pending" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('pending')">⚠ بانتظار التحويل</button>
               <button class="btn btn-outline" id="crmFilterBtn_undocumented" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('undocumented')">📷 غير موثّق</button>
             </div>
-            <input class="goal-input" id="crmIncidentsSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="renderCrmRecentIncidents()">
+            <input class="goal-input" id="crmIncidentsSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderCrmRecentIncidents()">
             <div id="crmRecentIncidents"></div>
           </div>
         </div>
@@ -1851,18 +1872,18 @@
           </div>
 
           <div id="addStudentBox" style="display:none;background:#F7F5F0;border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;">
-            <input class="goal-input" id="newStudentName" placeholder="اسم الطالب" style="margin-bottom:8px;">
+            <input class="goal-input" id="newStudentName" maxlength="100" placeholder="اسم الطالب" style="margin-bottom:8px;">
             <select class="goal-input" id="newStudentGradeSelect" style="margin-bottom:8px;" onchange="onNewStudentGradeChange()">
               <option value="">اختر المرحلة</option>
             </select>
             <select class="goal-input" id="newStudentSectionSelect" style="margin-bottom:8px;">
               <option value="">اختر الشعبة</option>
             </select>
-            <input class="goal-input" id="newStudentNumber" placeholder="رقم الطالب (اختياري)" style="margin-bottom:10px;">
+            <input class="goal-input" id="newStudentNumber" maxlength="30" placeholder="رقم الطالب (اختياري)" style="margin-bottom:10px;">
             <button class="btn btn-primary" onclick="addClassroomStudent()">حفظ الطالب</button>
           </div>
 
-          <input class="goal-input" id="crmStudentSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="renderCrmStudentsList()">
+          <input class="goal-input" id="crmStudentSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderCrmStudentsList()">
           <div id="crmStudentsList"></div>
         </div>
       </div>
@@ -1883,7 +1904,7 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
           <div style="flex:1;min-width:120px;">
             <label style="font-size:11px;color:var(--muted);">الرقم الصادر</label>
-            <input class="goal-input" id="rlOutgoingNumber" oninput="renderReferralLetterPreview()">
+            <input class="goal-input" id="rlOutgoingNumber" maxlength="30" oninput="renderReferralLetterPreview()">
           </div>
           <div style="flex:1;min-width:140px;">
             <label style="font-size:11px;color:var(--muted);">التاريخ</label>
@@ -1891,7 +1912,7 @@
           </div>
           <div style="flex:1;min-width:150px;">
             <label style="font-size:11px;color:var(--muted);">يُوجَّه إلى</label>
-            <input class="goal-input" id="rlRecipient" oninput="renderReferralLetterPreview()">
+            <input class="goal-input" id="rlRecipient" maxlength="150" oninput="renderReferralLetterPreview()">
           </div>
         </div>
 
@@ -2027,16 +2048,16 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">المسمى الوظيفي</label>
-              <input type="text" class="goal-input" id="phRole" placeholder="مثال: معلم الرياضيات">
+              <input type="text" class="goal-input" id="phRole" maxlength="150" placeholder="مثال: معلم الرياضيات">
             </div>
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">المرحلة</label>
-              <input type="text" class="goal-input" id="phStage" placeholder="مثال: المرحلة المتوسطة">
+              <input type="text" class="goal-input" id="phStage" maxlength="150" placeholder="مثال: المرحلة المتوسطة">
             </div>
           </div>
           <div style="margin-top:10px;">
             <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">المهام الإضافية</label>
-            <input type="text" class="goal-input" id="phExtra" placeholder="مثال: لا يوجد مهام إضافية">
+            <input type="text" class="goal-input" id="phExtra" maxlength="300" placeholder="مثال: لا يوجد مهام إضافية">
           </div>
         </div>
 
@@ -2147,7 +2168,7 @@
           <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);">
             <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">إضافة عنصر جديد</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <input id="newElementLabel" class="goal-input" type="text" placeholder="اسم العنصر" style="flex:1;min-width:160px;">
+              <input id="newElementLabel" class="goal-input" type="text" maxlength="150" placeholder="اسم العنصر" style="flex:1;min-width:160px;">
               <input id="newElementWeight" class="goal-input" type="number" placeholder="الوزن %" style="max-width:100px;">
               <button class="btn btn-primary" onclick="addPerformanceElement()">إضافة</button>
             </div>
@@ -2176,12 +2197,12 @@
     </div>
 
     <div class="meta">
-      <div class="cell"><label>المدرسة</label><input type="text" id="mSchool" value=""></div>
-      <div class="cell"><label>المادة</label><input type="text" id="mSubject" value=""></div>
-      <div class="cell"><label>المعلم</label><input type="text" id="mTeacher" value=""></div>
-      <div class="cell"><label>الصف / الفصل</label><input type="text" id="mClass" placeholder="مثال: أول ثانوي / 3"></div>
+      <div class="cell"><label>المدرسة</label><input type="text" id="mSchool" maxlength="150" value=""></div>
+      <div class="cell"><label>المادة</label><input type="text" id="mSubject" maxlength="150" value=""></div>
+      <div class="cell"><label>المعلم</label><input type="text" id="mTeacher" maxlength="150" value=""></div>
+      <div class="cell"><label>الصف / الفصل</label><input type="text" id="mClass" maxlength="100" placeholder="مثال: أول ثانوي / 3"></div>
       <div class="cell"><label>التاريخ</label><input type="date" id="mDate"></div>
-      <div class="cell"><label>عنوان الدرس / الوحدة</label><input type="text" id="mLesson" placeholder="اكتب عنوان الدرس"></div>
+      <div class="cell"><label>عنوان الدرس / الوحدة</label><input type="text" id="mLesson" maxlength="200" placeholder="اكتب عنوان الدرس"></div>
     </div>
 
     <div class="section">
@@ -2212,18 +2233,18 @@
 
     <div class="section">
       <h2 id="descHeading">وصف الاستراتيجية</h2>
-      <textarea class="strategy-box" id="descBox" rows="4" placeholder='مثال: استراتيجية "ابحث وتعرف"...'></textarea>
+      <textarea class="strategy-box" id="descBox" rows="4" maxlength="5000" placeholder='مثال: استراتيجية "ابحث وتعرف"...'></textarea>
     </div>
 
     <div class="section">
       <h2>الهدف من هذا الإجراء</h2>
-      <textarea id="goalBox" rows="2" placeholder="اكتب الهدف الذي تسعى لتحقيقه من خلال هذا الإجراء في هذا الدرس..."></textarea>
+      <textarea id="goalBox" rows="2" maxlength="2000" placeholder="اكتب الهدف الذي تسعى لتحقيقه من خلال هذا الإجراء في هذا الدرس..."></textarea>
     </div>
 
     <div class="section">
       <h2>خطوات التنفيذ الفعلية</h2>
       <ul class="steps" id="stepsList">
-        <li><span class="num">1</span><textarea rows="1" placeholder="اكتب الخطوة الأولى..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button></li>
+        <li><span class="num">1</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة الأولى..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button></li>
       </ul>
       <button class="add-photo-btn" style="margin-top:10px;" onclick="addStep()">+ إضافة خطوة</button>
     </div>
@@ -2240,18 +2261,18 @@
       <div class="impact">
         <div class="field">
           <label>مؤشر كمي</label>
-          <input class="goal-input" id="quantBox" type="text" placeholder="مثال: شارك 85% من الطلبة بفاعلية">
+          <input class="goal-input" id="quantBox" type="text" maxlength="300" placeholder="مثال: شارك 85% من الطلبة بفاعلية">
         </div>
         <div class="field">
           <label>ملاحظة نوعية</label>
-          <input class="goal-input" id="qualBox" type="text" placeholder="مثال: تحسّن واضح في استخدام المفردات الجديدة">
+          <input class="goal-input" id="qualBox" type="text" maxlength="300" placeholder="مثال: تحسّن واضح في استخدام المفردات الجديدة">
         </div>
       </div>
     </div>
 
     <div class="section">
       <h2>تأمل المعلم</h2>
-      <textarea id="reflectionBox" rows="3" placeholder="ماذا نجح في هذا التطبيق؟ وما الذي سيُطوَّر في المرة القادمة؟"></textarea>
+      <textarea id="reflectionBox" rows="3" maxlength="3000" placeholder="ماذا نجح في هذا التطبيق؟ وما الذي سيُطوَّر في المرة القادمة؟"></textarea>
     </div>
 
     <div class="sign">
@@ -2289,7 +2310,7 @@
           <span class="roster-chevron" id="filterChevron">▾ عرض</span>
         </div>
         <div id="filterPanel" style="display:none;margin-top:10px;">
-          <input type="text" id="shahidSearch" class="goal-input" placeholder="ابحث بالعنوان، الوصف، الصف، أو الرقم المرجعي..." oninput="filterMyShawahid()">
+          <input type="text" id="shahidSearch" class="goal-input" placeholder="ابحث بالعنوان، الوصف، الصف، أو الرقم المرجعي..." oninput="debouncedFilterMyShawahid()">
           <div class="stage-filter" style="margin-top:10px;">
             <button class="active" data-stage="" onclick="setStageFilter('', this)">الكل</button>
             <button data-stage="planning" onclick="setStageFilter('planning', this)">التخطيط</button>
@@ -2342,6 +2363,28 @@ async function ensurePdfLibs(){
 }
 
 /* ============ التنبيهات المنبثقة (Toast) ============ */
+/* أداة عامة لتأخير تنفيذ دالة حتى يتوقف المستخدم عن الكتابة لفترة قصيرة —
+   تقلل عمليات إعادة العرض/الاستعلام غير الضرورية أثناء الكتابة السريعة
+   بحقول البحث. */
+function debounce(fn, delay){
+  let timer = null;
+  return function(...args){
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
+/* نسخ مؤخّرة (debounced) من دوال البحث الفوري — تُستدعى من oninput بحقول
+   البحث بدل الدالة الأصلية مباشرة، لتقليل إعادة العرض/الاستعلام أثناء
+   الكتابة السريعة. الأسماء الأصلية تبقى كما هي (تُستخدم أيضًا بأماكن أخرى
+   مثل onfocus حيث نريد استجابة فورية بلا تأخير). */
+const debouncedRenderAcStudentResults = debounce(() => renderAcStudentResults(), 250);
+const debouncedRenderAcCases = debounce(() => renderAcCases(), 250);
+const debouncedRenderCrmIncidentStudentResults = debounce(() => renderCrmIncidentStudentResults(), 250);
+const debouncedRenderCrmRecentIncidents = debounce(() => renderCrmRecentIncidents(), 250);
+const debouncedRenderCrmStudentsList = debounce(() => renderCrmStudentsList(), 250);
+const debouncedFilterMyShawahid = debounce(() => filterMyShawahid(), 250);
+
 function showToast(msg, type){
   const container = document.getElementById('toastContainer');
   const el = document.createElement('div');
@@ -2353,6 +2396,37 @@ function showToast(msg, type){
     el.classList.remove('show');
     setTimeout(() => el.remove(), 300);
   }, 3200);
+}
+
+/* توست بزر "تراجع" — تُستخدم قبل تنفيذ إجراء حساس (كالحذف) بدل تنفيذه فورًا:
+   الاستدعاء يُعيد Promise<boolean> يتحلّل بعد `delaySeconds` — true إذا لم
+   يتراجع المستخدم (نفّذ الإجراء الفعلي)، أو false فور الضغط على "تراجع"
+   (ألغِ الإجراء). لا تنفّذ أي عملية غير قابلة للتراجع بنفسك — فقط انتظر
+   النتيجة قبل تنفيذها. */
+function showUndoToast(msg, delaySeconds){
+  return new Promise((resolve) => {
+    const container = document.getElementById('toastContainer');
+    const el = document.createElement('div');
+    el.className = 'toast toast-undo';
+    el.innerHTML = `<span>${escapeHtml(msg)}</span><button type="button" class="toast-undo-btn">تراجع</button>`;
+    container.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+
+    let settled = false;
+    const finish = (undone) => {
+      if(settled) return;
+      settled = true;
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 300);
+      resolve(!undone);
+    };
+
+    const timer = setTimeout(() => finish(false), delaySeconds * 1000);
+    el.querySelector('.toast-undo-btn').addEventListener('click', () => {
+      clearTimeout(timer);
+      finish(true);
+    });
+  });
 }
 
 /* ============ نافذة تأكيد مخصصة (بديل confirm الافتراضي) ============ */
@@ -2505,7 +2579,7 @@ function applyDraft(d){
   stepsList.innerHTML = '';
   steps.forEach((s, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
+    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
     li.querySelector('textarea').value = s;
     stepsList.appendChild(li);
   });
@@ -5715,10 +5789,10 @@ function renderCustomFields(fields){
   box.innerHTML = (fields || []).map((f, i) => `
     <div class="pe-field" data-idx="${i}">
       <div class="pe-field-head">
-        <input type="text" class="pe-label" value="${escapeHtml(f.label || '')}" placeholder="اسم المعلومة (مثال: المدرسة)">
+        <input type="text" class="pe-label" maxlength="100" value="${escapeHtml(f.label || '')}" placeholder="اسم المعلومة (مثال: المدرسة)">
         <button type="button" class="pe-remove" title="حذف هذه المعلومة" onclick="removeCustomField(this)">×</button>
       </div>
-      <input type="text" class="goal-input pe-value" value="${escapeHtml(f.value || '')}" placeholder="القيمة">
+      <input type="text" class="goal-input pe-value" maxlength="300" value="${escapeHtml(f.value || '')}" placeholder="القيمة">
     </div>`).join('');
 }
 
@@ -5728,10 +5802,10 @@ function addCustomField(){
   div.className = 'pe-field';
   div.innerHTML = `
     <div class="pe-field-head">
-      <input type="text" class="pe-label" placeholder="اسم المعلومة (مثال: رقم الجوال)">
+      <input type="text" class="pe-label" maxlength="100" placeholder="اسم المعلومة (مثال: رقم الجوال)">
       <button type="button" class="pe-remove" title="حذف هذه المعلومة" onclick="removeCustomField(this)">×</button>
     </div>
-    <input type="text" class="goal-input pe-value" placeholder="القيمة">`;
+    <input type="text" class="goal-input pe-value" maxlength="300" placeholder="القيمة">`;
   box.appendChild(div);
   div.querySelector('.pe-label').focus();
 }
@@ -9129,23 +9203,23 @@ function goalCardHtml(elIdx, goalIdx, elementKey, elementLabel){
 
       <div style="margin-bottom:10px;">
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">الأداء المستهدف</label>
-        <textarea rows="3" class="g-perf" placeholder="وصف نوعي للمستوى المنشود في هذا الهدف...">${escapeHtml(goal.target_performance || '')}</textarea>
+        <textarea rows="3" class="g-perf" maxlength="3000" placeholder="وصف نوعي للمستوى المنشود في هذا الهدف...">${escapeHtml(goal.target_performance || '')}</textarea>
       </div>
       <div style="margin-bottom:10px;">
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">مؤشرات النجاح <span style="color:#9A9484;">(سطر لكل مؤشر)</span></label>
-        <textarea rows="3" class="g-indicators" placeholder="سطر لكل مؤشر...">${escapeHtml(toLines(goal.success_indicators))}</textarea>
+        <textarea rows="3" class="g-indicators" maxlength="3000" placeholder="سطر لكل مؤشر...">${escapeHtml(toLines(goal.success_indicators))}</textarea>
       </div>
       <div style="margin-bottom:10px;">
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">شواهد يوصى بتوثيقها <span style="color:#9A9484;">(سطر لكل شاهد)</span></label>
-        <textarea rows="3" class="g-evidence" placeholder="سطر لكل شاهد...">${escapeHtml(toLines(goal.recommended_evidence))}</textarea>
+        <textarea rows="3" class="g-evidence" maxlength="3000" placeholder="سطر لكل شاهد...">${escapeHtml(toLines(goal.recommended_evidence))}</textarea>
       </div>
       <div style="margin-bottom:10px;">
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">إجراء تنفيذي <span style="color:#9A9484;">(سطر لكل إجراء)</span></label>
-        <textarea rows="3" class="g-actions" placeholder="سطر لكل إجراء...">${escapeHtml(toLines(goal.action_steps))}</textarea>
+        <textarea rows="3" class="g-actions" maxlength="3000" placeholder="سطر لكل إجراء...">${escapeHtml(toLines(goal.action_steps))}</textarea>
       </div>
       <div>
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">ملاحظة شخصية <span style="color:#9A9484;">(لا تظهر في الملف المطبوع)</span></label>
-        <textarea rows="2" class="g-note" placeholder="ملاحظة خاصة بك...">${escapeHtml(goal.personal_note || '')}</textarea>
+        <textarea rows="2" class="g-note" maxlength="1000" placeholder="ملاحظة خاصة بك...">${escapeHtml(goal.personal_note || '')}</textarea>
       </div>
 
       ${goal.id ? `
@@ -9692,7 +9766,7 @@ function renderSelfRows(){
           </div>
           <div style="margin-top:10px;">
             <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">مبرراتك وأبرز إنجازاتك في هذا العنصر</label>
-            <textarea rows="2" class="self-note" placeholder="اكتب ما يدعم تقييمك: أبرز شاهد، أثر ملموس، أو تحدٍّ واجهك...">${escapeHtml(self.self_note || '')}</textarea>
+            <textarea rows="2" class="self-note" maxlength="2000" placeholder="اكتب ما يدعم تقييمك: أبرز شاهد، أثر ملموس، أو تحدٍّ واجهك...">${escapeHtml(self.self_note || '')}</textarea>
           </div>
           ${gapHtml}
         </div>
@@ -11079,7 +11153,7 @@ async function loadElementsMgmt(){
   }
   box.innerHTML = (data || []).map(el => `
     <div class="elem-mgmt-row" data-id="${el.id}">
-      <input type="text" class="goal-input" value="${escapeHtml(el.label)}" id="elLabel-${el.id}">
+      <input type="text" class="goal-input" maxlength="150" value="${escapeHtml(el.label)}" id="elLabel-${el.id}">
       <input type="number" class="goal-input" value="${el.weight}" id="elWeight-${el.id}">
       <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="savePerformanceElement('${el.id}')">حفظ</button>
       <button class="btn btn-danger" style="padding:5px 10px;font-size:11px;" onclick="deletePerformanceElement('${el.id}')">حذف</button>
@@ -12294,7 +12368,7 @@ function renumberSteps(){
 function addStep(){
   const li = document.createElement('li');
   const n = stepsList.children.length + 1;
-  li.innerHTML = `<span class="num">${n}</span><textarea rows="1" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
+  li.innerHTML = `<span class="num">${n}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
   stepsList.appendChild(li);
   li.querySelector('textarea').focus();
 }
@@ -12370,7 +12444,7 @@ function applyTemplate(){
   const steps = (tpl.steps && tpl.steps.length) ? tpl.steps : [''];
   steps.forEach((s, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
+    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
     li.querySelector('textarea').value = s;
     stepsList.appendChild(li);
   });
@@ -12810,8 +12884,23 @@ async function deleteRecord(id){
   const rec = myRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
 
-  const ok = await showConfirm('هل أنت متأكد من حذف هذا الشاهد؟ لا يمكن التراجع عن هذا الإجراء.');
+  const ok = await showConfirm('حذف هذا الشاهد؟ يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
   if(!ok) return;
+
+  /* حذف تفاؤلي (optimistic): نزيله من القائمة فورًا، وننتظر نافذة التراجع
+     قبل تنفيذ الحذف الفعلي من القاعدة — بهذا لا نفقد شيئًا فعليًا إن تراجع
+     المستخدم خلال المهلة. */
+  const originalIndex = myRecords.findIndex(r => String(r.id) === String(id));
+  myRecords.splice(originalIndex, 1);
+  if(editingId === id){ startNewShahid(); }
+  filterMyShawahid();
+
+  const shouldCommit = await showUndoToast('تم حذف الشاهد', 5);
+  if(!shouldCommit){
+    myRecords.splice(originalIndex, 0, rec);
+    filterMyShawahid();
+    return;
+  }
 
   try{
     const { error } = await sb.from('shawahid').delete().eq('id', id);
@@ -12827,11 +12916,10 @@ async function deleteRecord(id){
         await sb.storage.from('shawahid-photos').remove(paths);
       }
     }
-
-    if(editingId === id){ startNewShahid(); }
-    await loadMyShawahid();
-    showToast('تم حذف الشاهد', 'ok');
   } catch(err){
+    /* تعذّر الحذف الفعلي بعد انقضاء مهلة التراجع: أعده للقائمة حتى لا يختفي بصمت */
+    myRecords.splice(originalIndex, 0, rec);
+    filterMyShawahid();
     showToast('تعذّر حذف الشاهد: ' + err.message, 'error');
   }
 }
@@ -12866,7 +12954,7 @@ function editRecord(id){
   const steps = (rec.steps && rec.steps.length) ? rec.steps : [''];
   steps.forEach((s, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
+    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
     li.querySelector('textarea').value = s;
     stepsList.appendChild(li);
   });
@@ -12912,7 +13000,7 @@ function duplicateRecord(id){
   const steps = (rec.steps && rec.steps.length) ? rec.steps : [''];
   steps.forEach((s, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
+    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
     li.querySelector('textarea').value = s;
     stepsList.appendChild(li);
   });
@@ -12959,7 +13047,7 @@ async function cancelForm(){
   document.getElementById('mDate').value = '';
   document.getElementById('mLesson').value = '';
 
-  stepsList.innerHTML = '<li><span class="num">1</span><textarea rows="1" placeholder="اكتب الخطوة الأولى..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button></li>';
+  stepsList.innerHTML = '<li><span class="num">1</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة الأولى..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button></li>';
 
   grid.innerHTML = '';
   selectedPhotoFiles.length = 0;
@@ -12995,7 +13083,7 @@ function startNewShahid(){
   qualBox.value = '';
   reflectionBox.value = '';
 
-  stepsList.innerHTML = '<li><span class="num">1</span><textarea rows="1" placeholder="اكتب الخطوة الأولى..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button></li>';
+  stepsList.innerHTML = '<li><span class="num">1</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة الأولى..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button></li>';
 
   grid.innerHTML = '';
   selectedPhotoFiles.length = 0;
