@@ -9004,11 +9004,25 @@ for each row execute function public.set_shahid_updated_at();
 -- bucket واحد تُخزَّن فيه صور: الشواهد، إثباتات تسليم خطابات الإحالة السلوكية،
 -- وإثباتات تسليم خطابات المتابعة الأكاديمية. مسار الملف يبدأ دائمًا بمعرّف
 -- المستخدم (auth.uid()) كأول مجلد — راجع upload paths في التطبيق.
+-- ملاحظة: القائمة تشمل أنواع المستندات (PDF/Word/Excel/PowerPoint/CSV/نص)
+-- لأن ميزة "إضافة مرفق" (makeSlot مصدر 'file') تسمح بإرفاقها كشاهد، وليس
+-- الصور فقط — تقييدها لصور فقط كان سيكسر هذه الميزة الموجودة أصلاً.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'shawahid-photos', 'shawahid-photos', true,
   8388608, -- 8MB كحد أقصى لكل ملف (حماية من إساءة استخدام المساحة)
-  array['image/jpeg','image/png','image/webp','image/heic','image/heif','image/gif']
+  array[
+    'image/jpeg','image/png','image/webp','image/heic','image/heif','image/gif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/csv',
+    'text/plain'
+  ]
 )
 on conflict (id) do update set
   public = excluded.public,
@@ -9438,12 +9452,19 @@ async function exportFullBackup(){
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
     const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases'];
+    /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
+       صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
+       قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
+       والثلاثة المستثناة (مفتاحها الأساسي مركّب/بدون id) لا تتجاوز عمليًا
+       صفًا واحدًا لكل معلم فلن تحتاج أكثر من صفحة واحدة أصلًا. */
+    const orderColumns = { plan_header: 'cycle_year', admins: 'added_at', classroom_letter_counters: 'updated_at' };
     const data = {};
     for(const t of tables){
       try{
         /* نسخة احتياطية كاملة يجب ألا تفقد صفوفًا بصمت لو تجاوز جدول ما حد
            الصفوف الافتراضي للاستعلام الواحد (1000) — نجلبها صفحات متتالية */
-        const { data: rows } = await fetchAllRows((from, to) => sb.from(t).select('*').range(from, to));
+        const orderCol = orderColumns[t] || 'id';
+        const { data: rows } = await fetchAllRows((from, to) => sb.from(t).select('*').order(orderCol, { ascending: true }).range(from, to));
         data[t] = rows || [];
       } catch(e){ data[t] = []; }
     }

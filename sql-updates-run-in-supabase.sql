@@ -24,11 +24,24 @@ alter table public.shawahid add constraint shawahid_photo_urls_valid
 -- 2) إعداد صحيح لمساحة تخزين الصور: حد أقصى لحجم الملف، أنواع ملفات مسموحة،
 --    وتقييد الرفع/التعديل/الحذف على مجلد المستخدم نفسه فقط (بدل الاعتماد
 --    فقط على واجهة التطبيق)
+-- ملاحظة: القائمة تشمل أنواع المستندات (PDF/Word/Excel/PowerPoint/CSV/نص)
+-- لأن ميزة "إضافة مرفق" بالتطبيق تسمح بإرفاق مستندات كشاهد وليس صور فقط.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'shawahid-photos', 'shawahid-photos', true,
   8388608, -- 8MB كحد أقصى لكل ملف
-  array['image/jpeg','image/png','image/webp','image/heic','image/heif','image/gif']
+  array[
+    'image/jpeg','image/png','image/webp','image/heic','image/heif','image/gif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/csv',
+    'text/plain'
+  ]
 )
 on conflict (id) do update set
   public = excluded.public,
