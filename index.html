@@ -5351,13 +5351,20 @@ function jumpToAcFilter(mode){
   if(el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function setAcFilter(mode){
-  acFilter = mode;
+/* منطق مشترك لتفعيل زر فلترة (الكل/معلّق/غير موثّق) — مكرر حرفيًا بين
+   المتابعة الأكاديمية وإدارة الصف باستثناء المتغيّر المحفوظ، بادئة معرّف
+   الزر، ودالة إعادة العرض. */
+function setListFilter(cfg, mode){
+  cfg.setValue(mode);
   ['all', 'pending', 'undocumented'].forEach(m => {
-    const btn = document.getElementById('acFilterBtn_' + m);
+    const btn = document.getElementById(cfg.btnPrefix + m);
     if(btn) btn.className = (m === mode) ? 'btn btn-primary' : 'btn btn-outline';
   });
-  renderAcCases();
+  cfg.render();
+}
+
+function setAcFilter(mode){
+  setListFilter({ setValue: v => { acFilter = v; }, btnPrefix: 'acFilterBtn_', render: renderAcCases }, mode);
 }
 
 async function renderAcCases(){
@@ -5449,44 +5456,80 @@ async function deleteAcademicCase(id){
   }
 }
 
-async function getAcTransferCounts(){
-  const { data, error } = await sb.from('academic_cases')
+/* ============================================================
+   منطق مشترك لعدّادات/شارات "المعلَّق والموثَّق" — مكرر حرفيًا بين مسار
+   المتابعة الأكاديمية وإدارة الصف باستثناء اسم الجدول، عمود المرحلة،
+   ومعرّفات عناصر DOM. موحَّد هنا بدالتين عامتين + كائنَي إعداد، مع إبقاء
+   الأسماء الأصلية كأغلفة رقيقة (refreshAcBadges/refreshCrmPendingBadges
+   لهما عشرات نقاط الاستدعاء بالملف). */
+async function getTransferCounts(cfg){
+  const { data, error } = await sb.from(cfg.table)
     .select('referral_letter_generated, referral_receipt_photo_url')
     .eq('teacher_id', currentUser.id)
-    .eq('status', 'referred');
+    .eq(cfg.stageColumn, 'referred');
   if(error || !data) return { pending: 0, undocumented: 0 };
   let pending = 0, undocumented = 0;
-  data.forEach(c => {
-    if(!c.referral_letter_generated) pending++;
-    else if(!c.referral_receipt_photo_url) undocumented++;
+  data.forEach(r => {
+    if(!r.referral_letter_generated) pending++;
+    else if(!r.referral_receipt_photo_url) undocumented++;
   });
   return { pending, undocumented };
 }
 
-async function refreshAcBadges(){
-  const { pending, undocumented } = await getAcTransferCounts();
+async function refreshTransferBadges(cfg){
+  const { pending, undocumented } = await getTransferCounts(cfg);
   const total = pending + undocumented;
 
-  const navBadge = document.getElementById('academicNavBadge');
+  const navBadge = document.getElementById(cfg.navBadgeId);
   if(navBadge){
     if(total > 0){ navBadge.style.display = 'block'; navBadge.textContent = total > 9 ? '9+' : String(total); }
     else { navBadge.style.display = 'none'; }
   }
-  const homeBadge = document.getElementById('academicHomeBadge');
+  const homeBadge = document.getElementById(cfg.homeBadgeId);
   if(homeBadge){
     if(total > 0){ homeBadge.style.display = 'inline-block'; homeBadge.textContent = total > 9 ? '9+' : String(total); }
     else { homeBadge.style.display = 'none'; }
   }
-  const banner = document.getElementById('acPendingBanner');
+  const banner = document.getElementById(cfg.pendingBannerId);
   if(banner){
-    if(pending > 0){ banner.style.display = 'block'; document.getElementById('acPendingCount').textContent = pending; }
+    if(pending > 0){ banner.style.display = 'block'; document.getElementById(cfg.pendingCountId).textContent = pending; }
     else { banner.style.display = 'none'; }
   }
-  const docBanner = document.getElementById('acUndocumentedBanner');
+  const docBanner = document.getElementById(cfg.undocumentedBannerId);
   if(docBanner){
-    if(undocumented > 0){ docBanner.style.display = 'block'; document.getElementById('acUndocumentedCount').textContent = undocumented; }
+    if(undocumented > 0){ docBanner.style.display = 'block'; document.getElementById(cfg.undocumentedCountId).textContent = undocumented; }
     else { docBanner.style.display = 'none'; }
   }
+}
+
+const AC_TRANSFER_CFG = {
+  table: 'academic_cases',
+  stageColumn: 'status',
+  navBadgeId: 'academicNavBadge',
+  homeBadgeId: 'academicHomeBadge',
+  pendingBannerId: 'acPendingBanner',
+  pendingCountId: 'acPendingCount',
+  undocumentedBannerId: 'acUndocumentedBanner',
+  undocumentedCountId: 'acUndocumentedCount'
+};
+
+const CRM_TRANSFER_CFG = {
+  table: 'classroom_incidents',
+  stageColumn: 'current_stage',
+  navBadgeId: 'classroomNavBadge',
+  homeBadgeId: 'classroomHomeBadge',
+  pendingBannerId: 'crmPendingReferralBanner',
+  pendingCountId: 'crmPendingReferralCount',
+  undocumentedBannerId: 'crmUndocumentedBanner',
+  undocumentedCountId: 'crmUndocumentedCount'
+};
+
+async function getAcTransferCounts(){
+  return getTransferCounts(AC_TRANSFER_CFG);
+}
+
+async function refreshAcBadges(){
+  return refreshTransferBadges(AC_TRANSFER_CFG);
 }
 
 /* ---- خطاب الإحالة الأكاديمية ---- */
@@ -6582,44 +6625,11 @@ async function saveClassroomIncident(){
 }
 
 async function getCrmTransferCounts(){
-  const { data, error } = await sb.from('classroom_incidents')
-    .select('referral_letter_generated, referral_receipt_photo_url')
-    .eq('teacher_id', currentUser.id)
-    .eq('current_stage', 'referred');
-  if(error || !data) return { pending: 0, undocumented: 0 };
-  let pending = 0, undocumented = 0;
-  data.forEach(inc => {
-    if(!inc.referral_letter_generated) pending++;
-    else if(!inc.referral_receipt_photo_url) undocumented++;
-  });
-  return { pending, undocumented };
+  return getTransferCounts(CRM_TRANSFER_CFG);
 }
 
 async function refreshCrmPendingBadges(){
-  const { pending: pendingCount, undocumented: undocumentedCount } = await getCrmTransferCounts();
-  const total = pendingCount + undocumentedCount;
-
-  const navBadge = document.getElementById('classroomNavBadge');
-  if(total > 0){ navBadge.style.display = 'block'; navBadge.textContent = total > 9 ? '9+' : String(total); }
-  else { navBadge.style.display = 'none'; }
-
-  const homeBadge = document.getElementById('classroomHomeBadge');
-  if(homeBadge){
-    if(total > 0){ homeBadge.style.display = 'inline-block'; homeBadge.textContent = total > 9 ? '9+' : String(total); }
-    else { homeBadge.style.display = 'none'; }
-  }
-
-  const banner = document.getElementById('crmPendingReferralBanner');
-  if(banner){
-    if(pendingCount > 0){ banner.style.display = 'block'; document.getElementById('crmPendingReferralCount').textContent = pendingCount; }
-    else { banner.style.display = 'none'; }
-  }
-
-  const docBanner = document.getElementById('crmUndocumentedBanner');
-  if(docBanner){
-    if(undocumentedCount > 0){ docBanner.style.display = 'block'; document.getElementById('crmUndocumentedCount').textContent = undocumentedCount; }
-    else { docBanner.style.display = 'none'; }
-  }
+  return refreshTransferBadges(CRM_TRANSFER_CFG);
 }
 
 async function fetchCrmStudentById(id){
@@ -6851,12 +6861,7 @@ function jumpToCrmFilter(mode){
 }
 
 function setCrmIncidentFilter(mode){
-  crmIncidentFilter = mode;
-  ['all', 'pending', 'undocumented'].forEach(m => {
-    const btn = document.getElementById('crmFilterBtn_' + m);
-    if(btn) btn.className = (m === mode) ? 'btn btn-primary' : 'btn btn-outline';
-  });
-  renderCrmRecentIncidents();
+  setListFilter({ setValue: v => { crmIncidentFilter = v; }, btnPrefix: 'crmFilterBtn_', render: renderCrmRecentIncidents }, mode);
 }
 
 function goToCrmStudentFromModal(studentId){
