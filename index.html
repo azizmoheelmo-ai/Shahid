@@ -10161,14 +10161,20 @@ create policy "المسؤول يشوف كل الشواهد"
    رابط تخزين Supabase علني ضمن bucket الصور — يمنع أي مستخدم من إدخال
    قيمة تعسّفية (مثل كود حقن HTML/JS) عبر نداء مباشر لواجهة الإدراج،
    حتى لو تجاوز واجهة التطبيق نفسها. */
+-- PostgreSQL لا يسمح بـ subquery داخل CHECK مباشرة، فنلفّ الشرط بدالة
+create or replace function public.valid_shawahid_photo_urls(urls jsonb)
+returns boolean language sql immutable as $$
+  select jsonb_typeof(urls) = 'array'
+    and not exists (
+      select 1 from jsonb_array_elements_text(urls) as u(url)
+      where url !~ '^https://[a-z0-9]+\.supabase\.co/storage/v1/object/(public|sign)/shawahid-photos/'
+    );
+$$;
+
 alter table public.shawahid drop constraint if exists shawahid_photo_urls_valid;
-alter table public.shawahid add constraint shawahid_photo_urls_valid check (
-  jsonb_typeof(photo_urls) = 'array'
-  and not exists (
-    select 1 from jsonb_array_elements_text(photo_urls) as u(url)
-    where url !~ '^https://[a-z0-9]+\.supabase\.co/storage/v1/object/(public|sign)/shawahid-photos/'
-  )
-) not valid; -- not valid: لا يفحص الصفوف الموجودة مسبقًا (تفاديًا لفشل الترحيل
+alter table public.shawahid add constraint shawahid_photo_urls_valid
+  check (public.valid_shawahid_photo_urls(photo_urls))
+  not valid; -- not valid: لا يفحص الصفوف الموجودة مسبقًا (تفاديًا لفشل الترحيل
              -- على بيانات قديمة قد لا تطابق النمط تمامًا)، ويُطبَّق فقط على
              -- أي إدراج/تعديل جديد من الآن فصاعدًا.
 

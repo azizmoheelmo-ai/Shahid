@@ -6,14 +6,20 @@
 
 -- 1) تحصين إضافي: يمنع أي قيمة تعسّفية بحقل photo_urls بجدول shawahid
 --    (حتى لو تم تجاوز واجهة التطبيق نفسها عبر نداء مباشر لواجهة Supabase)
+-- ملاحظة: PostgreSQL لا يسمح بـ subquery داخل CHECK مباشرة، فنلفّ الشرط بدالة
+create or replace function public.valid_shawahid_photo_urls(urls jsonb)
+returns boolean language sql immutable as $$
+  select jsonb_typeof(urls) = 'array'
+    and not exists (
+      select 1 from jsonb_array_elements_text(urls) as u(url)
+      where url !~ '^https://[a-z0-9]+\.supabase\.co/storage/v1/object/(public|sign)/shawahid-photos/'
+    );
+$$;
+
 alter table public.shawahid drop constraint if exists shawahid_photo_urls_valid;
-alter table public.shawahid add constraint shawahid_photo_urls_valid check (
-  jsonb_typeof(photo_urls) = 'array'
-  and not exists (
-    select 1 from jsonb_array_elements_text(photo_urls) as u(url)
-    where url !~ '^https://[a-z0-9]+\.supabase\.co/storage/v1/object/(public|sign)/shawahid-photos/'
-  )
-) not valid;
+alter table public.shawahid add constraint shawahid_photo_urls_valid
+  check (public.valid_shawahid_photo_urls(photo_urls))
+  not valid;
 
 -- 2) إعداد صحيح لمساحة تخزين الصور: حد أقصى لحجم الملف، أنواع ملفات مسموحة،
 --    وتقييد الرفع/التعديل/الحذف على مجلد المستخدم نفسه فقط (بدل الاعتماد
