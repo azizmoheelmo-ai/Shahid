@@ -89,21 +89,36 @@ function makeFakeSupabaseClient() {
   };
 }
 
-/* يستخرج محتوى وسم <script> الرئيسي (بدون src) من index.html */
-function extractInlineScript(html) {
-  const matches = [...html.matchAll(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/g)];
-  const inline = matches.filter(([, attrs]) => !attrs || !/\bsrc=/.test(attrs)).map(([, , body]) => body);
-  if (!inline.length) throw new Error('لم يُعثر على أي <script> داخلي بملف index.html');
-  // الأطول هو سكربت التطبيق الرئيسي (باقي السكربتات إن وُجدت هامشية)
-  return inline.reduce((a, b) => (b.length > a.length ? b : a));
+/* يجمع كود التطبيق الفعلي كما يُحمَّل فعليًا بالمتصفح:
+   - محتوى أي وسم <script> داخلي (بدون src)، أو
+   - محتوى ملفات <script src="..."> محلية (نفس الأصل)، بنفس ترتيب ورودها
+     بالملف تمامًا — التطبيق مقسَّم لعدة ملفات JS مرتّبة بـ app/ (راجع
+     index.html)، وهذا يضمن أن الاختبارات تعكس دومًا نفس ترتيب التحميل
+     الحقيقي بدل الاعتماد على قائمة ملفات مكرَّرة يدويًا قد تنحرف عن الواقع. */
+function extractAppScript(htmlDir, html) {
+  const matches = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)];
+  const parts = [];
+  for (const [, attrsStr, body] of matches) {
+    const srcMatch = attrsStr.match(/\bsrc=["']([^"']+)["']/);
+    if (!srcMatch) {
+      if (body.trim()) parts.push(body);
+      continue;
+    }
+    const src = srcMatch[1];
+    if (/^https?:\/\//.test(src)) continue; // مكتبة خارجية (CDN) — غير مطلوبة لهذه الاختبارات
+    parts.push(fs.readFileSync(path.join(htmlDir, src), 'utf-8'));
+  }
+  if (!parts.length) throw new Error('لم يُعثر على أي كود تطبيق (لا <script> داخلي ولا ملفات محلية) بـ index.html');
+  return parts.join('\n');
 }
 
 /* يحمّل ويشغّل تطبيق شاهد، ويُرجع كائن sandbox — استدعِ الدوال المُعرَّفة
    بصيغة function عليه مباشرة، مثل: app.escapeHtml('<b>') */
 function loadApp() {
-  const htmlPath = path.join(__dirname, '..', 'index.html');
+  const htmlDir = path.join(__dirname, '..');
+  const htmlPath = path.join(htmlDir, 'index.html');
   const html = fs.readFileSync(htmlPath, 'utf-8');
-  const script = extractInlineScript(html);
+  const script = extractAppScript(htmlDir, html);
 
   const fakeDocument = {
     getElementById: () => makeFakeElement(),
@@ -152,4 +167,4 @@ function makeFakeStorage() {
   };
 }
 
-module.exports = { loadApp };
+module.exports = { loadApp, extractAppScript };
