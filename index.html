@@ -9,6 +9,25 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="شاهد الأداء">
+<!-- سياسة أمان المحتوى: تقيّد مصادر الشبكة الخارجية (سكربتات/اتصالات/صور) على
+     النطاقات اللازمة فعليًا للتطبيق فقط. ملاحظة: 'unsafe-inline' بالسكربتات
+     ضرورية حاليًا لأن كامل منطق الصفحة وأزرارها inline (onclick="...")،
+     فهي لا تمنع تنفيذ أي كود مُحقَن inline، لكنها تمنع تحميل أي سكربت خارجي
+     غير مصرَّح به — والأهم: تقييد connect-src/img-src يمنع أي محاولة تسريب
+     بيانات (exfiltration) عبر fetch/img لنطاق غير Supabase/jsDelivr، وهو
+     بالضبط الأسلوب المستخدم غالبًا لاستغلال ثغرات XSS عمليًا. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' data: blob: https://urpsznuywezkqxhnwkyo.supabase.co;
+  connect-src 'self' https://urpsznuywezkqxhnwkyo.supabase.co wss://urpsznuywezkqxhnwkyo.supabase.co https://cdn.jsdelivr.net;
+  base-uri 'self';
+  form-action 'self';
+  frame-ancestors 'self';
+  object-src 'none';
+">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
@@ -2374,6 +2393,24 @@ function debounce(fn, delay){
     clearTimeout(timer);
     timer = setTimeout(() => fn.apply(this, args), delay);
   };
+}
+
+/* يجلب كل صفوف استعلام عبر صفحات متتالية (range) بدل الاعتماد على استعلام
+   واحد بحد أقصى — Supabase/PostgREST يحدّ عدد الصفوف بالاستعلام الواحد
+   افتراضيًا (1000 صف)، فأي جدول يكبر مع الوقت (كل شواهد كل المعلمين مثلاً)
+   قد يفقد بيانات بصمت دون هذه الدالة. `queryFactory(from, to)` يجب أن يبني
+   ويُرجع استعلامًا جديدًا في كل مرة (لا يعاد استخدام نفس الكائن). */
+async function fetchAllRows(queryFactory, pageSize = 1000){
+  let all = [];
+  let from = 0;
+  while(true){
+    const { data, error } = await queryFactory(from, from + pageSize - 1);
+    if(error) return { data: null, error };
+    all = all.concat(data || []);
+    if(!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
 }
 
 /* نسخ مؤخّرة (debounced) من دوال البحث الفوري — تُستدعى من oninput بحقول
@@ -5327,11 +5364,17 @@ async function renderAcCases(){
   const box = document.getElementById('acCasesList');
   const searchQuery = (document.getElementById('acCasesSearch').value || '').trim();
 
-  let query = sb.from('academic_cases').select('*').eq('teacher_id', currentUser.id);
-  if(acFilter === 'pending') query = query.eq('status', 'referred').eq('referral_letter_generated', false);
-  else if(acFilter === 'undocumented') query = query.eq('status', 'referred').eq('referral_letter_generated', true).is('referral_receipt_photo_url', null);
+  /* نبني الاستعلام من جديد بكل صفحة (بدل إعادة استخدام نفس الكائن) حتى
+     تعمل fetchAllRows بشكل صحيح — وبهذا نلغي حد الـ 200 الثابت الذي كان
+     يُسقط حالات قديمة بصمت لمعلم لديه أرشيف كبير */
+  const buildQuery = (from, to) => {
+    let q = sb.from('academic_cases').select('*').eq('teacher_id', currentUser.id);
+    if(acFilter === 'pending') q = q.eq('status', 'referred').eq('referral_letter_generated', false);
+    else if(acFilter === 'undocumented') q = q.eq('status', 'referred').eq('referral_letter_generated', true).is('referral_receipt_photo_url', null);
+    return q.order('created_at', { ascending: false }).range(from, to);
+  };
 
-  const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
+  const { data, error } = await fetchAllRows(buildQuery);
   if(error){ box.innerHTML = '<div class="empty-state">تعذّر التحميل: ' + escapeHtml(error.message) + '</div>'; return; }
   acCasesCache = data || [];
 
@@ -6898,18 +6941,22 @@ async function renderCrmRecentIncidents(){
   const box = document.getElementById('crmRecentIncidents');
   const searchQuery = (document.getElementById('crmIncidentsSearch').value || '').trim();
 
-  let query = sb.from('classroom_incidents')
-    .select('id, incident_date, occurrence_number, current_stage, notes, student_id, incident_type_id, referral_letter_generated, referral_letter_number, referral_receipt_photo_url')
-    .eq('teacher_id', currentUser.id);
+  /* نبني الاستعلام من جديد بكل صفحة حتى تعمل fetchAllRows بشكل صحيح — وبهذا
+     نلغي الحد الثابت (100/200) الذي كان يُسقط حوادث بانتظار المتابعة بصمت
+     لمعلم لديه أرشيف كبير */
+  const buildQuery = (from, to) => {
+    let q = sb.from('classroom_incidents')
+      .select('id, incident_date, occurrence_number, current_stage, notes, student_id, incident_type_id, referral_letter_generated, referral_letter_number, referral_receipt_photo_url')
+      .eq('teacher_id', currentUser.id);
+    if(crmIncidentFilter === 'pending'){
+      q = q.eq('current_stage', 'referred').eq('referral_letter_generated', false);
+    } else if(crmIncidentFilter === 'undocumented'){
+      q = q.eq('current_stage', 'referred').eq('referral_letter_generated', true).is('referral_receipt_photo_url', null);
+    }
+    return q.order('created_at', { ascending: false }).range(from, to);
+  };
 
-  if(crmIncidentFilter === 'pending'){
-    query = query.eq('current_stage', 'referred').eq('referral_letter_generated', false);
-  } else if(crmIncidentFilter === 'undocumented'){
-    query = query.eq('current_stage', 'referred').eq('referral_letter_generated', true).is('referral_receipt_photo_url', null);
-  }
-
-  const limit = crmIncidentFilter === 'all' ? 100 : 200;
-  const { data, error } = await query.order('created_at', { ascending: false }).limit(limit);
+  const { data, error } = await fetchAllRows(buildQuery);
   if(error){ box.innerHTML = '<div class="empty-state">تعذّر التحميل: ' + escapeHtml(error.message) + '</div>'; return; }
 
   const emptyMsg = {
@@ -10121,7 +10168,9 @@ alter table public.shawahid add constraint shawahid_photo_urls_valid check (
     select 1 from jsonb_array_elements_text(photo_urls) as u(url)
     where url !~ '^https://[a-z0-9]+\.supabase\.co/storage/v1/object/(public|sign)/shawahid-photos/'
   )
-);
+) not valid; -- not valid: لا يفحص الصفوف الموجودة مسبقًا (تفاديًا لفشل الترحيل
+             -- على بيانات قديمة قد لا تطابق النمط تمامًا)، ويُطبَّق فقط على
+             -- أي إدراج/تعديل جديد من الآن فصاعدًا.
 
 drop policy if exists "المسؤول يحذف أي شاهد" on public.shawahid;
 create policy "المسؤول يحذف أي شاهد"
@@ -10153,6 +10202,53 @@ drop trigger if exists trg_set_shahid_updated_at on public.shawahid;
 create trigger trg_set_shahid_updated_at
 before update on public.shawahid
 for each row execute function public.set_shahid_updated_at();
+
+-- ============ 4ب) إعداد مساحة تخزين الصور (bucket + سياسات الوصول) ============
+-- bucket واحد تُخزَّن فيه صور: الشواهد، إثباتات تسليم خطابات الإحالة السلوكية،
+-- وإثباتات تسليم خطابات المتابعة الأكاديمية. مسار الملف يبدأ دائمًا بمعرّف
+-- المستخدم (auth.uid()) كأول مجلد — راجع upload paths في التطبيق.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'shawahid-photos', 'shawahid-photos', true,
+  8388608, -- 8MB كحد أقصى لكل ملف (حماية من إساءة استخدام المساحة)
+  array['image/jpeg','image/png','image/webp','image/heic','image/heif','image/gif']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+-- قراءة عامة (الروابط تُستخدم مباشرة كـ src للصور وبالخطابات المطبوعة/PDF)
+drop policy if exists "قراءة عامة لصور شاهد" on storage.objects;
+create policy "قراءة عامة لصور شاهد"
+  on storage.objects for select
+  using (bucket_id = 'shawahid-photos');
+
+-- الرفع مسموح فقط ضمن مجلد المستخدم نفسه (أول جزء من المسار = auth.uid())
+drop policy if exists "المعلم يرفع ضمن مجلده فقط" on storage.objects;
+create policy "المعلم يرفع ضمن مجلده فقط"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'shawahid-photos'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- التعديل/الحذف مسموح فقط لصاحب الملف
+drop policy if exists "المعلم يعدّل ملفاته فقط" on storage.objects;
+create policy "المعلم يعدّل ملفاته فقط"
+  on storage.objects for update
+  using (
+    bucket_id = 'shawahid-photos'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "المعلم يحذف ملفاته فقط" on storage.objects;
+create policy "المعلم يحذف ملفاته فقط"
+  on storage.objects for delete
+  using (
+    bucket_id = 'shawahid-photos'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
 
 -- ============ 5) خطة الأداء ============
 create or replace function public.set_plan_updated_at()
@@ -10548,7 +10644,9 @@ async function exportFullBackup(){
     const data = {};
     for(const t of tables){
       try{
-        const { data: rows } = await sb.from(t).select('*');
+        /* نسخة احتياطية كاملة يجب ألا تفقد صفوفًا بصمت لو تجاوز جدول ما حد
+           الصفوف الافتراضي للاستعلام الواحد (1000) — نجلبها صفحات متتالية */
+        const { data: rows } = await fetchAllRows((from, to) => sb.from(t).select('*').range(from, to));
         data[t] = rows || [];
       } catch(e){ data[t] = []; }
     }
@@ -10746,11 +10844,14 @@ async function showAdminPanel(){
   document.getElementById('adminStats').innerHTML = '<div class="loading-state">جارِ تحميل الإحصائيات...</div>';
 
   try{
+    /* شواهد كل المعلمين وملفاتهم قد تتجاوز حد الصفوف الافتراضي للاستعلام
+       الواحد مع نمو المدرسة عبر السنين — نجلبها صفحات متتالية (fetchAllRows)
+       حتى لا تُفقَد بيانات بصمت من إحصائيات/تصدير المسؤول */
     const [recRes, planRes, selfRes, profRes, admRes] = await Promise.all([
-      sb.from('shawahid').select('*').order('created_at', { ascending: false }),
+      fetchAllRows((from, to) => sb.from('shawahid').select('*').order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('cycle_year', getCycleYear()),
       sb.from('self_assessment').select('*').eq('cycle_year', getCycleYear()),
-      sb.from('profiles').select('*').order('created_at', { ascending: false }),
+      fetchAllRows((from, to) => sb.from('profiles').select('*').order('created_at', { ascending: false }).range(from, to)),
       sb.from('admins').select('user_id')
     ]);
 
@@ -11391,15 +11492,15 @@ async function exportBackup(){
     await ensureXlsxLib();
 
     const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes] = await Promise.all([
-      sb.from('shawahid').select('*').order('created_at', { ascending: false }),
+      fetchAllRows((from, to) => sb.from('shawahid').select('*').order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*'),
       sb.from('classroom_students').select('*'),
       sb.from('classroom_grade_levels').select('*'),
       sb.from('classroom_sections').select('*'),
-      sb.from('classroom_incidents').select('*').order('created_at', { ascending: false }),
+      fetchAllRows((from, to) => sb.from('classroom_incidents').select('*').order('created_at', { ascending: false }).range(from, to)),
       sb.from('classroom_incident_types').select('*'),
-      sb.from('academic_cases').select('*').order('created_at', { ascending: false })
+      fetchAllRows((from, to) => sb.from('academic_cases').select('*').order('created_at', { ascending: false }).range(from, to))
     ]);
 
     const shawahid = shRes.data || [];
@@ -12244,10 +12345,11 @@ function getElementsOrder(){
 async function loadMyShawahid(){
   const body = document.getElementById('listBody');
   body.innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
-  const { data, error } = await sb
+  const { data, error } = await fetchAllRows((from, to) => sb
     .from('shawahid')
     .select('*')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(from, to));
 
   if(error){
     body.innerHTML = '<div class="empty-state">تعذّر تحميل الشواهد: ' + error.message + '</div>';
