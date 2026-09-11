@@ -376,14 +376,35 @@ async function handleLogout(){
   if(agree) agree.checked = false;
 }
 
-/* استعادة الجلسة تلقائيًا إن وجدت (إلا إذا كنا في تدفق استعادة كلمة المرور) */
-(async () => {
+/* استعادة الجلسة تلقائيًا إن وجدت (إلا إذا كنا في تدفق استعادة كلمة المرور)
+
+   ملاحظة مهمة: التطبيق مقسَّم لعدة ملفات <script src="app/..."> مرتّبة
+   (راجع index.html)، وonLoggedIn (بهذا الملف) يستدعي دوالًا معرَّفة بملفات
+   لاحقة (showHome بـ app-04، loadPlan بـ app-05، loadPerformanceElements
+   بـ app-09). لو استجاب sb.auth.getSession() بسرعة كافية (وهو الحال
+   الشائع فعليًا — Supabase تقرأ الجلسة من localStorage محليًا)، قد يُستدعى
+   onLoggedIn() قبل ما تُحمَّل تلك الملفات اللاحقة أصلاً، فيرمي الكود خطأ
+   "غير معرَّف" ويفشل تسجيل الدخول التلقائي بصمت لمعظم المستخدمين العائدين!
+   الحل: تأجيل هذا الفحص حتى حدث DOMContentLoaded، الذي لا يُطلَق إلا بعد
+   انتهاء تنفيذ كل وسوم <script> المتزامنة (script-01 حتى script-09)
+   بالصفحة بالكامل — يضمن جهوزية كل الدوال بدون أي تأخير محسوس عمليًا
+   (لا ينتظر تحميل الصور/الخطوط/المكتبات الخارجية كما لو استخدمنا حدث
+   'load' بدلاً منه). */
+function checkExistingSession(){
   if(isRecoveryFlow) return;
-  const { data } = await sb.auth.getSession();
-  if(data.session){
-    onLoggedIn(data.session.user);
-  }
-})();
+  (async () => {
+    const { data } = await sb.auth.getSession();
+    if(data.session){
+      onLoggedIn(data.session.user);
+    }
+  })();
+}
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', checkExistingSession);
+} else {
+  // احتياطي: لو نُفِّذ هذا السكربت بعد انتهاء تحليل المستند لأي سبب
+  checkExistingSession();
+}
 
 /* ============ نسيت كلمة المرور ============ */
 /* ============ تسجيل الدخول عبر Google ============ */

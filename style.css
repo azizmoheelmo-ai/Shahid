@@ -2,6 +2,12 @@
     --navy:#1B3245;
     --navy-deep:#101E2B;
     --gold:#A9852E;
+    /* نسخة أغمق من الذهبي مخصّصة لاستخدامها كلون نص (روابط/تسميات صغيرة) —
+       اللون الأصلي --gold تباينه على الأبيض/الورقي ~3.2-3.5:1 (غير كافٍ
+       لنص صغير حسب WCAG AA التي تتطلب 4.5:1)؛ هذه النسخة تحقق ~4.7-5.1:1
+       مع الحفاظ على نفس درجة اللون الذهبي. --gold نفسه يبقى كما هو
+       لاستخدامه بالحدود/الخلفيات حيث لا ينطبق شرط تباين النص. */
+    --gold-text:#876A25;
     --paper:#F7F5F0;
     --card:#FFFFFF;
     --line:#D8D2C4;
@@ -325,7 +331,7 @@
   .doc-size{font-size:10px;color:var(--muted);}
   .doc-open{
     font-size:10.5px;
-    color:var(--gold);
+    color:var(--gold-text);
     text-decoration:underline;
     margin-top:2px;
   }
@@ -482,7 +488,7 @@
     display:flex;align-items:center;justify-content:center;
   }
   .rank-row .rank-name{flex:1;padding:0 10px;}
-  .rank-row .rank-count{font-weight:700;color:var(--gold);}
+  .rank-row .rank-count{font-weight:700;color:var(--gold-text);}
 
   .profile-row{
     display:flex;
@@ -567,7 +573,7 @@
   .plan-row.plan-collapsed .plan-row-body{display:none;}
   .plan-row-chev{
     font-size:12px;
-    color:var(--gold);
+    color:var(--gold-text);
     flex:0 0 auto;
   }
   .plan-badge-level{
@@ -680,7 +686,7 @@
   .home-progress-suggest .hp-arrow{
     font-size:11px;
     font-weight:800;
-    color:var(--gold);
+    color:var(--gold-text);
     white-space:nowrap;
   }
   .home-progress-suggest.done{
@@ -907,7 +913,7 @@
     display:block;
     font-size:11px;
     font-weight:700;
-    color:var(--gold);
+    color:var(--gold-text);
     letter-spacing:.2px;
     margin-bottom:4px;
   }
