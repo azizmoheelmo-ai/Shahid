@@ -217,7 +217,9 @@
   /* ===== التنبيهات المنبثقة (Toast) ===== */
   .toast-container{
     position:fixed;
-    bottom:18px;
+    /* ترتفع فوق الشريط السفلي الثابت (#bottomTabBar) حتى لا تختفي التنبيهات
+       خلفه أو تتداخل بصريًا معه بعد تسجيل الدخول */
+    bottom:calc(64px + env(safe-area-inset-bottom, 0px));
     left:0;right:0;
     display:flex;
     flex-direction:column;
@@ -2406,6 +2408,13 @@ function showToast(msg, type){
 function showUndoToast(msg, delaySeconds){
   return new Promise((resolve) => {
     const container = document.getElementById('toastContainer');
+    if(!container){
+      /* حالة دفاعية: لو تعذّر إيجاد حاوية التنبيهات لأي سبب، لا نُعلّق
+         الاستدعاء الأصلي إلى الأبد — نعتبر الأمر كأن المهلة انتهت بلا تراجع */
+      console.error('showUndoToast: #toastContainer not found');
+      resolve(true);
+      return;
+    }
     const el = document.createElement('div');
     el.className = 'toast toast-undo';
     el.innerHTML = `<span>${escapeHtml(msg)}</span><button type="button" class="toast-undo-btn">تراجع</button>`;
@@ -2422,10 +2431,13 @@ function showUndoToast(msg, delaySeconds){
     };
 
     const timer = setTimeout(() => finish(false), delaySeconds * 1000);
-    el.querySelector('.toast-undo-btn').addEventListener('click', () => {
-      clearTimeout(timer);
-      finish(true);
-    });
+    const btn = el.querySelector('.toast-undo-btn');
+    if(btn){
+      btn.addEventListener('click', () => {
+        clearTimeout(timer);
+        finish(true);
+      });
+    }
   });
 }
 
@@ -12887,40 +12899,56 @@ async function deleteRecord(id){
   const ok = await showConfirm('حذف هذا الشاهد؟ يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
   if(!ok) return;
 
-  /* حذف تفاؤلي (optimistic): نزيله من القائمة فورًا، وننتظر نافذة التراجع
-     قبل تنفيذ الحذف الفعلي من القاعدة — بهذا لا نفقد شيئًا فعليًا إن تراجع
-     المستخدم خلال المهلة. */
-  const originalIndex = myRecords.findIndex(r => String(r.id) === String(id));
-  myRecords.splice(originalIndex, 1);
-  if(editingId === id){ startNewShahid(); }
-  filterMyShawahid();
-
-  const shouldCommit = await showUndoToast('تم حذف الشاهد', 5);
-  if(!shouldCommit){
-    myRecords.splice(originalIndex, 0, rec);
-    filterMyShawahid();
-    return;
-  }
-
+  /* الحذف الفعلي يتم فورًا هنا (كما كان قبل إضافة ميزة التراجع) — هذا مهم
+     للموثوقية: لا نعتمد على بقاء الصفحة مفتوحة لتنفيذ حذف مؤجَّل، فلو أغلق
+     المستخدم التبويب أثناء نافذة التراجع لا يبقى أي سجل "معلّق" في القاعدة.
+     "التراجع" هنا يعني إعادة إدراج نفس السجل (بنفس المعرّف) إن طُلب خلال
+     المهلة، وليس تأجيل الحذف نفسه. */
   try{
     const { error } = await sb.from('shawahid').delete().eq('id', id);
     if(error) throw error;
-
-    /* حذف الصور المرتبطة من مساحة التخزين (لتوفير المساحة) */
-    if(rec.photo_urls && rec.photo_urls.length){
-      const paths = rec.photo_urls.map(url => {
-        const idx = url.indexOf('/shawahid-photos/');
-        return idx > -1 ? url.slice(idx + '/shawahid-photos/'.length) : null;
-      }).filter(Boolean);
-      if(paths.length){
-        await sb.storage.from('shawahid-photos').remove(paths);
-      }
-    }
   } catch(err){
-    /* تعذّر الحذف الفعلي بعد انقضاء مهلة التراجع: أعده للقائمة حتى لا يختفي بصمت */
-    myRecords.splice(originalIndex, 0, rec);
-    filterMyShawahid();
     showToast('تعذّر حذف الشاهد: ' + err.message, 'error');
+    return;
+  }
+
+  const originalIndex = myRecords.findIndex(r => String(r.id) === String(id));
+  if(originalIndex > -1) myRecords.splice(originalIndex, 1);
+  if(editingId === id){ startNewShahid(); }
+  filterMyShawahid();
+
+  let shouldCleanupPhotos = true;
+  try{
+    shouldCleanupPhotos = await showUndoToast('تم حذف الشاهد', 5);
+  } catch(err){
+    /* أي خلل غير متوقع بعرض نافذة التراجع لا يجب أن يمنع تنظيف الصور لاحقًا،
+       ولا يعتبر بحد ذاته فشلًا بالحذف نفسه (الحذف من القاعدة تم أعلاه بنجاح) */
+    shouldCleanupPhotos = true;
+  }
+
+  if(!shouldCleanupPhotos){
+    /* تراجع: أعد إدراج نفس السجل بنفس المعرّف والبيانات (الصور لم تُحذف بعد) */
+    try{
+      const { error: restoreErr } = await sb.from('shawahid').insert(rec);
+      if(restoreErr) throw restoreErr;
+      myRecords.splice(originalIndex > -1 ? originalIndex : myRecords.length, 0, rec);
+      filterMyShawahid();
+      showToast('تم التراجع عن الحذف', 'ok');
+    } catch(err){
+      showToast('تعذّر التراجع — قد تحتاج لإعادة إنشاء الشاهد يدويًا: ' + err.message, 'error');
+    }
+    return;
+  }
+
+  /* لم يتراجع المستخدم: نظّف صور الشاهد من مساحة التخزين لتوفير المساحة */
+  if(rec.photo_urls && rec.photo_urls.length){
+    const paths = rec.photo_urls.map(url => {
+      const idx = url.indexOf('/shawahid-photos/');
+      return idx > -1 ? url.slice(idx + '/shawahid-photos/'.length) : null;
+    }).filter(Boolean);
+    if(paths.length){
+      try{ await sb.storage.from('shawahid-photos').remove(paths); } catch(e){ /* تنظيف غير حرج */ }
+    }
   }
 }
 
