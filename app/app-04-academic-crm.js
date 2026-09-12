@@ -260,14 +260,22 @@ async function deleteAcademicCase(id){
    ومعرّفات عناصر DOM. موحَّد هنا بدالتين عامتين + كائنَي إعداد، مع إبقاء
    الأسماء الأصلية كأغلفة رقيقة (refreshAcBadges/refreshCrmPendingBadges
    لهما عشرات نقاط الاستدعاء بالملف). */
+/* استعلام فاشل (خطأ شبكة، أو Supabase "بارد" لم يستيقظ بعد) كان يُرجَع كـ
+   {pending:0, undocumented:0} — أي "لا شيء معلّق" خاطئة، فتُخفي الشارة أو
+   تُصفّرها رغم وجود عناصر معلّقة فعلية. runQueriesWithRetry (app-03) تعيد
+   المحاولة مرة تلقائيًا، ولو فشلت الثانية أيضًا نُرجع null ليُبقي
+   refreshTransferBadges الشارة كما هي بدل إخفائها/تصفيرها خطأً. */
 async function getTransferCounts(cfg){
-  const { data, error } = await sb.from(cfg.table)
-    .select('referral_letter_generated, referral_receipt_photo_url')
-    .eq('teacher_id', currentUser.id)
-    .eq(cfg.stageColumn, 'referred');
-  if(error || !data) return { pending: 0, undocumented: 0 };
+  const { ok, results } = await runQueriesWithRetry([
+    () => sb.from(cfg.table)
+      .select('referral_letter_generated, referral_receipt_photo_url')
+      .eq('teacher_id', currentUser.id)
+      .eq(cfg.stageColumn, 'referred')
+  ]);
+  if(!ok) return null;
+  const { data } = results[0];
   let pending = 0, undocumented = 0;
-  data.forEach(r => {
+  (data || []).forEach(r => {
     if(!r.referral_letter_generated) pending++;
     else if(!r.referral_receipt_photo_url) undocumented++;
   });
@@ -275,7 +283,9 @@ async function getTransferCounts(cfg){
 }
 
 async function refreshTransferBadges(cfg){
-  const { pending, undocumented } = await getTransferCounts(cfg);
+  const counts = await getTransferCounts(cfg);
+  if(!counts) return; /* فشل الفحص مرتين — نُبقي الشارات المعروضة حاليًا كما هي */
+  const { pending, undocumented } = counts;
   const total = pending + undocumented;
 
   const navBadge = document.getElementById(cfg.navBadgeId);

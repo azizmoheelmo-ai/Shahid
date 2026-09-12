@@ -772,6 +772,25 @@ function daysSince(dateStr){
   return (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
 }
 
+/* يشغّل مصفوفة استعلامات معًا، ويتحقق من عدم وجود أي خطأ ضمنها فعليًا — لا
+   يكفي فحص data فقط، لأن استعلامًا فاشلًا (خطأ شبكة، أو Supabase "بارد" لم
+   يستيقظ بعد) يُرجع data:null بلا رمي استثناء، فيبدو كـ"لا توجد بيانات/لا
+   تنبيهات" خطأً بدل "فشل الفحص". عند فشل أي استعلام، نعيد الكل مرة واحدة بعد
+   مهلة قصيرة (كافية غالبًا لتجاوز فترة الاستيقاظ) قبل التسليم بالفشل — وحينها
+   يُبقي المستدعي المحتوى المعروض حاليًا كما هو بدل استبداله بـ"لا تنبيهات ✓"
+   خاطئة (نفس المبدأ المطبَّق في loadPlan). */
+async function runQueriesWithRetry(queryFactories){
+  const runAll = () => Promise.all(queryFactories.map(f => f()));
+  let results = await runAll();
+  let hadError = results.some(r => r.error);
+  if(hadError){
+    await new Promise(r => setTimeout(r, 1500));
+    results = await runAll();
+    hadError = results.some(r => r.error);
+  }
+  return { ok: !hadError, results };
+}
+
 function riskRow(level, text, actionLabel, actionFn){
   const colors = { high: '#8A2C2C', medium: '#6B5420', low: '#2C4A72' };
   const bgs = { high: '#FBEAEA', medium: '#FBF3E6', low: '#EDF1F7' };
@@ -787,12 +806,15 @@ function riskRow(level, text, actionLabel, actionFn){
 
 async function buildAdminRisks(){
   const box = document.getElementById('riskAdminBody');
+  const { ok, results } = await runQueriesWithRetry([
+    () => sb.from('classroom_students').select('id, full_name'),
+    () => sb.from('classroom_incident_types').select('id, problem_name, problem_degree'),
+    () => sb.from('classroom_incidents').select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url, created_at').eq('current_stage', 'referred')
+  ]);
+  if(!ok) return; /* فشل الفحص مرتين — نُبقي ما هو معروض حاليًا كما هو */
+
   try{
-    const [{ data: students }, { data: types }, { data: incidents }] = await Promise.all([
-      sb.from('classroom_students').select('id, full_name'),
-      sb.from('classroom_incident_types').select('id, problem_name, problem_degree'),
-      sb.from('classroom_incidents').select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url, created_at').eq('current_stage', 'referred')
-    ]);
+    const [{ data: students }, { data: types }, { data: incidents }] = results;
 
     const rows = [];
     (incidents || []).forEach(inc => {
@@ -832,11 +854,14 @@ async function buildAdminRisks(){
 
 async function buildAcademicRisks(){
   const box = document.getElementById('riskAcademicBody');
+  const { ok, results } = await runQueriesWithRetry([
+    () => sb.from('classroom_students').select('id, full_name'),
+    () => sb.from('academic_cases').select('id, student_id, subject, referral_letter_generated, referral_receipt_photo_url, created_at').eq('status', 'referred')
+  ]);
+  if(!ok) return; /* فشل الفحص مرتين — نُبقي ما هو معروض حاليًا كما هو */
+
   try{
-    const [{ data: students }, { data: cases }] = await Promise.all([
-      sb.from('classroom_students').select('id, full_name'),
-      sb.from('academic_cases').select('id, student_id, subject, referral_letter_generated, referral_receipt_photo_url, created_at').eq('status', 'referred')
-    ]);
+    const [{ data: students }, { data: cases }] = results;
 
     const rows = [];
     (cases || []).forEach(c => {
