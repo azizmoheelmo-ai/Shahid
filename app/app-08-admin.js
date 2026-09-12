@@ -1028,7 +1028,10 @@ async function buildSelfAssessmentHtml(){
         ? `<div style="font-size:9.5px;color:#5A5648;margin-top:3px;line-height:1.65;">${escapeHtml(s.self_note)}</div>`
         : '';
 
-      return `<tr>
+      /* class="pdf-avoid-break" + page-break-inside:avoid: يمنعان قطع صف
+         معلم واحد في منتصفه بين صفحتين — عند التصدير PDF (متعدد الصفحات
+         الآن) وعند الطباعة المباشرة على السواء */
+      return `<tr class="pdf-avoid-break" style="page-break-inside:avoid;">
         <td style="padding:7px 9px;border:1px solid #D8D2C4;text-align:right;vertical-align:top;">
           <div style="font-size:11px;font-weight:700;color:#1B3245;">${escapeHtml(name)}</div>
           ${noteHtml}
@@ -1124,20 +1127,9 @@ async function exportSelfAssessment(){
     await ensurePdfLibs();
 
     const area = document.getElementById('pdfRenderArea');
-    area.innerHTML = html;
-    await new Promise(r => setTimeout(r, 80));
-
-    const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'pt', 'a4');
-    const pw = pdf.internal.pageSize.getWidth();
-    const ph = pdf.internal.pageSize.getHeight();
-    const ratio = Math.min(pw / canvas.width, ph / canvas.height);
-    const w = canvas.width * ratio;
-    const h = canvas.height * ratio;
-    pdf.addImage(imgData, 'JPEG', (pw - w) / 2, 0, w, h);
+    await addPdfPagesMulti(pdf, area, html, { firstPage: true });
 
     pdf.save(`Self-Assessment-${new Date().toISOString().slice(0,10)}.pdf`);
     showToast('تم تحميل ورقة التقييم الذاتي', 'ok');
