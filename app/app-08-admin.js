@@ -803,8 +803,11 @@ function buildPlanHtml(){
       arr.map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>'
     : '<div style="font-size:10px;color:#9A9484;margin-top:3px;">—</div>';
 
+  /* class="pdf-avoid-break" تُستخدم لاحقًا عند تصدير PDF متعدد الصفحات لمعرفة
+     أين تسمح نقاط القطع الآمنة بين الصفحات — حتى لا يُقطع هدف أو قسم عنصر
+     كامل في منتصفه بين صفحة وأخرى */
   const goalBlock = (g, gi) => `
-    <div style="border-top:1px dashed #D8D2C4;padding-top:8px;margin-top:8px;">
+    <div class="pdf-avoid-break" style="border-top:1px dashed #D8D2C4;padding-top:8px;margin-top:8px;">
       <div style="font-size:10px;font-weight:800;color:#A9852E;margin-bottom:5px;">
         ${escapeHtml(goalDisplayName(g, gi))}${g.target_level ? ' — المستهدف: ' + g.target_level + ' ' + LEVEL_NAMES[g.target_level] : ''}${g.target_count ? ' — عدد الشواهد: ' + g.target_count : ''}
       </div>
@@ -833,7 +836,7 @@ function buildPlanHtml(){
     if(!goals.length) return '';
 
     return `
-      <div style="margin-bottom:14px;page-break-inside:avoid;">
+      <div class="pdf-avoid-break" style="margin-bottom:14px;page-break-inside:avoid;">
         <div style="background:#1B3245;color:#fff;padding:7px 12px;font-size:11.5px;font-weight:700;">
           ${i+1}. ${escapeHtml(name)} (وزن ${w}%) — ${goals.length} ${goals.length === 1 ? 'هدف' : 'أهداف'}
         </div>
@@ -882,6 +885,102 @@ function printPlan(){
   window.print();
 }
 
+/* ============ أدوات مشتركة لبناء صفحات PDF (تُستخدم في تحميل الخطة وملف الإنجاز) ============ */
+
+/* هامش حقيقي حول كل صفحة بدل لصق المحتوى بحافة الورقة تمامًا — أغلب الطابعات
+   أصلًا لا تطبع لحافة الورقة، وبدون هامش يلتصق النص بحافة الصفحة عند الطباعة
+   أو التجليد. */
+const PDF_MARGIN_PT = 28;
+
+/* يضيف صفحة PDF واحدة تحتوي HTML، مُصغّرًا بالتناسب ليتسع كاملًا ضمن هامش
+   الصفحة (لا يُقطع ولا يتجاوزها). state.firstPage تتحكم هل تُستهل صفحة جديدة
+   أو تُستخدم الصفحة الأولى الفارغة أصلًا في مستند jsPDF. */
+async function addPdfPage(pdf, area, html, state){
+  area.innerHTML = html;
+  await new Promise(r => setTimeout(r, 100));
+
+  const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
+  const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const boxW = pageWidth - PDF_MARGIN_PT * 2;
+  const boxH = pageHeight - PDF_MARGIN_PT * 2;
+  const ratio = Math.min(boxW / canvas.width, boxH / canvas.height);
+  const w = canvas.width * ratio;
+  const h = canvas.height * ratio;
+
+  if(!state.firstPage) pdf.addPage();
+  pdf.addImage(imgData, 'JPEG', (pageWidth - w) / 2, PDF_MARGIN_PT, w, h);
+  state.firstPage = false;
+}
+
+/* يوزّع محتوى HTML طويلًا على عدة صفحات بعرض كامل (ضمن الهامش)، مع الحرص على
+   عدم قطع أي عنصر عليه class="pdf-avoid-break" (قسم عنصر أداء كامل، أو هدف
+   واحد ضمن عنصر متعدد الأهداف) بين صفحتين. نقيس مواضع نهاية هذه العناصر قبل
+   تصوير المحتوى، ثم نقسّم الصورة الملتقطة عند أقرب نقطة آمنة لا تتجاوز سعة
+   الصفحة — بدل التقسيم الآلي كل ارتفاع صفحة بلا وعي بالمحتوى (وهو ما كان
+   يقطع الأقسام والجداول في منتصفها بين صفحة وأخرى). */
+/* الجزء الحسابي البحت من التقسيم (لا يلمس DOM ولا Canvas) — معزول في دالة
+   مستقلة ليسهل اختباره: يُرجع نقاط [بداية، نهاية] كل صفحة بوحدة px CSS، بدون
+   قطع أي مدى يتجاوز أقرب نقطة قطع آمنة ≤ سعة الصفحة. */
+function computePdfSliceBoundaries(cssHeight, maxSliceCssPx, breakPoints){
+  const slices = [];
+  let cursor = 0;
+  while(cursor < cssHeight - 0.5){
+    const target = Math.min(cursor + maxSliceCssPx, cssHeight);
+    let sliceEnd = target;
+    if(target < cssHeight){
+      const candidates = breakPoints.filter(bp => bp > cursor + 1 && bp <= target);
+      if(candidates.length) sliceEnd = candidates[candidates.length - 1];
+    }
+    slices.push([cursor, sliceEnd]);
+    cursor = sliceEnd;
+  }
+  return slices;
+}
+
+async function addPdfPagesMulti(pdf, area, html, state){
+  area.innerHTML = html;
+  await new Promise(r => setTimeout(r, 100));
+
+  const cssWidth = area.offsetWidth;
+  const cssHeight = area.offsetHeight;
+
+  const areaTop = area.getBoundingClientRect().top;
+  const breakPoints = Array.from(area.querySelectorAll('.pdf-avoid-break'))
+    .map(el => el.getBoundingClientRect().bottom - areaTop)
+    .filter(y => y > 0 && y <= cssHeight)
+    .sort((a, b) => a - b);
+
+  const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
+  const canvasScaleY = canvas.height / cssHeight;
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const boxW = pageWidth - PDF_MARGIN_PT * 2;
+  const boxH = pageHeight - PDF_MARGIN_PT * 2;
+  const ptPerCssPx = boxW / cssWidth;
+  const maxSliceCssPx = boxH / ptPerCssPx;
+
+  const slices = computePdfSliceBoundaries(cssHeight, maxSliceCssPx, breakPoints);
+  for(const [start, end] of slices){
+    const sy = Math.round(start * canvasScaleY);
+    const sh = Math.max(1, Math.round((end - start) * canvasScaleY));
+
+    const sliceCanvas = document.createElement('canvas');
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = sh;
+    sliceCanvas.getContext('2d').drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+    const imgData = sliceCanvas.toDataURL('image/jpeg', 0.95);
+    const h = (sh / canvasScaleY) * ptPerCssPx;
+
+    if(!state.firstPage) pdf.addPage();
+    pdf.addImage(imgData, 'JPEG', PDF_MARGIN_PT, PDF_MARGIN_PT, boxW, h);
+    state.firstPage = false;
+  }
+}
+
 /* تحميل الخطة كملف PDF على الجهاز */
 async function exportPlanPdf(){
   const html = buildPlanHtml();
@@ -894,32 +993,9 @@ async function exportPlanPdf(){
     await ensurePdfLibs();
 
     const area = document.getElementById('pdfRenderArea');
-    area.innerHTML = html;
-    await new Promise(r => setTimeout(r, 120));
-
-    const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'pt', 'a4');
-    const pw = pdf.internal.pageSize.getWidth();
-    const ph = pdf.internal.pageSize.getHeight();
-
-    /* الخطة التفصيلية طويلة — نوزّعها على عدة صفحات بعرض كامل */
-    const imgW = pw;
-    const imgH = canvas.height * (pw / canvas.width);
-
-    let heightLeft = imgH;
-    let position = 0;
-    pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-    heightLeft -= ph;
-
-    while(heightLeft > 0){
-      position -= ph;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-      heightLeft -= ph;
-    }
+    await addPdfPagesMulti(pdf, area, html, { firstPage: true });
 
     pdf.save(`Performance-Plan-${new Date().toISOString().slice(0,10)}.pdf`);
     showToast('تم تحميل ملف الخطة', 'ok');
@@ -1084,49 +1160,10 @@ async function exportPortfolio(){
 
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'pt', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
     const area = document.getElementById('pdfRenderArea');
-    let firstPage = true;
-
-    async function addHtmlPage(html){
-      area.innerHTML = html;
-      await new Promise(r => setTimeout(r, 60));
-      const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
-      const w = canvas.width * ratio;
-      const h = canvas.height * ratio;
-      if(!firstPage) pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', (pageWidth - w) / 2, 0, w, h);
-      firstPage = false;
-    }
-
-    /* للمحتوى الطويل (مثل تفاصيل الخطة الكاملة) — نقسّمه على عدة صفحات بعرض كامل
-       بدل ضغطه بالقوة في صفحة واحدة، لضمان بقاء النص بحجم مقروء */
-    async function addHtmlPageMultiPage(html){
-      area.innerHTML = html;
-      await new Promise(r => setTimeout(r, 100));
-      const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-
-      const imgW = pageWidth;
-      const imgH = canvas.height * (pageWidth / canvas.width);
-
-      let heightLeft = imgH;
-      let position = 0;
-      if(!firstPage) pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-      heightLeft -= pageHeight;
-      firstPage = false;
-
-      while(heightLeft > 0){
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-        heightLeft -= pageHeight;
-      }
-    }
+    const pageState = { firstPage: true };
+    const addHtmlPage = (html) => addPdfPage(pdf, area, html, pageState);
+    const addHtmlPageMultiPage = (html) => addPdfPagesMulti(pdf, area, html, pageState);
 
     /* صفحة الغلاف */
     await addHtmlPage(`
