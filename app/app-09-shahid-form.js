@@ -1259,25 +1259,11 @@ async function buildRecordPdfBlob(rec){
     photoDataUrls = results.filter(Boolean);
   }
 
-  area.innerHTML = buildPdfHtml(rec, photoDataUrls);
-  await new Promise(r => setTimeout(r, 80));
-
-  const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-  const imgData = canvas.toDataURL('image/jpeg', 0.95);
-
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF('p', 'pt', 'a4');
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-
-  /* احتواء المحتوى بالكامل داخل صفحة واحدة مع الحفاظ على النسب */
-  const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
-  const imgWidth = canvas.width * ratio;
-  const imgHeight = canvas.height * ratio;
-  const x = (pageWidth - imgWidth) / 2;
-  const y = 0;
-
-  pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
+  /* addPdfPage معرَّفة في app-08-admin.js (تُحمَّل قبل هذا الملف) — تضيف
+     هامش صفحة حقيقي بدل لصق المحتوى بحافة الورقة تمامًا */
+  await addPdfPage(pdf, area, buildPdfHtml(rec, photoDataUrls), { firstPage: true });
   return pdf.output('blob');
 }
 
@@ -1307,9 +1293,8 @@ async function exportAllShawahid(){
 
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'pt', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
     const area = document.getElementById('pdfRenderArea');
+    const pageState = { firstPage: true };
 
     for(let i = 0; i < sorted.length; i++){
       const rec = sorted[i];
@@ -1321,19 +1306,8 @@ async function exportAllShawahid(){
         photoDataUrls = results.filter(Boolean);
       }
 
-      area.innerHTML = buildPdfHtml(rec, photoDataUrls);
-      await new Promise(r => setTimeout(r, 60));
-
-      const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-
-      const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
-      const imgWidth = canvas.width * ratio;
-      const imgHeight = canvas.height * ratio;
-      const x = (pageWidth - imgWidth) / 2;
-
-      if(i > 0) pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', x, 0, imgWidth, imgHeight);
+      /* addPdfPage معرَّفة في app-08-admin.js — هامش صفحة حقيقي بدل الالتصاق بحافتها */
+      await addPdfPage(pdf, area, buildPdfHtml(rec, photoDataUrls), pageState);
     }
 
     const teacherName = (currentUser.user_metadata && currentUser.user_metadata.full_name) || 'Teacher';

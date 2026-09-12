@@ -414,6 +414,15 @@ function safeSheetName(name){
   return name.replace(/[:\\\/\?\*\[\]]/g, '-').slice(0, 31);
 }
 
+/* هامش طباعة معقول بدل هوامش إكسل الافتراضية الواسعة — أقصى استفادة من عرض
+   الورقة عند الطباعة (خصوصًا تبويبات "دورة" ذات العمود الواسع الواحد).
+   ملاحظة: مكتبة XLSX (community) لا تكتب orientation/fitToWidth عند الحفظ،
+   فتبقى هذه إعدادات يضبطها المستخدم يدويًا من مربع حوار الطباعة بإكسل لو
+   احتاج ملاءمة العرض لصفحة واحدة. */
+function setXlsxPrintMargins(ws){
+  ws['!margins'] = { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 };
+}
+
 /* يبني صفحة بيانات دورة واحدة: شواهدها، ثم خطتها، ثم تقييمها الذاتي — بجداول منفصلة داخل نفس التبويب */
 /* أسماء ملفات الصور الفعلية المرتبطة بشاهد — بنفس منطق التسمية المستخدم فعليًا عند حفظها في مجلد "الصور/" */
 function getPhotoFileNames(r){
@@ -542,6 +551,10 @@ async function exportBackup(){
 
     /* ============ بناء ملف Excel بتبويب "ملخص" + تبويب لكل دورة + تبويبات إدارة الصف ============ */
     const wb = XLSX.utils.book_new();
+    /* كل محتوى الملف عربي — بدون هذا، إكسل يفتح كل تبويب باتجاه LTR افتراضيًا:
+       يظهر العمود الأول (أ) على اليسار بدل اليمين، فينعكس ترتيب القراءة الطبيعي
+       على الشاشة وعند الطباعة كذلك. */
+    wb.Workbook = { Views: [{ RTL: true }] };
 
     const summaryAOA = [
       ['نسخة احتياطية — نظام شاهد الأداء الوظيفي'],
@@ -567,6 +580,7 @@ async function exportBackup(){
     summaryAOA.push(['عدد الحالات المحالة', crmIncidents.filter(i => i.current_stage === 'referred').length]);
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryAOA);
     wsSummary['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 18 }];
+    setXlsxPrintMargins(wsSummary);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
 
     years.forEach(y => {
@@ -578,6 +592,7 @@ async function exportBackup(){
       );
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!cols'] = [{ wch: 130 }];
+      setXlsxPrintMargins(ws);
       XLSX.utils.book_append_sheet(wb, ws, safeSheetName('دورة ' + y.replace('/', '-')));
     });
 
@@ -592,6 +607,7 @@ async function exportBackup(){
         });
       const wsStudents = XLSX.utils.aoa_to_sheet(studentsAOA);
       wsStudents['!cols'] = [{ wch: 26 }, { wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 14 }];
+      setXlsxPrintMargins(wsStudents);
       XLSX.utils.book_append_sheet(wb, wsStudents, 'طلاب إدارة الصف');
     }
 
@@ -617,6 +633,7 @@ async function exportBackup(){
       });
       const wsIncidents = XLSX.utils.aoa_to_sheet(incidentsAOA);
       wsIncidents['!cols'] = [{ wch: 22 }, { wch: 32 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 6 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 30 }];
+      setXlsxPrintMargins(wsIncidents);
       XLSX.utils.book_append_sheet(wb, wsIncidents, 'حوادث إدارة الصف');
     }
 
@@ -641,6 +658,7 @@ async function exportBackup(){
       });
       const wsAcademic = XLSX.utils.aoa_to_sheet(acAOA);
       wsAcademic['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 30 }, { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 30 }];
+      setXlsxPrintMargins(wsAcademic);
       XLSX.utils.book_append_sheet(wb, wsAcademic, 'المتابعة الأكاديمية');
     }
 

@@ -25,6 +25,13 @@ async function ensureXlsxLib(){
 async function ensurePdfLibs(){
   await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
   await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+  /* الخطوط العربية (Cairo/Amiri) تُحمَّل من Google Fonts — لو صادف أن مستخدمًا
+     صدّر PDF قبل ما يكتمل تحميلها (اتصال بطيء، أو خلال أول ثانية من فتح
+     الصفحة)، يلتقط html2canvas خطًا بديلًا بدل الخط الفعلي. ننتظر اكتمال كل
+     الخطوط هنا مرة واحدة، بدل تكرار الانتظار بكل دالة تصدير على حدة. */
+  if(document.fonts && document.fonts.ready){
+    try{ await document.fonts.ready; } catch(e){ /* تجاهل — لا يمنع التصدير */ }
+  }
 }
 
 /* ============ التنبيهات المنبثقة (Toast) ============ */

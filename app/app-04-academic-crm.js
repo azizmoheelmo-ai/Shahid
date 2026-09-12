@@ -451,33 +451,21 @@ async function buildLetterPdfBlob(previewElId, photoUrl){
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF('p', 'pt', 'a4');
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const addCanvasAsPage = (canvas, isFirst) => {
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
-    const imgWidth = canvas.width * ratio;
-    const imgHeight = canvas.height * ratio;
-    const x = (pageWidth - imgWidth) / 2;
-    if(!isFirst) pdf.addPage();
-    pdf.addImage(imgData, 'JPEG', x, 0, imgWidth, imgHeight);
-  };
+  const pageState = { firstPage: true };
 
-  area.innerHTML = '<div dir="rtl" style="font-family:Arial;font-size:14px;line-height:2;padding:30px;background:#fff;">' + letterHtml + '</div>';
-  await new Promise(r => setTimeout(r, 80));
-  const letterCanvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-  addCanvasAsPage(letterCanvas, true);
+  /* addPdfPage معرَّفة في app-08-admin.js — هامش صفحة حقيقي بدل الالتصاق
+     بحافتها، لكل من صفحة نص الخطاب وصفحة صورة إثبات التسليم */
+  const letterPageHtml = '<div dir="rtl" style="font-family:Arial;font-size:14px;line-height:2;padding:30px;background:#fff;">' + letterHtml + '</div>';
+  await addPdfPage(pdf, area, letterPageHtml, pageState);
 
   if(photoUrl){
     const dataUrl = await toDataUrl(photoUrl);
     if(dataUrl){
-      area.innerHTML = '<div dir="rtl" style="font-family:Arial;padding:30px;background:#fff;text-align:center;">' +
+      const photoPageHtml = '<div dir="rtl" style="font-family:Arial;padding:30px;background:#fff;text-align:center;">' +
         '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
         '<img src="' + escapeHtml(dataUrl) + '" style="max-width:60%;border:1px solid #999;">' +
         '</div>';
-      await new Promise(r => setTimeout(r, 80));
-      const photoCanvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-      addCanvasAsPage(photoCanvas, false);
+      await addPdfPage(pdf, area, photoPageHtml, pageState);
     }
   }
   area.innerHTML = '';
