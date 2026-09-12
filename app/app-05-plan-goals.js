@@ -1834,9 +1834,44 @@ function goalDisplayName(goal, idx){
 
 let _loadPlanToken = 0;
 
+/* الاستعلامات الثلاثة داخل loadPlan كانت متتابعة (كل واحد ينتظر السابق) بدل
+   متوازية — تُنفَّذ الآن معًا عبر Promise.all، فينخفض زمن الانتظار الكلي إلى
+   أبطأ استعلام واحد بدل مجموع الثلاثة. كل استعلام مُغلَّف هنا بحيث "يلتقط"
+   خطأه بنفسه بدل رميه، ليكمل Promise.all وباقي الاستعلامات حتى لو فشل أحدها. */
+async function fetchPlanDataOnce(y){
+  const safe = (p) => p.then(r => ({ data: r.data, error: r.error || null })).catch(e => ({ data: null, error: e }));
+  const [goalsRes, headerRes, recsRes] = await Promise.all([
+    safe(sb.from('performance_goals').select('*').eq('cycle_year', y).order('goal_order', { ascending: true })),
+    safe(sb.from('plan_header').select('*').eq('cycle_year', y).maybeSingle()),
+    safe(sb.from('shawahid').select('element_key, goal_id, cycle_year, lesson_date, created_at'))
+  ]);
+  return { goalsRes, headerRes, recsRes };
+}
+
 async function loadPlan(year){
   const myToken = ++_loadPlanToken;
   const y = year || getCycleYear();
+
+  /* استعلام فاشل (خطأ شبكة، أو Supabase "بارد" لم يستيقظ بعد) يُرجع data:null —
+     لو عاملناه كـ"لا توجد بيانات" بصمت، تنعكس أرقام حقيقية (الاكتمال الموزون،
+     الأهداف المخطَّطة) إلى صفر خطأً، دون أي إشعار. لذا نحاول مرة، ولو فشل أي
+     جزء نعيد المحاولة مرة واحدة بعد مهلة قصيرة (كافية غالبًا لتجاوز فترة
+     "استيقاظ" مشروع Supabase المجاني) قبل التسليم بالفشل مع إبقاء آخر بيانات
+     محمَّلة كما هي بدل استبدالها بحالة فارغة خاطئة. */
+  let { goalsRes, headerRes, recsRes } = await fetchPlanDataOnce(y);
+  let hadError = goalsRes.error || headerRes.error || recsRes.error;
+  if(hadError){
+    await new Promise(r => setTimeout(r, 1500));
+    if(myToken !== _loadPlanToken) return { ok: false }; /* نداء أحدث بدأ أثناء انتظارنا */
+    ({ goalsRes, headerRes, recsRes } = await fetchPlanDataOnce(y));
+    hadError = goalsRes.error || headerRes.error || recsRes.error;
+  }
+  if(hadError){
+    /* فشلت المحاولتان — نُبقي البيانات المعروضة حاليًا كما هي بدل تصفيرها
+       خطأً، حتى لا يظهر تقدّم حقيقي وكأنه صفر بسبب عطل شبكة مؤقت */
+    if(myToken !== _loadPlanToken) return { ok: false };
+    return { ok: false };
+  }
 
   /* نبني كل شيء في متغيرات محلية أولًا، ولا نلمس الحالة العامة إلا لو
      كان هذا آخر نداء فعليًا — يمنع تضاعف الأرقام عند تشابك نداءين متزامنين */
@@ -1846,25 +1881,21 @@ async function loadPlan(year){
   const _goalShahidCounts = {};
   let _planHeader = { role_title: '', stage: '', extra_duties: '' };
 
-  try{
-    const { data } = await sb.from('performance_goals')
-      .select('*').eq('cycle_year', y).order('goal_order', { ascending: true });
-    (data || []).forEach(g => {
-      if(!_myPlanGoals[g.element_key]) _myPlanGoals[g.element_key] = [];
-      _myPlanGoals[g.element_key].push({
-        id: g.id,
-        goal_name: g.goal_name || '',
-        target_level: g.target_level,
-        target_count: g.target_count || 0,
-        personal_note: g.personal_note || '',
-        target_performance: g.target_performance || '',
-        success_indicators: g.success_indicators || [],
-        recommended_evidence: g.recommended_evidence || [],
-        action_steps: g.action_steps || [],
-        template_name: g.template_name || ''
-      });
+  (goalsRes.data || []).forEach(g => {
+    if(!_myPlanGoals[g.element_key]) _myPlanGoals[g.element_key] = [];
+    _myPlanGoals[g.element_key].push({
+      id: g.id,
+      goal_name: g.goal_name || '',
+      target_level: g.target_level,
+      target_count: g.target_count || 0,
+      personal_note: g.personal_note || '',
+      target_performance: g.target_performance || '',
+      success_indicators: g.success_indicators || [],
+      recommended_evidence: g.recommended_evidence || [],
+      action_steps: g.action_steps || [],
+      template_name: g.template_name || ''
     });
-  } catch(e){ /* تجاهل */ }
+  });
 
   /* اشتقاق myPlan (للتوافق مع أجزاء النظام التي تعرض "المستهدف" كقيمة واحدة:
      التذكير أثناء التوثيق، مقارنة التقييم الذاتي، الاكتمال الموزون، ملخصات PDF) */
@@ -1883,37 +1914,31 @@ async function loadPlan(year){
     };
   });
 
-  try{
-    const { data: h } = await sb.from('plan_header')
-      .select('*').eq('cycle_year', y).maybeSingle();
-    if(h){
-      _planHeader = {
-        role_title: h.role_title || '',
-        stage: h.stage || '',
-        extra_duties: h.extra_duties || ''
-      };
-    }
-  } catch(e){ /* تجاهل */ }
+  if(headerRes.data){
+    _planHeader = {
+      role_title: headerRes.data.role_title || '',
+      stage: headerRes.data.stage || '',
+      extra_duties: headerRes.data.extra_duties || ''
+    };
+  }
 
   /* حصر شواهد نفس سنة الدورة فقط (مع تصنيف تلقائي للشواهد القديمة بلا سنة محفوظة) */
-  try{
-    const { data: recs } = await sb.from('shawahid').select('element_key, goal_id, cycle_year, lesson_date, created_at');
-    (recs || []).forEach(r => {
-      const ry = r.cycle_year || getCycleYear(r.lesson_date || r.created_at || undefined);
-      if(ry !== y) return;
-      _planShahidCounts[r.element_key] = (_planShahidCounts[r.element_key] || 0) + 1;
-      if(r.goal_id) _goalShahidCounts[r.goal_id] = (_goalShahidCounts[r.goal_id] || 0) + 1;
-    });
-  } catch(e){ /* تجاهل */ }
+  (recsRes.data || []).forEach(r => {
+    const ry = r.cycle_year || getCycleYear(r.lesson_date || r.created_at || undefined);
+    if(ry !== y) return;
+    _planShahidCounts[r.element_key] = (_planShahidCounts[r.element_key] || 0) + 1;
+    if(r.goal_id) _goalShahidCounts[r.goal_id] = (_goalShahidCounts[r.goal_id] || 0) + 1;
+  });
 
   /* لو صار نداء أحدث لهذي الدالة أثناء انتظارنا، نتجاهل نتيجتنا القديمة كليًا */
-  if(myToken !== _loadPlanToken) return;
+  if(myToken !== _loadPlanToken) return { ok: false };
 
   myPlan = _myPlan;
   myPlanGoals = _myPlanGoals;
   planShahidCounts = _planShahidCounts;
   goalShahidCounts = _goalShahidCounts;
   planHeader = _planHeader;
+  return { ok: true, myPlan, myPlanGoals, planShahidCounts, goalShahidCounts, planHeader };
 }
 
 /* يجمع كل سنوات الدورة التي فيها بيانات (خطط أو تقييمات أو شواهد)، مع ضمان وجود السنة الحالية دائمًا */

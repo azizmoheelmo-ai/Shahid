@@ -113,8 +113,11 @@ function extractAppScript(htmlDir, html) {
 }
 
 /* يحمّل ويشغّل تطبيق شاهد، ويُرجع كائن sandbox — استدعِ الدوال المُعرَّفة
-   بصيغة function عليه مباشرة، مثل: app.escapeHtml('<b>') */
-function loadApp() {
+   بصيغة function عليه مباشرة، مثل: app.escapeHtml('<b>')
+   opts.supabaseClient: عميل Supabase وهمي بديل (بدل makeFakeSupabaseClient
+   الافتراضي) — يفيد لاختبار سلوك عند فشل استعلام معيّن، دون التأثير على بقية
+   الاختبارات التي لا تمرّره. */
+function loadApp(opts) {
   const htmlDir = path.join(__dirname, '..');
   const htmlPath = path.join(htmlDir, 'index.html');
   const html = fs.readFileSync(htmlPath, 'utf-8');
@@ -144,7 +147,7 @@ function loadApp() {
     removeEventListener: () => {},
     open: () => {},
     window: undefined, // يُملأ أدناه بعد الإنشاء (يشير لنفس sandbox)
-    supabase: { createClient: () => makeFakeSupabaseClient() },
+    supabase: { createClient: () => (opts && opts.supabaseClient) || makeFakeSupabaseClient() },
     localStorage: makeFakeStorage(),
     URL: { createObjectURL: () => 'blob:fake', revokeObjectURL: () => {} },
   };
@@ -167,4 +170,4 @@ function makeFakeStorage() {
   };
 }
 
-module.exports = { loadApp, extractAppScript };
+module.exports = { loadApp, extractAppScript, makeFakeSupabaseClient };

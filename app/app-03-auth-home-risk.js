@@ -282,7 +282,10 @@ async function onLoggedIn(user){
   renderVerifyBanner();
   sb.rpc('record_login').then(() => {}).catch(() => {});  /* تسجيل النشاط بصمت */
   await loadPerformanceElements();
-  loadPlan();
+  /* لا حاجة لاستدعاء loadPlan() هنا بشكل منفصل — showHome() (بالأسفل) يستدعيها
+     أصلًا عبر refreshPlanSummary() وينتظرها فعليًا قبل حساب الاكتمال الموزون؛
+     استدعاء إضافي هنا كان يكرّر نفس 3 الاستعلامات بلا أي فائدة، ويُبطئ تسجيل
+     الدخول بلا داعٍ. */
   await showHome();
   offerDraftRestore();
 }
