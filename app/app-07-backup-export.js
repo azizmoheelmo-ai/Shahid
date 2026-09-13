@@ -161,6 +161,14 @@ create table if not exists public.shawahid (
   updated_at timestamptz default now()
 );
 
+/* أُضيفا لاحقًا (ربط شاهد بهدف محدد بالخطة + تصنيف كل شاهد على دورة أدائه) —
+   IF NOT EXISTS يجعل هذا آمنًا للتشغيل حتى لو كانا مضافين مسبقًا، وضروري
+   لأي قاعدة أُنشئت من نسخة سابقة من هذا الملف لا تتضمنهما: بدونهما يفشل كل
+   استعلام في loadPlan() على shawahid بصمت (عمود غير موجود)، فتظهر الخطة
+   والنسبة الموزونة فارغتين رغم أن بيانات الخطة نفسها سليمة تمامًا. */
+alter table public.shawahid add column if not exists goal_id uuid references public.performance_goals(id) on delete set null;
+alter table public.shawahid add column if not exists cycle_year text;
+
 alter table public.shawahid enable row level security;
 
 drop policy if exists "المعلم يشوف شواهده فقط" on public.shawahid;
