@@ -369,6 +369,30 @@ create table if not exists public.plan_header (
   primary key (user_id, cycle_year)
 );
 
+/* شبكة أمان: لو كان هذا الجدول أُنشئ بقاعدة بيانات سابقًا (بنسخة قديمة من
+   هذا الملف) بلا هذا المفتاح الأساسي — "create table if not exists" أعلاه
+   لا يضيفه رجعيًا لجدول موجود مسبقًا. بدونه، upsert(...,{onConflict:
+   'user_id,cycle_year'}) بكود التطبيق يتحول لإدراج (insert) عادي في كل
+   حفظ بدل تحديث الصف الموجود، فتتراكم صفوف مكررة لنفس المعلم ونفس الدورة —
+   وأي قراءة لاحقة عبر .maybeSingle() (loadPlan) تفشل فورًا برسالة "JSON
+   object requested, multiple (or no) rows returned"، فتظهر الخطة والنسبة
+   الموزونة فارغتين رغم أن بيانات الخطة (performance_goals) نفسها سليمة. */
+delete from public.plan_header a
+using public.plan_header b
+where a.user_id = b.user_id
+  and a.cycle_year = b.cycle_year
+  and (a.updated_at, a.ctid) < (b.updated_at, b.ctid);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.plan_header'::regclass and contype = 'p'
+  ) then
+    alter table public.plan_header add primary key (user_id, cycle_year);
+  end if;
+end $$;
+
 alter table public.plan_header enable row level security;
 
 drop policy if exists "المعلم يدير ترويسة خطته" on public.plan_header;
