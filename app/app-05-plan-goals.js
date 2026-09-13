@@ -1868,8 +1868,12 @@ async function loadPlan(year){
   }
   if(hadError){
     /* فشلت المحاولتان — نُبقي البيانات المعروضة حاليًا كما هي بدل تصفيرها
-       خطأً، حتى لا يظهر تقدّم حقيقي وكأنه صفر بسبب عطل شبكة مؤقت */
+       خطأً، حتى لا يظهر تقدّم حقيقي وكأنه صفر بسبب عطل شبكة مؤقت.
+       تشخيص مؤقت: نظهر رسالة الخطأ الحقيقية بدل إخفائها بصمت — يفيد جدًا
+       لمعرفة السبب الفعلي على جهاز جوال بلا أدوات مطورين. */
     if(myToken !== _loadPlanToken) return { ok: false };
+    const err = goalsRes.error || headerRes.error || recsRes.error;
+    if(err) showToast('تعذّر تحميل الخطة: ' + (err.message || JSON.stringify(err)), 'error');
     return { ok: false };
   }
 

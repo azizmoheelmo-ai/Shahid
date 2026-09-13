@@ -137,6 +137,7 @@ function loadApp(opts) {
   const sandbox = {
     console,
     setTimeout, clearTimeout, setInterval, clearInterval,
+    requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: (id) => clearTimeout(id),
     URLSearchParams,
     Promise, Date, Math, JSON, Array, Object, String, Number, Boolean, RegExp, Map, Set, Symbol,
     document: fakeDocument,
