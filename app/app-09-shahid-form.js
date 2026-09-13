@@ -1152,16 +1152,14 @@ function printCurrentForm(){
   };
 
   document.getElementById('printArea').innerHTML = buildPdfHtml(draft, photoSrcs);
-  document.body.classList.add('printing-record');
-  window.print();
+  printNow();
 }
 
 function printRecord(id){
   const rec = myRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
   document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
-  document.body.classList.add('printing-record');
-  window.print();
+  printNow();
 }
 window.addEventListener('afterprint', () => {
   document.body.classList.remove('printing-record');

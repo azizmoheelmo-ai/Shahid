@@ -16,6 +16,19 @@ function loadScriptOnce(src){
   });
   return _loadedScripts[src];
 }
+
+/* ============ طباعة موحّدة (تُستخدم لكل زر "طباعة" بالتطبيق) ============ */
+/* تضيف class="printing-record" على body (تُظهر #printArea فقط أثناء الطباعة
+   عبر CSS)، ثم تستدعي window.print(). التنظيف الطبيعي عبر حدث 'afterprint'
+   (مُسجَّل بملف app-03) لا يُطلَق دومًا على بعض متصفحات الجوال — مثلًا لو رجع
+   المستخدم من معاينة الطباعة بإيماءة/زر الرجوع بدل إلغائها صراحة — فيبقى
+   النموذج "عالقًا" خلف #printArea إلى أن تُعاد الصفحة يدويًا. كشبكة أمان،
+   نزيل الكلاس تلقائيًا بعد مهلة معقولة إن لم يُطلَق الحدث خلالها. */
+function printNow(){
+  document.body.classList.add('printing-record');
+  setTimeout(() => document.body.classList.remove('printing-record'), 15000);
+  window.print();
+}
 async function ensureZipLib(){
   await loadScriptOnce('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
 }

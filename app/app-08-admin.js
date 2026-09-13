@@ -301,8 +301,7 @@ function adminPrintRecord(id){
   const rec = adminAllRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
   document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
-  document.body.classList.add('printing-record');
-  window.print();
+  printNow();
 }
 
 async function adminDeleteRecord(id){
@@ -899,8 +898,7 @@ function printPlan(){
     return;
   }
   document.getElementById('printArea').innerHTML = html;
-  document.body.classList.add('printing-record');
-  window.print();
+  printNow();
 }
 
 /* ============ أدوات مشتركة لبناء صفحات PDF (تُستخدم في تحميل الخطة وملف الإنجاز) ============ */
@@ -1129,8 +1127,7 @@ async function printSelfAssessment(){
     return;
   }
   document.getElementById('printArea').innerHTML = html;
-  document.body.classList.add('printing-record');
-  window.print();
+  printNow();
 }
 
 /* تحميل ورقة التقييم الذاتي كملف PDF */

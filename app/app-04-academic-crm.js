@@ -496,8 +496,7 @@ async function printLetterContent(previewElId, photoUrl){
     }
   }
   document.getElementById('printArea').innerHTML = '<div dir="rtl" style="font-family:Arial;font-size:13pt;line-height:2;padding:10px;">' + content + photoHtml + '</div>';
-  document.body.classList.add('printing-record');
-  window.print();
+  printNow();
 }
 
 async function downloadLetterPdfFile(buildBlobFn, studentName, letterLabel){
