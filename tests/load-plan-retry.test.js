@@ -46,7 +46,7 @@ describe('loadPlan — استعلام فاشل ثم إعادة محاولة', ()
       }],
     };
     const { client, getCallCount } = makeFlakyClient({ failTable: 'performance_goals', failCount: 1, seedData: seed });
-    const app = loadApp({ supabaseClient: client });
+    const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
 
     const result = await app.loadPlan('1447-1448');
 
@@ -58,7 +58,7 @@ describe('loadPlan — استعلام فاشل ثم إعادة محاولة', ()
   test('فشل المحاولتين معًا -> ok:false، بلا رمي استثناء', async () => {
     const seed = { performance_goals: [{ id: 'g1', element_key: 'x', cycle_year: '1447-1448', target_count: 5 }] };
     const { client, getCallCount } = makeFlakyClient({ failTable: 'performance_goals', failCount: 99, seedData: seed });
-    const app = loadApp({ supabaseClient: client });
+    const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
 
     const result = await app.loadPlan('1447-1448');
 
@@ -69,7 +69,7 @@ describe('loadPlan — استعلام فاشل ثم إعادة محاولة', ()
   test('نجاح من أول محاولة (بلا أي فشل) -> استعلام واحد فقط، لا تأخير إعادة محاولة', async () => {
     const seed = { performance_goals: [{ id: 'g1', element_key: 'y', cycle_year: '1447-1448', target_count: 3 }] };
     const { client, getCallCount } = makeFlakyClient({ failTable: 'performance_goals', failCount: 0, seedData: seed });
-    const app = loadApp({ supabaseClient: client });
+    const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
 
     const start = Date.now();
     const result = await app.loadPlan('1447-1448');

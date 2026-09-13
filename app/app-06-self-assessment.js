@@ -157,8 +157,12 @@ async function loadSelfAssessment(year){
   const y = year || getCycleYear();
   const _mySelfAssessment = {};
   try{
+    /* .eq('user_id', ...) ضروري: self_assessment له صلاحية "المسؤول يشوف كل
+       التقييمات الذاتية" — بدون هذا الفلتر، حساب مسؤول يرى تقييمات كل
+       المعلمين مختلطة ببعضها بمجرد وجود معلم آخر له تقييم بنفس عنصر الأداء
+       ونفس الدورة (يُستبدل تقييمه بتقييم زميله بصمت، لا خطأ ولا تحذير) */
     const { data } = await sb.from('self_assessment')
-      .select('*').eq('cycle_year', y);
+      .select('*').eq('user_id', currentUser.id).eq('cycle_year', y);
     (data || []).forEach(s => {
       _mySelfAssessment[s.element_key] = { self_level: s.self_level, self_note: s.self_note };
     });

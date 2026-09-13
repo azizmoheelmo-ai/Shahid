@@ -1840,10 +1840,20 @@ let _loadPlanToken = 0;
    خطأه بنفسه بدل رميه، ليكمل Promise.all وباقي الاستعلامات حتى لو فشل أحدها. */
 async function fetchPlanDataOnce(y){
   const safe = (p) => p.then(r => ({ data: r.data, error: r.error || null })).catch(e => ({ data: null, error: e }));
+  /* .eq('user_id', ...) ضروري هنا رغم اعتماد RLS أصلًا على auth.uid() = user_id:
+     شواهد وخطط وحسابات المسؤولين تحديدًا تخضع أيضًا لصلاحية إضافية "المسؤول
+     يشوف كل الخطط/الشواهد" (لعرضها بلوحة المسؤول) — فبدون هذا الفلتر، أي
+     حساب مسؤول يرى صفوف كل المعلمين مجتمعة بمجرد وجود معلم آخر له بيانات
+     بنفس دورة الأداء: performance_goals/shawahid تختلط ببيانات معلمين آخرين
+     بصمت، وplan_header (يتوقع صفًا واحدًا via maybeSingle) يفشل فورًا برسالة
+     "multiple rows returned" بمجرد وجود معلم ثانٍ له أي صف بنفس الدورة —
+     وهذا بالضبط ما صار: خطة المسؤول وشواهده سليمة تمامًا بقاعدة البيانات،
+     لكن قراءتها كانت تختلط/تفشل فور انضمام أول معلم آخر يستخدم التطبيق. */
+  const uid = currentUser.id;
   const [goalsRes, headerRes, recsRes] = await Promise.all([
-    safe(sb.from('performance_goals').select('*').eq('cycle_year', y).order('goal_order', { ascending: true })),
-    safe(sb.from('plan_header').select('*').eq('cycle_year', y).maybeSingle()),
-    safe(sb.from('shawahid').select('element_key, goal_id, cycle_year, lesson_date, created_at'))
+    safe(sb.from('performance_goals').select('*').eq('user_id', uid).eq('cycle_year', y).order('goal_order', { ascending: true })),
+    safe(sb.from('plan_header').select('*').eq('user_id', uid).eq('cycle_year', y).maybeSingle()),
+    safe(sb.from('shawahid').select('element_key, goal_id, cycle_year, lesson_date, created_at').eq('user_id', uid))
   ]);
   return { goalsRes, headerRes, recsRes };
 }
@@ -1949,10 +1959,13 @@ async function loadPlan(year){
 async function loadAvailableCycleYears(){
   const years = new Set([getCycleYear()]);
   try{
+    /* .eq('user_id', ...) ضروري لنفس سبب fetchPlanDataOnce أعلاه — بدونه
+       يرى حساب المسؤول سنوات مشتقة من بيانات كل المعلمين لا بياناته هو فقط */
+    const uid = currentUser.id;
     const [g, s, r] = await Promise.all([
-      sb.from('performance_goals').select('cycle_year'),
-      sb.from('self_assessment').select('cycle_year'),
-      sb.from('shawahid').select('cycle_year, lesson_date, created_at')
+      sb.from('performance_goals').select('cycle_year').eq('user_id', uid),
+      sb.from('self_assessment').select('cycle_year').eq('user_id', uid),
+      sb.from('shawahid').select('cycle_year, lesson_date, created_at').eq('user_id', uid)
     ]);
     (g.data || []).forEach(x => x.cycle_year && years.add(x.cycle_year));
     (s.data || []).forEach(x => x.cycle_year && years.add(x.cycle_year));

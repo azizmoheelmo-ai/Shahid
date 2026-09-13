@@ -158,6 +158,17 @@ function loadApp(opts) {
   const context = vm.createContext(sandbox);
   vm.runInContext(script, context, { filename: 'index.html-inline-script.js' });
 
+  /* currentUser مُعرَّف بـ let بأعلى مستوى التطبيق — لا يظهر كخاصية على
+     sandbox (نفس قيد let/const الموثَّق أعلى الملف)، فلا يمكن ضبطه مباشرة
+     كـ sandbox.currentUser = ... من هنا. الحل: نضع القيمة كخاصية عادية على
+     sandbox (لا تصطدم بـ let)، ثم نُنفّذ سطرًا إضافيًا بنفس الـ context
+     يُسنِدها لمتغيّر currentUser الموجود أصلًا — نداءا vm.runInContext على
+     نفس الـ context يتشاركان نفس نطاق let/const بأعلى المستوى. */
+  if(opts && opts.currentUser){
+    sandbox.__testCurrentUser = opts.currentUser;
+    vm.runInContext('currentUser = window.__testCurrentUser;', context);
+  }
+
   return sandbox;
 }
 
