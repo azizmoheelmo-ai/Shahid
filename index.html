@@ -695,21 +695,17 @@
         <div id="rlMissingWarning" style="display:none;background:#FBEAEA;border:1px solid #E0B4B4;color:#8A2C2C;padding:10px 14px;font-size:12.5px;margin-bottom:12px;"></div>
 
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
-          <div style="flex:1;min-width:120px;">
-            <label style="font-size:11px;color:var(--muted);">الرقم الصادر</label>
+          <div style="flex:1;min-width:140px;">
+            <label style="font-size:11px;color:var(--muted);">الرقم الصادر (لسجلاتك الداخلية — لا يُطبع على الخطاب الرسمي)</label>
             <input class="goal-input" id="rlOutgoingNumber" maxlength="30" oninput="renderReferralLetterPreview()">
           </div>
           <div style="flex:1;min-width:140px;">
-            <label style="font-size:11px;color:var(--muted);">التاريخ</label>
+            <label style="font-size:11px;color:var(--muted);">تاريخ الإحالة</label>
             <input class="goal-input" id="rlDate" type="date" oninput="renderReferralLetterPreview()">
-          </div>
-          <div style="flex:1;min-width:150px;">
-            <label style="font-size:11px;color:var(--muted);">يُوجَّه إلى</label>
-            <input class="goal-input" id="rlRecipient" maxlength="150" oninput="renderReferralLetterPreview()">
           </div>
         </div>
 
-        <div id="rlPreview" style="background:#fff;border:1px solid var(--line);padding:20px 16px;font-size:13px;line-height:2;"></div>
+        <div id="rlPreview" style="background:#fff;border:1px solid var(--line);padding:0;font-size:13px;line-height:2;overflow-x:auto;"></div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
           <button class="btn btn-outline" onclick="printReferralLetter()">طباعة</button>

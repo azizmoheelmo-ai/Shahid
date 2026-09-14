@@ -1473,7 +1473,6 @@ async function openReferralLetter(incidentId){
 
   document.getElementById('rlOutgoingNumber').value = inc.referral_letter_number || String(suggestedNumber);
   document.getElementById('rlDate').value = new Date().toISOString().slice(0,10);
-  document.getElementById('rlRecipient').value = 'وكيل شؤون الطلاب';
 
   const photoSection = document.getElementById('rlPhotoUploadSection');
   const photoBox = document.getElementById('rlPhotoPreviewBox');
@@ -1493,64 +1492,97 @@ async function openReferralLetter(incidentId){
   renderReferralLetterPreview();
 }
 
-function renderReferralLetterPreview(){
-  if(!rlCurrentIncident) return;
-  const { incident, student, type, priorList } = rlCurrentIncident;
-  const meta = (currentUser && currentUser.user_metadata) || {};
-  const teacherName = meta.full_name || '__________';
+/* شعار وزارة التعليم — مقصوص من نموذج "إحالة طالب/ة" الرسمي (وزارة التعليم)
+   ومُضمَّن مباشرة (WebP) بدل ملف صورة منفصل، ليعمل النموذج بلا اتصال
+   ويظهر بشكل متطابق بالطباعة المباشرة وPDF وWord على حدٍّ سواء. */
+const MOE_LOGO_DATA_URI = 'data:image/webp;base64,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';
+
+/* نموذج "إحالة طالب/ة" الرسمي (وزارة التعليم) بنص وترتيب مطابقين تمامًا
+   للنموذج المعتمد — يملأ فقط الحقول الفعلية الموجودة فيه (لا رقم صادر ولا
+   جهة توجيه مخصّصة، فالنموذج الرسمي ثابت الصياغة). حقل "المنطقة/المحافظة"
+   يُملأ تلقائيًا من الملف الشخصي (افتراضيًا "جدة" لو لم يُضِف المعلم حقلًا
+   مخصصًا باسم "المنطقة/المحافظة")، وباقي التوقيع/الختم تُترك فارغة للتعبئة
+   اليدوية بعد الطباعة كما بالنموذج الأصلي (وكيل شؤون الطلبة شخص آخر غير
+   المعلم، والختم لا يُنتَج إلكترونيًا). */
+function buildOfficialReferralLetterHtml(){
+  const { incident, student, type } = rlCurrentIncident;
   const school = (typeof getProfileSchool === 'function') ? getProfileSchool() : '';
-  const num = document.getElementById('rlOutgoingNumber').value.trim();
+  const region = (typeof getProfileRegion === 'function') ? getProfileRegion() : 'جدة';
   const dateVal = document.getElementById('rlDate').value;
-  let dateDisplay = '—';
+  let dateDisplay = '';
   if(dateVal){
     try{ dateDisplay = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { year:'numeric', month:'long', day:'numeric' }).format(new Date(dateVal)); }
     catch(e){ dateDisplay = dateVal; }
   }
-  const recipient = document.getElementById('rlRecipient').value.trim() || 'وكيل شؤون الطلاب';
-  const sysRef = 'CRM-' + incident.id.replace(/-/g, '').slice(0, 6).toUpperCase();
+  const classLine = [student.grade_level, student.section_number ? ('الشعبة ' + student.section_number) : '']
+    .filter(Boolean).join(' — ') || '—';
 
-  let priorHtml = '';
-  if(priorList.length){
-    const dates = priorList.map(p => p.incident_date).join('، ');
-    priorHtml = `<p>وقد سبق تنبيه الطالب شفهيًا على المخالفة ذاتها بتاريخ: ${escapeHtml(dates)}، دون استجابة تُذكر.</p>`;
-  }
+  return `
+    <div dir="rtl" style="width:794px;max-width:100%;background:#fff;color:#003744;font-family:'Amiri','Traditional Arabic','Times New Roman',serif;padding:46px 54px 34px;box-sizing:border-box;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
+        <div style="display:flex;flex-direction:column;gap:14px;min-width:0;">
+          <img src="${MOE_LOGO_DATA_URI}" alt="وزارة التعليم" style="height:78px;width:auto;">
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:13px;">
+            <div style="display:flex;align-items:baseline;gap:6px;white-space:nowrap;">
+              <span>المنطقة/المحافظة</span>
+              <span style="flex:1;min-width:90px;border-bottom:1px dotted #9FB3B8;padding-bottom:2px;color:#3C5A63;font-size:12.5px;">${escapeHtml(region)}</span>
+            </div>
+            <div style="display:flex;align-items:baseline;gap:6px;white-space:nowrap;">
+              <span>المدرسة</span>
+              <span style="flex:1;min-width:90px;border-bottom:1px dotted #9FB3B8;padding-bottom:2px;color:#3C5A63;font-size:12.5px;">${escapeHtml(school)}</span>
+            </div>
+          </div>
+        </div>
+        <div style="text-align:right;font-size:14.5px;font-weight:700;line-height:2;white-space:nowrap;">
+          <div>المملكة العربية السعودية</div>
+          <div>وزارة التعليـــــــم</div>
+        </div>
+      </div>
 
-  document.getElementById('rlPreview').innerHTML = `
-    <div style="display:flex;justify-content:space-between;font-weight:700;margin-bottom:2px;">
-      <span>الرقم: ${escapeHtml(num || '—')}</span>
-      <span>التاريخ: ${escapeHtml(dateDisplay)}</span>
-    </div>
-    <div style="text-align:left;font-size:10.5px;color:#8A8A8A;margin-bottom:18px;">المرجع: ${escapeHtml(sysRef)}</div>
-    ${school ? `<div style="text-align:center;font-weight:700;margin-bottom:10px;">${escapeHtml(school)}</div>` : ''}
-    <p>سعادة/ ${escapeHtml(recipient)} المحترم</p>
-    <p>السلام عليكم ورحمة الله وبركاته،</p>
-    <p style="font-weight:700;text-decoration:underline;">الموضوع: تحويل طالب بخصوص مخالفة سلوكية</p>
-    <p>يفيدكم المعلم/ ${escapeHtml(teacherName)} بأن الطالب/ ${escapeHtml(student.full_name)}
-    من ${escapeHtml(student.grade_level || 'غير محدد')} - الشعبة ${escapeHtml(student.section_number || '—')}
-    ارتكب المخالفة السلوكية التالية بتاريخ ${escapeHtml(incident.incident_date)}:</p>
-    <p style="font-weight:700;">${escapeHtml(type.problem_name)} (${escapeHtml(type.regulation_article)} — الدرجة ${type.problem_degree})</p>
-    ${priorHtml}
-    ${incident.notes ? `<p>ملاحظة المعلم: ${escapeHtml(incident.notes)}</p>` : ''}
-    <p>نأمل من سعادتكم اتخاذ الإجراء النظامي المناسب حيال الحالة وفق قواعد السلوك والمواظبة لطلبة التعليم العام.</p>
-    <p>وتفضلوا بقبول فائق الاحترام والتقدير،</p>
-    <div style="margin-top:30px;">
-      <div>المعلم: ${escapeHtml(teacherName)}</div>
-      <div style="margin-top:26px;">التوقيع: ................................</div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;margin-top:36px;font-size:12px;">
-      <tr><td style="border:1px solid #999;padding:8px;font-weight:700;text-align:center;" colspan="3">إقرار التسليم والاستلام</td></tr>
-      <tr>
-        <td style="border:1px solid #999;padding:8px;text-align:center;">المستلم</td>
-        <td style="border:1px solid #999;padding:8px;text-align:center;">التوقيع</td>
-        <td style="border:1px solid #999;padding:8px;text-align:center;">التاريخ</td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #999;padding:18px;">&nbsp;</td>
-        <td style="border:1px solid #999;padding:18px;">&nbsp;</td>
-        <td style="border:1px solid #999;padding:18px;">&nbsp;</td>
-      </tr>
-    </table>
-  `;
+      <div style="display:flex;justify-content:center;margin:20px 0 8px;">
+        <img src="${MOE_LOGO_DATA_URI}" alt="" style="height:112px;width:auto;">
+      </div>
+
+      <div style="text-align:center;margin:14px 0 26px;">
+        <div style="font-size:17px;font-weight:700;margin-bottom:10px;">سري</div>
+        <div style="font-size:23px;font-weight:700;">إحالة طالب/ة</div>
+      </div>
+
+      <div style="font-size:15px;line-height:2.3;">
+        <p style="font-weight:700;margin:0 0 14px;">المكرم الموجه الطلابي / الموجهة الطلابية</p>
+        <p style="text-align:center;margin:0 0 20px;">السلام عليكم ورحمة الله وبركاته</p>
+        <p style="margin:0 0 14px;">نحيل إليكم الطالب/الطالبة
+          <span style="border-bottom:1.5px solid #003744;padding:0 4px 1px;font-weight:700;display:inline-block;min-width:220px;text-align:center;">${escapeHtml(student.full_name)}</span>
+        </p>
+        <p style="margin:0 0 14px;">بالصف:
+          <span style="border-bottom:1.5px solid #003744;padding:0 4px 1px;font-weight:700;display:inline-block;min-width:64px;text-align:center;">${escapeHtml(classLine)}</span>
+          ذي المشكلة السلوكية من الدرجة
+          <span style="border-bottom:1.5px solid #003744;padding:0 4px 1px;font-weight:700;display:inline-block;min-width:64px;text-align:center;">${escapeHtml(String(type.problem_degree))}</span>
+          وهي:
+          <span style="border-bottom:1.5px solid #003744;padding:0 4px 1px;font-weight:700;display:inline-block;min-width:220px;text-align:center;">${escapeHtml(type.problem_name)}</span>
+        </p>
+        <p style="margin:22px 0 0;">يرجى منكم متابعة الطالب/الطالبة ودراسة حالته/حالتها، ووضع الحلول التربوية والعلاجية المناسبة.</p>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:60px;gap:24px;">
+        <div style="font-size:14px;font-weight:700;">الختم</div>
+        <div style="font-size:13.5px;line-height:2.1;">
+          <div style="font-weight:700;margin-bottom:6px;">وكيل/وكيلة شؤون الطلبة</div>
+          <div style="display:flex;gap:6px;align-items:baseline;white-space:nowrap;">الاسم: <span style="flex:1;min-width:120px;border-bottom:1px dotted #9FB3B8;height:1px;align-self:center;"></span></div>
+          <div style="display:flex;gap:6px;align-items:baseline;white-space:nowrap;">التوقيع: <span style="flex:1;min-width:120px;border-bottom:1px dotted #9FB3B8;height:1px;align-self:center;"></span></div>
+          <div style="display:flex;gap:6px;align-items:baseline;white-space:nowrap;">التاريخ: <span style="border-bottom:1px dotted #9FB3B8;min-width:120px;padding-bottom:2px;font-weight:700;">${escapeHtml(dateDisplay)}</span></div>
+        </div>
+      </div>
+
+      <div dir="ltr" style="margin-top:22px;height:30px;border-radius:15px;background:linear-gradient(to right, #4EBA7A, #3985B9);display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;">
+        <span>🌐</span><span>WWW.MOE.GOV.SA</span>
+      </div>
+    </div>`;
+}
+
+function renderReferralLetterPreview(){
+  if(!rlCurrentIncident) return;
+  document.getElementById('rlPreview').innerHTML = buildOfficialReferralLetterHtml();
 }
 
 async function buildReferralLetterPdfBlob(){

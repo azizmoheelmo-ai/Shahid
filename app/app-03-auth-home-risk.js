@@ -500,7 +500,8 @@ async function updatePasswordAfterRecovery(){
 const DEFAULT_PROFILE_FIELDS = [
   { label: 'المدرسة', value: '' },
   { label: 'المادة', value: '' },
-  { label: 'الفصل', value: '' }
+  { label: 'الفصل', value: '' },
+  { label: 'المنطقة/المحافظة', value: 'جدة' }
 ];
 
 /* يقرأ الحقول المخصصة من بيانات المستخدم، مع دعم البيانات القديمة */
@@ -526,6 +527,9 @@ function getFieldValue(labelKeywords){
 function getProfileSchool(){ return getFieldValue(['مدرسة', 'المدرسة']); }
 function getProfileSubject(){ return getFieldValue(['مادة', 'المادة', 'تخصص']); }
 function getProfileClass(){ return getFieldValue(['فصل', 'الفصل', 'صف']); }
+/* لا حقل مخصص لها بعد (حساب قديم) -> "جدة" افتراضيًا، قابل للتعديل يدويًا
+   بإضافة حقل "المنطقة/المحافظة" من الإعدادات — تُستخدم بخطاب الإحالة السلوكية */
+function getProfileRegion(){ return getFieldValue(['منطقة', 'محافظة']) || 'جدة'; }
 
 function renderProfile(){
   renderCycleCard();
