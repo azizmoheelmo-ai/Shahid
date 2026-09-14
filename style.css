@@ -1215,6 +1215,13 @@
     body.printing-record{padding:0;background:#fff;}
   }
 
+  /* هامش صفحة ثابت وضيّق (10مم ≈ نفس هامش تصدير PDF 28pt) بدل الاعتماد
+     على هامش المتصفح/الطابعة الافتراضي — يختلف باختلاف المتصفح ونظام
+     التشغيل وأحيانًا أوسع بكثير من هامش PDF، وهذا بالضبط ما كان يدفع آخر
+     سطر بخطاب الإحالة (الشريط السفلي) للانسكاب لصفحة ثانية عند الطباعة
+     المباشرة رغم أن نفس المحتوى يتسع بصفحة واحدة في تصدير PDF. */
+  @page{ size:A4; margin:10mm; }
+
   @media print{
     body{background:#fff;padding:0;}
     .action-row, .topbar, #bottomTabBar, #betaNoticeBar{display:none;}
