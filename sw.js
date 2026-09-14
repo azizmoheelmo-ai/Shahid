@@ -17,7 +17,7 @@
      Service Worker خارج HTTPS/localhost، وهذا سلوك متصفح طبيعي متوقّع.
 */
 
-const CACHE_NAME = 'shahid-shell-v1';
+const CACHE_NAME = 'shahid-shell-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -25,6 +25,17 @@ const APP_SHELL = [
   './icon-180.png',
   './icon-192.png'
 ];
+
+/* الملفات التي تحمل منطق التطبيق نفسه (الصفحة + سكربتات app/*.js) —
+   هذه تحديدًا يجب أن تُخدَّم "الشبكة أولًا" لا "الكاش أولًا": لو خُدِّمت من
+   كاش قديم بعد نشر تحديث، يشتغل المستخدم بكود قديم بصمت دون أي علامة على
+   أن هناك نسخة أحدث، وهذا وقع فعليًا (تحديث خطاب الإحالة ظهر بالمعاينة
+   على جهاز المطوّر لكن لم يظهر عند المستخدم لحظة النشر). أما بقية الملفات
+   (الأيقونات، manifest) فتبقى "كاش أولًا" لأنها نادرًا ما تتغير وتفيد
+   بالعمل بلا اتصال بسرعة. */
+function isAppLogicRequest(url){
+  return url.pathname.endsWith('.html') || url.pathname === '/' || /\/app\/.*\.js$/.test(url.pathname);
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -51,6 +62,21 @@ self.addEventListener('fetch', (event) => {
   /* نخدم فقط طلبات GET لنفس أصل الصفحة — أي شيء آخر (Supabase، jsDelivr،
      الخطوط...) يُترك تمامًا لسلوك الشبكة الطبيعي بدون أي تدخل من هنا */
   if(req.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  if(isAppLogicRequest(url)){
+    /* الشبكة أولًا: أي تحديث منشور يظهر فورًا بلا أي كاش قديم يحجبه.
+       يُلجأ للكاش فقط لو تعذّر الاتصال فعلاً (عمل بلا إنترنت). */
+    event.respondWith(
+      fetch(req).then((response) => {
+        if(response && response.ok){
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+        }
+        return response;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(req).then((cached) => {
