@@ -1905,7 +1905,7 @@ async function showHome(){
 /* ============================================
    (3) اقتراح "التالي" — أقرب عنصر يحتاج توثيقًا
    ============================================ */
-/* بطاقة واحدة موحّدة في الرئيسية تجمع: النسبة الموزونة + حالة التغطية + التالي المقترح */
+/* بطاقة واحدة موحّدة في الرئيسية تجمع: النسبة الموزونة + حالة التغطية + المقترح التالي */
 function renderHomeProgressCard(){
   const card = document.getElementById('homeProgressCard');
   if(!card) return;
@@ -1925,7 +1925,7 @@ function renderHomeProgressCard(){
     const { name } = splitLabel(next.label);
     suggestionHtml = `
       <div class="home-progress-suggest" onclick="addShahidForElement('${escapeHtml(next.key)}')">
-        <span>التالي المقترح: <b>${escapeHtml(name)}</b></span>
+        <span>المقترح التالي: <b>${escapeHtml(name)}</b></span>
         <span class="hp-arrow">ابدأ الآن ←</span>
       </div>`;
   } else {
