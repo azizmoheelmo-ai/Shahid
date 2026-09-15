@@ -91,14 +91,15 @@ function renderWeightedBar(){
     </div>`;
 }
 
-/* تدرّج لوني مستمر من الأحمر (لم يبدأ) إلى الأخضر (مكتمل) بحسب نسبة إنجاز
-   كل عنصر — بدل لون ثابت واحد لكل الصفوف، ليعطي القارئ صورة سريعة لأي
+/* تدرّج خلفية مستمر من الأحمر (لم يبدأ) إلى البني/الذهبي (نص الطريق) إلى
+   الأخضر (مكتمل) بحسب نسبة إنجاز كل عنصر — يُطبَّق على خلفية الصف كاملاً
+   لا على لون النص (يبقى النص أسود عاديًا)، ليعطي القارئ صورة سريعة لأي
    عناصر متعثرة (حمراء) وأيها شبه منجز (خضراء) بمجرد نظرة على الجدول. */
-function ratioToColor(ratio){
+function ratioToBgColor(ratio){
   const r = Math.max(0, Math.min(1, ratio));
-  const hue = r < 0.5 ? r * 2 * 40 : 40 + (r - 0.5) * 2 * 100; /* ٠=أحمر، ٤٠=ذهبي، ١٤٠=أخضر */
-  const light = 40 - r * 10;
-  return `hsl(${Math.round(hue)}, 65%, ${Math.round(light)}%)`;
+  const hue = r < 0.5 ? r * 2 * 28 : 28 + (r - 0.5) * 2 * 112; /* ٠=أحمر، ٢٨=بني، ١٤٠=أخضر */
+  const light = 80 - r * 10;
+  return `hsl(${Math.round(hue)}, 58%, ${Math.round(light)}%)`;
 }
 
 function showWeightedInfo(){
@@ -110,12 +111,12 @@ function showWeightedInfo(){
     const done = planShahidCounts[e.key] || 0;
     const ratio = target > 0 ? Math.min(1, done / target) : (done > 0 ? 1 : 0);
     const contributed = Math.round(w * ratio * 10) / 10;
-    const color = ratioToColor(ratio);
-    return `<tr>
-      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:right;">${escapeHtml(name)}</td>
-      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:center;">${w}%</td>
-      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:center;font-weight:700;color:${color};">${Math.round(ratio*100)}%</td>
-      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:center;font-weight:700;color:${color};">${contributed}</td>
+    const bg = ratioToBgColor(ratio);
+    return `<tr style="background:${bg};">
+      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:right;color:#1A1A1A;">${escapeHtml(name)}</td>
+      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:center;color:#1A1A1A;">${w}%</td>
+      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:center;font-weight:700;color:#1A1A1A;">${Math.round(ratio*100)}%</td>
+      <td style="padding:6px 9px;border:1px solid var(--line);font-size:11.5px;text-align:center;font-weight:700;color:#1A1A1A;">${contributed}</td>
     </tr>`;
   }).join('');
 
@@ -135,9 +136,9 @@ function showWeightedInfo(){
           <th style="padding:7px;border:1px solid var(--line);font-size:11px;">المحقق</th>
         </tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr style="background:#F4F0E4;">
-          <td colspan="3" style="padding:8px;border:1px solid var(--line);font-size:12px;font-weight:700;text-align:right;">الإجمالي الموزون</td>
-          <td style="padding:8px;border:1px solid var(--line);font-size:12.5px;font-weight:800;text-align:center;color:${ratioToColor(wp.pct/100)};">${wp.weightedDone} / ${wp.totalWeight}</td>
+        <tfoot><tr style="background:${ratioToBgColor(wp.pct/100)};">
+          <td colspan="3" style="padding:8px;border:1px solid var(--line);font-size:12px;font-weight:700;text-align:right;color:#1A1A1A;">الإجمالي الموزون</td>
+          <td style="padding:8px;border:1px solid var(--line);font-size:12.5px;font-weight:800;text-align:center;color:#1A1A1A;">${wp.weightedDone} / ${wp.totalWeight}</td>
         </tr></tfoot>
       </table>
       <p style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.8;">
