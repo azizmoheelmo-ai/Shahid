@@ -410,6 +410,7 @@ function populateTemplateOptions(elementKey){
   });
   templateSelect.value = '';
   templatePickerWrap.hidden = false;
+  updateTemplateHint();
 }
 
 /* هل توجد كتابة فعلية في حقول الشاهد الآن (بصرف النظر عن مصدرها)؟ */
@@ -453,6 +454,7 @@ function applyTemplate(){
       const ok = window.confirm('اخترت "أكتب بنفسي" — سيُفرَّغ محتوى النموذج الحالي من كل الحقول أدناه لتبدأ من صفحة فارغة.\n\nهل تريد المتابعة؟');
       if(!ok){
         templateSelect.value = prevValue;
+        updateTemplateHint();
         return;
       }
     }
@@ -460,6 +462,7 @@ function applyTemplate(){
     applyTemplate._lastValue = '';
     formDirty = true;
     scheduleDraftSave();
+    updateTemplateHint();
     return;
   }
 
@@ -471,6 +474,7 @@ function applyTemplate(){
     const ok = window.confirm('عندك محتوى مكتوب في هذا الشاهد.\nاختيار نموذج جديد سيستبدل كل الحقول أدناه بمحتوى النموذج، وتفقد ما كتبته.\n\nهل تريد المتابعة؟');
     if(!ok){
       templateSelect.value = prevValue;
+      updateTemplateHint();
       return;
     }
   }
@@ -480,6 +484,7 @@ function applyTemplate(){
   applyTemplate._lastValue = idx;
   formDirty = true;
   scheduleDraftSave();
+  updateTemplateHint();
   showToast('تم تطبيق النموذج', 'ok');
 }
 templateSelect.addEventListener('change', applyTemplate);
@@ -595,7 +600,23 @@ function showPlanReminder(elementKey){
   if(goals.length === 1){
     picker.value = goals[0].id;
   }
+  updateGoalPickerHint();
 }
+
+/* توضيح مكان الكتابة اليدوية عند اختيار "بدون تحديد"/"أكتب بنفسي" — لا
+   تعطيل أي حقل، فقط إشارة صريحة لمكان الحقل الحر الموجود أصلاً بالأسفل،
+   لأن غياب هذا التوضيح كان يوهم بعض المعلمين أن لا مجال للكتابة اليدوية
+   إطلاقًا هنا رغم أن الحقول الفعلية بالأسفل تقبل الكتابة دائمًا. */
+function updateGoalPickerHint(){
+  const hint = document.getElementById('goalPickerHint');
+  if(hint) hint.hidden = !!document.getElementById('goalPicker').value;
+}
+function updateTemplateHint(){
+  const hint = document.getElementById('templateSelectHint');
+  if(hint) hint.hidden = !!templateSelect.value;
+}
+document.getElementById('goalPicker').addEventListener('change', updateGoalPickerHint);
+
 elementSelect.addEventListener('change', updateExample);
 updateExample();
 
