@@ -419,11 +419,49 @@ function hasExistingShahidContent(){
             qualBox.value.trim() || reflectionBox.value.trim() || stepsText);
 }
 
+/* تعبئة كل حقول الشاهد (الوصف/الهدف/الخطوات/الأثر/التأمل) من نموذج مُعطى،
+   أو من نموذج فارغ بالكامل لو تُرك بلا وسيط — يشترك فيها كل من applyTemplate
+   (اختيار نموذج جاهز) والتفريغ عند اختيار "أكتب بنفسي". */
+function fillShahidFields(tpl){
+  descBox.value = (tpl && tpl.description) || '';
+  goalBox.value = (tpl && tpl.goal) || '';
+  quantBox.value = (tpl && tpl.quant) || '';
+  qualBox.value = (tpl && tpl.qual) || '';
+  reflectionBox.value = (tpl && tpl.reflection) || '';
+
+  stepsList.innerHTML = '';
+  const steps = (tpl && tpl.steps && tpl.steps.length) ? tpl.steps : [''];
+  steps.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
+    li.querySelector('textarea').value = s;
+    stepsList.appendChild(li);
+  });
+}
+
 function applyTemplate(){
   const elementKey = elementSelect.value;
   const idx = templateSelect.value;
   const prevValue = applyTemplate._lastValue || '';
-  if(idx === ''){ applyTemplate._lastValue = ''; return; }
+
+  if(idx === ''){
+    /* "أكتب بنفسي" تعني صفحة فارغة فعلاً لأكتب فيها — لا الإبقاء الصامت
+       على نص نموذج سابق كما كان يحدث سابقًا (وهذا بالضبط ما كان يجعل
+       المعلم يشعر أنه "لا يقدر يكتب": الحقول تبقى معبأة بنص النموذج
+       القديم بصمت، ولازم يمسحه هو بنفسه أولًا قبل ما يقدر يكتب مكانه). */
+    if(prevValue !== '' && hasExistingShahidContent()){
+      const ok = window.confirm('اخترت "أكتب بنفسي" — سيُفرَّغ محتوى النموذج الحالي من كل الحقول أدناه لتبدأ من صفحة فارغة.\n\nهل تريد المتابعة؟');
+      if(!ok){
+        templateSelect.value = prevValue;
+        return;
+      }
+    }
+    fillShahidFields(null);
+    applyTemplate._lastValue = '';
+    formDirty = true;
+    scheduleDraftSave();
+    return;
+  }
 
   const tpl = (SHAHID_TEMPLATES[elementKey] || [])[Number(idx)];
   if(!tpl) return;
@@ -437,20 +475,7 @@ function applyTemplate(){
     }
   }
 
-  descBox.value = tpl.description || '';
-  goalBox.value = tpl.goal || '';
-  quantBox.value = tpl.quant || '';
-  qualBox.value = tpl.qual || '';
-  reflectionBox.value = tpl.reflection || '';
-
-  stepsList.innerHTML = '';
-  const steps = (tpl.steps && tpl.steps.length) ? tpl.steps : [''];
-  steps.forEach((s, i) => {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
-    li.querySelector('textarea').value = s;
-    stepsList.appendChild(li);
-  });
+  fillShahidFields(tpl);
 
   applyTemplate._lastValue = idx;
   formDirty = true;
