@@ -608,6 +608,19 @@ async function uploadLetterReceiptPhoto(event, cfg){
   const ref = cfg.currentRef();
   if(!file || !ref) return;
   const entity = ref[cfg.entityKey];
+
+  /* لم يكن هذا المسار (صورة إثبات التسليم) يفحص حجم الملف إطلاقًا قبل
+     محاولة قراءته وضغطه بالكامل داخل المتصفح — على عكس مسار رفع صور
+     الشاهد العادي (راجع MAX_UPLOAD_MB بـapp-09). ملف كبير جدًا (فيديو
+     بامتداد صورة بالخطأ مثلاً) قد يُجمّد التبويب لثوانٍ طويلة أثناء
+     قراءته/رسمه على Canvas، ثم يُرفض على أي حال من حد حجم حاوية
+     "shawahid-photos" (8MB) بعد كل هذا الانتظار. */
+  if(file.size > MAX_UPLOAD_MB * 1024 * 1024){
+    showToast(`حجم الملف كبير جدًا (الحد ${MAX_UPLOAD_MB} ميجابايت).`, 'error');
+    event.target.value = '';
+    return;
+  }
+
   try{
     showToast('جارٍ ضغط الصورة...', 'ok');
     const compressed = await compressImageFile(file, 1280, 0.72);
