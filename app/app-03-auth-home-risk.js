@@ -810,10 +810,13 @@ function riskRow(level, text, actionLabel, actionFn){
 
 async function buildAdminRisks(){
   const box = document.getElementById('riskAdminBody');
+  /* فلترة صريحة بمعرّف المعلم الحالي ضرورية: classroom_students/incidents
+     لهما صلاحية "المسؤول يشوف الكل"، فبدونها تعرض لوحة تنبيهات إدارة
+     الصف الخاصة بحساب المسؤول حوادث كل المعلمين مجتمعة بدل حوادثه هو فقط. */
   const { ok, results } = await runQueriesWithRetry([
-    () => sb.from('classroom_students').select('id, full_name'),
+    () => sb.from('classroom_students').select('id, full_name').eq('teacher_id', currentUser.id),
     () => sb.from('classroom_incident_types').select('id, problem_name, problem_degree'),
-    () => sb.from('classroom_incidents').select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url, created_at').eq('current_stage', 'referred')
+    () => sb.from('classroom_incidents').select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', currentUser.id).eq('current_stage', 'referred')
   ]);
   if(!ok) return; /* فشل الفحص مرتين — نُبقي ما هو معروض حاليًا كما هو */
 
@@ -858,9 +861,11 @@ async function buildAdminRisks(){
 
 async function buildAcademicRisks(){
   const box = document.getElementById('riskAcademicBody');
+  /* نفس سبب الفلترة في buildAdminRisks أعلاه — classroom_students/
+     academic_cases لهما صلاحية "المسؤول يشوف الكل" أيضًا. */
   const { ok, results } = await runQueriesWithRetry([
-    () => sb.from('classroom_students').select('id, full_name'),
-    () => sb.from('academic_cases').select('id, student_id, subject, referral_letter_generated, referral_receipt_photo_url, created_at').eq('status', 'referred')
+    () => sb.from('classroom_students').select('id, full_name').eq('teacher_id', currentUser.id),
+    () => sb.from('academic_cases').select('id, student_id, subject, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', currentUser.id).eq('status', 'referred')
   ]);
   if(!ok) return; /* فشل الفحص مرتين — نُبقي ما هو معروض حاليًا كما هو */
 

@@ -160,9 +160,13 @@ function getElementsOrder(){
 async function loadMyShawahid(){
   const body = document.getElementById('listBody');
   body.innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
+  /* فلترة صريحة بمعرّف المستخدم ضرورية هنا: shawahid له صلاحية "المسؤول
+     يشوف الكل" أيضًا، فبدونها تظهر شواهد كل المعلمين مختلطة في قائمة
+     "شواهدي" الخاصة بحساب المسؤول بدل شواهده هو فقط. */
   const { data, error } = await fetchAllRows((from, to) => sb
     .from('shawahid')
     .select('*')
+    .eq('user_id', currentUser.id)
     .order('created_at', { ascending: false })
     .range(from, to));
 

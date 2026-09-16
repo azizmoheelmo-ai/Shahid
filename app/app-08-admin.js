@@ -514,16 +514,23 @@ async function exportBackup(){
     await ensureZipLib();
     await ensureXlsxLib();
 
+    /* هذه نسخة احتياطية شخصية لبيانات المستخدم الحالي فقط (تظهر تحت
+       "إعدادات ← نسخة احتياطية" لأي حساب، بما فيها حسابات المسؤول) — لازم
+       فلترة صريحة بمعرّف المستخدم/المعلم على كل جدول، لا الاعتماد على RLS
+       وحدها: نفس الجداول هنا لها صلاحية "المسؤول يشوف الكل"، فبدون هذا
+       الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
+       مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
+    const uid = currentUser.id;
     const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes] = await Promise.all([
-      fetchAllRows((from, to) => sb.from('shawahid').select('*').order('created_at', { ascending: false }).range(from, to)),
-      sb.from('performance_goals').select('*').order('cycle_year', { ascending: false }),
-      sb.from('self_assessment').select('*'),
-      sb.from('classroom_students').select('*'),
-      sb.from('classroom_grade_levels').select('*'),
-      sb.from('classroom_sections').select('*'),
-      fetchAllRows((from, to) => sb.from('classroom_incidents').select('*').order('created_at', { ascending: false }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
+      sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
+      sb.from('self_assessment').select('*').eq('user_id', uid),
+      sb.from('classroom_students').select('*').eq('teacher_id', uid),
+      sb.from('classroom_grade_levels').select('*').eq('teacher_id', uid),
+      sb.from('classroom_sections').select('*').eq('teacher_id', uid),
+      fetchAllRows((from, to) => sb.from('classroom_incidents').select('*').eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('classroom_incident_types').select('*'),
-      fetchAllRows((from, to) => sb.from('academic_cases').select('*').order('created_at', { ascending: false }).range(from, to))
+      fetchAllRows((from, to) => sb.from('academic_cases').select('*').eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to))
     ]);
 
     const shawahid = shRes.data || [];
@@ -1160,7 +1167,10 @@ async function exportPortfolio(){
     await loadPlan();
     await loadSelfAssessment();
 
-    const { data: allRecs } = await sb.from('shawahid').select('*').order('created_at', { ascending: true });
+    /* ملف الإنجاز شخصي لحساب المستخدم الحالي — فلترة صريحة بمعرّف المستخدم
+       ضرورية هنا لنفس سبب exportBackup أعلاه (صلاحية "المسؤول يشوف الكل"
+       على هذا الجدول)، وإلا يضم ملف إنجاز حساب المسؤول شواهد كل المعلمين. */
+    const { data: allRecs } = await sb.from('shawahid').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: true });
     const records = allRecs || [];
     const elements = getElementsOrder();
     const meta = (currentUser && currentUser.user_metadata) || {};
