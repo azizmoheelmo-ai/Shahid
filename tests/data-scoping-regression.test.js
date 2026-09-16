@@ -137,3 +137,32 @@ describe('عزل بيانات المستخدم في شاشاته الشخصية 
     assert.doesNotMatch(html, /طالب المعلم الثاني/, 'لا يجب أن تظهر حالة طالب معلم آخر (u2)');
   });
 });
+
+describe('عزل مسودة الشاهد المحفوظة محليًا (localStorage) بين المستخدمين على نفس الجهاز', () => {
+  /* خلل مكتشف بنفس المراجعة: DRAFT_KEY كان مفتاحًا واحدًا مشتركًا لكل من
+     يستخدم نفس المتصفح — على جهاز مشترك بين أكثر من معلم (جهاز لوحي بغرفة
+     المعلمين مثلًا)، معلم يبدأ شاهدًا ولا يحفظه ثم يدخل معلم آخر على نفس
+     الجهاز، تُعرض عليه تلقائيًا (offerDraftRestore تعمل بعد كل تسجيل دخول)
+     استعادة مسودة المعلم الأول الخاصة. */
+  test('draftKey() يُنتج مفتاحًا مختلفًا لكل مستخدم — لا مفتاح مشترك', () => {
+    const app1 = loadApp({ currentUser: { id: 'u1' } });
+    const app2 = loadApp({ currentUser: { id: 'u2' } });
+    const k1 = app1.draftKey();
+    const k2 = app2.draftKey();
+    assert.ok(k1 && k2, 'يجب أن يُرجع كل تطبيق مفتاحًا فعليًا لمستخدمه');
+    assert.notEqual(k1, k2, 'مفتاح مسودة معلم يجب أن يختلف عن مفتاح معلم آخر');
+    assert.ok(k1.includes('u1'), 'المفتاح يجب أن يتضمن معرّف المستخدم الحالي');
+    assert.ok(k2.includes('u2'));
+  });
+
+  test('purgeLegacyUnscopedDraft(): يمسح المفتاح المشترك القديم دون المساس بمسودة المستخدم الحالي', () => {
+    const app = loadApp({ currentUser: { id: 'u1' } });
+    app.localStorage.setItem('shahid_draft_v1', JSON.stringify({ description: 'مسودة معلم سابق على جهاز مشترك' }));
+    app.localStorage.setItem(app.draftKey(), JSON.stringify({ description: 'مسودتي أنا' }));
+
+    app.purgeLegacyUnscopedDraft();
+
+    assert.equal(app.localStorage.getItem('shahid_draft_v1'), null, 'المفتاح المشترك القديم يجب أن يُمسح صامتًا');
+    assert.ok(app.localStorage.getItem(app.draftKey()), 'مسودة المستخدم الحالي بمفتاحها الجديد يجب ألا تتأثر');
+  });
+});

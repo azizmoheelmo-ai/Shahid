@@ -204,8 +204,28 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
    (1) الحفظ التلقائي للمسودة محليًا
    يحمي عمل المعلم من: انقطاع النت، إغلاق الصفحة بالخطأ، نفاد بطارية الجوال
    ============================================ */
-const DRAFT_KEY = 'shahid_draft_v1';
+const DRAFT_KEY_PREFIX = 'shahid_draft_v1:';
 let draftTimer = null;
+
+/* مفتاح المسودة خاص بالمستخدم الحالي — كان قبل هذا الإصلاح مفتاحًا واحدًا
+   مشتركًا لكل من يستخدم نفس المتصفح/الجهاز. هذا خطير تحديدًا لأن جهازًا
+   مشتركًا بين أكثر من معلم (جهاز لوحي بغرفة المعلمين مثلاً) يعني: معلم
+   يبدأ شاهدًا ولا يحفظه، يسجّل خروجه (أو يقفل التبويب فقط بدون تسجيل
+   خروج)، ثم يسجّل معلم آخر دخوله على نفس الجهاز — فتُعرض عليه تلقائيًا
+   (عبر offerDraftRestore التي تعمل بعد كل تسجيل دخول) استعادة مسودة
+   المعلم الأول الخاصة (اسمه ومدرسته ووصف/تأمل شخصي)، وإن وافق قد تُحفظ
+   لاحقًا باسم حساب المعلم الثاني. المفتاح الآن مربوط بمعرّف المستخدم فلا
+   يظهر لأي حساب سوى مسودته هو. */
+function draftKey(){
+  return currentUser ? DRAFT_KEY_PREFIX + currentUser.id : null;
+}
+
+/* تنظيف لمرة واحدة لأي مسودة محفوظة بالمفتاح المشترك القديم (قبل هذا
+   الإصلاح) — تُمسح بصمت دون عرضها على أي أحد، لأنه لا يمكن التأكد أنها
+   تخص المستخدم الحالي فعلاً. */
+function purgeLegacyUnscopedDraft(){
+  try{ localStorage.removeItem('shahid_draft_v1'); } catch(e){}
+}
 
 function collectFormDraft(){
   const stepsList = document.getElementById('stepsList');
@@ -242,9 +262,11 @@ function isDraftEmpty(d){
 
 function saveDraftNow(){
   try{
+    const key = draftKey();
+    if(!key) return;
     const draft = collectFormDraft();
-    if(isDraftEmpty(draft)){ localStorage.removeItem(DRAFT_KEY); return; }
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    if(isDraftEmpty(draft)){ localStorage.removeItem(key); return; }
+    localStorage.setItem(key, JSON.stringify(draft));
     const ind = document.getElementById('draftIndicator');
     if(ind){
       ind.textContent = 'حُفظت مسودة محليًا ✓';
@@ -260,14 +282,16 @@ function scheduleDraftSave(){
 }
 
 function clearDraft(){
-  try{ localStorage.removeItem(DRAFT_KEY); } catch(e){}
+  try{ const key = draftKey(); if(key) localStorage.removeItem(key); } catch(e){}
   const ind = document.getElementById('draftIndicator');
   if(ind) ind.textContent = '';
 }
 
 function getSavedDraft(){
   try{
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const key = draftKey();
+    if(!key) return null;
+    const raw = localStorage.getItem(key);
     if(!raw) return null;
     const d = JSON.parse(raw);
     return isDraftEmpty(d) ? null : d;
@@ -321,6 +345,7 @@ function applyDraft(d){
 
 /* عرض عرض استعادة المسودة عند فتح التطبيق */
 async function offerDraftRestore(){
+  purgeLegacyUnscopedDraft();
   const d = getSavedDraft();
   if(!d) return;
 

@@ -790,7 +790,7 @@ async function exportBackup(){
 
     const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
     setProgress(100, `تم بنجاح — ${shawahid.length} شاهد، ${crmIncidents.length} حادثة صف، ${allPhotos.length - photosFailed} صورة، الحجم ${sizeMb} م.ب${photosFailed ? ` (تعذّر تحميل ${photosFailed} صورة)` : ''}`);
-    localStorage.setItem('last_personal_backup_ts', new Date().toISOString());
+    localStorage.setItem('last_personal_backup_ts:' + currentUser.id, new Date().toISOString());
     setTimeout(() => { if(progBox) progBox.style.display = 'none'; }, 6000);
 
     showToast(`تم تصدير ${shawahid.length} شاهدًا و${crmIncidents.length} حادثة صف و${acCases.length} حالة أكاديمية و${allPhotos.length} صورة`, 'ok');

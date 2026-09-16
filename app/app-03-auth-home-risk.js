@@ -953,7 +953,10 @@ async function buildDataRisks(){
     });
   }
 
-  const lastBackup = localStorage.getItem('last_personal_backup_ts');
+  /* مفتاح خاص بالمستخدم الحالي — على جهاز مشترك بين أكثر من حساب، مفتاح
+     عام واحد كان يعني أن نسخة أحدهم الاحتياطية "تُريح" تنبيه حساب آخر لم
+     يعمل نسخة قط. */
+  const lastBackup = localStorage.getItem('last_personal_backup_ts:' + currentUser.id);
   const backupDays = lastBackup ? daysSince(lastBackup) : null;
   if(!lastBackup || backupDays > 30){
     rows.push({
