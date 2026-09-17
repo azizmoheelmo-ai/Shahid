@@ -890,21 +890,23 @@ async function exportFullBackup(){
       '     1. profiles.csv',
       '     2. performance_elements.csv',
       '     3. admins.csv',
-      '     4. shawahid.csv',
-      '     5. performance_goals.csv',
-      '     6. plan_header.csv',
-      '     7. self_assessment.csv',
-      '     8. classroom_grade_levels.csv',
-      '     9. classroom_sections.csv',
-      '     10. classroom_incident_types.csv (أو أدخلها يدويًا — راجع الملاحظة أعلى 01-schema.sql)',
-      '     11. classroom_students.csv',
-      '     12. classroom_incidents.csv',
-      '     13. classroom_letter_counters.csv',
-      '     14. academic_cases.csv',
+      '     4. activity_programs.csv (لازم قبل shawahid.csv لأنها تُشير إليه)',
+      '     5. shawahid.csv',
+      '     6. performance_goals.csv',
+      '     7. plan_header.csv',
+      '     8. self_assessment.csv',
+      '     9. classroom_grade_levels.csv',
+      '     10. classroom_sections.csv',
+      '     11. classroom_incident_types.csv (أو أدخلها يدويًا — راجع الملاحظة أعلى 01-schema.sql)',
+      '     12. classroom_students.csv',
+      '     13. classroom_incidents.csv',
+      '     14. classroom_letter_counters.csv',
+      '     15. academic_cases.csv',
+      '     16. support_messages.csv',
       '',
       '── الخطوة 6: استعادة الصور ──',
-      '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية معًا)',
-      '  ثم حدّث حقل photo_urls في جدول shawahid، وحقل referral_receipt_photo_url في جدولَي classroom_incidents وacademic_cases، بالروابط الجديدة.',
+      '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',
+      '  ثم حدّث حقل photo_urls في جدول shawahid، وحقل referral_receipt_photo_url في جدولَي classroom_incidents وacademic_cases، وحقل photo_url في جدول support_messages، بالروابط الجديدة.',
       '',
       '── الخطوة 7: تعيين المسؤول ──',
       '  من Authentication ← Users انسخ UID حسابك، ثم في SQL Editor:',
@@ -970,6 +972,16 @@ async function exportFullBackup(){
           url: c.referral_receipt_photo_url,
           teacher: 'المتابعة_الأكاديمية_' + (studentNameById[c.student_id] || 'غير_معروف').replace(/[^\u0600-\u06FF\w]+/g, '_'),
           ref: 'إحالة_' + String(c.id).slice(0, 8),
+          idx: 1
+        });
+      }
+    });
+    (data.support_messages || []).forEach(m => {
+      if(m.photo_url){
+        allPhotos.push({
+          url: m.photo_url,
+          teacher: 'رسائل_الدعم_' + (m.teacher_name || 'غير_معروف').replace(/[^؀-ۿ\w]+/g, '_'),
+          ref: 'رسالة_' + String(m.id).slice(0, 8),
           idx: 1
         });
       }
