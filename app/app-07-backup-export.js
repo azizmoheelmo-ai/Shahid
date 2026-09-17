@@ -765,6 +765,7 @@ async function exportFullBackup(){
   const btn = document.getElementById('fullBackupBtn');
   const box = document.getElementById('fullBackupProgress');
   btn.disabled = true;
+  activeExportCount++;
   box.style.display = 'block';
   updateBackupProgress(3, 'جارٍ تحميل مكتبة الضغط...');
 
@@ -970,6 +971,7 @@ async function exportFullBackup(){
     updateBackupProgress(0, 'تعذّر إنشاء النسخة: ' + err.message);
     showToast('تعذّر إنشاء النسخة الاحتياطية', 'error');
   } finally {
+    activeExportCount = Math.max(0, activeExportCount - 1);
     btn.disabled = false;
   }
 }

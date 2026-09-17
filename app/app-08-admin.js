@@ -291,17 +291,21 @@ function adminRenderRecCard(r){
       <div class="rec-desc">${escapeHtml(descSnippet)}${(r.description||'').length > 140 ? '…' : ''}</div>
       ${photosHtml}
       <div class="rec-actions">
-        <button class="btn btn-outline" onclick="adminPrintRecord('${r.id}')">طباعة</button>
+        <button class="btn btn-outline" onclick="adminPrintRecord('${r.id}', event)">طباعة</button>
         <button class="btn btn-danger" onclick="adminDeleteRecord('${r.id}')">حذف</button>
       </div>
     </div>`;
 }
 
-function adminPrintRecord(id){
+function adminPrintRecord(id, evt){
   const rec = adminAllRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
-  document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
-  printNow();
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
+    printNow();
+  } finally { endExportBusy(btn); }
 }
 
 async function adminDeleteRecord(id){
@@ -508,7 +512,12 @@ function buildCycleSheetAOA(year, shawahidYear, goalsYear, selfYear){
   return aoa;
 }
 
-async function exportBackup(){
+async function exportBackup(evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  /* بلا busyText: الزر "home-btn" له عنوان/وصف كعناصر فرعية، وأصلًا فيه
+     شريط تقدّم حقيقي (personalBackupProgress) يظهر تحته أثناء العمل —
+     التعطيل وحده كافٍ لمنع نقرة مكررة */
+  beginExportBusy(btn);
   showToast('جارٍ تجهيز النسخة الاحتياطية...', 'ok');
   try{
     await ensureZipLib();
@@ -796,6 +805,8 @@ async function exportBackup(){
     showToast(`تم تصدير ${shawahid.length} شاهدًا و${crmIncidents.length} حادثة صف و${acCases.length} حالة أكاديمية و${allPhotos.length} صورة`, 'ok');
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }
 
@@ -903,14 +914,18 @@ function buildPlanHtml(asDraft){
 }
 
 /* طباعة الخطة مباشرة عبر نافذة الطباعة */
-function printPlan(){
+function printPlan(evt){
   const html = buildPlanHtml();
   if(!html){
     showToast('لم تحدد أي مستهدف بعد — عبّئ خطتك أولًا.', 'error');
     return;
   }
-  document.getElementById('printArea').innerHTML = html;
-  printNow();
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    document.getElementById('printArea').innerHTML = html;
+    printNow();
+  } finally { endExportBusy(btn); }
 }
 
 /* ============ أدوات مشتركة لبناء صفحات PDF (تُستخدم في تحميل الخطة وملف الإنجاز) ============ */
@@ -1010,12 +1025,14 @@ async function addPdfPagesMulti(pdf, area, html, state){
 }
 
 /* تحميل الخطة كملف PDF على الجهاز */
-async function exportPlanPdf(){
+async function exportPlanPdf(evt){
   const html = buildPlanHtml();
   if(!html){
     showToast('لم تحدد أي مستهدف بعد — عبّئ خطتك أولًا.', 'error');
     return;
   }
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
   showToast('جارٍ تجهيز ملف الخطة...', 'ok');
   try{
     await ensurePdfLibs();
@@ -1029,6 +1046,8 @@ async function exportPlanPdf(){
     showToast('تم تحميل ملف الخطة', 'ok');
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }
 
@@ -1132,21 +1151,28 @@ async function buildSelfAssessmentHtml(){
 }
 
 /* طباعة ورقة التقييم الذاتي */
-async function printSelfAssessment(){
-  const html = await buildSelfAssessmentHtml();
-  if(!html){
-    showToast('لم تُقيّم أي عنصر بعد — عبّئ التقييم الذاتي أولًا.', 'error');
-    return;
-  }
-  document.getElementById('printArea').innerHTML = html;
-  printNow();
+async function printSelfAssessment(evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    const html = await buildSelfAssessmentHtml();
+    if(!html){
+      showToast('لم تُقيّم أي عنصر بعد — عبّئ التقييم الذاتي أولًا.', 'error');
+      return;
+    }
+    document.getElementById('printArea').innerHTML = html;
+    printNow();
+  } finally { endExportBusy(btn); }
 }
 
 /* تحميل ورقة التقييم الذاتي كملف PDF */
-async function exportSelfAssessment(){
+async function exportSelfAssessment(evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
   const html = await buildSelfAssessmentHtml();
   if(!html){
     showToast('لم تُقيّم أي عنصر بعد — عبّئ التقييم الذاتي أولًا.', 'error');
+    endExportBusy(btn);
     return;
   }
   showToast('جارٍ تجهيز ورقة التقييم الذاتي...', 'ok');
@@ -1162,10 +1188,14 @@ async function exportSelfAssessment(){
     showToast('تم تحميل ورقة التقييم الذاتي', 'ok');
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }
 
-async function exportPortfolio(){
+async function exportPortfolio(evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
   showToast('جارٍ تجهيز ملف الإنجاز...', 'ok');
   try{
     await ensurePdfLibs();
@@ -1248,10 +1278,13 @@ async function exportPortfolio(){
     }
 
     /* صفحات الشواهد مصنّفة حسب العنصر */
+    let recDone = 0;
     for(const el of elements){
       const recs = records.filter(r => r.element_key === el.key);
       if(!recs.length) continue;
       for(const rec of recs){
+        recDone++;
+        setExportBusyText(btn, `جارٍ التجهيز (${recDone}/${records.length})...`);
         let photoDataUrls = [];
         if(rec.photo_urls && rec.photo_urls.length){
           const results = await Promise.all(rec.photo_urls.filter(isImageUrl).map(toDataUrl));
@@ -1265,6 +1298,8 @@ async function exportPortfolio(){
     showToast('تم تجهيز ملف الإنجاز بنجاح', 'ok');
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }
 

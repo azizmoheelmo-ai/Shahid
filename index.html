@@ -237,7 +237,7 @@
           <span class="hb-title">المتابعة الأكاديمية<span id="academicHomeBadge" style="display:none;margin-right:6px;background:#C0392B;color:#fff;border-radius:50%;min-width:16px;height:16px;padding:0 3px;font-size:10px;font-weight:800;line-height:16px;text-align:center;">0</span></span>
           <span class="hb-sub">خطط علاجية لحالات الضعف الأكاديمي وإحالتها للموجه الطلابي</span>
         </button>
-        <button class="home-btn" style="grid-column:1/-1;" onclick="exportPortfolio()">
+        <button class="home-btn" style="grid-column:1/-1;" onclick="exportPortfolio(event)">
           <span class="hb-title">ملف الإنجاز</span>
           <span class="hb-sub">تصدير PDF كامل ومنظّم</span>
         </button>
@@ -410,10 +410,10 @@
         <div id="acLetterPreview" style="background:#fff;border:1px solid var(--line);padding:20px 16px;font-size:13px;line-height:2;"></div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
-          <button class="btn btn-outline" onclick="printAcLetter()">طباعة</button>
-          <button class="btn btn-outline" onclick="downloadAcLetterPDF()">تنزيل PDF</button>
-          <button class="btn btn-outline" onclick="downloadAcLetterWordFile()">تنزيل Word</button>
-          <button class="btn btn-outline" onclick="shareAcLetterWhatsApp()">إرسال واتساب</button>
+          <button class="btn btn-outline" onclick="printAcLetter(event)">طباعة</button>
+          <button class="btn btn-outline" onclick="downloadAcLetterPDF(event)">تنزيل PDF</button>
+          <button class="btn btn-outline" onclick="downloadAcLetterWordFile(event)">تنزيل Word</button>
+          <button class="btn btn-outline" onclick="shareAcLetterWhatsApp(event)">إرسال واتساب</button>
           <button class="btn btn-primary" onclick="confirmAcLetterIssued()">تأكيد الإصدار ✅</button>
         </div>
 
@@ -507,7 +507,7 @@
       <div id="settingsDataBody" class="section" style="display:none;">
         <button class="btn btn-outline" style="margin-bottom:16px;" onclick="showSettingsSection('menu')">→ رجوع لقائمة الإعدادات</button>
         <div class="home-actions">
-          <button class="home-btn tool" style="grid-column:1/-1;" onclick="exportBackup()">
+          <button class="home-btn tool" style="grid-column:1/-1;" onclick="exportBackup(event)">
             <span class="hb-title">نسخة احتياطية</span>
             <span class="hb-sub">ملف Excel + كل صورك، على جهازك</span>
           </button>
@@ -708,10 +708,10 @@
         <div id="rlPreview" style="background:#fff;border:1px solid var(--line);padding:0;font-size:13px;line-height:2;overflow-x:auto;"></div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
-          <button class="btn btn-outline" onclick="printReferralLetter()">طباعة</button>
-          <button class="btn btn-outline" onclick="downloadReferralLetterPDF()">تنزيل PDF</button>
-          <button class="btn btn-outline" onclick="downloadReferralLetterWordFile()">تنزيل Word</button>
-          <button class="btn btn-outline" onclick="shareReferralLetterWhatsApp()">إرسال واتساب</button>
+          <button class="btn btn-outline" onclick="printReferralLetter(event)">طباعة</button>
+          <button class="btn btn-outline" onclick="downloadReferralLetterPDF(event)">تنزيل PDF</button>
+          <button class="btn btn-outline" onclick="downloadReferralLetterWordFile(event)">تنزيل Word</button>
+          <button class="btn btn-outline" onclick="shareReferralLetterWhatsApp(event)">إرسال واتساب</button>
           <button class="btn btn-primary" onclick="confirmReferralLetterIssued()">تأكيد الإصدار ✅</button>
         </div>
 
@@ -768,7 +768,7 @@
             </div>
             <button class="btn btn-outline" onclick="exportSelfAssessment()">تحميل التقييم PDF</button>
             <button class="btn btn-outline" onclick="printSelfAssessment()">طباعة التقييم</button>
-            <button class="btn btn-outline" onclick="exportPortfolio()">تصدير ملف الإنجاز</button>
+            <button class="btn btn-outline" onclick="exportPortfolio(event)">تصدير ملف الإنجاز</button>
           </div>
         </div>
 
@@ -818,8 +818,8 @@
             <div id="planEditControls" style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-outline" onclick="savePlan()">حفظ البيانات الأساسية</button>
             </div>
-            <button class="btn btn-outline" onclick="exportPlanPdf()">تحميل PDF</button>
-            <button class="btn btn-outline" onclick="printPlan()">طباعة</button>
+            <button class="btn btn-outline" onclick="exportPlanPdf(event)">تحميل PDF</button>
+            <button class="btn btn-outline" onclick="printPlan(event)">طباعة</button>
           </div>
         </div>
 
@@ -1072,7 +1072,7 @@
 
     <div class="action-row">
       <button class="btn btn-primary" id="saveBtn" onclick="saveShahid()">حفظ الشاهد</button>
-      <button class="btn btn-outline" onclick="printCurrentForm()">طباعة / حفظ PDF</button>
+      <button class="btn btn-outline" onclick="printCurrentForm(event)">طباعة / حفظ PDF</button>
       <button class="btn btn-outline" id="cancelEditBtn" style="display:none;" onclick="startNewShahid()">إلغاء التعديل</button>
       <button class="btn btn-danger" onclick="cancelForm()">إلغاء وخروج</button>
     </div>

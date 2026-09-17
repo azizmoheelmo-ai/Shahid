@@ -347,7 +347,7 @@ function renderRecCard(r){
       <div class="rec-actions">
         <button class="btn btn-outline" onclick="editRecord('${r.id}')">تعديل</button>
         <button class="btn btn-outline" onclick="duplicateRecord('${r.id}')">نسخ</button>
-        <button class="btn btn-outline" onclick="printRecord('${r.id}')">طباعة</button>
+        <button class="btn btn-outline" onclick="printRecord('${r.id}', event)">طباعة</button>
         <button class="btn btn-danger" onclick="deleteRecord('${r.id}')">حذف</button>
         <button class="btn btn-whatsapp" onclick="shareWhatsApp('${r.id}', event)">إرسال واتساب</button>
       </div>
@@ -1235,7 +1235,10 @@ async function goToPlanForElement(elementKey){
 }
 
 /* ============ طباعة شاهد محفوظ بعينه ============ */
-function printCurrentForm(){
+function printCurrentForm(evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
   const opt = elementSelect.options[elementSelect.selectedIndex];
   const steps = Array.from(stepsList.querySelectorAll('textarea'))
     .map(t => t.value.trim())
@@ -1261,13 +1264,18 @@ function printCurrentForm(){
 
   document.getElementById('printArea').innerHTML = buildPdfHtml(draft, photoSrcs);
   printNow();
+  } finally { endExportBusy(btn); }
 }
 
-function printRecord(id){
+function printRecord(id, evt){
   const rec = myRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
-  document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
-  printNow();
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
+    printNow();
+  } finally { endExportBusy(btn); }
 }
 window.addEventListener('afterprint', () => {
   document.body.classList.remove('printing-record');
@@ -1383,6 +1391,7 @@ async function exportAllShawahid(){
   const btn = document.getElementById('exportAllBtn');
   const originalText = btn.textContent;
   btn.disabled = true;
+  activeExportCount++;
 
   try{
     await ensurePdfLibs();
@@ -1423,6 +1432,7 @@ async function exportAllShawahid(){
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
   } finally {
+    activeExportCount = Math.max(0, activeExportCount - 1);
     btn.disabled = false;
     btn.textContent = originalText;
   }
@@ -1436,6 +1446,7 @@ async function shareWhatsApp(id, evt){
   const btn = evt ? evt.target.closest('button') : null;
   const originalText = btn ? btn.textContent : '';
   if(btn){ btn.disabled = true; btn.textContent = 'جارٍ التجهيز...'; }
+  activeExportCount++;
 
   try{
     const blob = await buildRecordPdfBlob(rec);
@@ -1481,6 +1492,7 @@ async function shareWhatsApp(id, evt){
       showToast('تعذّر تجهيز الملف: ' + err.message, 'error');
     }
   } finally {
+    activeExportCount = Math.max(0, activeExportCount - 1);
     if(btn){ btn.disabled = false; btn.textContent = originalText; }
   }
 }

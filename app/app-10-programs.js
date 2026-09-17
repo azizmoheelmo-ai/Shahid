@@ -275,8 +275,8 @@ function renderProgramDetail(programId){
     <div class="plan-goals-list">${sessionsHtml}</div>
     <div class="rec-actions" style="margin-top:18px;flex-wrap:wrap;">
       <button class="btn btn-outline" onclick="editProgramSchedule('${p.id}')">تعديل الجدول</button>
-      <button class="btn btn-outline" onclick="printProgramSummary('${p.id}')">طباعة الملخص</button>
-      <button class="btn btn-outline" onclick="exportProgramSummaryPdf('${p.id}')">تصدير PDF</button>
+      <button class="btn btn-outline" onclick="printProgramSummary('${p.id}', event)">طباعة الملخص</button>
+      <button class="btn btn-outline" onclick="exportProgramSummaryPdf('${p.id}', event)">تصدير PDF</button>
       <button class="btn btn-outline" onclick="deleteActivityProgram('${p.id}')" style="color:#8A2C2C;border-color:#8A2C2C;">حذف البرنامج</button>
     </div>
   `;
@@ -429,16 +429,22 @@ function buildProgramSummaryHtml(program){
   </div>`;
 }
 
-function printProgramSummary(programId){
+function printProgramSummary(programId, evt){
   const p = activityPrograms.find(x => String(x.id) === String(programId));
   if(!p) return;
-  document.getElementById('printArea').innerHTML = buildProgramSummaryHtml(p);
-  printNow();
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    document.getElementById('printArea').innerHTML = buildProgramSummaryHtml(p);
+    printNow();
+  } finally { endExportBusy(btn); }
 }
 
-async function exportProgramSummaryPdf(programId){
+async function exportProgramSummaryPdf(programId, evt){
   const p = activityPrograms.find(x => String(x.id) === String(programId));
   if(!p) return;
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     await ensurePdfLibs();
     const { jsPDF } = window.jspdf;
@@ -451,5 +457,7 @@ async function exportProgramSummaryPdf(programId){
     showToast('تم تصدير ملخص البرنامج بنجاح', 'ok');
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }

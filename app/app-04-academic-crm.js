@@ -490,7 +490,9 @@ async function buildLetterPdfBlob(previewElId, photoUrl){
    الـPDF المُتحقَّق أصلاً من ضبطه على صفحة واحدة (buildBlobFn)، وتفتحه
    لتُطبَع من عارض PDF بالمتصفح مباشرة — بدل إعادة توليد تخطيط HTML مستقل
    عرضة لنفس مشكلة عدم التناسب. */
-async function printLetterContent(buildBlobFn){
+async function printLetterContent(buildBlobFn, evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
   /* تُفتح النافذة فورًا وبشكل متزامن (قبل أي await) لتبقى مرتبطة بإيماءة
      المستخدم (نقرة الزر) — بعض المتصفحات (Safari خصوصًا) تمنع window.open
      لو جاءت بعد عملية غير متزامنة، حتى لو نتجت عن نفس النقرة أصلاً. */
@@ -514,10 +516,14 @@ async function printLetterContent(buildBlobFn){
   } catch(err){
     if(win) win.close();
     showToast('تعذّر تجهيز الطباعة: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }
 
-async function downloadLetterPdfFile(buildBlobFn, studentName, letterLabel){
+async function downloadLetterPdfFile(buildBlobFn, studentName, letterLabel, evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     showToast('جارٍ تجهيز PDF...', 'ok');
     const blob = await buildBlobFn();
@@ -532,10 +538,14 @@ async function downloadLetterPdfFile(buildBlobFn, studentName, letterLabel){
     showToast('تم تنزيل PDF', 'ok');
   } catch(err){
     showToast('تعذّر إنشاء PDF: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }
 
-async function shareLetterWhatsApp(buildBlobFn, studentName, letterLabel){
+async function shareLetterWhatsApp(buildBlobFn, studentName, letterLabel, evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     showToast('جارٍ تجهيز الملف...', 'ok');
     const blob = await buildBlobFn();
@@ -554,30 +564,38 @@ async function shareLetterWhatsApp(buildBlobFn, studentName, letterLabel){
     }
   } catch(err){
     if(err.name !== 'AbortError') showToast('تعذّر المشاركة: ' + err.message, 'error');
+  } finally {
+    endExportBusy(btn);
   }
 }
 
-async function downloadLetterWordFile(previewElId, photoUrl, studentName, letterLabel){
-  const content = document.getElementById(previewElId).innerHTML;
-  let photoHtml = '';
-  if(photoUrl){
-    showToast('جارٍ تجهيز الملف...', 'ok');
-    const dataUrl = await toDataUrl(photoUrl);
-    if(dataUrl){
-      photoHtml = '<br clear="all" style="page-break-before:always;">' +
-        '<h3 style="text-align:center;margin-bottom:14px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + escapeHtml(dataUrl) + '" width="170" style="width:45mm;max-width:45%;display:block;margin:0 auto;border:1px solid #999;">';
-    } else {
-      showToast('تعذّر تضمين الصورة — سيُنزَّل الخطاب بدونها', 'error');
+async function downloadLetterWordFile(previewElId, photoUrl, studentName, letterLabel, evt){
+  const btn = evt ? evt.target.closest('button') : null;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    const content = document.getElementById(previewElId).innerHTML;
+    let photoHtml = '';
+    if(photoUrl){
+      showToast('جارٍ تجهيز الملف...', 'ok');
+      const dataUrl = await toDataUrl(photoUrl);
+      if(dataUrl){
+        photoHtml = '<br clear="all" style="page-break-before:always;">' +
+          '<h3 style="text-align:center;margin-bottom:14px;">صورة إثبات التسليم الموقّع</h3>' +
+          '<img src="' + escapeHtml(dataUrl) + '" width="170" style="width:45mm;max-width:45%;display:block;margin:0 auto;border:1px solid #999;">';
+      } else {
+        showToast('تعذّر تضمين الصورة — سيُنزَّل الخطاب بدونها', 'error');
+      }
     }
+    const fullHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>" + letterLabel + "</title></head><body dir='rtl' style='font-family:Arial;font-size:13pt;line-height:2;'>" + content + photoHtml + "</body></html>";
+    const blob2 = new Blob(['﻿', fullHtml], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob2);
+    const a = document.createElement('a');
+    a.href = url; a.download = letterLabel + ' - ' + studentName + '.doc';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } finally {
+    endExportBusy(btn);
   }
-  const fullHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>" + letterLabel + "</title></head><body dir='rtl' style='font-family:Arial;font-size:13pt;line-height:2;'>" + content + photoHtml + "</body></html>";
-  const blob2 = new Blob(['﻿', fullHtml], { type: 'application/msword' });
-  const url = URL.createObjectURL(blob2);
-  const a = document.createElement('a');
-  a.href = url; a.download = letterLabel + ' - ' + studentName + '.doc';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 async function confirmLetterIssued(cfg){
@@ -686,27 +704,27 @@ const RL_LETTER_CFG = {
   refreshBadges: () => refreshCrmPendingBadges()
 };
 
-async function printAcLetter(){
-  return printLetterContent(buildAcLetterPdfBlob);
+async function printAcLetter(evt){
+  return printLetterContent(buildAcLetterPdfBlob, evt);
 }
 
 async function buildAcLetterPdfBlob(){
   return buildLetterPdfBlob('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url);
 }
 
-async function downloadAcLetterPDF(){
+async function downloadAcLetterPDF(evt){
   const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
-  return downloadLetterPdfFile(buildAcLetterPdfBlob, studentName, 'خطاب إحالة');
+  return downloadLetterPdfFile(buildAcLetterPdfBlob, studentName, 'خطاب إحالة', evt);
 }
 
-async function shareAcLetterWhatsApp(){
+async function shareAcLetterWhatsApp(evt){
   const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
-  return shareLetterWhatsApp(buildAcLetterPdfBlob, studentName, 'خطاب إحالة');
+  return shareLetterWhatsApp(buildAcLetterPdfBlob, studentName, 'خطاب إحالة', evt);
 }
 
-async function downloadAcLetterWordFile(){
+async function downloadAcLetterWordFile(evt){
   const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
-  return downloadLetterWordFile('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url, studentName, 'خطاب إحالة');
+  return downloadLetterWordFile('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url, studentName, 'خطاب إحالة', evt);
 }
 
 async function confirmAcLetterIssued(){
@@ -1621,23 +1639,23 @@ async function buildReferralLetterPdfBlob(){
   return buildLetterPdfBlob('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url);
 }
 
-async function downloadReferralLetterPDF(){
+async function downloadReferralLetterPDF(evt){
   const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
-  return downloadLetterPdfFile(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل');
+  return downloadLetterPdfFile(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل', evt);
 }
 
-async function shareReferralLetterWhatsApp(){
+async function shareReferralLetterWhatsApp(evt){
   const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
-  return shareLetterWhatsApp(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل');
+  return shareLetterWhatsApp(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل', evt);
 }
 
-async function printReferralLetter(){
-  return printLetterContent(buildReferralLetterPdfBlob);
+async function printReferralLetter(evt){
+  return printLetterContent(buildReferralLetterPdfBlob, evt);
 }
 
-async function downloadReferralLetterWordFile(){
+async function downloadReferralLetterWordFile(evt){
   const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
-  return downloadLetterWordFile('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url, studentName, 'خطاب تحويل');
+  return downloadLetterWordFile('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url, studentName, 'خطاب تحويل', evt);
 }
 
 async function confirmReferralLetterIssued(){

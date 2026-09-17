@@ -171,9 +171,59 @@ let editingId = null;
 let formDirty = false;  // هل يوجد تعديلات غير محفوظة في نموذج الشاهد؟
 let programSessionContext = null; // { programId, sessionNo } لو الشاهد الحالي يوثّق حصة من برنامج نشاط طلابي
 
-/* تحذير المعلم قبل مغادرة الصفحة بتعديلات غير محفوظة */
+/* ============ حالة "جاري تصدير/طباعة" موحّدة لكل أزرار الطباعة والتصدير ============ */
+/* عدّاد لا قيمة منطقية — نظريًا قد تكون أكثر من عملية شغّالة معًا. تُستخدم
+   لإبقاء الزر المضغوط معطّلاً وبنص "جارٍ التجهيز..." طوال مدة العملية
+   الفعلية (بدل توست يختفي تلقائيًا بعد ثوانٍ بغضّ النظر عن طول العمل
+   الحقيقي خلفه — مزعج خصوصًا لملفات كبيرة فيها صور كثيرة)، ولتحذير
+   المستخدم لو حاول مغادرة الصفحة قبل اكتمال التصدير (نفس فكرة تحذير
+   formDirty أدناه، تحسبًا لضياع وقت التجهيز لو أعاد تحميل الصفحة بالخطأ). */
+let activeExportCount = 0;
+
+/* بعض الأزرار (مثل "home-btn" ببطاقات الرئيسية) تحتوي عناصر <span> فرعية
+   للعنوان والوصف (.hb-title/.hb-sub) — استبدال textContent الزر كاملًا بها
+   يُسطِّح هذا التركيب ولا يُعاد بناؤه صحيحًا عند "الاستعادة". فنحدّث نص
+   العنصر الفرعي .hb-sub لو وُجد (يبقى العنوان كما هو، فقط الوصف يتحوّل
+   لرسالة التقدّم)، وإلا الزر نفسه لو كان نصًا مسطّحًا عاديًا. */
+function exportBusyTextTarget(btn){
+  return btn ? (btn.querySelector('.hb-sub') || btn) : null;
+}
+
+/* busyText اختياري — التعطيل (disabled) وحده كافٍ لو لم يُطلب نص محدّد
+   (مثلًا لو للزر أصلًا مؤشر تقدّم منفصل بجانبه). */
+function beginExportBusy(btn, busyText){
+  activeExportCount++;
+  if(btn){
+    btn.disabled = true;
+    if(busyText !== undefined) setExportBusyText(btn, busyText);
+  }
+}
+
+/* تحديث نص "جارٍ التجهيز..." أثناء العملية (مثلًا "جارٍ التجهيز (٣/١٠)...")
+   — يُستدعى بين beginExportBusy وendExportBusy لنفس الزر. */
+function setExportBusyText(btn, text){
+  const target = exportBusyTextTarget(btn);
+  if(!target) return;
+  if(target.dataset.origText === undefined) target.dataset.origText = target.textContent;
+  target.textContent = text;
+}
+
+function endExportBusy(btn){
+  activeExportCount = Math.max(0, activeExportCount - 1);
+  if(btn){
+    btn.disabled = false;
+    const target = exportBusyTextTarget(btn);
+    if(target && target.dataset.origText !== undefined){
+      target.textContent = target.dataset.origText;
+      delete target.dataset.origText;
+    }
+  }
+}
+
+/* تحذير المعلم قبل مغادرة الصفحة بتعديلات غير محفوظة، أو أثناء عملية طباعة/تصدير لم تكتمل بعد */
 window.addEventListener('beforeunload', (e) => {
-  if(formDirty && document.getElementById('formView').style.display !== 'none'){
+  const hasUnsavedForm = formDirty && document.getElementById('formView').style.display !== 'none';
+  if(hasUnsavedForm || activeExportCount > 0){
     e.preventDefault();
     e.returnValue = '';
   }
