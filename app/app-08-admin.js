@@ -530,7 +530,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, supportRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -539,7 +539,9 @@ async function exportBackup(evt){
       sb.from('classroom_sections').select('*').eq('teacher_id', uid),
       fetchAllRows((from, to) => sb.from('classroom_incidents').select('*').eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('classroom_incident_types').select('*'),
-      fetchAllRows((from, to) => sb.from('academic_cases').select('*').eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to))
+      fetchAllRows((from, to) => sb.from('academic_cases').select('*').eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to)),
+      sb.from('activity_programs').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
+      sb.from('support_messages').select('*').eq('user_id', uid).order('created_at', { ascending: false })
     ]);
 
     const shawahid = shRes.data || [];
@@ -551,6 +553,12 @@ async function exportBackup(evt){
     const crmIncidents = crmIncidentsRes.data || [];
     const crmTypes = crmTypesRes.data || [];
     const acCases = acCasesRes.data || [];
+    /* اسم مختلف عمدًا عن المتغيّر العام activityPrograms (app-10-programs.js) —
+       نفس بيئة النطاق المشتركة بين كل ملفات JS بالتطبيق، فالإبقاء على الاسم
+       نفسه هنا (كمتغيّر محلي داخل هذه الدالة فقط) قد يُربك قارئًا مستقبليًا
+       رغم عدم وجود أي خلل فعلي (const محلية لا تمسّ let العامة). */
+    const myPrograms = programsRes.data || [];
+    const supportMsgs = supportRes.data || [];
     const meta = (currentUser && currentUser.user_metadata) || {};
     const teacherName = meta.full_name || '';
     const currentCycle = getCycleYear();
@@ -677,6 +685,41 @@ async function exportBackup(evt){
       XLSX.utils.book_append_sheet(wb, wsAcademic, 'المتابعة الأكاديمية');
     }
 
+    /* ---- تبويب: برامج الأنشطة الطلابية ---- */
+    if(myPrograms.length){
+      const progAOA = [['اسم البرنامج', 'الحصص الموثَّقة', 'إجمالي الحصص', 'عدد الطلبة', 'السنة', 'تفاصيل الحصص']];
+      myPrograms.forEach(p => {
+        const sessions = p.sessions || [];
+        const done = sessions.filter(s => s.done).length;
+        const sessionsDetail = sessions
+          .map(s => `${s.session_no}: ${s.week_label || '—'} — ${s.done ? 'موثَّقة' + (s.done_date ? ' (' + s.done_date + ')' : '') : 'لم تُوثَّق بعد'}`)
+          .join(' | ');
+        progAOA.push([p.name, done, p.total_sessions, p.student_count || '—', p.cycle_year || '—', sessionsDetail]);
+      });
+      const wsPrograms = XLSX.utils.aoa_to_sheet(progAOA);
+      wsPrograms['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 80 }];
+      setXlsxPrintMargins(wsPrograms);
+      XLSX.utils.book_append_sheet(wb, wsPrograms, 'برامج الأنشطة الطلابية');
+    }
+
+    /* ---- تبويب: رسائل الدعم ---- */
+    if(supportMsgs.length){
+      const supportAOA = [['التاريخ', 'الرسالة', 'الحالة', 'تاريخ الحل', 'صورة مرفقة']];
+      supportMsgs.forEach(m => {
+        supportAOA.push([
+          m.created_at ? new Date(m.created_at).toLocaleString('ar-SA') : '',
+          m.message,
+          m.status === 'resolved' ? 'محلولة' : 'مفتوحة',
+          m.resolved_at ? new Date(m.resolved_at).toLocaleString('ar-SA') : '—',
+          m.photo_url ? 'نعم' : 'لا'
+        ]);
+      });
+      const wsSupport = XLSX.utils.aoa_to_sheet(supportAOA);
+      wsSupport['!cols'] = [{ wch: 20 }, { wch: 50 }, { wch: 10 }, { wch: 20 }, { wch: 12 }];
+      setXlsxPrintMargins(wsSupport);
+      XLSX.utils.book_append_sheet(wb, wsSupport, 'رسائل الدعم');
+    }
+
     const xlsxArray = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 
     /* ============ تجميع الملف النهائي: Excel + مفكرة توضيحية + نسخة تقنية ============ */
@@ -692,6 +735,7 @@ async function exportBackup(evt){
       `إجمالي الشواهد: ${shawahid.length}  —  عبر ${years.length} ${years.length === 1 ? 'دورة أداء' : 'دورات أداء'}`,
       `إجمالي طلاب إدارة الصف: ${crmStudents.length}  —  إجمالي الحوادث السلوكية: ${crmIncidents.length}`,
       `إجمالي الحالات الأكاديمية: ${acCases.length}  —  المُحالة منها للموجه: ${acCases.filter(c => c.status === 'referred').length}`,
+      `إجمالي برامج الأنشطة الطلابية: ${myPrograms.length}  —  إجمالي رسائل الدعم: ${supportMsgs.length}`,
       '',
       'محتوى هذا الملف:',
       '  • نسخة-احتياطية.xlsx   الملف الرئيسي — افتحه في Excel أو Google Sheets',
@@ -703,9 +747,12 @@ async function exportBackup(evt){
       '      - تبويب "طلاب إدارة الصف": كل طلابك مرتبين حسب المرحلة والشعبة',
       '      - تبويب "حوادث إدارة الصف": كل مخالفة مسجّلة، حالتها، وأرقام خطابات التحويل',
       '      - تبويب "المتابعة الأكاديمية": حالات الضعف الأكاديمي، الخطط العلاجية، والإحالات',
+      '      - تبويب "برامج الأنشطة الطلابية": كل برنامج وجدول حصصه وحالة توثيقها',
+      '      - تبويب "رسائل الدعم": كل رسالة أرسلتها عبر "تواصل معنا" وحالتها',
       '  • الصور/                 صور شواهد الأداء',
       '  • الصور/إدارة_الصف/      صور توثيق تسليم خطابات التحويل السلوكية',
       '  • الصور/المتابعة_الأكاديمية/  صور توثيق تسليم خطابات الإحالة الأكاديمية',
+      '  • الصور/رسائل_الدعم/     صور رسائل الدعم المُرفَقة',
       '  • بيانات-كاملة.json    نسخة تقنية كاملة (لأغراض الاستعادة فقط، لا تحتاج فتحها بنفسك)',
       '',
       'خدمة إضافية: هذا الملف مصمَّم ليُفهم بسهولة من أي أداة ذكاء اصطناعي — ارفعه',
@@ -727,7 +774,9 @@ async function exportBackup(evt){
       classroom_sections: crmSections,
       classroom_incidents: crmIncidents,
       classroom_incident_types_reference: crmTypes,
-      academic_cases: acCases
+      academic_cases: acCases,
+      activity_programs: myPrograms,
+      support_messages: supportMsgs
     };
     zip.file('بيانات-كاملة.json', JSON.stringify(fullData, null, 2));
 
@@ -772,6 +821,17 @@ async function exportBackup(evt){
         });
       }
     });
+    const supportPhotosFolder = photosFolder.folder('رسائل_الدعم');
+    supportMsgs.forEach(m => {
+      if(m.photo_url){
+        allPhotos.push({
+          url: m.photo_url,
+          ref: 'رسالة_' + String(m.id).slice(0, 8),
+          idx: 1,
+          target: supportPhotosFolder
+        });
+      }
+    });
 
     let photosDone = 0, photosFailed = 0;
     for(const p of allPhotos){
@@ -802,7 +862,7 @@ async function exportBackup(evt){
     localStorage.setItem('last_personal_backup_ts:' + currentUser.id, new Date().toISOString());
     setTimeout(() => { if(progBox) progBox.style.display = 'none'; }, 6000);
 
-    showToast(`تم تصدير ${shawahid.length} شاهدًا و${crmIncidents.length} حادثة صف و${acCases.length} حالة أكاديمية و${allPhotos.length} صورة`, 'ok');
+    showToast(`تم تصدير ${shawahid.length} شاهدًا و${crmIncidents.length} حادثة صف و${acCases.length} حالة أكاديمية و${myPrograms.length} برنامج نشاط و${allPhotos.length} صورة`, 'ok');
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
   } finally {
