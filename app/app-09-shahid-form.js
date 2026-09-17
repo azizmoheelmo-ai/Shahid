@@ -500,13 +500,14 @@ async function loadPerformanceElements(){
       .eq('active', true)
       .order('sort_order', { ascending: true });
     if(error || !data || !data.length){
-      DB_ELEMENTS = Object.keys(ELEMENT_META).map((key, i) => ({ key, label: key, weight: 10, sort_order: i }));
+      ALL_PERFORMANCE_ELEMENTS = Object.keys(ELEMENT_META).map((key, i) => ({ key, label: key, weight: 10, sort_order: i, weight_activity: null, requires_student_activity: false }));
     } else {
-      DB_ELEMENTS = data;
+      ALL_PERFORMANCE_ELEMENTS = data;
     }
   } catch(e){
-    DB_ELEMENTS = Object.keys(ELEMENT_META).map((key, i) => ({ key, label: key, weight: 10, sort_order: i }));
+    ALL_PERFORMANCE_ELEMENTS = Object.keys(ELEMENT_META).map((key, i) => ({ key, label: key, weight: 10, sort_order: i, weight_activity: null, requires_student_activity: false }));
   }
+  DB_ELEMENTS = computeEffectiveElements(ALL_PERFORMANCE_ELEMENTS, hasStudentActivity);
   populateElementSelect();
 }
 

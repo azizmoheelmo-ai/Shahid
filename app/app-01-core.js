@@ -544,8 +544,23 @@ const ELEMENT_META = {
   }
 };
 
-let DB_ELEMENTS = []; // العناصر الفعلية من قاعدة البيانات (قابلة للتعديل من لوحة التحكم)
+let DB_ELEMENTS = []; // العناصر الفعّالة للمعلم الحالي فقط (بعد تطبيق computeEffectiveElements)
+let ALL_PERFORMANCE_ELEMENTS = []; // كل العناصر كما في القاعدة، بدون فلترة/إعادة وزن — لأي حساب يشمل عدة معلمين
+let hasStudentActivity = false; // هل المعلم الحالي مفعِّل "نشاط طلابي"؟
 let isRecoveryFlow = false;
+
+/* عناصر التقييم الفعّالة لمعلم معيّن: تستبعد عناصر النشاط الطلابي عن معلم غير
+   مفعِّلها، وتستبدل الوزن العادي بـ weight_activity لأي معلم مفعِّلها (لو كان
+   محددًا لهذا العنصر). لا تعتمد على أي حالة ضمنية (currentUser/hasStudentActivity)
+   عمدًا — لتصلح لحساب عناصر معلم آخر غير المعلم الحالي (شاشات المسؤول). */
+function computeEffectiveElements(rawElements, hasActivity){
+  return (rawElements || [])
+    .filter(el => hasActivity || !el.requires_student_activity)
+    .map(el => {
+      const w = (hasActivity && el.weight_activity != null) ? el.weight_activity : el.weight;
+      return Object.assign({}, el, { weight: w });
+    });
+}
 
 /* ============ فحص مباشر لرابط استعادة كلمة المرور (لا نعتمد فقط على حدث Supabase) ============ */
 function showRecoveryUI(){

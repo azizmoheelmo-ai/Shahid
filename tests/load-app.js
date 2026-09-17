@@ -172,6 +172,15 @@ function loadApp(opts) {
   return sandbox;
 }
 
+/* تنفيذ كود إضافي بنفس سياق (context) تطبيق مُحمَّل مسبقًا بـ loadApp() —
+   يتيح قراءة/كتابة متغيّرات let/const بأعلى المستوى (مثل hasStudentActivity)
+   لا تظهر كخصائص عادية على app (راجع الملاحظة أعلى الملف). app هو نفس
+   الكائن الذي أعادته loadApp()، وهو محتوًى (contextified) فعليًا فيصلح
+   تمريره مباشرة لـ vm.runInContext من هنا. */
+function runInAppContext(app, code){
+  return vm.runInContext(code, app);
+}
+
 function makeFakeStorage() {
   const store = new Map();
   return {
@@ -182,4 +191,4 @@ function makeFakeStorage() {
   };
 }
 
-module.exports = { loadApp, extractAppScript, makeFakeSupabaseClient };
+module.exports = { loadApp, extractAppScript, makeFakeSupabaseClient, runInAppContext };

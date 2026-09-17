@@ -97,7 +97,11 @@ function renderAdminReadiness(){
 function renderAdminByElement(){
   const box = document.getElementById('adminByElement');
   if(!box) return;
-  const elements = getElementsOrder();
+  /* نستخدم كل العناصر بلا فلترة (لا getElementsOrder التي تعكس فقط عناصر
+     المسؤول نفسه) لأن هذا مؤشر يجمع شواهد كل المعلمين، وبعضهم قد يكون مفعِّلًا
+     "نشاط طلابي" وبعضهم لا — استخدام عناصر المسؤول فقط كان يُسقط عناصر النشاط
+     الطلابي من الرسم كليًا لو المسؤول نفسه غير مفعِّلها. */
+  const elements = ALL_PERFORMANCE_ELEMENTS;
   const counts = {};
   elements.forEach(e => counts[e.key] = 0);
   adminAllRecords.forEach(r => { if(counts[r.element_key] !== undefined) counts[r.element_key]++; });
@@ -134,6 +138,7 @@ function renderAdminProfiles(){
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="showTeacherDetail('${p.id}')">التفاصيل</button>
         <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="toggleTeacherDisabled('${p.id}', ${!p.disabled})">${p.disabled ? 'تفعيل' : 'تعطيل'}</button>
+        <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="toggleTeacherStudentActivity('${p.id}', ${!p.has_student_activity})">${p.has_student_activity ? 'إلغاء نشاط طلابي' : 'تفعيل نشاط طلابي'}</button>
         ${adminIds.has(p.id)
           ? `<button class="btn btn-danger" style="padding:5px 10px;font-size:11px;" onclick="removeAdmin('${p.id}')">إزالة كمسؤول</button>`
           : ''}
@@ -146,7 +151,9 @@ function renderAdminProfiles(){
 function showTeacherDetail(uid){
   const p = adminProfiles.find(x => x.id === uid);
   if(!p) return;
-  const elements = getElementsOrder();
+  /* عناصر هذا المعلم بعينه (لا عناصر المسؤول الضمنية) — قد يختلف تفعيله
+     لخيار "نشاط طلابي" عن تفعيل المسؤول نفسه */
+  const elements = computeEffectiveElements(ALL_PERFORMANCE_ELEMENTS, !!p.has_student_activity);
   const plan = adminAllPlans[uid] || {};
   const self = adminAllSelf[uid] || {};
   const recs = adminAllRecords.filter(r => r.user_id === uid);
@@ -190,6 +197,20 @@ async function toggleTeacherDisabled(userId, disabledVal){
     const { error } = await sb.from('profiles').update({ disabled: disabledVal }).eq('id', userId);
     if(error) throw error;
     showToast(disabledVal ? 'تم تعطيل الحساب' : 'تم تفعيل الحساب', 'ok');
+    await showAdminPanel();
+  } catch(err){
+    showToast('تعذّر: ' + err.message, 'error');
+  }
+}
+
+/* تعديل خيار "نشاط طلابي" لمعلم من لوحة المسؤول — عبر الدالة المضبوطة
+   set_student_activity_flag بدل تحديث مباشر على profiles، لأنها تُستخدم أيضًا
+   من المعلم نفسه بنفس الآلية (راجع saveStudentActivityFlag في الإعدادات) */
+async function toggleTeacherStudentActivity(userId, flagVal){
+  try{
+    const { error } = await sb.rpc('set_student_activity_flag', { target_user_id: userId, flag: flagVal });
+    if(error) throw error;
+    showToast(flagVal ? 'تم تفعيل "نشاط طلابي" لهذا المعلم' : 'تم إلغاء "نشاط طلابي" لهذا المعلم', 'ok');
     await showAdminPanel();
   } catch(err){
     showToast('تعذّر: ' + err.message, 'error');
@@ -359,7 +380,11 @@ async function loadElementsMgmt(){
   box.innerHTML = (data || []).map(el => `
     <div class="elem-mgmt-row" data-id="${el.id}">
       <input type="text" class="goal-input" maxlength="150" value="${escapeHtml(el.label)}" id="elLabel-${el.id}">
-      <input type="number" class="goal-input" value="${el.weight}" id="elWeight-${el.id}">
+      <input type="number" class="goal-input" value="${el.weight}" id="elWeight-${el.id}" title="الوزن العادي">
+      <input type="number" class="goal-input" value="${el.weight_activity != null ? el.weight_activity : ''}" id="elWeightActivity-${el.id}" placeholder="وزن نشاط طلابي" title="الوزن لمعلم مفعِّل نشاط طلابي — اتركه فارغًا لاستخدام الوزن العادي">
+      <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;">
+        <input type="checkbox" id="elRequiresActivity-${el.id}" ${el.requires_student_activity ? 'checked' : ''}> خاص بنشاط طلابي
+      </label>
       <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="savePerformanceElement('${el.id}')">حفظ</button>
       <button class="btn btn-danger" style="padding:5px 10px;font-size:11px;" onclick="deletePerformanceElement('${el.id}')">حذف</button>
     </div>`).join('');
@@ -368,8 +393,11 @@ async function loadElementsMgmt(){
 async function savePerformanceElement(id){
   const label = document.getElementById('elLabel-' + id).value.trim();
   const weight = Number(document.getElementById('elWeight-' + id).value) || 0;
+  const weightActivityRaw = document.getElementById('elWeightActivity-' + id).value.trim();
+  const weight_activity = weightActivityRaw === '' ? null : (Number(weightActivityRaw) || 0);
+  const requires_student_activity = document.getElementById('elRequiresActivity-' + id).checked;
   try{
-    const { error } = await sb.from('performance_elements').update({ label, weight }).eq('id', id);
+    const { error } = await sb.from('performance_elements').update({ label, weight, weight_activity, requires_student_activity }).eq('id', id);
     if(error) throw error;
     showToast('تم الحفظ', 'ok');
     loadPerformanceElements();

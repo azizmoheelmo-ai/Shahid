@@ -140,6 +140,12 @@
         <label>تأكيد كلمة المرور</label>
         <input type="password" id="authPassword2" placeholder="••••••••">
       </div>
+      <div id="signupStudentActivityField" style="display:none;margin:4px 0 14px;">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:var(--ink);line-height:1.7;">
+          <input type="checkbox" id="authStudentActivity" style="margin-top:3px;flex:0 0 auto;width:16px;height:16px;">
+          <span>أنا معلم مسند لي <b>نشاط طلابي</b> (يمكن تغيير هذا لاحقًا من الإعدادات)</span>
+        </label>
+      </div>
       <div id="termsWrap" style="display:none;margin:4px 0 14px;">
         <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:var(--ink);line-height:1.7;">
           <input type="checkbox" id="agreeTerms" style="margin-top:3px;flex:0 0 auto;width:16px;height:16px;">
@@ -519,6 +525,16 @@
         <div>
           <button class="btn btn-primary" onclick="saveProfile()">حفظ البيانات</button>
           <span id="profileMsg" style="font-size:12px;margin-right:10px;"></span>
+        </div>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="peStudentActivity" style="margin-top:3px;" onchange="saveStudentActivityFlag(this.checked)">
+            <span style="font-size:12.5px;line-height:1.7;">
+              أنا معلم مسند لي <b>نشاط طلابي</b> — يعرض نموذج تقييم مختلفًا يضم عناصر النشاط الطلابي الأربعة بجانب العناصر الأساسية بأوزان معدَّلة.
+            </span>
+          </label>
+          <span id="studentActivityMsg" style="font-size:12px;display:block;margin-top:6px;"></span>
         </div>
       </div>
 

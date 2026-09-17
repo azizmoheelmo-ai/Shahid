@@ -133,6 +133,58 @@ drop policy if exists "المسؤول يدير العناصر - حذف" on publi
 create policy "المسؤول يدير العناصر - حذف"
   on public.performance_elements for delete using (public.is_admin(auth.uid()));
 
+-- ============ 3ب) نموذج تقييم معلم مسند له نشاط طلابي ============
+-- بعض المعلمين مُسند لهم نشاط طلابي رسميًا، ولهم نموذج تقييم مختلف: نفس
+-- العناصر الأحد عشر لكن بأوزان مخفَّضة (تصبح 70% إجمالًا)، زائد أربعة عناصر
+-- إضافية خاصة بالنشاط الطلابي (30%) — المجموع يبقى 100%.
+-- weight_activity: الوزن البديل لهذا العنصر عندما يكون المعلم الحالي مفعِّلًا
+-- خيار "نشاط طلابي" (NULL = لا فرق، استخدم weight العادي).
+-- requires_student_activity: true يعني هذا العنصر لا يظهر إطلاقًا إلا لمعلم
+-- مفعِّل هذا الخيار (يُستخدم للعناصر الأربعة الجديدة فقط).
+alter table public.performance_elements add column if not exists weight_activity int;
+alter table public.performance_elements add column if not exists requires_student_activity boolean not null default false;
+
+-- upsert بمفتاح "key" — يحدّث weight_activity/requires_student_activity فقط
+-- للعناصر الأحد عشر الموجودة أصلًا (لا يمسّ وزنها العادي أو ترتيبها الحالي
+-- حتى لو عدّلهما المسؤول سابقًا)، ويُدرج العناصر الأربعة الجديدة لو لم تكن
+-- موجودة. مستقل تمامًا عن ترتيب تشغيل قسم 9 (تعبئة العناصر الافتراضية).
+insert into public.performance_elements (key, label, weight, weight_activity, requires_student_activity, sort_order) values
+  ('أداء الواجبات الوظيفية', 'أداء الواجبات الوظيفية', 10, 10, false, 1),
+  ('التفاعل مع المجتمع المهني', 'التفاعل مع المجتمع المهني', 10, 10, false, 2),
+  ('التفاعل مع أولياء الأمور', 'التفاعل مع أولياء الأمور', 10, 10, false, 3),
+  ('التنويع في استراتيجيات التدريس', 'التنويع في استراتيجيات التدريس', 10, 5, false, 4),
+  ('تحسين نتائج المتعلمين', 'تحسين نتائج المتعلمين', 10, 5, false, 5),
+  ('إعداد وتنفيذ خطة التعلم', 'إعداد وتنفيذ خطة التعلم', 10, 5, false, 6),
+  ('توظيف تقنيات ووسائل التعلم المناسبة', 'توظيف تقنيات ووسائل التعلم المناسبة', 10, 5, false, 7),
+  ('تهيئة البيئة التعليمية', 'تهيئة البيئة التعليمية', 5, 5, false, 8),
+  ('الإدارة الصفية', 'الإدارة الصفية', 5, 5, false, 9),
+  ('تحليل نتائج المتعلمين وتشخيص مستوياتهم', 'تحليل نتائج المتعلمين وتشخيص مستوياتهم', 10, 5, false, 10),
+  ('تنوع أساليب التقويم', 'تنوع أساليب التقويم', 10, 5, false, 11),
+  ('إعداد خطة مزمنة ومعتمدة لبرامج وفعاليات النشاط الطلابي', 'إعداد خطة مزمنة ومعتمدة لبرامج وفعاليات النشاط الطلابي', 10, 10, true, 12),
+  ('تهيئة البيئة المدرسية للبرامج والأنشطة الطلابية', 'تهيئة البيئة المدرسية للبرامج والأنشطة الطلابية', 5, 5, true, 13),
+  ('يدعم المتعلمين وفق احتياجاتهم وميولهم للأنشطة', 'يدعم المتعلمين وفق احتياجاتهم وميولهم للأنشطة', 5, 5, true, 14),
+  ('يحفز المتعلمين على المشاركة في الأنشطة المدرسية', 'يحفز المتعلمين على المشاركة في الأنشطة المدرسية', 10, 10, true, 15)
+on conflict (key) do update set
+  weight_activity = excluded.weight_activity,
+  requires_student_activity = excluded.requires_student_activity;
+
+alter table public.profiles add column if not exists has_student_activity boolean not null default false;
+
+-- تعديل هذا الحقل تحديدًا (المعلم لنفسه، أو المسؤول لأي معلم) عبر دالة
+-- مضبوطة بدل سياسة RLS عامة على الجدول — لو أضفنا سياسة "المعلم يعدّل
+-- ملفه" عامة، يصير بإمكانه تعديل أي عمود آخر بالصف (مثل disabled) بالخطأ.
+-- هذه الدالة تتحقق صراحة أن المستدعي إمّا صاحب الحساب نفسه أو مسؤول، ولا
+-- تلمس أي عمود غير has_student_activity.
+create or replace function public.set_student_activity_flag(target_user_id uuid, flag boolean)
+returns void as $$
+begin
+  if auth.uid() <> target_user_id and not public.is_admin(auth.uid()) then
+    raise exception 'غير مصرح لك بتعديل هذا الحساب';
+  end if;
+  update public.profiles set has_student_activity = flag where id = target_user_id;
+end;
+$$ language plpgsql security definer;
+
 -- ============ 4) الشواهد ============
 create sequence if not exists public.shawahid_ref_seq start with 1;
 
@@ -1096,9 +1148,13 @@ function toggleAdminBox(boxId, chevronId){
   if(chev) chev.textContent = opening ? '▴ إخفاء' : '▾ عرض';
 }
 
-/* حساب جاهزية معلم واحد: التخطيط + التوثيق + التقييم الذاتي */
+/* حساب جاهزية معلم واحد: التخطيط + التوثيق + التقييم الذاتي
+   نستخدم عناصر هذا المعلم بعينه (لا عناصر المسؤول الضمنية) — تُستدعى هذه
+   الدالة بالتكرار على كل معلم مسجّل، وكل معلم قد يختلف تفعيله لخيار "نشاط
+   طلابي" عن المسؤول نفسه وعن باقي المعلمين. */
 function computeTeacherReadiness(uid){
-  const elements = getElementsOrder();
+  const p = adminProfiles.find(x => x.id === uid);
+  const elements = computeEffectiveElements(ALL_PERFORMANCE_ELEMENTS, !!(p && p.has_student_activity));
   const plan = adminAllPlans[uid] || {};
   const self = adminAllSelf[uid] || {};
   const recs = adminAllRecords.filter(r => r.user_id === uid);
@@ -1110,10 +1166,11 @@ function computeTeacherReadiness(uid){
   const selfCount = elements.filter(e => self[e.key] && self[e.key].self_level).length;
   const coveredCount = elements.filter(e => (counts[e.key] || 0) > 0).length;
 
-  /* الاكتمال الموزون للتوثيق */
+  /* الاكتمال الموزون للتوثيق — نقرأ الوزن مباشرة من عناصر هذا المعلم الفعّالة
+     بدل getElementWeight() (التي تعتمد على DB_ELEMENTS الضمنية للمسؤول) */
   let weightedDone = 0, totalWeight = 0;
   elements.forEach(e => {
-    const w = getElementWeight(e.key);
+    const w = Number(e.weight) || 0;
     if(!w) return;
     totalWeight += w;
     const t = (plan[e.key] || {}).target_count || 0;

@@ -5,6 +5,7 @@ function switchAuthTab(mode){
   document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
   document.getElementById('tabSignup').classList.toggle('active', mode === 'signup');
   document.getElementById('signupNameField').style.display = mode === 'signup' ? 'block' : 'none';
+  document.getElementById('signupStudentActivityField').style.display = mode === 'signup' ? 'block' : 'none';
   document.getElementById('authSubmitBtn').textContent = mode === 'signup' ? 'إنشاء حساب' : 'دخول';
   document.getElementById('forgotWrap').style.display = mode === 'signup' ? 'none' : 'block';
   document.getElementById('termsWrap').style.display = mode === 'signup' ? 'block' : 'none';
@@ -218,6 +219,14 @@ async function handleAuthSubmit(){
       });
       if(error) throw error;
       if(data.session){
+        /* نطبّق الخيار قبل onLoggedIn (لا بعده) لضمان قراءة onLoggedIn لقيمته
+           الصحيحة من profiles من أول مرة، فتُحسب عناصر الشاشة الرئيسية
+           والمؤشر الموزون بشكل صحيح دون حاجة لإعادة تحميل لاحقة */
+        if(document.getElementById('authStudentActivity').checked){
+          try{
+            await sb.rpc('set_student_activity_flag', { target_user_id: data.session.user.id, flag: true });
+          } catch(e){ /* لا نمنع إكمال التسجيل — يمكنه تفعيلها لاحقًا من الإعدادات */ }
+        }
         onLoggedIn(data.session.user);
       } else {
         showAuthMsg('تم إنشاء الحساب. تحقق من بريدك الإلكتروني لتأكيد الحساب، ثم سجّل الدخول.', 'ok');
@@ -263,15 +272,17 @@ let isAdmin = false;
 async function onLoggedIn(user){
   currentUser = user;
 
-  /* التحقق من كون الحساب معطّلًا من قبل المسؤول */
+  /* التحقق من كون الحساب معطّلًا من قبل المسؤول، وقراءة خيار "نشاط طلابي" */
+  hasStudentActivity = false; // إعادة الضبط صراحة: قد يبقى من جلسة سابقة على نفس الصفحة (تسجيل خروج/دخول)
   try{
-    const { data: profile } = await sb.from('profiles').select('disabled').eq('id', user.id).maybeSingle();
+    const { data: profile } = await sb.from('profiles').select('disabled, has_student_activity').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){
       await sb.auth.signOut();
       currentUser = null;
       showAuthMsg('تم تعطيل هذا الحساب من قبل الإدارة. تواصل مع المسؤول لمزيد من المعلومات.', 'error');
       return;
     }
+    hasStudentActivity = !!(profile && profile.has_student_activity);
   } catch(e){ /* تجاهل أي خطأ هنا حتى لا يمنع الدخول */ }
 
   document.getElementById('authView').style.display = 'none';
@@ -756,7 +767,35 @@ function showSettings(section){
   document.getElementById('peNewPwBox').style.display = 'none';
   document.getElementById('emailChangeMsg').textContent = '';
   document.getElementById('passwordChangeMsg').textContent = '';
+  document.getElementById('peStudentActivity').checked = hasStudentActivity;
+  document.getElementById('studentActivityMsg').textContent = '';
   showSettingsSection(section || 'menu');
+}
+
+/* تفعيل/إلغاء "نشاط طلابي" من الإعدادات — عبر الدالة المضبوطة set_student_activity_flag
+   (لا تحديث مباشر على profiles، ولا عبر sb.auth.updateUser لأن saveProfile لا
+   يلمس هذا الحقل أصلًا، تجنّبًا لتعارضه مع مُحفّز مزامنة user_metadata) */
+async function saveStudentActivityFlag(flagVal){
+  const cb = document.getElementById('peStudentActivity');
+  const msg = document.getElementById('studentActivityMsg');
+  const uid = currentUser.id; // نلتقط هوية المستخدم الحالي قبل الانتظار — لو سجّل خروجًا ودخل مستخدم آخر قبل اكتمال الطلب، لا نطبّق النتيجة على المستخدم الجديد
+  cb.disabled = true;
+  try{
+    const { error } = await sb.rpc('set_student_activity_flag', { target_user_id: uid, flag: flagVal });
+    if(error) throw error;
+    if(!currentUser || currentUser.id !== uid) return; // تغيّر المستخدم الحالي أثناء الانتظار — تجاهل التطبيق على الحالة الجديدة
+    hasStudentActivity = flagVal;
+    await loadPerformanceElements(); // إعادة حساب DB_ELEMENTS فورًا بالعناصر/الأوزان الجديدة
+    msg.className = 'save-msg';
+    msg.textContent = flagVal ? 'تم تفعيل نموذج النشاط الطلابي' : 'تم إلغاء نموذج النشاط الطلابي';
+    showToast(flagVal ? 'تم تفعيل نموذج النشاط الطلابي' : 'تم إلغاء نموذج النشاط الطلابي', 'ok');
+  } catch(err){
+    if(currentUser && currentUser.id === uid) cb.checked = !flagVal; // التراجع عن التغيير البصري لأن الحفظ فشل
+    msg.className = 'save-msg error';
+    msg.textContent = 'تعذّر الحفظ: ' + err.message;
+  } finally {
+    cb.disabled = false;
+  }
 }
 
 function showSettingsSection(name){
