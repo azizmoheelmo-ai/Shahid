@@ -1139,18 +1139,17 @@
         <button class="btn btn-outline" onclick="cancelProgramForm()">إلغاء</button>
       </div>
       <div style="padding:20px 26px;">
-        <div class="plan-fields">
-          <div><label>اسم البرنامج</label><input type="text" class="goal-input" id="pgName" placeholder="مثال: برنامج الإسعافات الأولية"></div>
-          <div><label>عدد الحصص</label><input type="number" class="goal-input" id="pgSessionCount" min="1" max="30" value="4" oninput="renderProgramScheduleRows()"></div>
-        </div>
-        <div class="plan-fields">
+        <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">اسم البرنامج</label><input type="text" class="goal-input" id="pgName" placeholder="مثال: برنامج الإسعافات الأولية"></div>
+
+        <div class="plan-fields" style="margin-top:14px;">
           <div><label>عدد الطلبة (اختياري)</label><input type="number" class="goal-input" id="pgStudentCount" min="0" placeholder="مثال: 28"></div>
           <div><label>ربط بعنصر أداء (اختياري)</label><select class="goal-input" id="pgElementSelect"><option value="">— بلا ربط —</option></select></div>
         </div>
 
-        <div style="margin-top:8px;">
-          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:6px;">جدول الحصص (الأسبوع المخطَّط لكل حصة)</label>
-          <div id="pgScheduleRows"></div>
+        <div style="margin-top:18px;">
+          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:6px;">حصص البرنامج — أضف حصة لكل أسبوع مخطَّط له، وتقدر تضيف المزيد لاحقًا بأي وقت</label>
+          <ul class="steps" id="pgScheduleRows"></ul>
+          <button type="button" class="add-photo-btn" style="margin-top:10px;" onclick="addProgramSessionRow()">+ إضافة حصة</button>
         </div>
 
         <div style="margin-top:18px;display:flex;gap:10px;">

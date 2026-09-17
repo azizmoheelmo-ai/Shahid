@@ -74,6 +74,12 @@ function renderProgramsList(){
 }
 
 /* ============ إنشاء برنامج جديد / تعديل جدول برنامج قائم ============ */
+/* المسودة الحالية لحصص النموذج المفتوح (إنشاء أو تعديل جدول) — تبدأ بحصة
+   واحدة فقط، والمعلم يضيف حصصًا أخرى براحته بزر "+ إضافة حصة" بدل إلزامه
+   بعدد مسبق. session_no ثابت لكل حصة ولا يُعاد ترقيمه عند حذف حصة أخرى،
+   حتى لا ينكسر ربط الحصص الموثَّقة فعليًا (shahid_id) بأرقامها. */
+let pgSessionsDraft = [];
+
 function populateProgramElementSelect(){
   const select = document.getElementById('pgElementSelect');
   select.innerHTML = '<option value="">— بلا ربط —</option>' +
@@ -86,13 +92,12 @@ function showNewProgramForm(){
   document.getElementById('programFormTitle').textContent = 'برنامج جديد';
   document.getElementById('pgName').value = '';
   document.getElementById('pgName').disabled = false;
-  document.getElementById('pgSessionCount').value = 4;
-  document.getElementById('pgSessionCount').disabled = false;
   document.getElementById('pgStudentCount').value = '';
   populateProgramElementSelect();
   document.getElementById('pgElementSelect').disabled = false;
   document.getElementById('pgSaveMsg').textContent = '';
   document.getElementById('pgSaveMsg').className = 'save-msg';
+  pgSessionsDraft = [{ session_no: 1, week_label: '', done: false, done_date: null, shahid_id: null }];
   renderProgramScheduleRows();
   showProgramsSection('form');
 }
@@ -101,18 +106,36 @@ function cancelProgramForm(){
   showProgramsSection(currentProgramId ? 'detail' : 'list');
 }
 
-function renderProgramScheduleRows(existingSessions){
-  const count = Math.max(1, Math.min(30, Number(document.getElementById('pgSessionCount').value) || 1));
-  const existing = existingSessions || [];
+function renderProgramScheduleRows(){
   const rows = document.getElementById('pgScheduleRows');
-  rows.innerHTML = Array.from({ length: count }, (_, i) => {
-    const s = existing[i];
-    const weekVal = s ? escapeHtml(s.week_label || '') : '';
-    return `<div class="plan-fields" style="grid-template-columns:90px 1fr;align-items:end;margin-bottom:6px;">
-      <div><label>الحصة ${i+1}</label><input type="text" class="goal-input" value="الحصة ${i+1}" disabled></div>
-      <div><label>الأسبوع المخطَّط</label><input type="text" class="goal-input pg-week-input" placeholder="مثال: الأسبوع الأول" value="${weekVal}"></div>
-    </div>`;
-  }).join('');
+  rows.innerHTML = pgSessionsDraft.map((s, i) => `
+    <li>
+      <span class="num">${s.session_no}</span>
+      <input type="text" class="goal-input pg-week-input" placeholder="مثال: الأسبوع الأول" value="${escapeHtml(s.week_label || '')}" oninput="updateProgramSessionWeek(${i}, this.value)">
+      ${s.done
+        ? `<span class="plan-badge-count done" style="flex:0 0 auto;">✓ موثَّقة</span>`
+        : (pgSessionsDraft.length > 1 ? `<button type="button" class="remove-step" title="حذف الحصة" onclick="removeProgramSessionRow(${i})">×</button>` : '')}
+    </li>`).join('');
+}
+
+function updateProgramSessionWeek(idx, value){
+  if(pgSessionsDraft[idx]) pgSessionsDraft[idx].week_label = value;
+}
+
+function addProgramSessionRow(){
+  const nextNo = pgSessionsDraft.length ? Math.max(...pgSessionsDraft.map(s => s.session_no)) + 1 : 1;
+  pgSessionsDraft.push({ session_no: nextNo, week_label: '', done: false, done_date: null, shahid_id: null });
+  renderProgramScheduleRows();
+  const inputs = document.querySelectorAll('.pg-week-input');
+  if(inputs.length) inputs[inputs.length - 1].focus();
+}
+
+function removeProgramSessionRow(idx){
+  const s = pgSessionsDraft[idx];
+  if(!s || s.done) return; /* لا يمكن حذف حصة موثَّقة فعلاً بشاهد */
+  if(pgSessionsDraft.length <= 1) return; /* يبقى حصة واحدة على الأقل */
+  pgSessionsDraft.splice(idx, 1);
+  renderProgramScheduleRows();
 }
 
 function editProgramSchedule(programId){
@@ -124,15 +147,14 @@ function editProgramSchedule(programId){
   document.getElementById('programFormTitle').textContent = 'تعديل جدول: ' + p.name;
   document.getElementById('pgName').value = p.name;
   document.getElementById('pgName').disabled = true;
-  document.getElementById('pgSessionCount').value = p.total_sessions;
-  document.getElementById('pgSessionCount').disabled = true; /* عدد الحصص لا يُعدَّل هنا — يبقى مرتبطًا بترتيب الحصص الموثَّقة */
   document.getElementById('pgStudentCount').value = p.student_count || '';
   populateProgramElementSelect();
   document.getElementById('pgElementSelect').value = p.element_key || '';
   document.getElementById('pgElementSelect').disabled = true;
   document.getElementById('pgSaveMsg').textContent = '';
   document.getElementById('pgSaveMsg').className = 'save-msg';
-  renderProgramScheduleRows(p.sessions || []);
+  pgSessionsDraft = (p.sessions || []).map(s => ({ ...s }));
+  renderProgramScheduleRows();
   showProgramsSection('form');
 }
 
@@ -148,33 +170,22 @@ async function saveProgramForm(){
     if(!name){ msg.textContent = 'الرجاء كتابة اسم البرنامج.'; msg.className = 'save-msg error'; return; }
   }
 
-  const weekInputs = Array.from(document.querySelectorAll('.pg-week-input'));
-  const sessionsPlan = weekInputs.map((inp, i) => ({
-    session_no: i + 1,
-    week_label: inp.value.trim(),
-    done: false,
-    done_date: null,
-    shahid_id: null
-  }));
-  if(sessionsPlan.some(s => !s.week_label)){
+  if(pgSessionsDraft.some(s => !s.week_label || !s.week_label.trim())){
     msg.textContent = 'الرجاء تحديد الأسبوع المخطَّط لكل حصة.';
     msg.className = 'save-msg error';
     return;
   }
+
+  const sessionsPlan = pgSessionsDraft.map(s => ({ ...s, week_label: s.week_label.trim() }));
 
   const btn = document.getElementById('pgSaveBtn');
   btn.disabled = true;
 
   try{
     if(isScheduleEditOnly){
-      const p = activityPrograms.find(x => String(x.id) === String(currentProgramId));
-      /* حافظ على حالة الحصص الموثَّقة فعليًا (done/done_date/shahid_id) — تعديل
-         الجدول لا يجب أن يفقد تقدّمًا سابقًا */
-      const merged = sessionsPlan.map((s, i) => {
-        const old = (p && p.sessions && p.sessions[i]) || {};
-        return { ...s, done: !!old.done, done_date: old.done_date || null, shahid_id: old.shahid_id || null };
-      });
-      const { error } = await sb.from('activity_programs').update({ sessions: merged }).eq('id', currentProgramId);
+      const { error } = await sb.from('activity_programs')
+        .update({ sessions: sessionsPlan, total_sessions: sessionsPlan.length })
+        .eq('id', currentProgramId);
       if(error) throw error;
       await loadActivityPrograms();
       msg.textContent = 'تم تحديث الجدول ✓';
