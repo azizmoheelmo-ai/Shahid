@@ -372,7 +372,13 @@ function viewProgramSessionShahid(shahidId){
    بدل انتظار انتهاء مهلة التراجع كاملة (٥ ثوانٍ). */
 function deleteProgramSessionShahid(shahidId, programId){
   if(!shahidId){ showToast('تعذّر إيجاد هذا الشاهد', 'error'); return; }
-  return deleteRecord(shahidId, () => renderProgramDetail(programId));
+  /* afterDelete قد يُستدعى بعد ثوانٍ (خصوصًا لو تراجع المستخدم خلال مهلة
+     التراجع الخمس)، وخلالها قد يكون المستخدم انتقل لتفاصيل برنامج آخر —
+     re-render بلا هذا التحقق يستبدل شاشة البرنامج المفتوحة فعليًا حاليًا
+     ببيانات البرنامج القديم بالخطأ (نفس #programDetailBody للجميع). */
+  return deleteRecord(shahidId, () => {
+    if(String(currentProgramId) === String(programId)) renderProgramDetail(programId);
+  });
 }
 
 async function deleteActivityProgram(id){

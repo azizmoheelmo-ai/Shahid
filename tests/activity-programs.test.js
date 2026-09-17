@@ -251,4 +251,47 @@ describe('برامج الأنشطة الطلابية متعددة الحصص', (
     assert.match(html, /لم تُوثَّق بعد/, 'بعد الحذف: الحصة يجب أن تعود "لم تُوثَّق بعد" فورًا دون انتظار');
     assert.match(html, /توثيق هذه الحصة/, 'زر توثيق الحصة يجب أن يظهر من جديد فورًا بعد الحذف');
   });
+
+  test('deleteProgramSessionShahid(): لا يستبدل شاشة برنامج آخر فُتحت أثناء انتظار الحذف (سباق afterDelete)', async () => {
+    /* خلل مكتشف بمراجعة الكود: afterDelete في deleteProgramSessionShahid كان
+       يُعيد رسم البرنامج المحذوف منه الشاهد دون تحقّق أن المستخدم لا يزال
+       يشاهده فعليًا. لو انتقل المستخدم لتفاصيل برنامج آخر أثناء انتظار
+       الحذف (شبكة، أو مهلة التراجع الخمس)، ينتهي الأمر باستبدال شاشة
+       البرنامج الآخر المفتوحة فعليًا ببيانات البرنامج القديم بالخطأ —
+       بما فيها أزرار مربوطة بمعرّف البرنامج الخطأ (كزر "حذف البرنامج"). */
+    const seed = {
+      activity_programs: [
+        { id: 'p1', user_id: 'u1', name: 'برنامج الإسعافات الأولية', total_sessions: 1,
+          sessions: [{ session_no: 1, week_label: 'الأسبوع الأول', done: true, done_date: '2025-09-10', shahid_id: 'sh-1' }] },
+        { id: 'p2', user_id: 'u1', name: 'برنامج القراءة الحرة', total_sessions: 1,
+          sessions: [{ session_no: 1, week_label: 'الأسبوع الثاني', done: false, done_date: null, shahid_id: null }] },
+      ],
+      shawahid: [
+        { id: 'sh-1', user_id: 'u1', program_id: 'p1', program_session_no: 1, element_key: 'classroom', lesson_title: 'الحصة 1', created_at: '2025-09-10' },
+      ],
+    };
+    const app = loadApp({ supabaseClient: makeProgramsClient(seed), currentUser: { id: 'u1' } });
+    installLiveDom(app);
+    app.showConfirm = async () => true;
+    app.showUndoToast = async () => true;
+
+    await app.loadActivityPrograms();
+    await app.loadMyShawahid();
+    await app.showProgramDetail('p1');
+
+    /* نبدأ حذف شاهد برنامج p1 لكن لا ننتظره فورًا — نحاكي المستخدم ينتقل
+       لبرنامج آخر (p2) أثناء انتظار الحذف (قبل أن يصل afterDelete لدوره) */
+    const deletePromise = app.deleteProgramSessionShahid('sh-1', 'p1');
+    await app.showProgramDetail('p2');
+    await deletePromise;
+
+    /* اسم البرنامج يُكتب في #programDetailTitle (عنصر منفصل)، لا داخل
+       #programDetailBody نفسه — نتحقق منه هناك، وبمحتوى الحصص داخل الجسم
+       عبر معرّف البرنامج المضمَّن بأزرار onclick */
+    assert.equal(app.document.getElementById('programDetailTitle').textContent, 'برنامج القراءة الحرة', 'يجب أن يبقى عنوان البرنامج الآخر (p2) ظاهرًا كما هو');
+
+    const html = app.document.getElementById('programDetailBody').innerHTML;
+    assert.match(html, /documentProgramSession\('p2'/, 'محتوى الجسم يجب أن يخصّ حصص p2');
+    assert.doesNotMatch(html, /'p1'/, 'لا يجب أن يحتوي الجسم أي إشارة لبرنامج p1 القديم بعد اكتمال حذفه المتأخر');
+  });
 });
