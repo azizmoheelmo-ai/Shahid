@@ -2035,6 +2035,12 @@ function showForm(){
   hideAllMainViews();
   setActiveBottomTab(null);
   document.getElementById('formView').style.display = 'block';
+  /* saveShahid (app-09) تتعمّد ترك saveBtn معطَّلاً بعد نجاح الحفظ (حتى
+     ينتقل المستخدم فعليًا للشاشة التالية دون فرصة نقرة "حفظ" ثانية تُنشئ
+     شاهدًا مكررًا) — showForm هي نقطة الدخول المشتركة لكل مسارات فتح
+     النموذج (شاهد جديد/تعديل/نسخ/توثيق حصة برنامج)، فنعيد تفعيله هنا دومًا
+     كي لا يبقى معطَّلاً بالخطأ في الجلسة التالية للنموذج. */
+  document.getElementById('saveBtn').disabled = false;
 }
 async function showList(){
   hideAllMainViews();

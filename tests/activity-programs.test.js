@@ -185,4 +185,33 @@ describe('برامج الأنشطة الطلابية متعددة الحصص', (
     const html = app.document.getElementById('programDetailBody').innerHTML;
     assert.match(html, /2025-09-15/, 'يجب أن يُستخدم التاريخ المُمرَّر صراحة، لا تاريخ اليوم');
   });
+
+  test('showProgramDetail(): يُخفي الشاشة الحالية (نموذج الشاهد مثلاً) ويُظهر #programsView فعليًا — لا يكتفي بتبديل الأقسام الداخلية فقط', async () => {
+    /* خلل حقيقي اكتُشف بعد الإطلاق: showProgramDetail كانت تستدعي فقط
+       showProgramsSection('detail') (تبديل الأقسام الداخلية لـ #programsView)
+       دون hideAllMainViews() ولا إظهار #programsView نفسها. يعمل هذا بالصدفة
+       لو استُدعيت والمستخدم أصلًا داخل #programsView (كزر "عرض" بالقائمة)،
+       لكنه يفشل تمامًا عند استدعائها من saveShahid (app-09) بعد توثيق حصة —
+       يبقى نموذج الشاهد (#formView) ظاهرًا كما هو رغم نجاح الحفظ فعليًا،
+       فيظن المستخدم أن الحفظ لم يتم ويضغط "حفظ" مرة أخرى فيُنشئ شاهدًا
+       مكررًا (بالضبط ما أبلغ عنه المستخدم). */
+    const seed = {
+      activity_programs: [
+        { id: 'p1', user_id: 'u1', name: 'برنامج الإسعافات الأولية', total_sessions: 1,
+          sessions: [{ session_no: 1, week_label: 'الأسبوع الأول', done: true, done_date: '2025-09-10', shahid_id: 'sh-1' }] },
+      ],
+    };
+    const app = loadApp({ supabaseClient: makeProgramsClient(seed), currentUser: { id: 'u1' } });
+    installLiveDom(app);
+
+    /* محاكاة كون المستخدم حاليًا على نموذج الشاهد (كما يحصل فعليًا بعد
+       الضغط على "توثيق هذه الحصة" ثم "حفظ الشاهد") */
+    app.document.getElementById('formView').style.display = 'block';
+    app.document.getElementById('programsView').style.display = 'none';
+
+    await app.showProgramDetail('p1');
+
+    assert.equal(app.document.getElementById('formView').style.display, 'none', 'نموذج الشاهد يجب أن يختفي فعليًا بعد الانتقال');
+    assert.equal(app.document.getElementById('programsView').style.display, 'block', '#programsView يجب أن تظهر فعليًا، لا فقط أقسامها الداخلية');
+  });
 });

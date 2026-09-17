@@ -228,6 +228,14 @@ async function saveProgramForm(){
 
 /* ============ تفاصيل البرنامج ============ */
 async function showProgramDetail(programId){
+  /* لازم hideAllMainViews + إظهار #programsView هنا صراحة (مثل showPrograms
+     تمامًا) — لا نعتمد على كون #programsView ظاهرة أصلًا: هذي الدالة تُستدعى
+     أيضًا من نموذج الشاهد (بعد توثيق حصة) وهو شاشة مختلفة تمامًا (#formView).
+     بدون هذا، يبقى نموذج الشاهد ظاهرًا كما هو رغم نجاح الحفظ فعليًا، فيظن
+     المستخدم أن الحفظ لم يتم ويضغط "حفظ" مرة أخرى — يحفظ شاهدًا مكررًا. */
+  hideAllMainViews();
+  setActiveBottomTab(null);
+  document.getElementById('programsView').style.display = 'block';
   currentProgramId = programId;
   showProgramsSection('detail');
   document.getElementById('programDetailBody').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
