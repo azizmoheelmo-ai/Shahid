@@ -808,8 +808,13 @@ async function exportBackup(){
    تصدير خطة الأداء كملف رسمي
    وثيقة يحملها المعلم لجلسة التخطيط مع مديره المباشر
    ============================================ */
-/* يبني قالب خطة الأداء من البيانات المعروضة حاليًا على الشاشة */
-function buildPlanHtml(){
+/* يبني قالب خطة الأداء من البيانات المعروضة حاليًا على الشاشة.
+   asDraft (افتراضيًا true): يظهر عنوان "مسودة" وتنويه "مسودة نقاش" — مناسب
+   لما تُطبع/تُنزَّل الخطة بمفردها (تُستخدم فعليًا كمسودة نقاش بجلسة التخطيط
+   مع المدير). exportPortfolio يمرّر false لأن هذه الصفحة تُضمَّن داخل "ملف
+   الإنجاز" النهائي، ووجود "مسودة" هناك مربك ومناقض لكونه ملفًا نهائيًا. */
+function buildPlanHtml(asDraft){
+  if(asDraft === undefined) asDraft = true;
   const elements = getElementsOrder();
   const anyFilled = elements.some(el => (myPlanGoals[el.key] || []).length > 0);
   if(!anyFilled) return null;
@@ -873,15 +878,15 @@ function buildPlanHtml(){
   return `
     <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;padding-bottom:16px;">
       <div style="padding:20px 26px 0;">
-        <div style="font-family:'Amiri',serif;font-size:20px;font-weight:700;color:#1B3245;">مسودة أهداف الأداء الوظيفي — دورة الأداء ${escapeHtml(getCycleYear())}</div>
+        <div style="font-family:'Amiri',serif;font-size:20px;font-weight:700;color:#1B3245;">${asDraft ? 'مسودة أهداف الأداء الوظيفي' : 'أهداف الأداء الوظيفي'} — دورة الأداء ${escapeHtml(getCycleYear())}</div>
         <div style="height:2px;background:#1B3245;margin:8px 0 10px;"></div>
         <div style="font-size:11px;font-weight:700;color:#1B3245;">
           ${escapeHtml(role)}${stage ? ' — ' + escapeHtml(stage) : ''} | ${topLevel ? 'أعلى مستوى مستهدف: ' + LEVEL_NAMES[topLevel] + ' (' + topLevel + ')' : ''} | ${escapeHtml(extra)}
         </div>
 
-        <div style="background:#FBF3E6;border-right:3px solid #A9852E;padding:9px 12px;margin:10px 0;font-size:9.5px;color:#6B5420;line-height:1.85;">
+        ${asDraft ? `<div style="background:#FBF3E6;border-right:3px solid #A9852E;padding:9px 12px;margin:10px 0;font-size:9.5px;color:#6B5420;line-height:1.85;">
           هذه مسودة نقاش تُعرض على المدير المباشر في جلسة التخطيط، وليست نموذجًا رسميًا يُدخل في نظام فارس. الصياغة النهائية للأهداف تتم بالاتفاق المشترك بين المعلم والمدير وفق نموذج التقييم المعتمد في النظام التقني.
-        </div>
+        </div>` : ''}
 
         <div style="font-size:9.5px;color:#6B6659;margin-bottom:14px;">
           المصدر: عناصر التقييم الأحد عشر لنموذج (معلم) — الدليل الإرشادي لإدارة الأداء الوظيفي، الإصدار الثاني.
@@ -1237,7 +1242,7 @@ async function exportPortfolio(){
 
     /* صفحات تفاصيل الخطة الكاملة — كل هدف بكل تفاصيله (الأداء المستهدف، المؤشرات، الشواهد الموصى بها، الإجراء)،
        بما يشمل أكثر من هدف واحد للعنصر الواحد إن وُجد — لا مجرد سطر ملخّص واحد */
-    const planDetailHtml = buildPlanHtml();
+    const planDetailHtml = buildPlanHtml(false);
     if(planDetailHtml){
       await addHtmlPageMultiPage(planDetailHtml);
     }
