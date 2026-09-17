@@ -420,6 +420,19 @@ async function offerDraftRestore(){
   if(ok){
     showForm();
     applyDraft(d);
+    /* لو كانت المسودة تتبع حصة من برنامج نشاط طلابي، تأكّد أن البرنامج ما
+       زال موجودًا فعلاً — لو حُذف (من جهاز/تبويب آخر مثلاً) بين حفظ
+       المسودة واستعادتها، الحفظ لاحقًا كان سيفشل بخطأ قاعدة بيانات خام
+       (foreign key) عالقًا عند كل محاولة إعادة حفظ. */
+    if(programSessionContext){
+      try{
+        const { data: prog } = await sb.from('activity_programs').select('id').eq('id', programSessionContext.programId).maybeSingle();
+        if(!prog){
+          programSessionContext = null;
+          showToast('البرنامج المرتبط بهذه المسودة لم يعد موجودًا — استُعيد الشاهد كشاهد عادي غير مرتبط ببرنامج', 'error');
+        }
+      } catch(e){ /* تعذّر التحقق لا يمنع الاستعادة — لو حصل فشل حقيقي لاحقًا، رسالة الخطأ عندها ستوضّح السبب */ }
+    }
     showToast('تمت استعادة المسودة', 'ok');
   } else {
     clearDraft();

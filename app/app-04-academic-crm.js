@@ -493,11 +493,13 @@ async function buildLetterPdfBlob(previewElId, photoUrl){
 async function printLetterContent(buildBlobFn, evt){
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
-  /* تُفتح النافذة فورًا وبشكل متزامن (قبل أي await) لتبقى مرتبطة بإيماءة
-     المستخدم (نقرة الزر) — بعض المتصفحات (Safari خصوصًا) تمنع window.open
-     لو جاءت بعد عملية غير متزامنة، حتى لو نتجت عن نفس النقرة أصلاً. */
-  const win = window.open('', '_blank');
+  let win = null;
   try{
+    /* تُفتح النافذة فورًا وبشكل متزامن (قبل أي await) لتبقى مرتبطة بإيماءة
+       المستخدم (نقرة الزر) — بعض المتصفحات (Safari خصوصًا) تمنع window.open
+       لو جاءت بعد عملية غير متزامنة، حتى لو نتجت عن نفس النقرة أصلاً. هذا
+       السطر يبقى أول شيء بالـtry فور دخوله (لا await قبله) فلا يتأثر ترتيبه. */
+    win = window.open('', '_blank');
     showToast('جارٍ تجهيز الطباعة...', 'ok');
     const blob = await buildBlobFn();
     const url = URL.createObjectURL(blob);

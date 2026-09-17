@@ -294,4 +294,44 @@ describe('برامج الأنشطة الطلابية متعددة الحصص', (
     assert.match(html, /documentProgramSession\('p2'/, 'محتوى الجسم يجب أن يخصّ حصص p2');
     assert.doesNotMatch(html, /'p1'/, 'لا يجب أن يحتوي الجسم أي إشارة لبرنامج p1 القديم بعد اكتمال حذفه المتأخر');
   });
+
+  test('saveProgramForm() تعديل الجدول: لا يفقد حصة وُثِّقت من مكان آخر بعد فتح النموذج وقبل الحفظ', async () => {
+    /* خلل مكتشف بمراجعة شاملة: saveProgramForm كانت تحفظ فقط المسودة
+       المحلية (pgSessionsDraft، نسخة أُخذت وقت فتح "تعديل الجدول") بلا أي
+       قراءة للحالة الحالية بالقاعدة. لو وُثّقت حصة (من جهاز/تبويب آخر) بعد
+       فتح نموذج التعديل وقبل الضغط على "حفظ الجدول"، كان الحفظ يُصفّر تلك
+       الحصة الموثَّقة حديثًا (done/shahid_id) بصمت. */
+    const seed = {
+      activity_programs: [
+        { id: 'p1', user_id: 'u1', name: 'برنامج الإسعافات الأولية', total_sessions: 2,
+          sessions: [
+            { session_no: 1, week_label: 'الأسبوع الأول', done: false, done_date: null, shahid_id: null },
+            { session_no: 2, week_label: 'الأسبوع الخامس', done: false, done_date: null, shahid_id: null },
+          ] },
+      ],
+    };
+    const app = loadApp({ supabaseClient: makeProgramsClient(seed), currentUser: { id: 'u1' } });
+    installLiveDom(app);
+
+    await app.loadActivityPrograms();
+    app.editProgramSchedule('p1'); // يأخذ نسخة محلية (pgSessionsDraft) من الحالة الحالية (كلا الحصتين غير موثَّقتين)
+
+    /* محاكاة توثيق الحصة الأولى من مكان آخر (جهاز/تبويب مختلف) — تحديث
+       مباشر بالقاعدة لا يمرّ بالمسودة المحلية إطلاقًا */
+    await app.markProgramSessionDone('p1', 1, 'sh-from-another-tab');
+
+    /* المستخدم يعدّل تسمية الأسبوع للحصة الثانية فقط بنموذجه المفتوح
+       (لا يعلم أصلاً أن الحصة الأولى وُثِّقت للتو من مكان آخر) */
+    app.updateProgramSessionWeek(1, 'الأسبوع السادس');
+
+    await app.saveProgramForm();
+
+    const saved = seed.activity_programs.find(p => p.id === 'p1');
+    const s1 = saved.sessions.find(s => s.session_no === 1);
+    const s2 = saved.sessions.find(s => s.session_no === 2);
+
+    assert.equal(s1.done, true, 'الحصة الأولى الموثَّقة حديثًا من مكان آخر يجب ألا تُصفَّر عند حفظ الجدول');
+    assert.equal(s1.shahid_id, 'sh-from-another-tab', 'ربط الحصة الأولى بشاهدها يجب أن يبقى كما هو');
+    assert.equal(s2.week_label, 'الأسبوع السادس', 'تعديل المستخدم الفعلي (تسمية الحصة الثانية) يجب أن يُحفظ بنجاح');
+  });
 });

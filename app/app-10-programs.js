@@ -190,8 +190,33 @@ async function saveProgramForm(){
 
   try{
     if(isScheduleEditOnly){
+      /* نعيد قراءة الحالة الحالية من القاعدة مباشرة قبل الحفظ — لا نعتمد على
+         المسودة المحلية وحدها (pgSessionsDraft نسخة أُخذت وقت فتح "تعديل
+         الجدول"): لو وُثّقت حصة من جهاز/تبويب آخر بعد فتح النموذج وقبل حفظه،
+         الحفظ بالمسودة القديمة فقط كان سيُصفّر تلك الحصة الموثَّقة حديثًا
+         ويفقد ربطها بشاهدها الفعلي (بيانات ضائعة صامتة). */
+      const { data: freshProg, error: fetchErr } = await sb.from('activity_programs').select('sessions').eq('id', currentProgramId).maybeSingle();
+      if(fetchErr) throw fetchErr;
+      const freshSessions = (freshProg && freshProg.sessions) || [];
+      const freshBySessionNo = new Map(freshSessions.map(s => [s.session_no, s]));
+
+      const merged = sessionsPlan.map(s => {
+        const fresh = freshBySessionNo.get(s.session_no);
+        return (fresh && fresh.done) ? { ...s, done: fresh.done, done_date: fresh.done_date, shahid_id: fresh.shahid_id } : s;
+      });
+
+      /* لو وُثّقت حصة من مكان آخر ثم أزالها المستخدم من هذا الجدول قبل
+         الحفظ (لم يكن يعلم بتوثيقها وقت فتح التعديل)، لا نفقدها بصمت —
+         نُعيدها بنهاية القائمة بدل حذفها فعليًا */
+      const mergedSessionNos = new Set(merged.map(s => s.session_no));
+      const reintroduced = freshSessions.filter(s => s.done && !mergedSessionNos.has(s.session_no));
+      const finalSessions = merged.concat(reintroduced);
+      if(reintroduced.length){
+        showToast('تنبيه: حصة تم توثيقها حديثًا من مكان آخر — أُعيدت للجدول تلقائيًا كي لا تُفقد', 'error');
+      }
+
       const { error } = await sb.from('activity_programs')
-        .update({ sessions: sessionsPlan, total_sessions: sessionsPlan.length })
+        .update({ sessions: finalSessions, total_sessions: finalSessions.length })
         .eq('id', currentProgramId);
       if(error) throw error;
       await loadActivityPrograms();
@@ -239,8 +264,11 @@ async function showProgramDetail(programId){
   currentProgramId = programId;
   showProgramsSection('detail');
   document.getElementById('programDetailBody').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
-  if(!activityPrograms.length) await loadActivityPrograms();
-  if(!myRecords.length) await loadMyShawahid();
+  /* استعلامان مستقلان — بالتوازي بدل التتابع لتقليل زمن الانتظار على جلسة باردة */
+  await Promise.all([
+    activityPrograms.length ? Promise.resolve() : loadActivityPrograms(),
+    myRecords.length ? Promise.resolve() : loadMyShawahid(),
+  ]);
   renderProgramDetail(programId);
 }
 
@@ -351,7 +379,9 @@ async function clearProgramSessionLink(programId, sessionNo){
     : s);
 
   const { error } = await sb.from('activity_programs').update({ sessions: updated }).eq('id', programId);
-  if(error) return null;
+  if(error) return previous; /* حتى لو فشل التحديث، previous معروفة فعلًا من الجلب أعلاه —
+    تفيد المتصل (تراجع عن الحذف) باستعادة التاريخ الأصلي بدل تاريخ اليوم، حتى لو تعذّر
+    تفريغ الحصة فعليًا بالقاعدة (فشل مستقل عن مجرد معرفة قيمتها السابقة) */
 
   const local = activityPrograms.find(p => String(p.id) === String(programId));
   if(local) local.sessions = updated;
