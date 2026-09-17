@@ -135,4 +135,54 @@ describe('برامج الأنشطة الطلابية متعددة الحصص', (
     assert.match(html, /الأسبوع الأول/, 'بيانات الحصة الأولى (غير المُعدَّلة) يجب أن تبقى كما هي');
     assert.match(html, /2025-09-01/, 'تاريخ توثيق الحصة الأولى يجب ألا يتأثر بتحديث الحصة الثانية');
   });
+
+  test('clearProgramSessionLink(): تُعيد حصة موثَّقة إلى "لم تُوثَّق بعد" عند حذف شاهدها، دون التأثير على باقي الحصص', async () => {
+    const seed = {
+      activity_programs: [
+        {
+          id: 'p1', user_id: 'u1', name: 'برنامج الإسعافات الأولية', total_sessions: 2,
+          sessions: [
+            { session_no: 1, week_label: 'الأسبوع الأول', done: true, done_date: '2025-09-10', shahid_id: 'sh-1' },
+            { session_no: 2, week_label: 'الأسبوع الخامس', done: true, done_date: '2025-10-08', shahid_id: 'sh-2' },
+          ],
+        },
+      ],
+    };
+    const app = loadApp({ supabaseClient: makeProgramsClient(seed), currentUser: { id: 'u1' } });
+    installLiveDom(app);
+
+    await app.loadActivityPrograms();
+    /* هذا بالضبط ما يستدعيه deleteRecord (app-09) عند حذف شاهد كان يوثّق حصة —
+       يجب أن تعود الحصة "غير موثَّقة" (تُتاح لإعادة توثيقها) بدل أن تبقى
+       عالقة للأبد على أنها موثَّقة بشاهد لم يعد موجودًا. */
+    const previous = await app.clearProgramSessionLink('p1', 1);
+
+    assert.ok(previous, 'يجب أن تُرجع الدالة بيانات الحصة كما كانت قبل التفريغ (للتراجع عن الحذف لاحقًا)');
+    assert.equal(previous.done_date, '2025-09-10');
+
+    app.renderProgramDetail('p1');
+    const html = app.document.getElementById('programDetailBody').innerHTML;
+    assert.match(html, /توثيق هذه الحصة/, 'الحصة الأولى يجب أن تصبح قابلة لإعادة التوثيق بعد حذف شاهدها');
+    assert.match(html, /✓ وُثّقت.*2025-10-08|2025-10-08.*✓ وُثّقت/s, 'الحصة الثانية يجب أن تبقى موثَّقة كما كانت دون أي تأثير');
+  });
+
+  test('markProgramSessionDone(): يقبل تاريخ توثيق مخصص لاستعادته بنفس تاريخه الأصلي عند التراجع عن حذف', async () => {
+    const seed = {
+      activity_programs: [
+        {
+          id: 'p1', user_id: 'u1', name: 'برنامج القراءة الحرة', total_sessions: 1,
+          sessions: [{ session_no: 1, week_label: 'الأسبوع الثاني', done: false, done_date: null, shahid_id: null }],
+        },
+      ],
+    };
+    const app = loadApp({ supabaseClient: makeProgramsClient(seed), currentUser: { id: 'u1' } });
+    installLiveDom(app);
+
+    await app.loadActivityPrograms();
+    await app.markProgramSessionDone('p1', 1, 'sh-restored', '2025-09-15');
+    app.renderProgramDetail('p1');
+
+    const html = app.document.getElementById('programDetailBody').innerHTML;
+    assert.match(html, /2025-09-15/, 'يجب أن يُستخدم التاريخ المُمرَّر صراحة، لا تاريخ اليوم');
+  });
 });

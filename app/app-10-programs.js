@@ -123,6 +123,13 @@ function updateProgramSessionWeek(idx, value){
 }
 
 function addProgramSessionRow(){
+  /* يطابق قيد قاعدة البيانات check(total_sessions between 1 and 30) — بدون
+     هذا التحقق هنا، تجاوز الحد يفشل عند الحفظ برسالة قاعدة بيانات خام غير
+     مفهومة بدل رسالة عربية واضحة */
+  if(pgSessionsDraft.length >= 30){
+    showToast('الحد الأقصى لعدد حصص البرنامج الواحد هو 30 حصة', 'error');
+    return;
+  }
   const nextNo = pgSessionsDraft.length ? Math.max(...pgSessionsDraft.map(s => s.session_no)) + 1 : 1;
   pgSessionsDraft.push({ session_no: nextNo, week_label: '', done: false, done_date: null, shahid_id: null });
   renderProgramScheduleRows();
@@ -291,14 +298,24 @@ function documentProgramSession(programId, sessionNo){
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-/* تُستدعى من saveShahid (app-09) بعد نجاح إدراج شاهد يوثّق حصة من برنامج —
-   تُحدِّث حالة الحصة في activity_programs.sessions دون التأثير على غيرها */
-async function markProgramSessionDone(programId, sessionNo, shahidId){
-  const p = activityPrograms.find(x => String(x.id) === String(programId));
-  if(!p) return;
+/* تُستدعى من saveShahid (app-09) بعد نجاح إدراج شاهد يوثّق حصة من برنامج،
+   ومن التراجع عن حذف شاهد كان موثِّقًا لحصة (deleteRecord) — تُحدِّث حالة
+   الحصة في activity_programs.sessions دون التأثير على غيرها. doneDate
+   اختياري (لتاريخ اليوم افتراضيًا) — يُستخدم للتراجع عن الحذف بنفس تاريخ
+   التوثيق الأصلي بدل تاريخ اليوم.
+   نقرأ الحالة الحالية من القاعدة مباشرة (لا من activityPrograms المحمَّلة
+   بالذاكرة) حتى تعمل الدالة حتى لو لم تُفتح شاشة "برامجي" أصلًا بهذه
+   الجلسة، وحتى لا تُكتب فوق أي تعديل حصل على الجدول من مكان آخر (تبويب/جهاز
+   آخر) بين وقت تحميل البرنامج ووقت حفظ الشاهد. */
+async function markProgramSessionDone(programId, sessionNo, shahidId, doneDate){
+  const { data: prog, error: fetchErr } = await sb.from('activity_programs').select('sessions').eq('id', programId).maybeSingle();
+  if(fetchErr || !prog){
+    showToast('تم حفظ الشاهد، لكن تعذّر تحديث تقدّم البرنامج.', 'error');
+    return;
+  }
 
-  const sessions = (p.sessions || []).map(s => s.session_no === sessionNo
-    ? { ...s, done: true, done_date: new Date().toISOString().slice(0, 10), shahid_id: shahidId }
+  const sessions = (prog.sessions || []).map(s => s.session_no === sessionNo
+    ? { ...s, done: true, done_date: doneDate || new Date().toISOString().slice(0, 10), shahid_id: shahidId }
     : s);
 
   const { error } = await sb.from('activity_programs').update({ sessions }).eq('id', programId);
@@ -306,7 +323,30 @@ async function markProgramSessionDone(programId, sessionNo, shahidId){
     showToast('تم حفظ الشاهد، لكن تعذّر تحديث تقدّم البرنامج: ' + error.message, 'error');
     return;
   }
-  p.sessions = sessions;
+  const local = activityPrograms.find(p => String(p.id) === String(programId));
+  if(local) local.sessions = sessions;
+}
+
+/* تُستدعى من deleteRecord (app-09) عند حذف شاهد كان يوثّق حصة من برنامج —
+   تُعيد تلك الحصة لحالة "لم تُوثَّق بعد" حتى تبقى قابلة لإعادة التوثيق، بدل
+   أن تبقى عالقة للأبد على أنها موثَّقة بشاهد لم يعد موجودًا. تُرجع بيانات
+   الحصة كما كانت قبل التفريغ (لاستخدامها في التراجع عن الحذف إن حصل). */
+async function clearProgramSessionLink(programId, sessionNo){
+  const { data: prog, error: fetchErr } = await sb.from('activity_programs').select('sessions').eq('id', programId).maybeSingle();
+  if(fetchErr || !prog) return null;
+
+  const sessions = prog.sessions || [];
+  const previous = sessions.find(s => s.session_no === sessionNo) || null;
+  const updated = sessions.map(s => s.session_no === sessionNo
+    ? { ...s, done: false, done_date: null, shahid_id: null }
+    : s);
+
+  const { error } = await sb.from('activity_programs').update({ sessions: updated }).eq('id', programId);
+  if(error) return null;
+
+  const local = activityPrograms.find(p => String(p.id) === String(programId));
+  if(local) local.sessions = updated;
+  return previous;
 }
 
 function viewProgramSessionShahid(shahidId){

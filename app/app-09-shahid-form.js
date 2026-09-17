@@ -937,6 +937,11 @@ async function saveShahid(){
       if(programSessionContext){
         const ctx = programSessionContext;
         programSessionContext = null;
+        /* أضفه فورًا لقائمة myRecords المحمَّلة بالذاكرة — لو تركناها كما هي،
+           showProgramDetail لا يُعيد تحميلها إلا لو كانت فارغة، فيفشل زر
+           "عرض الشاهد" بحثه عن هذا الشاهد المُنشأ للتو (myRecords.find) رغم
+           نجاح الحفظ فعليًا بقاعدة البيانات. */
+        myRecords.unshift(inserted);
         await markProgramSessionDone(ctx.programId, ctx.sessionNo, inserted.id);
         setTimeout(() => { showProgramDetail(ctx.programId); }, 900);
       } else {
@@ -972,6 +977,16 @@ async function deleteRecord(id){
     return;
   }
 
+  /* لو هذا الشاهد كان يوثّق حصة من برنامج نشاط طلابي، لازم نُفرغ ربطها
+     بالبرنامج (نعيدها لحالة "لم تُوثَّق بعد") — وإلا تبقى الحصة عالقة للأبد
+     على أنها "موثَّقة" بشاهد لم يعد موجودًا، بلا أي طريقة لإعادة توثيقها
+     من واجهة البرنامج (best-effort: فشل هذا لا يجب أن يمنع إتمام الحذف
+     نفسه، فهو أصلاً منجَز أعلاه). */
+  let clearedProgramSessionMeta = null;
+  if(rec.program_id && rec.program_session_no != null){
+    try{ clearedProgramSessionMeta = await clearProgramSessionLink(rec.program_id, rec.program_session_no); } catch(e){ /* غير حرج */ }
+  }
+
   const originalIndex = myRecords.findIndex(r => String(r.id) === String(id));
   if(originalIndex > -1) myRecords.splice(originalIndex, 1);
   if(editingId === id){ startNewShahid(); }
@@ -993,6 +1008,12 @@ async function deleteRecord(id){
       if(restoreErr) throw restoreErr;
       myRecords.splice(originalIndex > -1 ? originalIndex : myRecords.length, 0, rec);
       filterMyShawahid();
+      /* أعد ربط الحصة ببرنامجها كما كانت قبل الحذف تمامًا (بنفس تاريخ التوثيق
+         الأصلي لا تاريخ اليوم) — عكس التفريغ أعلاه */
+      if(rec.program_id && rec.program_session_no != null){
+        const originalDoneDate = clearedProgramSessionMeta && clearedProgramSessionMeta.done_date;
+        try{ await markProgramSessionDone(rec.program_id, rec.program_session_no, rec.id, originalDoneDate); } catch(e){ /* غير حرج */ }
+      }
       showToast('تم التراجع عن الحذف', 'ok');
     } catch(err){
       showToast('تعذّر التراجع — قد تحتاج لإعادة إنشاء الشاهد يدويًا: ' + err.message, 'error');
@@ -1018,6 +1039,11 @@ function editRecord(id){
   if(!rec) return;
 
   editingId = rec.id;
+  /* لو كان فيه سياق "توثيق حصة برنامج" معلَّق من قبل (مثلًا المستخدم فتح
+     "توثيق هذه الحصة" ثم غادر النموذج دون حفظ وفتح شاهدًا آخر للتعديل)،
+     يجب إلغاؤه هنا — وإلا سيُنسب هذا الشاهد المختلف تمامًا لتلك الحصة عن
+     طريق الخطأ عند الحفظ (انظر saveShahid). */
+  programSessionContext = null;
   document.getElementById('saveBtn').textContent = 'تحديث الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'inline-block';
 
@@ -1064,6 +1090,7 @@ function duplicateRecord(id){
 
   /* شاهد جديد تمامًا — لا نرث المعرّف ولا الصور ولا التاريخ */
   editingId = null;
+  programSessionContext = null; /* نفس سبب إلغائه في editRecord أعلاه */
   formDirty = true;
   document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'none';

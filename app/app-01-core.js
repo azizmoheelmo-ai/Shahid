@@ -236,6 +236,12 @@ function collectFormDraft(){
   return {
     savedAt: Date.now(),
     editingId: editingId,
+    /* لو كانت المسودة توثّق حصة من برنامج نشاط طلابي، لازم نحفظ هذا الربط
+       ضمن المسودة نفسها — وإلا لو استُعيدت المسودة لاحقًا (بعد إغلاق التبويب
+       مثلًا)، يُفقَد ربطها ببرنامجها رغم بقاء نص عنوانها يوحي بذلك، ويُحفظ
+       كشاهد عادي منفصل بينما تبقى حصة البرنامج المقابلة "لم تُوثَّق بعد". */
+    program_id: programSessionContext ? programSessionContext.programId : null,
+    program_session_no: programSessionContext ? programSessionContext.sessionNo : null,
     element_key: elementSelect.value,
     teacher: document.getElementById('mTeacher').value,
     school: document.getElementById('mSchool').value,
@@ -341,6 +347,11 @@ function applyDraft(d){
     document.getElementById('saveBtn').textContent = 'تحديث الشاهد';
     document.getElementById('cancelEditBtn').style.display = 'inline-block';
   }
+  /* استعادة ربط "توثيق حصة برنامج" إن كانت المسودة تحمله (انظر collectFormDraft) —
+     وإلا يُحفظ عند الضغط على "حفظ" كشاهد عادي منفصل عن البرنامج بالخطأ */
+  programSessionContext = (d.program_id && d.program_session_no != null)
+    ? { programId: d.program_id, sessionNo: d.program_session_no }
+    : null;
   formDirty = true;
 }
 
