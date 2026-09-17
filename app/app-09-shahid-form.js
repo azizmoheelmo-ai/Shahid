@@ -905,6 +905,13 @@ async function saveShahid(){
       cycle_year: getCycleYear(document.getElementById('mDate').value || undefined)
     };
 
+    /* لو هذا الشاهد يوثّق حصة من برنامج نشاط طلابي متعدد الحصص، نربطه بالبرنامج
+       وبرقم الحصة — يُستخدم بعد الحفظ لتحديث تقدّم البرنامج (انظر أسفل) */
+    if(programSessionContext){
+      record.program_id = programSessionContext.programId;
+      record.program_session_no = programSessionContext.sessionNo;
+    }
+
     if(!editingId){
       const dateForStage = record.lesson_date ? new Date(record.lesson_date) : new Date();
       record.cycle_stage = getCycleStageKey(dateForStage);
@@ -927,7 +934,14 @@ async function saveShahid(){
       showSaveMsg('تم حفظ الشاهد بنجاح ✓' + refText, 'ok');
       showToast('تم حفظ الشاهد بنجاح' + refText, 'ok');
       loadPlan();
-      setTimeout(() => { showList(); }, 900);
+      if(programSessionContext){
+        const ctx = programSessionContext;
+        programSessionContext = null;
+        await markProgramSessionDone(ctx.programId, ctx.sessionNo, inserted.id);
+        setTimeout(() => { showProgramDetail(ctx.programId); }, 900);
+      } else {
+        setTimeout(() => { showList(); }, 900);
+      }
     }
   } catch(err){
     showSaveMsg('حدث خطأ أثناء الحفظ: ' + err.message, 'error');
@@ -1136,6 +1150,7 @@ async function cancelForm(){
 function startNewShahid(){
   editingId = null;
   formDirty = false;
+  programSessionContext = null;
   clearDraft();
   document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'none';

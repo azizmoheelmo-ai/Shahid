@@ -906,6 +906,7 @@ function hideAllMainViews(){
   document.getElementById('riskView').style.display = 'none';
   document.getElementById('academicView').style.display = 'none';
   document.getElementById('acLetterView').style.display = 'none';
+  document.getElementById('programsView').style.display = 'none';
 }
 function switchCrmTab(tab){
   const recordBtn = document.getElementById('crmTabBtnRecord');

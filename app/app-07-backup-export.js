@@ -304,6 +304,62 @@ create policy "المعلم يحذف ملفاته فقط"
     and auth.uid()::text = (storage.foldername(name))[1]
   );
 
+-- ============ 4ج) برامج الأنشطة الطلابية متعددة الحصص ============
+-- كيان خفيف: المعلم يخطط لبرنامج (مثل "الإسعافات الأولية" على 4 حصص موزّعة
+-- على أسابيع الفصل)، وكل حصة يوثّقها لاحقًا تصبح شاهدًا مستقلاً بجدول
+-- shawahid (عمودا program_id/program_session_no أدناه) — البرنامج نفسه لا
+-- يُحسب كشاهد، فقط الحصص الموثَّقة فعليًا. sessions تخزّن خطة الجدول
+-- الزمني وحالة كل حصة: [{session_no, week_label, done, done_date, shahid_id}].
+create table if not exists public.activity_programs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  name text not null,
+  total_sessions int not null check (total_sessions between 1 and 30),
+  student_count int,
+  element_key text,
+  cycle_year text,
+  sessions jsonb default '[]'::jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.activity_programs enable row level security;
+
+drop policy if exists "المعلم يشوف برامجه فقط" on public.activity_programs;
+create policy "المعلم يشوف برامجه فقط"
+  on public.activity_programs for select using (auth.uid() = user_id);
+
+drop policy if exists "المعلم يضيف برنامجًا لنفسه فقط" on public.activity_programs;
+create policy "المعلم يضيف برنامجًا لنفسه فقط"
+  on public.activity_programs for insert with check (auth.uid() = user_id);
+
+drop policy if exists "المعلم يعدّل برامجه فقط" on public.activity_programs;
+create policy "المعلم يعدّل برامجه فقط"
+  on public.activity_programs for update using (auth.uid() = user_id);
+
+drop policy if exists "المعلم يحذف برامجه فقط" on public.activity_programs;
+create policy "المعلم يحذف برامجه فقط"
+  on public.activity_programs for delete using (auth.uid() = user_id);
+
+drop policy if exists "المسؤول يشوف كل البرامج" on public.activity_programs;
+create policy "المسؤول يشوف كل البرامج"
+  on public.activity_programs for select using (public.is_admin(auth.uid()));
+
+create or replace function public.set_activity_program_updated_at()
+returns trigger as $$
+begin new.updated_at = now(); return new; end;
+$$ language plpgsql security definer;
+
+drop trigger if exists trg_activity_program_updated_at on public.activity_programs;
+create trigger trg_activity_program_updated_at
+before update on public.activity_programs
+for each row execute function public.set_activity_program_updated_at();
+
+-- ربط اختياري لكل شاهد بالحصة/البرنامج الذي وثّقه (لو كان أصلاً جزءًا من
+-- برنامج متعدد الحصص) — nullable بالكامل، فلا يؤثر على أي شاهد عادي حالي.
+alter table public.shawahid add column if not exists program_id uuid references public.activity_programs(id) on delete set null;
+alter table public.shawahid add column if not exists program_session_no int;
+
 -- ============ 5) خطة الأداء ============
 create or replace function public.set_plan_updated_at()
 returns trigger as $$

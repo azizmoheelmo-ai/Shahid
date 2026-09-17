@@ -1092,6 +1092,7 @@
         <h2 id="listTitle">شواهدي المحفوظة</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="startNewShahid()">+ شاهد جديد</button>
+          <button class="btn btn-outline" onclick="showPrograms()">برامجي</button>
           <button class="btn btn-outline" id="exportAllBtn" onclick="exportAllShawahid()">تصدير الكل PDF</button>
         </div>
       </div>
@@ -1116,6 +1117,59 @@
     </div>
   </div>
 
+  <!-- ---------- برامج الأنشطة الطلابية متعددة الحصص ---------- -->
+  <div id="programsView" style="display:none;">
+
+    <div id="programsListSection" class="list-card">
+      <div class="list-header">
+        <h2>برامجي</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="showNewProgramForm()">+ برنامج جديد</button>
+          <button class="btn btn-outline" onclick="showList()">رجوع لشواهدي</button>
+        </div>
+      </div>
+      <div id="programsListBody">
+        <div class="loading-state">جارِ التحميل...</div>
+      </div>
+    </div>
+
+    <div id="programsFormSection" class="list-card" style="display:none;margin-top:16px;">
+      <div class="list-header">
+        <h2 id="programFormTitle">برنامج جديد</h2>
+        <button class="btn btn-outline" onclick="cancelProgramForm()">إلغاء</button>
+      </div>
+      <div style="padding:20px 26px;">
+        <div class="plan-fields">
+          <div><label>اسم البرنامج</label><input type="text" class="goal-input" id="pgName" placeholder="مثال: برنامج الإسعافات الأولية"></div>
+          <div><label>عدد الحصص</label><input type="number" class="goal-input" id="pgSessionCount" min="1" max="30" value="4" oninput="renderProgramScheduleRows()"></div>
+        </div>
+        <div class="plan-fields">
+          <div><label>عدد الطلبة (اختياري)</label><input type="number" class="goal-input" id="pgStudentCount" min="0" placeholder="مثال: 28"></div>
+          <div><label>ربط بعنصر أداء (اختياري)</label><select class="goal-input" id="pgElementSelect"><option value="">— بلا ربط —</option></select></div>
+        </div>
+
+        <div style="margin-top:8px;">
+          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:6px;">جدول الحصص (الأسبوع المخطَّط لكل حصة)</label>
+          <div id="pgScheduleRows"></div>
+        </div>
+
+        <div style="margin-top:18px;display:flex;gap:10px;">
+          <button class="btn btn-primary" id="pgSaveBtn" onclick="saveProgramForm()">حفظ البرنامج</button>
+        </div>
+        <div id="pgSaveMsg" class="save-msg"></div>
+      </div>
+    </div>
+
+    <div id="programsDetailSection" class="list-card" style="display:none;margin-top:16px;">
+      <div class="list-header">
+        <h2 id="programDetailTitle">البرنامج</h2>
+        <button class="btn btn-outline" onclick="showPrograms()">رجوع للقائمة</button>
+      </div>
+      <div id="programDetailBody" style="padding:20px 26px;"></div>
+    </div>
+
+  </div>
+
 </div>
 
 
@@ -1132,6 +1186,7 @@
 <script src="app/app-07-backup-export.js"></script>
 <script src="app/app-08-admin.js"></script>
 <script src="app/app-09-shahid-form.js"></script>
+<script src="app/app-10-programs.js"></script>
 
 </body>
 </html>

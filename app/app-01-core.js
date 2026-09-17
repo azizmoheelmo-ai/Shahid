@@ -169,6 +169,7 @@ function showConfirm(message){
 let currentUser = null;
 let editingId = null;
 let formDirty = false;  // هل يوجد تعديلات غير محفوظة في نموذج الشاهد؟
+let programSessionContext = null; // { programId, sessionNo } لو الشاهد الحالي يوثّق حصة من برنامج نشاط طلابي
 
 /* تحذير المعلم قبل مغادرة الصفحة بتعديلات غير محفوظة */
 window.addEventListener('beforeunload', (e) => {
