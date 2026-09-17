@@ -214,4 +214,41 @@ describe('برامج الأنشطة الطلابية متعددة الحصص', (
     assert.equal(app.document.getElementById('formView').style.display, 'none', 'نموذج الشاهد يجب أن يختفي فعليًا بعد الانتقال');
     assert.equal(app.document.getElementById('programsView').style.display, 'block', '#programsView يجب أن تظهر فعليًا، لا فقط أقسامها الداخلية');
   });
+
+  test('deleteProgramSessionShahid(): يحذف الشاهد من "برامجي" مباشرة، ويُعيد رسم تفاصيل البرنامج فورًا لتصبح الحصة قابلة لإعادة التوثيق', async () => {
+    const seed = {
+      activity_programs: [
+        { id: 'p1', user_id: 'u1', name: 'برنامج الإسعافات الأولية', total_sessions: 1,
+          sessions: [{ session_no: 1, week_label: 'الأسبوع الأول', done: true, done_date: '2025-09-10', shahid_id: 'sh-1' }] },
+      ],
+      shawahid: [
+        { id: 'sh-1', user_id: 'u1', program_id: 'p1', program_session_no: 1, element_key: 'classroom', lesson_title: 'الحصة 1', created_at: '2025-09-10' },
+      ],
+    };
+    const app = loadApp({ supabaseClient: makeProgramsClient(seed), currentUser: { id: 'u1' } });
+    installLiveDom(app);
+
+    /* showConfirm/showUndoToast نوافذ تفاعلية حقيقية بالتطبيق (تنتظر ضغط
+       المستخدم) — نستبدلها هنا بموافقة تلقائية فورية لاختبار منطق الحذف
+       نفسه دون الحاجة لمحاكاة DOM نوافذ حقيقية (نفس أسلوب تجاوز الدوال
+       القابلة للاستبدال الموثَّق بهذا المستودع). */
+    app.showConfirm = async () => true;
+    app.showUndoToast = async () => true; // true = لم يتراجع المستخدم (تنفيذ الحذف كاملاً)
+
+    await app.loadActivityPrograms();
+    await app.loadMyShawahid();
+    await app.showProgramDetail('p1');
+
+    let html = app.document.getElementById('programDetailBody').innerHTML;
+    assert.match(html, /✓ وُثّقت/, 'قبل الحذف: الحصة تظهر موثَّقة');
+    assert.match(html, /حذف الشاهد/, 'زر حذف الشاهد يجب أن يظهر لحصة موثَّقة');
+
+    await app.deleteProgramSessionShahid('sh-1', 'p1');
+
+    assert.equal((seed.shawahid || []).length, 0, 'الشاهد يجب أن يُحذف فعليًا من قاعدة البيانات');
+
+    html = app.document.getElementById('programDetailBody').innerHTML;
+    assert.match(html, /لم تُوثَّق بعد/, 'بعد الحذف: الحصة يجب أن تعود "لم تُوثَّق بعد" فورًا دون انتظار');
+    assert.match(html, /توثيق هذه الحصة/, 'زر توثيق الحصة يجب أن يظهر من جديد فورًا بعد الحذف');
+  });
 });

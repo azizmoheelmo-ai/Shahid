@@ -961,7 +961,10 @@ async function saveShahid(){
 }
 
 /* ============ حذف شاهد محفوظ ============ */
-async function deleteRecord(id){
+/* afterDelete اختياري: يُستدعى فورًا بعد نجاح الحذف وتفريغ ربط البرنامج
+   (لو وُجد) — يُستخدم من شاشة "برامجي" (deleteProgramSessionShahid) لإعادة
+   رسم تفاصيل البرنامج مباشرة بدل انتظار انتهاء مهلة التراجع كاملة. */
+async function deleteRecord(id, afterDelete){
   const rec = myRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
 
@@ -995,6 +998,7 @@ async function deleteRecord(id){
   if(originalIndex > -1) myRecords.splice(originalIndex, 1);
   if(editingId === id){ startNewShahid(); }
   filterMyShawahid();
+  if(afterDelete){ try{ afterDelete(); } catch(e){ /* غير حرج */ } }
 
   let shouldCleanupPhotos = true;
   try{
@@ -1018,6 +1022,7 @@ async function deleteRecord(id){
         const originalDoneDate = clearedProgramSessionMeta && clearedProgramSessionMeta.done_date;
         try{ await markProgramSessionDone(rec.program_id, rec.program_session_no, rec.id, originalDoneDate); } catch(e){ /* غير حرج */ }
       }
+      if(afterDelete){ try{ afterDelete(); } catch(e){ /* غير حرج */ } }
       showToast('تم التراجع عن الحذف', 'ok');
     } catch(err){
       showToast('تعذّر التراجع — قد تحتاج لإعادة إنشاء الشاهد يدويًا: ' + err.message, 'error');

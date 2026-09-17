@@ -258,7 +258,8 @@ function renderProgramDetail(programId){
       ? `<span class="plan-badge-count done">✓ وُثّقت${s.done_date ? ' — ' + escapeHtml(s.done_date) : ''}</span>`
       : `<span class="plan-badge-count">لم تُوثَّق بعد</span>`;
     const actionBtn = s.done
-      ? `<button class="btn btn-outline" onclick="viewProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}')">عرض الشاهد</button>`
+      ? `<button class="btn btn-outline" onclick="viewProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}')">عرض الشاهد</button>
+         <button class="btn btn-outline" onclick="deleteProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}', '${p.id}')" style="color:#8A2C2C;border-color:#8A2C2C;">حذف الشاهد</button>`
       : `<button class="btn btn-primary" onclick="documentProgramSession('${p.id}', ${s.session_no})">توثيق هذه الحصة</button>`;
     return `<div class="goal-card">
       <div class="goal-card-head-top">
@@ -362,6 +363,16 @@ function viewProgramSessionShahid(shahidId){
   const rec = myRecords.find(r => String(r.id) === String(shahidId));
   if(!rec){ showToast('تعذّر إيجاد هذا الشاهد', 'error'); return; }
   editRecord(shahidId);
+}
+
+/* حذف شاهد يوثّق حصة من برنامج، مباشرة من شاشة "برامجي" — بلا حاجة للذهاب
+   إلى "شواهدي". تُعيد استخدام deleteRecord (app-09) بكل منطقها الحالي
+   (تأكيد، تراجع لبضع ثوانٍ، تنظيف الصور) بدل تكرارها، مع afterDelete
+   لإعادة رسم تفاصيل البرنامج فورًا فتظهر الحصة "لم تُوثَّق بعد" مباشرة —
+   بدل انتظار انتهاء مهلة التراجع كاملة (٥ ثوانٍ). */
+function deleteProgramSessionShahid(shahidId, programId){
+  if(!shahidId){ showToast('تعذّر إيجاد هذا الشاهد', 'error'); return; }
+  return deleteRecord(shahidId, () => renderProgramDetail(programId));
 }
 
 async function deleteActivityProgram(id){
