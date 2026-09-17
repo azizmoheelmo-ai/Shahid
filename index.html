@@ -72,6 +72,46 @@
   </div>
 </div>
 
+<!-- ---------- تواصل معنا ---------- -->
+<div id="supportModal" class="confirm-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="supportModalTitle" onclick="if(event.target===this)closeSupportModal()">
+  <div class="confirm-box" style="max-width:420px;text-align:right;">
+    <p id="supportModalTitle" style="margin:0 0 4px;font-size:15px;font-weight:800;color:var(--navy);">تواصل معنا</p>
+    <p style="margin:0 0 14px;font-size:12px;color:var(--muted);line-height:1.8;">واجهتك مشكلة؟ اكتبها لنا وسنحلها بأسرع وقت.</p>
+    <textarea id="supportMsgBox" rows="4" maxlength="2000" placeholder="اكتب وصف المشكلة هنا..." style="width:100%;font-family:'Cairo',sans-serif;font-size:13.5px;border:1px solid var(--line);background:#FCFBF9;padding:10px 12px;resize:vertical;"></textarea>
+
+    <div id="supportPhotoPreviewWrap" style="display:none;margin-top:10px;position:relative;width:100px;">
+      <img id="supportPhotoPreviewImg" style="width:100px;height:75px;object-fit:cover;border:1px solid var(--line);">
+      <button type="button" onclick="removeSupportPhoto()" style="position:absolute;top:-8px;left:-8px;width:22px;height:22px;border-radius:50%;background:#8A2C2C;color:#fff;border:none;font-size:13px;line-height:1;cursor:pointer;">×</button>
+    </div>
+    <button class="add-photo-btn" type="button" id="supportAddPhotoBtn" style="margin-top:10px;" onclick="showSupportPhotoSourcePicker()">+ إرفاق صورة (اختياري)</button>
+
+    <div id="supportMsgFeedback" class="save-msg" style="margin-top:10px;"></div>
+    <div style="display:flex;gap:10px;margin-top:14px;">
+      <button class="btn btn-primary" id="supportSendBtn" onclick="submitSupportMessage()" style="flex:1;justify-content:center;">إرسال</button>
+      <button class="btn btn-outline" onclick="closeSupportModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div id="supportPhotoSourceModal" class="confirm-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="supportPhotoSourceModalTitle" onclick="if(event.target===this)closeSupportPhotoSourcePicker()">
+  <div class="confirm-box" style="max-width:330px;">
+    <p id="supportPhotoSourceModalTitle" style="margin:0 0 16px;font-size:14px;font-weight:700;color:var(--navy);text-align:center;">من أين تريد إضافة الصورة؟</p>
+    <div style="display:flex;flex-direction:column;gap:9px;">
+      <button class="photo-src-btn" onclick="pickSupportPhotoSource('gallery')">
+        <span class="ps-icon">🖼️</span>
+        <span><b>ألبوم الصور</b><br><span class="ps-sub">اختر صورة محفوظة في جهازك</span></span>
+      </button>
+      <button class="photo-src-btn" onclick="pickSupportPhotoSource('camera')">
+        <span class="ps-icon">📷</span>
+        <span><b>الكاميرا</b><br><span class="ps-sub">التقط صورة الآن مباشرة</span></span>
+      </button>
+    </div>
+    <button class="btn btn-outline" style="width:100%;margin-top:14px;justify-content:center;" onclick="closeSupportPhotoSourcePicker()">إلغاء</button>
+  </div>
+</div>
+<input type="file" id="supportPhotoInput" accept="image/*" style="display:none;">
+
+
 <!-- ============ شاشة تسجيل الدخول ============ -->
 <div id="authView" class="wrap">
   <div class="auth-card" id="authCard">
@@ -162,7 +202,11 @@
   <div class="topbar">
     <div class="who">مرحبًا، <b id="whoName">—</b></div>
     <div class="actions" style="display:flex;gap:8px;align-items:center;">
-      <button class="ghost" id="adminNavBtn" style="display:none;" onclick="showAdminPanel()">لوحة التحكم</button>
+      <button class="ghost" id="adminNavBtn" style="display:none;position:relative;" onclick="showAdminPanel()">
+        لوحة التحكم
+        <span id="supportMsgNavBadge" style="display:none;position:absolute;top:-4px;left:-4px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
+      </button>
+      <button class="ghost" onclick="showSupportModal()" title="تواصل معنا" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">💬</button>
       <button class="ghost" onclick="showSettings()" title="الإعدادات" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">⚙</button>
       <button onclick="handleLogout()" title="تسجيل خروج" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">🚪</button>
     </div>
@@ -880,6 +924,23 @@
         </div>
       </div>
 
+      <div class="section">
+        <div class="roster-toggle" onclick="toggleAdminBox('supportMessagesBox','supportMessagesChevron')">
+          <h2 style="margin:0;">رسائل الدعم من المعلمين</h2>
+          <span class="roster-chevron" id="supportMessagesChevron">▾ عرض</span>
+        </div>
+        <div id="supportMessagesBox" style="display:none;margin-top:14px;">
+          <div class="stage-filter">
+            <button class="active" data-status="" onclick="setSupportMessagesFilter('', this)">الكل</button>
+            <button data-status="open" onclick="setSupportMessagesFilter('open', this)">مفتوحة</button>
+            <button data-status="resolved" onclick="setSupportMessagesFilter('resolved', this)">محلولة</button>
+          </div>
+          <div id="supportMessagesList" style="margin-top:10px;">
+            <div class="loading-state">جارِ التحميل...</div>
+          </div>
+        </div>
+      </div>
+
       <div class="admin-stats" id="adminStats">
         <div class="loading-state">جارِ تحميل الإحصائيات...</div>
       </div>
@@ -1186,6 +1247,7 @@
 <script src="app/app-08-admin.js"></script>
 <script src="app/app-09-shahid-form.js"></script>
 <script src="app/app-10-programs.js"></script>
+<script src="app/app-11-support.js"></script>
 
 </body>
 </html>

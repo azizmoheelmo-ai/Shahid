@@ -360,6 +360,44 @@ for each row execute function public.set_activity_program_updated_at();
 alter table public.shawahid add column if not exists program_id uuid references public.activity_programs(id) on delete set null;
 alter table public.shawahid add column if not exists program_session_no int;
 
+-- ============ 4د) رسائل الدعم من المعلمين ("تواصل معنا") ============
+-- المعلم يرسل رسالة نصية + صورة اختيارية (تُرفع بنفس حاوية shawahid-photos
+-- ضمن مجلده الخاص user_id/support/...، فتشملها سياسات الحاوية الحالية
+-- دون أي إعداد إضافي). المسؤول وحده يشوف كل الرسائل ويحدّث حالتها.
+create table if not exists public.support_messages (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  teacher_name text,
+  teacher_email text,
+  message text not null,
+  photo_url text,
+  status text not null default 'open' check (status in ('open', 'resolved')),
+  created_at timestamptz default now(),
+  resolved_at timestamptz
+);
+
+alter table public.support_messages enable row level security;
+
+drop policy if exists "المعلم يضيف رسالته فقط" on public.support_messages;
+create policy "المعلم يضيف رسالته فقط"
+  on public.support_messages for insert with check (auth.uid() = user_id);
+
+drop policy if exists "المعلم يشوف رسائله فقط" on public.support_messages;
+create policy "المعلم يشوف رسائله فقط"
+  on public.support_messages for select using (auth.uid() = user_id);
+
+drop policy if exists "المسؤول يشوف كل رسائل الدعم" on public.support_messages;
+create policy "المسؤول يشوف كل رسائل الدعم"
+  on public.support_messages for select using (public.is_admin(auth.uid()));
+
+drop policy if exists "المسؤول يحدّث حالة رسائل الدعم" on public.support_messages;
+create policy "المسؤول يحدّث حالة رسائل الدعم"
+  on public.support_messages for update using (public.is_admin(auth.uid()));
+
+drop policy if exists "المسؤول يحذف رسائل الدعم" on public.support_messages;
+create policy "المسؤول يحذف رسائل الدعم"
+  on public.support_messages for delete using (public.is_admin(auth.uid()));
+
 -- ============ 5) خطة الأداء ============
 create or replace function public.set_plan_updated_at()
 returns trigger as $$
@@ -775,7 +813,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'support_messages'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1034,6 +1072,7 @@ async function showAdminPanel(){
   renderAdminTeachers();
   loadAuditLog();
   loadElementsMgmt();
+  loadSupportMessages();
 }
 
 function toggleAdminBox(boxId, chevronId){
