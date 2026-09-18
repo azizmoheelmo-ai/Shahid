@@ -22,6 +22,8 @@ const RAW = [
   { key: 'e', label: 'تنفيذ الخطة المشتركة للبرامج الصحية المدرسية', weight: 15, weight_with_duty: 15, required_duty_type: 'health_guidance', sort_order: 5 },
   { key: 'وكيل: أداء الواجبات الوظيفية', label: 'أداء الواجبات الوظيفية', weight: 5, weight_with_duty: null, required_duty_type: 'vice_principal', sort_order: 6 },
   { key: 'وكيل: يدعم ويشارك في المبادرات النوعية', label: 'يدعم ويشارك في المبادرات النوعية', weight: 10, weight_with_duty: null, required_duty_type: 'vice_principal', sort_order: 7 },
+  { key: 'مدير: أداء الواجبات الوظيفية', label: 'أداء الواجبات الوظيفية', weight: 5, weight_with_duty: null, required_duty_type: 'school_principal', sort_order: 8 },
+  { key: 'مدير: يُسهم في تحسين مستوى أداء المدرسة', label: 'يُسهم في تحسين مستوى أداء المدرسة', weight: 10, weight_with_duty: null, required_duty_type: 'school_principal', sort_order: 9 },
 ];
 
 describe('computeEffectiveElements', () => {
@@ -51,6 +53,12 @@ describe('computeEffectiveElements', () => {
     assert.deepEqual(result.map(e => e.key), ['وكيل: أداء الواجبات الوظيفية', 'وكيل: يدعم ويشارك في المبادرات النوعية']);
     assert.equal(result.find(e => e.key === 'وكيل: أداء الواجبات الوظيفية').weight, 5);
     assert.equal(result.find(e => e.key === 'وكيل: يدعم ويشارك في المبادرات النوعية').weight, 10);
+  });
+
+  test('مدير مدرسة: يضم عناصره فقط بوزنها المكتوب مباشرة، ويستبعد عناصر المعلم وعناصر الوكيل معًا', () => {
+    const result = app.computeEffectiveElements(RAW, 'school_principal');
+    assert.deepEqual(result.map(e => e.key), ['مدير: أداء الواجبات الوظيفية', 'مدير: يُسهم في تحسين مستوى أداء المدرسة']);
+    assert.equal(result.find(e => e.key === 'مدير: يُسهم في تحسين مستوى أداء المدرسة').weight, 10);
   });
 
   test('weight_with_duty = null: يبقى الوزن العادي حتى مع تكليف إضافي', () => {

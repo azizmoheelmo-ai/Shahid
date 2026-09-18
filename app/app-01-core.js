@@ -546,13 +546,18 @@ const ELEMENT_META = {
 
 let DB_ELEMENTS = []; // العناصر الفعّالة للمعلم الحالي فقط (بعد تطبيق computeEffectiveElements)
 let ALL_PERFORMANCE_ELEMENTS = []; // كل العناصر كما في القاعدة، بدون فلترة/إعادة وزن — لأي حساب يشمل عدة معلمين
-let dutyType = 'none'; // نوع تكليف/دور المعلم الحالي: 'none' | 'student_activity' | 'health_guidance' | 'vice_principal' | ...
+let dutyType = 'none'; // نوع تكليف/دور المعلم الحالي: 'none' | 'student_activity' | 'health_guidance' | 'vice_principal' | 'school_principal' | ...
 const DUTY_TYPES = [
   { value: 'none', label: 'بلا تكليف إضافي (معلم)' },
   { value: 'student_activity', label: 'معلم — نشاط طلابي' },
   { value: 'health_guidance', label: 'معلم — توجيه صحي' },
   { value: 'vice_principal', label: 'وكيل مدرسة' },
+  { value: 'school_principal', label: 'مدير مدرسة' },
 ];
+/* أدوار مستقلة كليًا عن نموذج المعلم (لا "تكليف إضافي" فوقه) — عناصرها
+   الخاصة تحل محل عناصر المعلم بالكامل بدل الإضافة إليها. أي دور جديد من
+   هذا النوع يُضاف هنا فقط، دون لمس بقية computeEffectiveElements. */
+const STANDALONE_ROLES = ['vice_principal', 'school_principal'];
 let isRecoveryFlow = false;
 
 /* عناصر التقييم الفعّالة لحساب معيّن حسب نوع تكليفه/دوره: تستبعد عناصر
@@ -561,19 +566,19 @@ let isRecoveryFlow = false;
    — الأحد عشر عنصرًا الأساسية تُخفَّض لنفس القيمة بصرف النظر عن نوع التكليف
    تحديدًا (النماذج الرسمية المختلفة تتفق على نفس التخفيض لهذه العناصر، ولا
    تختلف إلا بالعناصر الإضافية الخاصة بكل تكليف).
-   'vice_principal' حالة خاصة: ليس "معلمًا بتكليف إضافي" بل دور مختلف كليًا،
-   فعناصره (required_duty_type = 'vice_principal') تُعرض وحدها بوزنها المكتوب
-   مباشرة، دون أي مزج بعناصر المعلم الأساسية أو منطق weight_with_duty.
+   أدوار STANDALONE_ROLES حالة خاصة: ليست "معلمًا بتكليف إضافي" بل دور مختلف
+   كليًا، فعناصرها (required_duty_type = قيمة الدور نفسها) تُعرض وحدها بوزنها
+   المكتوب مباشرة، دون أي مزج بعناصر المعلم الأساسية أو منطق weight_with_duty.
    لا تعتمد على أي حالة ضمنية (currentUser/dutyType) عمدًا — لتصلح لحساب
    عناصر حساب آخر غير الحساب الحالي (شاشات المسؤول). */
 function computeEffectiveElements(rawElements, forDutyType){
   const duty = forDutyType || 'none';
-  if(duty === 'vice_principal'){
-    return (rawElements || []).filter(el => el.required_duty_type === 'vice_principal');
+  if(STANDALONE_ROLES.includes(duty)){
+    return (rawElements || []).filter(el => el.required_duty_type === duty);
   }
   const hasDuty = duty !== 'none';
   return (rawElements || [])
-    .filter(el => el.required_duty_type !== 'vice_principal' && (!el.required_duty_type || el.required_duty_type === duty))
+    .filter(el => !STANDALONE_ROLES.includes(el.required_duty_type) && (!el.required_duty_type || el.required_duty_type === duty))
     .map(el => {
       const w = (hasDuty && el.weight_with_duty != null) ? el.weight_with_duty : el.weight;
       return Object.assign({}, el, { weight: w });

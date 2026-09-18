@@ -147,6 +147,7 @@
           <option value="student_activity">معلم — نشاط طلابي</option>
           <option value="health_guidance">معلم — توجيه صحي</option>
           <option value="vice_principal">وكيل مدرسة</option>
+          <option value="school_principal">مدير مدرسة</option>
         </select>
       </div>
       <div id="termsWrap" style="display:none;margin:4px 0 14px;">
@@ -533,13 +534,14 @@
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
           <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">تكليفك الوظيفي</label>
           <p style="font-size:11px;color:var(--muted);margin:0 0 8px;line-height:1.7;">
-            المعلم بتكليف إضافي (نشاط طلابي/توجيه صحي) يضيف عناصر خاصة بالتكليف بجانب العناصر الأساسية بأوزان معدَّلة. وكيل المدرسة نموذج تقييم مستقل بالكامل، ويُخفي ميزات خاصة بمعلم له فصل (إدارة الصف، المتابعة الأكاديمية، برامج الأنشطة الطلابية). تقدر تغيّره في أي وقت.
+            المعلم بتكليف إضافي (نشاط طلابي/توجيه صحي) يضيف عناصر خاصة بالتكليف بجانب العناصر الأساسية بأوزان معدَّلة. وكيل/مدير المدرسة نموذج تقييم مستقل بالكامل، ويُخفي ميزات خاصة بمعلم له فصل (إدارة الصف، المتابعة الأكاديمية، برامج الأنشطة الطلابية). تقدر تغيّره في أي وقت.
           </p>
           <select class="goal-input" id="peDutyType" onchange="saveDutyType(this.value)">
             <option value="none">بلا تكليف إضافي (معلم)</option>
             <option value="student_activity">معلم — نشاط طلابي</option>
             <option value="health_guidance">معلم — توجيه صحي</option>
             <option value="vice_principal">وكيل مدرسة</option>
+            <option value="school_principal">مدير مدرسة</option>
           </select>
           <span id="dutyTypeMsg" style="font-size:12px;display:block;margin-top:6px;"></span>
         </div>

@@ -303,15 +303,15 @@ async function onLoggedIn(user){
   offerDraftRestore();
 }
 
-/* وكيل المدرسة دور وظيفي مختلف كليًا عن المعلم — لا فصل ولا طلاب خاصين به،
-   فتُخفى عنه ميزات مرتبطة تحديدًا بمعلم له فصل (إدارة الصف، المتابعة
-   الأكاديمية، برامج الأنشطة الطلابية)، بينما تبقى شواهده/خطته/تقييمه الذاتي
-   كما هي (بعناصره الـ19 الخاصة، تُحسب عبر DB_ELEMENTS كالمعتاد). */
+/* وكيل/مدير المدرسة (STANDALONE_ROLES) دور وظيفي مختلف كليًا عن المعلم — لا
+   فصل ولا طلاب خاصين به، فتُخفى عنه ميزات مرتبطة تحديدًا بمعلم له فصل (إدارة
+   الصف، المتابعة الأكاديمية، برامج الأنشطة الطلابية)، بينما تبقى شواهده/
+   خطته/تقييمه الذاتي كما هي (بعناصره الخاصة، تُحسب عبر DB_ELEMENTS كالمعتاد). */
 function applyStaffRoleVisibility(){
-  const isVicePrincipal = dutyType === 'vice_principal';
+  const isStandaloneRole = STANDALONE_ROLES.includes(dutyType);
   ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn'].forEach(id => {
     const el = document.getElementById(id);
-    if(el) el.style.display = isVicePrincipal ? 'none' : '';
+    if(el) el.style.display = isStandaloneRole ? 'none' : '';
   });
 }
 

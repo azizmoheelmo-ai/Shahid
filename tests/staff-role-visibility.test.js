@@ -1,8 +1,8 @@
 'use strict';
 /* اختبار انحدار لـ applyStaffRoleVisibility (app-03-auth-home-risk.js) —
-   وكيل المدرسة دور مختلف كليًا عن المعلم (لا فصل ولا طلاب خاصين به)، فيجب
-   إخفاء تبويبات/أزرار "إدارة الصف" و"المتابعة الأكاديمية" و"برامجي" عنه،
-   وإظهارها بشكل طبيعي لأي معلم (بأي نوع تكليف إضافي أو بدونه). */
+   وكيل/مدير المدرسة (STANDALONE_ROLES) دور مختلف كليًا عن المعلم (لا فصل ولا
+   طلاب خاصين به)، فيجب إخفاء تبويبات/أزرار "إدارة الصف" و"المتابعة الأكاديمية"
+   و"برامجي" عنهما، وإظهارها بشكل طبيعي لأي معلم (بأي نوع تكليف إضافي أو بدونه). */
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -22,15 +22,17 @@ function installLiveDom(app){
 const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn'];
 
 describe('applyStaffRoleVisibility', () => {
-  test('وكيل مدرسة (vice_principal): يُخفي ميزات إدارة الصف/المتابعة الأكاديمية/برامجي', () => {
-    const app = loadApp();
-    installLiveDom(app);
-    runInAppContext(app, "dutyType = 'vice_principal';");
+  ['vice_principal', 'school_principal'].forEach(role => {
+    test(`دور مستقل (${role}): يُخفي ميزات إدارة الصف/المتابعة الأكاديمية/برامجي`, () => {
+      const app = loadApp();
+      installLiveDom(app);
+      runInAppContext(app, `dutyType = '${role}';`);
 
-    app.applyStaffRoleVisibility();
+      app.applyStaffRoleVisibility();
 
-    IDS.forEach(id => {
-      assert.equal(app.document.getElementById(id).style.display, 'none', `${id} يجب أن يكون مخفيًا لوكيل المدرسة`);
+      IDS.forEach(id => {
+        assert.equal(app.document.getElementById(id).style.display, 'none', `${id} يجب أن يكون مخفيًا لـ${role}`);
+      });
     });
   });
 

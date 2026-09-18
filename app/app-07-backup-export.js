@@ -219,9 +219,39 @@ on conflict (key) do update set
   weight = excluded.weight,
   required_duty_type = excluded.required_duty_type;
 
+-- ============ 3د) نموذج تقييم مدير مدرسة (دور مختلف كليًا عن المعلم أيضًا) ============
+-- بنفس منطق وكيل المدرسة تمامًا (دور مستقل، لا "تكليف إضافي")، لكن بعناصره
+-- الخاصة به — تتشابه نصًا مع عناصر الوكيل غالبًا لكن بأوزان مختلفة أحيانًا
+-- (مثال: "يُسهم في تحسين مستوى أداء المدرسة" 10% هنا مقابل 5% عند الوكيل)،
+-- وصياغة بعضها تفترض أن المدير "يُعدّ" الخطط مباشرة لا "يُشارك في إعدادها"
+-- كالوكيل. لهذا مفاتيحها منفصلة تمامًا (مسبوقة بـ"مدير: ").
+insert into public.performance_elements (key, label, weight, weight_with_duty, required_duty_type, sort_order) values
+  ('مدير: أداء الواجبات الوظيفية', 'أداء الواجبات الوظيفية', 5, null, 'school_principal', 38),
+  ('مدير: التفاعل مع المجتمع المهني', 'التفاعل مع المجتمع المهني', 5, null, 'school_principal', 39),
+  ('مدير: التفاعل مع أولياء الأمور', 'التفاعل مع أولياء الأمور', 5, null, 'school_principal', 40),
+  ('مدير: مرن وقادر على تنفيذ أعماله في ظل ظروف العمل المختلفة', 'مرن وقادر على تنفيذ أعماله في ظل ظروف العمل المختلفة', 5, null, 'school_principal', 41),
+  ('مدير: يدعم ويشارك في المبادرات النوعية', 'يدعم ويشارك في المبادرات النوعية', 5, null, 'school_principal', 42),
+  ('مدير: يتخذ إجراءات تربوية تُحقق الانضباط المدرسي', 'يتخذ إجراءات تربوية تُحقق الانضباط المدرسي', 5, null, 'school_principal', 43),
+  ('مدير: يُدير الموارد في المدرسة بكفاءة', 'يُدير الموارد في المدرسة بكفاءة', 5, null, 'school_principal', 44),
+  ('مدير: يُعد خطة للتطوير المهني', 'يُعد خطة للتطوير المهني', 5, null, 'school_principal', 45),
+  ('مدير: يُقدم التغذية الراجعة ويتابع تحقق مؤشرات الأداء الوظيفي', 'يُقدم التغذية الراجعة ويتابع تحقق مؤشرات الأداء الوظيفي', 5, null, 'school_principal', 46),
+  ('مدير: يدعم تنفيذ برامج التطوير المهني', 'يدعم تنفيذ برامج التطوير المهني', 5, null, 'school_principal', 47),
+  ('مدير: يُقيّم أداء منسوبي المدرسة', 'يُقيّم أداء منسوبي المدرسة', 5, null, 'school_principal', 48),
+  ('مدير: يُنفذ إجراءات علمية لتحسين نتائج التعلم', 'يُنفذ إجراءات علمية لتحسين نتائج التعلم', 5, null, 'school_principal', 49),
+  ('مدير: يُسهم في تحسين مستوى أداء المدرسة', 'يُسهم في تحسين مستوى أداء المدرسة', 10, null, 'school_principal', 50),
+  ('مدير: يُعد الخطط المدرسية اللازمة', 'يُعد الخطط المدرسية اللازمة', 5, null, 'school_principal', 51),
+  ('مدير: يُتابع تنفيذ الخطط المدرسية بمختلف أنواعها', 'يُتابع تنفيذ الخطط المدرسية بمختلف أنواعها', 5, null, 'school_principal', 52),
+  ('مدير: يُهيئ الفرص والإمكانات الداعمة لمشاركة الطلاب في الأنشطة الصفية وغير الصفية', 'يُهيئ الفرص والإمكانات الداعمة لمشاركة الطلاب في الأنشطة الصفية وغير الصفية', 5, null, 'school_principal', 53),
+  ('مدير: يُوظف المنصات الرقمية وتطبيقاتها المعتمدة في دعم عمليات التعليم والتعلم', 'يُوظف المنصات الرقمية وتطبيقاتها المعتمدة في دعم عمليات التعليم والتعلم', 5, null, 'school_principal', 54),
+  ('مدير: يتابع تعزيز السلوك الإيجابي للطلاب', 'يتابع تعزيز السلوك الإيجابي للطلاب', 5, null, 'school_principal', 55),
+  ('مدير: يُهيئ بيئةً مدرسيةً آمنةً ومحفزةً على التعلم', 'يُهيئ بيئةً مدرسيةً آمنةً ومحفزةً على التعلم', 5, null, 'school_principal', 56)
+on conflict (key) do update set
+  weight = excluded.weight,
+  required_duty_type = excluded.required_duty_type;
+
 alter table public.profiles add column if not exists duty_type text not null default 'none';
 alter table public.profiles drop constraint if exists profiles_duty_type_check;
-alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance', 'vice_principal'));
+alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal'));
 
 -- ترحيل من العمود القديم الخاص بالنشاط الطلابي فقط، ثم حذفه — بلا تأثير لو
 -- لم يكن موجودًا أصلًا (تركيب هذه الميزة لأول مرة).
@@ -243,7 +273,7 @@ drop function if exists public.set_student_activity_flag(uuid, boolean);
 create or replace function public.set_duty_type(target_user_id uuid, duty text)
 returns void as $$
 begin
-  if duty not in ('none', 'student_activity', 'health_guidance', 'vice_principal') then
+  if duty not in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal') then
     raise exception 'نوع تكليف غير معروف: %', duty;
   end if;
   if auth.uid() <> target_user_id and not public.is_admin(auth.uid()) then
