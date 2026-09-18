@@ -141,11 +141,12 @@
         <input type="password" id="authPassword2" placeholder="••••••••">
       </div>
       <div id="signupStudentActivityField" style="display:none;margin:4px 0 14px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">هل عليك تكليف إضافي؟ (يمكن تغيير هذا لاحقًا من الإعدادات)</label>
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">تكليفك الوظيفي (يمكن تغيير هذا لاحقًا من الإعدادات)</label>
         <select class="goal-input" id="authDutyType">
-          <option value="none" selected>بلا تكليف إضافي</option>
-          <option value="student_activity">نشاط طلابي</option>
-          <option value="health_guidance">توجيه صحي</option>
+          <option value="none" selected>بلا تكليف إضافي (معلم)</option>
+          <option value="student_activity">معلم — نشاط طلابي</option>
+          <option value="health_guidance">معلم — توجيه صحي</option>
+          <option value="vice_principal">وكيل مدرسة</option>
         </select>
       </div>
       <div id="termsWrap" style="display:none;margin:4px 0 14px;">
@@ -230,12 +231,12 @@
       <span style="font-size:19px;">📋</span>
       <span style="font-size:10px;">خطتي</span>
     </button>
-    <button class="bottom-tab-btn" data-tab="classroom" onclick="showClassroomManagement()" style="position:relative;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
+    <button class="bottom-tab-btn" id="classroomNavTab" data-tab="classroom" onclick="showClassroomManagement()" style="position:relative;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
       <span style="font-size:19px;">🏫</span>
       <span style="font-size:10px;">إدارة الصف</span>
       <span id="classroomNavBadge" style="display:none;position:absolute;top:2px;left:14px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
     </button>
-    <button class="bottom-tab-btn" data-tab="academic" onclick="showAcademicTracking()" style="position:relative;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
+    <button class="bottom-tab-btn" id="academicNavTab" data-tab="academic" onclick="showAcademicTracking()" style="position:relative;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
       <span style="font-size:19px;">🎓</span>
       <span style="font-size:10px;">المتابعة الأكاديمية</span>
       <span id="academicNavBadge" style="display:none;position:absolute;top:2px;left:10px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
@@ -530,14 +531,15 @@
         </div>
 
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
-          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">هل عليك تكليف إضافي؟</label>
+          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">تكليفك الوظيفي</label>
           <p style="font-size:11px;color:var(--muted);margin:0 0 8px;line-height:1.7;">
-            يضيف نموذج التقييم عناصر خاصة بالتكليف بجانب العناصر الأساسية (بأوزان معدَّلة). تقدر تغيّره في أي وقت.
+            المعلم بتكليف إضافي (نشاط طلابي/توجيه صحي) يضيف عناصر خاصة بالتكليف بجانب العناصر الأساسية بأوزان معدَّلة. وكيل المدرسة نموذج تقييم مستقل بالكامل، ويُخفي ميزات خاصة بمعلم له فصل (إدارة الصف، المتابعة الأكاديمية، برامج الأنشطة الطلابية). تقدر تغيّره في أي وقت.
           </p>
           <select class="goal-input" id="peDutyType" onchange="saveDutyType(this.value)">
-            <option value="none">بلا تكليف إضافي</option>
-            <option value="student_activity">نشاط طلابي</option>
-            <option value="health_guidance">توجيه صحي</option>
+            <option value="none">بلا تكليف إضافي (معلم)</option>
+            <option value="student_activity">معلم — نشاط طلابي</option>
+            <option value="health_guidance">معلم — توجيه صحي</option>
+            <option value="vice_principal">وكيل مدرسة</option>
           </select>
           <span id="dutyTypeMsg" style="font-size:12px;display:block;margin-top:6px;"></span>
         </div>
@@ -1174,7 +1176,7 @@
         <h2 id="listTitle">شواهدي المحفوظة</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="startNewShahid()">+ شاهد جديد</button>
-          <button class="btn btn-outline" onclick="showPrograms()">برامجي</button>
+          <button class="btn btn-outline" id="myProgramsBtn" onclick="showPrograms()">برامجي</button>
           <button class="btn btn-outline" id="exportAllBtn" onclick="exportAllShawahid()">تصدير الكل PDF</button>
         </div>
       </div>

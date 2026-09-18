@@ -292,6 +292,7 @@ async function onLoggedIn(user){
   document.getElementById('whoName').textContent = meta.full_name || user.email;
   checkAdminStatus();
   renderVerifyBanner();
+  applyStaffRoleVisibility();
   sb.rpc('record_login').then(() => {}).catch(() => {});  /* تسجيل النشاط بصمت */
   await loadPerformanceElements();
   /* لا حاجة لاستدعاء loadPlan() هنا بشكل منفصل — showHome() (بالأسفل) يستدعيها
@@ -300,6 +301,18 @@ async function onLoggedIn(user){
      الدخول بلا داعٍ. */
   await showHome();
   offerDraftRestore();
+}
+
+/* وكيل المدرسة دور وظيفي مختلف كليًا عن المعلم — لا فصل ولا طلاب خاصين به،
+   فتُخفى عنه ميزات مرتبطة تحديدًا بمعلم له فصل (إدارة الصف، المتابعة
+   الأكاديمية، برامج الأنشطة الطلابية)، بينما تبقى شواهده/خطته/تقييمه الذاتي
+   كما هي (بعناصره الـ19 الخاصة، تُحسب عبر DB_ELEMENTS كالمعتاد). */
+function applyStaffRoleVisibility(){
+  const isVicePrincipal = dutyType === 'vice_principal';
+  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.style.display = isVicePrincipal ? 'none' : '';
+  });
 }
 
 /* ============ تنبيه تأكيد البريد الإلكتروني ============ */
@@ -787,6 +800,7 @@ async function saveDutyType(duty){
     if(error) throw error;
     if(!currentUser || currentUser.id !== uid) return; // تغيّر المستخدم الحالي أثناء الانتظار — تجاهل التطبيق على الحالة الجديدة
     dutyType = duty;
+    applyStaffRoleVisibility(); // إظهار/إخفاء ميزات "إدارة الصف" ونحوها فورًا لو تحوّل من/إلى وكيل مدرسة
     await loadPerformanceElements(); // إعادة حساب DB_ELEMENTS فورًا بالعناصر/الأوزان الجديدة
     const label = (DUTY_TYPES.find(d => d.value === duty) || {}).label || duty;
     msg.className = 'save-msg';

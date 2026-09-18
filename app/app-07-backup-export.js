@@ -186,9 +186,42 @@ on conflict (key) do update set
   weight_with_duty = excluded.weight_with_duty,
   required_duty_type = excluded.required_duty_type;
 
+-- ============ 3ج) نموذج تقييم وكيل مدرسة (دور مختلف كليًا عن المعلم) ============
+-- وكيل المدرسة ليس "معلمًا بتكليف إضافي" — هو دور وظيفي مختلف تمامًا، بعناصر
+-- تقييم خاصة به بالكامل (19 عنصرًا، أغلبها 5% وواحد 10%)، لا تُبنى على
+-- الأحد عشر عنصرًا الأساسية للمعلم إطلاقًا (حتى لو تشابه نص بعضها مع عناصر
+-- المعلم كـ"أداء الواجبات الوظيفية" فوزنها هنا مختلف: 5% لا 10%). لهذا مفاتيحها
+-- مسبوقة بـ"وكيل: " لضمان عدم تعارضها مع مفتاح عنصر المعلم المطابق نصًا.
+-- required_duty_type = 'vice_principal' يُستثنى صراحة من منطق weight_with_duty
+-- الخاص بمعلم عليه تكليف إضافي (راجع computeEffectiveElements بـapp-01-core.js) —
+-- عناصر الوكيل تُعرض بوزنها المكتوب مباشرة دون أي إعادة حساب.
+insert into public.performance_elements (key, label, weight, weight_with_duty, required_duty_type, sort_order) values
+  ('وكيل: أداء الواجبات الوظيفية', 'أداء الواجبات الوظيفية', 5, null, 'vice_principal', 19),
+  ('وكيل: التفاعل مع المجتمع المهني', 'التفاعل مع المجتمع المهني', 5, null, 'vice_principal', 20),
+  ('وكيل: التفاعل مع أولياء الأمور', 'التفاعل مع أولياء الأمور', 5, null, 'vice_principal', 21),
+  ('وكيل: مرن وقادر على تنفيذ أعماله في ظل ظروف العمل المختلفة', 'مرن وقادر على تنفيذ أعماله في ظل ظروف العمل المختلفة', 5, null, 'vice_principal', 22),
+  ('وكيل: يدعم ويشارك في المبادرات النوعية', 'يدعم ويشارك في المبادرات النوعية', 10, null, 'vice_principal', 23),
+  ('وكيل: يتخذ إجراءات تربوية تُحقق الانضباط المدرسي', 'يتخذ إجراءات تربوية تُحقق الانضباط المدرسي', 5, null, 'vice_principal', 24),
+  ('وكيل: يُدير الموارد في المدرسة بكفاءة', 'يُدير الموارد في المدرسة بكفاءة', 5, null, 'vice_principal', 25),
+  ('وكيل: يُشارك في إعداد خطة للتطوير المهني', 'يُشارك في إعداد خطة للتطوير المهني', 5, null, 'vice_principal', 26),
+  ('وكيل: يُقدم التغذية الراجعة ويتابع تحقق مؤشرات الأداء الوظيفي', 'يُقدم التغذية الراجعة ويتابع تحقق مؤشرات الأداء الوظيفي', 5, null, 'vice_principal', 27),
+  ('وكيل: يدعم تنفيذ برامج التطوير المهني', 'يدعم تنفيذ برامج التطوير المهني', 5, null, 'vice_principal', 28),
+  ('وكيل: يُقيِّم أداء منسوبي المدرسة', 'يُقيِّم أداء منسوبي المدرسة', 5, null, 'vice_principal', 29),
+  ('وكيل: يُنفذ إجراءات علمية لتحسين نتائج التعلم', 'يُنفذ إجراءات علمية لتحسين نتائج التعلم', 5, null, 'vice_principal', 30),
+  ('وكيل: يُسهم في تحسين مستوى أداء المدرسة', 'يُسهم في تحسين مستوى أداء المدرسة', 5, null, 'vice_principal', 31),
+  ('وكيل: يُشارك في إعداد الخطط المدرسية اللازمة', 'يُشارك في إعداد الخطط المدرسية اللازمة', 5, null, 'vice_principal', 32),
+  ('وكيل: يُتابع تنفيذ الخطط المدرسية بمختلف أنواعها', 'يُتابع تنفيذ الخطط المدرسية بمختلف أنواعها', 5, null, 'vice_principal', 33),
+  ('وكيل: يُهيئ الفرص والإمكانات الداعمة لمشاركة الطلاب في الأنشطة الصفية وغير الصفية', 'يُهيئ الفرص والإمكانات الداعمة لمشاركة الطلاب في الأنشطة الصفية وغير الصفية', 5, null, 'vice_principal', 34),
+  ('وكيل: يُوظف المنصات الرقمية وتطبيقاتها المعتمدة في دعم عمليات التعليم والتعلم', 'يُوظف المنصات الرقمية وتطبيقاتها المعتمدة في دعم عمليات التعليم والتعلم', 5, null, 'vice_principal', 35),
+  ('وكيل: يُتابع تعزيز السلوك الإيجابي للطلاب', 'يُتابع تعزيز السلوك الإيجابي للطلاب', 5, null, 'vice_principal', 36),
+  ('وكيل: يُهيئ بيئةً مدرسيةً آمنةً ومحفزةً على التعلم', 'يُهيئ بيئةً مدرسيةً آمنةً ومحفزةً على التعلم', 5, null, 'vice_principal', 37)
+on conflict (key) do update set
+  weight = excluded.weight,
+  required_duty_type = excluded.required_duty_type;
+
 alter table public.profiles add column if not exists duty_type text not null default 'none';
 alter table public.profiles drop constraint if exists profiles_duty_type_check;
-alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance'));
+alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance', 'vice_principal'));
 
 -- ترحيل من العمود القديم الخاص بالنشاط الطلابي فقط، ثم حذفه — بلا تأثير لو
 -- لم يكن موجودًا أصلًا (تركيب هذه الميزة لأول مرة).
@@ -210,7 +243,7 @@ drop function if exists public.set_student_activity_flag(uuid, boolean);
 create or replace function public.set_duty_type(target_user_id uuid, duty text)
 returns void as $$
 begin
-  if duty not in ('none', 'student_activity', 'health_guidance') then
+  if duty not in ('none', 'student_activity', 'health_guidance', 'vice_principal') then
     raise exception 'نوع تكليف غير معروف: %', duty;
   end if;
   if auth.uid() <> target_user_id and not public.is_admin(auth.uid()) then

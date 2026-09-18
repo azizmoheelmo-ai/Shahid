@@ -20,6 +20,8 @@ const RAW = [
   { key: 'c', label: 'إعداد خطة مزمنة لبرامج النشاط الطلابي', weight: 10, weight_with_duty: 10, required_duty_type: 'student_activity', sort_order: 3 },
   { key: 'd', label: 'يحفز المتعلمين على المشاركة في الأنشطة', weight: 10, weight_with_duty: 10, required_duty_type: 'student_activity', sort_order: 4 },
   { key: 'e', label: 'تنفيذ الخطة المشتركة للبرامج الصحية المدرسية', weight: 15, weight_with_duty: 15, required_duty_type: 'health_guidance', sort_order: 5 },
+  { key: 'وكيل: أداء الواجبات الوظيفية', label: 'أداء الواجبات الوظيفية', weight: 5, weight_with_duty: null, required_duty_type: 'vice_principal', sort_order: 6 },
+  { key: 'وكيل: يدعم ويشارك في المبادرات النوعية', label: 'يدعم ويشارك في المبادرات النوعية', weight: 10, weight_with_duty: null, required_duty_type: 'vice_principal', sort_order: 7 },
 ];
 
 describe('computeEffectiveElements', () => {
@@ -42,6 +44,13 @@ describe('computeEffectiveElements', () => {
     const result = app.computeEffectiveElements(RAW, 'health_guidance');
     assert.deepEqual(result.map(e => e.key), ['a', 'b', 'e']);
     assert.equal(result.find(e => e.key === 'e').weight, 15);
+  });
+
+  test('وكيل مدرسة: يضم عناصره فقط بوزنها المكتوب مباشرة، ويستبعد كل عناصر المعلم (الأساسية وعناصر التكليفات)', () => {
+    const result = app.computeEffectiveElements(RAW, 'vice_principal');
+    assert.deepEqual(result.map(e => e.key), ['وكيل: أداء الواجبات الوظيفية', 'وكيل: يدعم ويشارك في المبادرات النوعية']);
+    assert.equal(result.find(e => e.key === 'وكيل: أداء الواجبات الوظيفية').weight, 5);
+    assert.equal(result.find(e => e.key === 'وكيل: يدعم ويشارك في المبادرات النوعية').weight, 10);
   });
 
   test('weight_with_duty = null: يبقى الوزن العادي حتى مع تكليف إضافي', () => {
