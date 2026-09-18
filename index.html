@@ -149,6 +149,7 @@
           <option value="vice_principal">وكيل مدرسة</option>
           <option value="school_principal">مدير مدرسة</option>
           <option value="student_counselor">موجه طلابي</option>
+          <option value="lab_technician">محضر مختبر</option>
         </select>
       </div>
       <div id="termsWrap" style="display:none;margin:4px 0 14px;">
@@ -535,7 +536,7 @@
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
           <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">تكليفك الوظيفي</label>
           <p style="font-size:11px;color:var(--muted);margin:0 0 8px;line-height:1.7;">
-            المعلم بتكليف إضافي (نشاط طلابي/توجيه صحي) يضيف عناصر خاصة بالتكليف بجانب العناصر الأساسية بأوزان معدَّلة. وكيل/مدير المدرسة والموجه الطلابي نماذج تقييم مستقلة بالكامل، وتُخفي ميزات خاصة بمعلم له فصل (إدارة الصف، المتابعة الأكاديمية، برامج الأنشطة الطلابية). تقدر تغيّره في أي وقت.
+            المعلم بتكليف إضافي (نشاط طلابي/توجيه صحي) يضيف عناصر خاصة بالتكليف بجانب العناصر الأساسية بأوزان معدَّلة. أما الأدوار الوظيفية الأخرى (وكيل/مدير المدرسة، الموجه الطلابي، محضر المختبر) فنماذج تقييم مستقلة بالكامل، وتُخفي ميزات خاصة بمعلم له فصل (إدارة الصف، المتابعة الأكاديمية، برامج الأنشطة الطلابية). تقدر تغيّره في أي وقت.
           </p>
           <select class="goal-input" id="peDutyType" onchange="saveDutyType(this.value)">
             <option value="none">بلا تكليف إضافي (معلم)</option>
@@ -544,6 +545,7 @@
             <option value="vice_principal">وكيل مدرسة</option>
             <option value="school_principal">مدير مدرسة</option>
             <option value="student_counselor">موجه طلابي</option>
+            <option value="lab_technician">محضر مختبر</option>
           </select>
           <span id="dutyTypeMsg" style="font-size:12px;display:block;margin-top:6px;"></span>
         </div>

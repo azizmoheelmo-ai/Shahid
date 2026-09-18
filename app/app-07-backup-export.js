@@ -272,9 +272,34 @@ on conflict (key) do update set
   weight = excluded.weight,
   required_duty_type = excluded.required_duty_type;
 
+-- ============ 3و) نموذج تقييم محضر مختبر (دور مختلف كليًا عن المعلم أيضًا) ============
+-- بنفس منطق الأدوار المستقلة السابقة، لكن بفارق: أول 5 عناصر هنا (لا 3)
+-- مطابقة نصًا ووزنًا لعناصر المعلم الأساسية (10% لكل منها) — رغم ذلك مفاتيحها
+-- منفصلة تمامًا (مسبوقة بـ"محضر: ") بدل إعادة استخدام مفاتيح المعلم، حفاظًا
+-- على استقلالية كاملة لهذا الدور (كبقية STANDALONE_ROLES) وتبسيطًا لمنطق
+-- computeEffectiveElements — لا حاجة لحالة خاصة تُميّز "عنصر مشترك نصًا مع
+-- المعلم لكن ضمن دور مستقل" عن بقية عناصر الدور.
+insert into public.performance_elements (key, label, weight, weight_with_duty, required_duty_type, sort_order) values
+  ('محضر: أداء الواجبات الوظيفية', 'أداء الواجبات الوظيفية', 10, null, 'lab_technician', 70),
+  ('محضر: التفاعل مع المجتمع المهني', 'التفاعل مع المجتمع المهني', 10, null, 'lab_technician', 71),
+  ('محضر: التفاعل مع أولياء الأمور', 'التفاعل مع أولياء الأمور', 10, null, 'lab_technician', 72),
+  ('محضر: التنويع في إستراتيجيات التدريس', 'التنويع في إستراتيجيات التدريس', 10, null, 'lab_technician', 73),
+  ('محضر: تحسين نتائج المتعلمين', 'تحسين نتائج المتعلمين', 10, null, 'lab_technician', 74),
+  ('محضر: يُعد خطةً يوميةً لأنشطة المختبر', 'يُعد خطةً يوميةً لأنشطة المختبر', 5, null, 'lab_technician', 75),
+  ('محضر: المعرفة بالأسس والمفاهيم الفنية', 'المعرفة بالأسس والمفاهيم الفنية', 5, null, 'lab_technician', 76),
+  ('محضر: يُوفر المستلزمات اللازمة لأداء التجارب العلمية', 'يُوفر المستلزمات اللازمة لأداء التجارب العلمية', 5, null, 'lab_technician', 77),
+  ('محضر: يلتزم بسياسات وإجراءات السلامة المهنية', 'يلتزم بسياسات وإجراءات السلامة المهنية', 5, null, 'lab_technician', 78),
+  ('محضر: يُحضر ويُجهز المختبر', 'يُحضر ويُجهز المختبر', 5, null, 'lab_technician', 79),
+  ('محضر: تهيئة وتسليم الأجهزة المطلوبة للمعلمين وتخزينها بطريقة سليمة', 'تهيئة وتسليم الأجهزة المطلوبة للمعلمين وتخزينها بطريقة سليمة', 5, null, 'lab_technician', 80),
+  ('محضر: يُعد تقرير أنشطة ومهام المختبر الأسبوعية', 'يُعد تقرير أنشطة ومهام المختبر الأسبوعية', 10, null, 'lab_technician', 81),
+  ('محضر: يُعد تقارير دورية عن حالة الأجهزة والمعدات', 'يُعد تقارير دورية عن حالة الأجهزة والمعدات', 10, null, 'lab_technician', 82)
+on conflict (key) do update set
+  weight = excluded.weight,
+  required_duty_type = excluded.required_duty_type;
+
 alter table public.profiles add column if not exists duty_type text not null default 'none';
 alter table public.profiles drop constraint if exists profiles_duty_type_check;
-alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal', 'student_counselor'));
+alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal', 'student_counselor', 'lab_technician'));
 
 -- ترحيل من العمود القديم الخاص بالنشاط الطلابي فقط، ثم حذفه — بلا تأثير لو
 -- لم يكن موجودًا أصلًا (تركيب هذه الميزة لأول مرة).
@@ -296,7 +321,7 @@ drop function if exists public.set_student_activity_flag(uuid, boolean);
 create or replace function public.set_duty_type(target_user_id uuid, duty text)
 returns void as $$
 begin
-  if duty not in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal', 'student_counselor') then
+  if duty not in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal', 'student_counselor', 'lab_technician') then
     raise exception 'نوع تكليف غير معروف: %', duty;
   end if;
   if auth.uid() <> target_user_id and not public.is_admin(auth.uid()) then

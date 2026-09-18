@@ -22,7 +22,7 @@ function installLiveDom(app){
 const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn'];
 
 describe('applyStaffRoleVisibility', () => {
-  ['vice_principal', 'school_principal', 'student_counselor'].forEach(role => {
+  ['vice_principal', 'school_principal', 'student_counselor', 'lab_technician'].forEach(role => {
     test(`دور مستقل (${role}): يُخفي ميزات إدارة الصف/المتابعة الأكاديمية/برامجي`, () => {
       const app = loadApp();
       installLiveDom(app);
