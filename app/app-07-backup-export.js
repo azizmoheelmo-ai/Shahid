@@ -249,9 +249,32 @@ on conflict (key) do update set
   weight = excluded.weight,
   required_duty_type = excluded.required_duty_type;
 
+-- ============ 3هـ) نموذج تقييم موجه طلابي (دور مختلف كليًا عن المعلم أيضًا) ============
+-- بنفس منطق الوكيل/المدير (دور مستقل، لا "تكليف إضافي")، لكن بعناصره الـ13
+-- الخاصة به — يشترك مع الوكيل/المدير بنفس أول 3 عناصر نصًا لكن بوزن مختلف
+-- تمامًا هنا ("أداء الواجبات الوظيفية" 20% لا 5%). لهذا مفاتيحها منفصلة
+-- تمامًا (مسبوقة بـ"موجه: ").
+insert into public.performance_elements (key, label, weight, weight_with_duty, required_duty_type, sort_order) values
+  ('موجه: أداء الواجبات الوظيفية', 'أداء الواجبات الوظيفية', 20, null, 'student_counselor', 57),
+  ('موجه: التفاعل مع المجتمع المهني', 'التفاعل مع المجتمع المهني', 5, null, 'student_counselor', 58),
+  ('موجه: التفاعل مع أولياء الأمور', 'التفاعل مع أولياء الأمور', 5, null, 'student_counselor', 59),
+  ('موجه: يُقدم التدخلات المناسبة لتعزيز الانضباط', 'يُقدم التدخلات المناسبة لتعزيز الانضباط', 5, null, 'student_counselor', 60),
+  ('موجه: تقديم برامج تربوية لتعزيز دافعية الطلبة للتعلم', 'تقديم برامج تربوية لتعزيز دافعية الطلبة للتعلم', 5, null, 'student_counselor', 61),
+  ('موجه: إعداد خُطة لبرامج التوجيه الطلابي', 'إعداد خُطة لبرامج التوجيه الطلابي', 10, null, 'student_counselor', 62),
+  ('موجه: يُصنف الحالات ويُقدم برامج الدعم المناسبة', 'يُصنف الحالات ويُقدم برامج الدعم المناسبة', 10, null, 'student_counselor', 63),
+  ('موجه: يُعزز القيم والسلوكيات للمتعلمين', 'يُعزز القيم والسلوكيات للمتعلمين', 10, null, 'student_counselor', 64),
+  ('موجه: يُقدم التدخلات النفسية والاجتماعية', 'يُقدم التدخلات النفسية والاجتماعية', 10, null, 'student_counselor', 65),
+  ('موجه: يُساعد المتعلمين على التخطيط المهني والتعليمي', 'يُساعد المتعلمين على التخطيط المهني والتعليمي', 5, null, 'student_counselor', 66),
+  ('موجه: يُعزز التفوق الدراسي', 'يُعزز التفوق الدراسي', 5, null, 'student_counselor', 67),
+  ('موجه: يُقدم تدخلات تربوية للمتأخرين دراسيًا والمعيدين', 'يُقدم تدخلات تربوية للمتأخرين دراسيًا والمعيدين', 5, null, 'student_counselor', 68),
+  ('موجه: توعية المتعلمين وأولياء أمورهم بقواعد السلوك والمواظبة', 'توعية المتعلمين وأولياء أمورهم بقواعد السلوك والمواظبة', 5, null, 'student_counselor', 69)
+on conflict (key) do update set
+  weight = excluded.weight,
+  required_duty_type = excluded.required_duty_type;
+
 alter table public.profiles add column if not exists duty_type text not null default 'none';
 alter table public.profiles drop constraint if exists profiles_duty_type_check;
-alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal'));
+alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal', 'student_counselor'));
 
 -- ترحيل من العمود القديم الخاص بالنشاط الطلابي فقط، ثم حذفه — بلا تأثير لو
 -- لم يكن موجودًا أصلًا (تركيب هذه الميزة لأول مرة).
@@ -273,7 +296,7 @@ drop function if exists public.set_student_activity_flag(uuid, boolean);
 create or replace function public.set_duty_type(target_user_id uuid, duty text)
 returns void as $$
 begin
-  if duty not in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal') then
+  if duty not in ('none', 'student_activity', 'health_guidance', 'vice_principal', 'school_principal', 'student_counselor') then
     raise exception 'نوع تكليف غير معروف: %', duty;
   end if;
   if auth.uid() <> target_user_id and not public.is_admin(auth.uid()) then

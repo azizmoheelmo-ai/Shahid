@@ -24,6 +24,8 @@ const RAW = [
   { key: 'وكيل: يدعم ويشارك في المبادرات النوعية', label: 'يدعم ويشارك في المبادرات النوعية', weight: 10, weight_with_duty: null, required_duty_type: 'vice_principal', sort_order: 7 },
   { key: 'مدير: أداء الواجبات الوظيفية', label: 'أداء الواجبات الوظيفية', weight: 5, weight_with_duty: null, required_duty_type: 'school_principal', sort_order: 8 },
   { key: 'مدير: يُسهم في تحسين مستوى أداء المدرسة', label: 'يُسهم في تحسين مستوى أداء المدرسة', weight: 10, weight_with_duty: null, required_duty_type: 'school_principal', sort_order: 9 },
+  { key: 'موجه: أداء الواجبات الوظيفية', label: 'أداء الواجبات الوظيفية', weight: 20, weight_with_duty: null, required_duty_type: 'student_counselor', sort_order: 10 },
+  { key: 'موجه: إعداد خُطة لبرامج التوجيه الطلابي', label: 'إعداد خُطة لبرامج التوجيه الطلابي', weight: 10, weight_with_duty: null, required_duty_type: 'student_counselor', sort_order: 11 },
 ];
 
 describe('computeEffectiveElements', () => {
@@ -59,6 +61,12 @@ describe('computeEffectiveElements', () => {
     const result = app.computeEffectiveElements(RAW, 'school_principal');
     assert.deepEqual(result.map(e => e.key), ['مدير: أداء الواجبات الوظيفية', 'مدير: يُسهم في تحسين مستوى أداء المدرسة']);
     assert.equal(result.find(e => e.key === 'مدير: يُسهم في تحسين مستوى أداء المدرسة').weight, 10);
+  });
+
+  test('موجه طلابي: يضم عناصره فقط بوزنها المكتوب مباشرة، ويستبعد عناصر المعلم والوكيل والمدير معًا', () => {
+    const result = app.computeEffectiveElements(RAW, 'student_counselor');
+    assert.deepEqual(result.map(e => e.key), ['موجه: أداء الواجبات الوظيفية', 'موجه: إعداد خُطة لبرامج التوجيه الطلابي']);
+    assert.equal(result.find(e => e.key === 'موجه: أداء الواجبات الوظيفية').weight, 20);
   });
 
   test('weight_with_duty = null: يبقى الوزن العادي حتى مع تكليف إضافي', () => {

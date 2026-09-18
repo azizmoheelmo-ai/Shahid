@@ -546,18 +546,19 @@ const ELEMENT_META = {
 
 let DB_ELEMENTS = []; // العناصر الفعّالة للمعلم الحالي فقط (بعد تطبيق computeEffectiveElements)
 let ALL_PERFORMANCE_ELEMENTS = []; // كل العناصر كما في القاعدة، بدون فلترة/إعادة وزن — لأي حساب يشمل عدة معلمين
-let dutyType = 'none'; // نوع تكليف/دور المعلم الحالي: 'none' | 'student_activity' | 'health_guidance' | 'vice_principal' | 'school_principal' | ...
+let dutyType = 'none'; // نوع تكليف/دور المعلم الحالي: 'none' | 'student_activity' | 'health_guidance' | 'vice_principal' | 'school_principal' | 'student_counselor' | ...
 const DUTY_TYPES = [
   { value: 'none', label: 'بلا تكليف إضافي (معلم)' },
   { value: 'student_activity', label: 'معلم — نشاط طلابي' },
   { value: 'health_guidance', label: 'معلم — توجيه صحي' },
   { value: 'vice_principal', label: 'وكيل مدرسة' },
   { value: 'school_principal', label: 'مدير مدرسة' },
+  { value: 'student_counselor', label: 'موجه طلابي' },
 ];
 /* أدوار مستقلة كليًا عن نموذج المعلم (لا "تكليف إضافي" فوقه) — عناصرها
    الخاصة تحل محل عناصر المعلم بالكامل بدل الإضافة إليها. أي دور جديد من
    هذا النوع يُضاف هنا فقط، دون لمس بقية computeEffectiveElements. */
-const STANDALONE_ROLES = ['vice_principal', 'school_principal'];
+const STANDALONE_ROLES = ['vice_principal', 'school_principal', 'student_counselor'];
 let isRecoveryFlow = false;
 
 /* عناصر التقييم الفعّالة لحساب معيّن حسب نوع تكليفه/دوره: تستبعد عناصر
