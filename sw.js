@@ -17,7 +17,7 @@
      Service Worker خارج HTTPS/localhost، وهذا سلوك متصفح طبيعي متوقّع.
 */
 
-const CACHE_NAME = 'shahid-shell-v2';
+const CACHE_NAME = 'shahid-shell-v3';
 const APP_SHELL = [
   './',
   './index.html',
