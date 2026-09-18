@@ -219,13 +219,14 @@ async function handleAuthSubmit(){
       });
       if(error) throw error;
       if(data.session){
-        /* نطبّق الخيار قبل onLoggedIn (لا بعده) لضمان قراءة onLoggedIn لقيمته
+        /* نطبّق نوع التكليف قبل onLoggedIn (لا بعده) لضمان قراءة onLoggedIn لقيمته
            الصحيحة من profiles من أول مرة، فتُحسب عناصر الشاشة الرئيسية
            والمؤشر الموزون بشكل صحيح دون حاجة لإعادة تحميل لاحقة */
-        if(document.getElementById('authStudentActivity').checked){
+        const signupDuty = document.getElementById('authDutyType').value;
+        if(signupDuty && signupDuty !== 'none'){
           try{
-            await sb.rpc('set_student_activity_flag', { target_user_id: data.session.user.id, flag: true });
-          } catch(e){ /* لا نمنع إكمال التسجيل — يمكنه تفعيلها لاحقًا من الإعدادات */ }
+            await sb.rpc('set_duty_type', { target_user_id: data.session.user.id, duty: signupDuty });
+          } catch(e){ /* لا نمنع إكمال التسجيل — يمكنه ضبطها لاحقًا من الإعدادات */ }
         }
         onLoggedIn(data.session.user);
       } else {
@@ -272,17 +273,17 @@ let isAdmin = false;
 async function onLoggedIn(user){
   currentUser = user;
 
-  /* التحقق من كون الحساب معطّلًا من قبل المسؤول، وقراءة خيار "نشاط طلابي" */
-  hasStudentActivity = false; // إعادة الضبط صراحة: قد يبقى من جلسة سابقة على نفس الصفحة (تسجيل خروج/دخول)
+  /* التحقق من كون الحساب معطّلًا من قبل المسؤول، وقراءة نوع التكليف الإضافي */
+  dutyType = 'none'; // إعادة الضبط صراحة: قد يبقى من جلسة سابقة على نفس الصفحة (تسجيل خروج/دخول)
   try{
-    const { data: profile } = await sb.from('profiles').select('disabled, has_student_activity').eq('id', user.id).maybeSingle();
+    const { data: profile } = await sb.from('profiles').select('disabled, duty_type').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){
       await sb.auth.signOut();
       currentUser = null;
       showAuthMsg('تم تعطيل هذا الحساب من قبل الإدارة. تواصل مع المسؤول لمزيد من المعلومات.', 'error');
       return;
     }
-    hasStudentActivity = !!(profile && profile.has_student_activity);
+    dutyType = (profile && profile.duty_type) || 'none';
   } catch(e){ /* تجاهل أي خطأ هنا حتى لا يمنع الدخول */ }
 
   document.getElementById('authView').style.display = 'none';
@@ -767,34 +768,36 @@ function showSettings(section){
   document.getElementById('peNewPwBox').style.display = 'none';
   document.getElementById('emailChangeMsg').textContent = '';
   document.getElementById('passwordChangeMsg').textContent = '';
-  document.getElementById('peStudentActivity').checked = hasStudentActivity;
-  document.getElementById('studentActivityMsg').textContent = '';
+  document.getElementById('peDutyType').value = dutyType;
+  document.getElementById('dutyTypeMsg').textContent = '';
   showSettingsSection(section || 'menu');
 }
 
-/* تفعيل/إلغاء "نشاط طلابي" من الإعدادات — عبر الدالة المضبوطة set_student_activity_flag
+/* تعديل نوع التكليف الإضافي من الإعدادات — عبر الدالة المضبوطة set_duty_type
    (لا تحديث مباشر على profiles، ولا عبر sb.auth.updateUser لأن saveProfile لا
    يلمس هذا الحقل أصلًا، تجنّبًا لتعارضه مع مُحفّز مزامنة user_metadata) */
-async function saveStudentActivityFlag(flagVal){
-  const cb = document.getElementById('peStudentActivity');
-  const msg = document.getElementById('studentActivityMsg');
+async function saveDutyType(duty){
+  const sel = document.getElementById('peDutyType');
+  const msg = document.getElementById('dutyTypeMsg');
   const uid = currentUser.id; // نلتقط هوية المستخدم الحالي قبل الانتظار — لو سجّل خروجًا ودخل مستخدم آخر قبل اكتمال الطلب، لا نطبّق النتيجة على المستخدم الجديد
-  cb.disabled = true;
+  const previousDuty = dutyType;
+  sel.disabled = true;
   try{
-    const { error } = await sb.rpc('set_student_activity_flag', { target_user_id: uid, flag: flagVal });
+    const { error } = await sb.rpc('set_duty_type', { target_user_id: uid, duty });
     if(error) throw error;
     if(!currentUser || currentUser.id !== uid) return; // تغيّر المستخدم الحالي أثناء الانتظار — تجاهل التطبيق على الحالة الجديدة
-    hasStudentActivity = flagVal;
+    dutyType = duty;
     await loadPerformanceElements(); // إعادة حساب DB_ELEMENTS فورًا بالعناصر/الأوزان الجديدة
+    const label = (DUTY_TYPES.find(d => d.value === duty) || {}).label || duty;
     msg.className = 'save-msg';
-    msg.textContent = flagVal ? 'تم تفعيل نموذج النشاط الطلابي' : 'تم إلغاء نموذج النشاط الطلابي';
-    showToast(flagVal ? 'تم تفعيل نموذج النشاط الطلابي' : 'تم إلغاء نموذج النشاط الطلابي', 'ok');
+    msg.textContent = `تم ضبط تكليفك: ${label}`;
+    showToast(`تم ضبط تكليفك: ${label}`, 'ok');
   } catch(err){
-    if(currentUser && currentUser.id === uid) cb.checked = !flagVal; // التراجع عن التغيير البصري لأن الحفظ فشل
+    if(currentUser && currentUser.id === uid) sel.value = previousDuty; // التراجع عن التغيير البصري لأن الحفظ فشل
     msg.className = 'save-msg error';
     msg.textContent = 'تعذّر الحفظ: ' + err.message;
   } finally {
-    cb.disabled = false;
+    sel.disabled = false;
   }
 }
 

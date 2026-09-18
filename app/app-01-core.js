@@ -546,18 +546,28 @@ const ELEMENT_META = {
 
 let DB_ELEMENTS = []; // العناصر الفعّالة للمعلم الحالي فقط (بعد تطبيق computeEffectiveElements)
 let ALL_PERFORMANCE_ELEMENTS = []; // كل العناصر كما في القاعدة، بدون فلترة/إعادة وزن — لأي حساب يشمل عدة معلمين
-let hasStudentActivity = false; // هل المعلم الحالي مفعِّل "نشاط طلابي"؟
+let dutyType = 'none'; // نوع التكليف الإضافي للمعلم الحالي: 'none' | 'student_activity' | 'health_guidance' | ...
+const DUTY_TYPES = [
+  { value: 'none', label: 'بلا تكليف إضافي' },
+  { value: 'student_activity', label: 'نشاط طلابي' },
+  { value: 'health_guidance', label: 'توجيه صحي' },
+];
 let isRecoveryFlow = false;
 
-/* عناصر التقييم الفعّالة لمعلم معيّن: تستبعد عناصر النشاط الطلابي عن معلم غير
-   مفعِّلها، وتستبدل الوزن العادي بـ weight_activity لأي معلم مفعِّلها (لو كان
-   محددًا لهذا العنصر). لا تعتمد على أي حالة ضمنية (currentUser/hasStudentActivity)
-   عمدًا — لتصلح لحساب عناصر معلم آخر غير المعلم الحالي (شاشات المسؤول). */
-function computeEffectiveElements(rawElements, hasActivity){
+/* عناصر التقييم الفعّالة لمعلم معيّن حسب نوع تكليفه الإضافي: تستبعد عناصر
+   مخصَّصة لتكليف آخر (required_duty_type لا يطابق dutyType)، وتستبدل الوزن
+   العادي بـ weight_with_duty لأي معلم عليه أي تكليف إضافي (dutyType != 'none')
+   — الأحد عشر عنصرًا الأساسية تُخفَّض لنفس القيمة بصرف النظر عن نوع التكليف
+   تحديدًا (النماذج الرسمية المختلفة تتفق على نفس التخفيض لهذه العناصر، ولا
+   تختلف إلا بالعناصر الإضافية الخاصة بكل تكليف). لا تعتمد على أي حالة ضمنية
+   (currentUser/dutyType) عمدًا — لتصلح لحساب عناصر معلم آخر غير المعلم
+   الحالي (شاشات المسؤول). */
+function computeEffectiveElements(rawElements, forDutyType){
+  const hasDuty = !!forDutyType && forDutyType !== 'none';
   return (rawElements || [])
-    .filter(el => hasActivity || !el.requires_student_activity)
+    .filter(el => !el.required_duty_type || el.required_duty_type === forDutyType)
     .map(el => {
-      const w = (hasActivity && el.weight_activity != null) ? el.weight_activity : el.weight;
+      const w = (hasDuty && el.weight_with_duty != null) ? el.weight_with_duty : el.weight;
       return Object.assign({}, el, { weight: w });
     });
 }

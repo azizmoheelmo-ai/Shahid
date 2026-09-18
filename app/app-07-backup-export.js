@@ -133,55 +133,90 @@ drop policy if exists "المسؤول يدير العناصر - حذف" on publi
 create policy "المسؤول يدير العناصر - حذف"
   on public.performance_elements for delete using (public.is_admin(auth.uid()));
 
--- ============ 3ب) نموذج تقييم معلم مسند له نشاط طلابي ============
--- بعض المعلمين مُسند لهم نشاط طلابي رسميًا، ولهم نموذج تقييم مختلف: نفس
--- العناصر الأحد عشر لكن بأوزان مخفَّضة (تصبح 70% إجمالًا)، زائد أربعة عناصر
--- إضافية خاصة بالنشاط الطلابي (30%) — المجموع يبقى 100%.
--- weight_activity: الوزن البديل لهذا العنصر عندما يكون المعلم الحالي مفعِّلًا
--- خيار "نشاط طلابي" (NULL = لا فرق، استخدم weight العادي).
--- requires_student_activity: true يعني هذا العنصر لا يظهر إطلاقًا إلا لمعلم
--- مفعِّل هذا الخيار (يُستخدم للعناصر الأربعة الجديدة فقط).
-alter table public.performance_elements add column if not exists weight_activity int;
-alter table public.performance_elements add column if not exists requires_student_activity boolean not null default false;
+-- ============ 3ب) نماذج تقييم معلم مسند له تكليف إضافي (نشاط طلابي / توجيه صحي / ...) ============
+-- بعض المعلمين مُسند لهم تكليف إضافي رسمي (نشاط طلابي، أو توجيه صحي، ...)،
+-- ولهم نموذج تقييم مختلف: نفس العناصر الأحد عشر الأساسية لكن بأوزان مخفَّضة
+-- (تصبح 70% إجمالًا — نفس القيمة المخفَّضة بصرف النظر عن نوع التكليف تحديدًا،
+-- فالنماذج الرسمية المختلفة تتفق جميعها على هذا التخفيض)، زائد عناصر إضافية
+-- خاصة بنوع التكليف تحديدًا (30% الباقية) — المجموع يبقى 100%.
+-- weight_with_duty: الوزن البديل لهذا العنصر لأي معلم عليه أي تكليف إضافي
+-- (NULL = لا فرق، استخدم weight العادي).
+-- required_duty_type: لو غير NULL، هذا العنصر لا يظهر إلا لمعلم تكليفه
+-- الإضافي (profiles.duty_type) يطابق هذه القيمة تحديدًا.
+alter table public.performance_elements add column if not exists weight_with_duty int;
+alter table public.performance_elements add column if not exists required_duty_type text;
 
--- upsert بمفتاح "key" — يحدّث weight_activity/requires_student_activity فقط
+-- ترحيل من العمودين القديمين الخاصين بالنشاط الطلابي فقط (أول نسخة من هذه
+-- الميزة، تدعم تكليفًا واحدًا فقط) للعمودين العامّين أعلاه، ثم حذفهما —
+-- بلا تأثير لو لم يكونا موجودين أصلًا (تركيب هذه الميزة لأول مرة).
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='performance_elements' and column_name='weight_activity') then
+    update public.performance_elements set weight_with_duty = weight_activity where weight_with_duty is null;
+    update public.performance_elements set required_duty_type = 'student_activity' where requires_student_activity = true and required_duty_type is null;
+    alter table public.performance_elements drop column weight_activity;
+    alter table public.performance_elements drop column requires_student_activity;
+  end if;
+end $$;
+
+-- upsert بمفتاح "key" — يحدّث weight_with_duty/required_duty_type فقط
 -- للعناصر الأحد عشر الموجودة أصلًا (لا يمسّ وزنها العادي أو ترتيبها الحالي
--- حتى لو عدّلهما المسؤول سابقًا)، ويُدرج العناصر الأربعة الجديدة لو لم تكن
+-- حتى لو عدّلهما المسؤول سابقًا)، ويُدرج عناصر كل تكليف الخاصة به لو لم تكن
 -- موجودة. مستقل تمامًا عن ترتيب تشغيل قسم 9 (تعبئة العناصر الافتراضية).
-insert into public.performance_elements (key, label, weight, weight_activity, requires_student_activity, sort_order) values
-  ('أداء الواجبات الوظيفية', 'أداء الواجبات الوظيفية', 10, 10, false, 1),
-  ('التفاعل مع المجتمع المهني', 'التفاعل مع المجتمع المهني', 10, 10, false, 2),
-  ('التفاعل مع أولياء الأمور', 'التفاعل مع أولياء الأمور', 10, 10, false, 3),
-  ('التنويع في استراتيجيات التدريس', 'التنويع في استراتيجيات التدريس', 10, 5, false, 4),
-  ('تحسين نتائج المتعلمين', 'تحسين نتائج المتعلمين', 10, 5, false, 5),
-  ('إعداد وتنفيذ خطة التعلم', 'إعداد وتنفيذ خطة التعلم', 10, 5, false, 6),
-  ('توظيف تقنيات ووسائل التعلم المناسبة', 'توظيف تقنيات ووسائل التعلم المناسبة', 10, 5, false, 7),
-  ('تهيئة البيئة التعليمية', 'تهيئة البيئة التعليمية', 5, 5, false, 8),
-  ('الإدارة الصفية', 'الإدارة الصفية', 5, 5, false, 9),
-  ('تحليل نتائج المتعلمين وتشخيص مستوياتهم', 'تحليل نتائج المتعلمين وتشخيص مستوياتهم', 10, 5, false, 10),
-  ('تنوع أساليب التقويم', 'تنوع أساليب التقويم', 10, 5, false, 11),
-  ('إعداد خطة مزمنة ومعتمدة لبرامج وفعاليات النشاط الطلابي', 'إعداد خطة مزمنة ومعتمدة لبرامج وفعاليات النشاط الطلابي', 10, 10, true, 12),
-  ('تهيئة البيئة المدرسية للبرامج والأنشطة الطلابية', 'تهيئة البيئة المدرسية للبرامج والأنشطة الطلابية', 5, 5, true, 13),
-  ('يدعم المتعلمين وفق احتياجاتهم وميولهم للأنشطة', 'يدعم المتعلمين وفق احتياجاتهم وميولهم للأنشطة', 5, 5, true, 14),
-  ('يحفز المتعلمين على المشاركة في الأنشطة المدرسية', 'يحفز المتعلمين على المشاركة في الأنشطة المدرسية', 10, 10, true, 15)
+insert into public.performance_elements (key, label, weight, weight_with_duty, required_duty_type, sort_order) values
+  ('أداء الواجبات الوظيفية', 'أداء الواجبات الوظيفية', 10, 10, null, 1),
+  ('التفاعل مع المجتمع المهني', 'التفاعل مع المجتمع المهني', 10, 10, null, 2),
+  ('التفاعل مع أولياء الأمور', 'التفاعل مع أولياء الأمور', 10, 10, null, 3),
+  ('التنويع في استراتيجيات التدريس', 'التنويع في استراتيجيات التدريس', 10, 5, null, 4),
+  ('تحسين نتائج المتعلمين', 'تحسين نتائج المتعلمين', 10, 5, null, 5),
+  ('إعداد وتنفيذ خطة التعلم', 'إعداد وتنفيذ خطة التعلم', 10, 5, null, 6),
+  ('توظيف تقنيات ووسائل التعلم المناسبة', 'توظيف تقنيات ووسائل التعلم المناسبة', 10, 5, null, 7),
+  ('تهيئة البيئة التعليمية', 'تهيئة البيئة التعليمية', 5, 5, null, 8),
+  ('الإدارة الصفية', 'الإدارة الصفية', 5, 5, null, 9),
+  ('تحليل نتائج المتعلمين وتشخيص مستوياتهم', 'تحليل نتائج المتعلمين وتشخيص مستوياتهم', 10, 5, null, 10),
+  ('تنوع أساليب التقويم', 'تنوع أساليب التقويم', 10, 5, null, 11),
+  ('إعداد خطة مزمنة ومعتمدة لبرامج وفعاليات النشاط الطلابي', 'إعداد خطة مزمنة ومعتمدة لبرامج وفعاليات النشاط الطلابي', 10, 10, 'student_activity', 12),
+  ('تهيئة البيئة المدرسية للبرامج والأنشطة الطلابية', 'تهيئة البيئة المدرسية للبرامج والأنشطة الطلابية', 5, 5, 'student_activity', 13),
+  ('يدعم المتعلمين وفق احتياجاتهم وميولهم للأنشطة', 'يدعم المتعلمين وفق احتياجاتهم وميولهم للأنشطة', 5, 5, 'student_activity', 14),
+  ('يحفز المتعلمين على المشاركة في الأنشطة المدرسية', 'يحفز المتعلمين على المشاركة في الأنشطة المدرسية', 10, 10, 'student_activity', 15),
+  ('تنفيذ الخطة المشتركة للبرامج الصحية المدرسية', 'تنفيذ الخطة المشتركة للبرامج الصحية المدرسية', 15, 15, 'health_guidance', 16),
+  ('حصر الحالات الصحية للمتعلمين', 'حصر الحالات الصحية للمتعلمين', 5, 5, 'health_guidance', 17),
+  ('تهيئة البيئة الصحية المدرسية', 'تهيئة البيئة الصحية المدرسية', 10, 10, 'health_guidance', 18)
 on conflict (key) do update set
-  weight_activity = excluded.weight_activity,
-  requires_student_activity = excluded.requires_student_activity;
+  weight_with_duty = excluded.weight_with_duty,
+  required_duty_type = excluded.required_duty_type;
 
-alter table public.profiles add column if not exists has_student_activity boolean not null default false;
+alter table public.profiles add column if not exists duty_type text not null default 'none';
+alter table public.profiles drop constraint if exists profiles_duty_type_check;
+alter table public.profiles add constraint profiles_duty_type_check check (duty_type in ('none', 'student_activity', 'health_guidance'));
+
+-- ترحيل من العمود القديم الخاص بالنشاط الطلابي فقط، ثم حذفه — بلا تأثير لو
+-- لم يكن موجودًا أصلًا (تركيب هذه الميزة لأول مرة).
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='has_student_activity') then
+    update public.profiles set duty_type = 'student_activity' where has_student_activity = true and duty_type = 'none';
+    alter table public.profiles drop column has_student_activity;
+  end if;
+end $$;
+
+drop function if exists public.set_student_activity_flag(uuid, boolean);
 
 -- تعديل هذا الحقل تحديدًا (المعلم لنفسه، أو المسؤول لأي معلم) عبر دالة
 -- مضبوطة بدل سياسة RLS عامة على الجدول — لو أضفنا سياسة "المعلم يعدّل
 -- ملفه" عامة، يصير بإمكانه تعديل أي عمود آخر بالصف (مثل disabled) بالخطأ.
--- هذه الدالة تتحقق صراحة أن المستدعي إمّا صاحب الحساب نفسه أو مسؤول، ولا
--- تلمس أي عمود غير has_student_activity.
-create or replace function public.set_student_activity_flag(target_user_id uuid, flag boolean)
+-- هذه الدالة تتحقق صراحة أن المستدعي إمّا صاحب الحساب نفسه أو مسؤول، وأن
+-- القيمة المطلوبة من ضمن الأنواع المعروفة، ولا تلمس أي عمود غير duty_type.
+create or replace function public.set_duty_type(target_user_id uuid, duty text)
 returns void as $$
 begin
+  if duty not in ('none', 'student_activity', 'health_guidance') then
+    raise exception 'نوع تكليف غير معروف: %', duty;
+  end if;
   if auth.uid() <> target_user_id and not public.is_admin(auth.uid()) then
     raise exception 'غير مصرح لك بتعديل هذا الحساب';
   end if;
-  update public.profiles set has_student_activity = flag where id = target_user_id;
+  update public.profiles set duty_type = duty where id = target_user_id;
 end;
 $$ language plpgsql security definer;
 
@@ -1150,11 +1185,11 @@ function toggleAdminBox(boxId, chevronId){
 
 /* حساب جاهزية معلم واحد: التخطيط + التوثيق + التقييم الذاتي
    نستخدم عناصر هذا المعلم بعينه (لا عناصر المسؤول الضمنية) — تُستدعى هذه
-   الدالة بالتكرار على كل معلم مسجّل، وكل معلم قد يختلف تفعيله لخيار "نشاط
-   طلابي" عن المسؤول نفسه وعن باقي المعلمين. */
+   الدالة بالتكرار على كل معلم مسجّل، وكل معلم قد يختلف نوع تكليفه الإضافي
+   عن المسؤول نفسه وعن باقي المعلمين. */
 function computeTeacherReadiness(uid){
   const p = adminProfiles.find(x => x.id === uid);
-  const elements = computeEffectiveElements(ALL_PERFORMANCE_ELEMENTS, !!(p && p.has_student_activity));
+  const elements = computeEffectiveElements(ALL_PERFORMANCE_ELEMENTS, (p && p.duty_type) || 'none');
   const plan = adminAllPlans[uid] || {};
   const self = adminAllSelf[uid] || {};
   const recs = adminAllRecords.filter(r => r.user_id === uid);

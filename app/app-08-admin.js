@@ -98,9 +98,9 @@ function renderAdminByElement(){
   const box = document.getElementById('adminByElement');
   if(!box) return;
   /* نستخدم كل العناصر بلا فلترة (لا getElementsOrder التي تعكس فقط عناصر
-     المسؤول نفسه) لأن هذا مؤشر يجمع شواهد كل المعلمين، وبعضهم قد يكون مفعِّلًا
-     "نشاط طلابي" وبعضهم لا — استخدام عناصر المسؤول فقط كان يُسقط عناصر النشاط
-     الطلابي من الرسم كليًا لو المسؤول نفسه غير مفعِّلها. */
+     المسؤول نفسه) لأن هذا مؤشر يجمع شواهد كل المعلمين، وقد يختلف نوع التكليف
+     الإضافي بينهم — استخدام عناصر المسؤول فقط كان يُسقط عناصر تكليف معيّن من
+     الرسم كليًا لو المسؤول نفسه ليس عليه هذا التكليف. */
   const elements = ALL_PERFORMANCE_ELEMENTS;
   const counts = {};
   elements.forEach(e => counts[e.key] = 0);
@@ -135,10 +135,12 @@ function renderAdminProfiles(){
         <div class="pr-name">${adminIds.has(p.id) ? '<span class="badge-admin">مسؤول</span>' : ''}${escapeHtml(p.full_name || 'بدون اسم')}</div>
         <div class="pr-sub">${escapeHtml(p.email || '')} — ${escapeHtml(p.school || '—')} — ${r.shahidCount} شاهد — جاهزية ${r.readiness}%</div>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="showTeacherDetail('${p.id}')">التفاصيل</button>
         <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="toggleTeacherDisabled('${p.id}', ${!p.disabled})">${p.disabled ? 'تفعيل' : 'تعطيل'}</button>
-        <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="toggleTeacherStudentActivity('${p.id}', ${!p.has_student_activity})">${p.has_student_activity ? 'إلغاء نشاط طلابي' : 'تفعيل نشاط طلابي'}</button>
+        <select class="goal-input" style="padding:5px 8px;font-size:11px;width:auto;" onchange="setTeacherDutyType('${p.id}', this.value)">
+          ${DUTY_TYPES.map(d => `<option value="${d.value}" ${(p.duty_type || 'none') === d.value ? 'selected' : ''}>${escapeHtml(d.label)}</option>`).join('')}
+        </select>
         ${adminIds.has(p.id)
           ? `<button class="btn btn-danger" style="padding:5px 10px;font-size:11px;" onclick="removeAdmin('${p.id}')">إزالة كمسؤول</button>`
           : ''}
@@ -151,9 +153,9 @@ function renderAdminProfiles(){
 function showTeacherDetail(uid){
   const p = adminProfiles.find(x => x.id === uid);
   if(!p) return;
-  /* عناصر هذا المعلم بعينه (لا عناصر المسؤول الضمنية) — قد يختلف تفعيله
-     لخيار "نشاط طلابي" عن تفعيل المسؤول نفسه */
-  const elements = computeEffectiveElements(ALL_PERFORMANCE_ELEMENTS, !!p.has_student_activity);
+  /* عناصر هذا المعلم بعينه (لا عناصر المسؤول الضمنية) — قد يختلف نوع تكليفه
+     الإضافي عن تكليف المسؤول نفسه */
+  const elements = computeEffectiveElements(ALL_PERFORMANCE_ELEMENTS, p.duty_type || 'none');
   const plan = adminAllPlans[uid] || {};
   const self = adminAllSelf[uid] || {};
   const recs = adminAllRecords.filter(r => r.user_id === uid);
@@ -203,14 +205,15 @@ async function toggleTeacherDisabled(userId, disabledVal){
   }
 }
 
-/* تعديل خيار "نشاط طلابي" لمعلم من لوحة المسؤول — عبر الدالة المضبوطة
-   set_student_activity_flag بدل تحديث مباشر على profiles، لأنها تُستخدم أيضًا
-   من المعلم نفسه بنفس الآلية (راجع saveStudentActivityFlag في الإعدادات) */
-async function toggleTeacherStudentActivity(userId, flagVal){
+/* تعديل نوع التكليف الإضافي لمعلم من لوحة المسؤول — عبر الدالة المضبوطة
+   set_duty_type بدل تحديث مباشر على profiles، لأنها تُستخدم أيضًا من المعلم
+   نفسه بنفس الآلية (راجع saveDutyType في الإعدادات) */
+async function setTeacherDutyType(userId, duty){
   try{
-    const { error } = await sb.rpc('set_student_activity_flag', { target_user_id: userId, flag: flagVal });
+    const { error } = await sb.rpc('set_duty_type', { target_user_id: userId, duty });
     if(error) throw error;
-    showToast(flagVal ? 'تم تفعيل "نشاط طلابي" لهذا المعلم' : 'تم إلغاء "نشاط طلابي" لهذا المعلم', 'ok');
+    const label = (DUTY_TYPES.find(d => d.value === duty) || {}).label || duty;
+    showToast(`تم ضبط تكليف هذا المعلم: ${label}`, 'ok');
     await showAdminPanel();
   } catch(err){
     showToast('تعذّر: ' + err.message, 'error');
@@ -381,10 +384,11 @@ async function loadElementsMgmt(){
     <div class="elem-mgmt-row" data-id="${el.id}">
       <input type="text" class="goal-input" maxlength="150" value="${escapeHtml(el.label)}" id="elLabel-${el.id}">
       <input type="number" class="goal-input" value="${el.weight}" id="elWeight-${el.id}" title="الوزن العادي">
-      <input type="number" class="goal-input" value="${el.weight_activity != null ? el.weight_activity : ''}" id="elWeightActivity-${el.id}" placeholder="وزن نشاط طلابي" title="الوزن لمعلم مفعِّل نشاط طلابي — اتركه فارغًا لاستخدام الوزن العادي">
-      <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;">
-        <input type="checkbox" id="elRequiresActivity-${el.id}" ${el.requires_student_activity ? 'checked' : ''}> خاص بنشاط طلابي
-      </label>
+      <input type="number" class="goal-input" value="${el.weight_with_duty != null ? el.weight_with_duty : ''}" id="elWeightDuty-${el.id}" placeholder="وزن مع تكليف إضافي" title="الوزن لمعلم عليه أي تكليف إضافي — اتركه فارغًا لاستخدام الوزن العادي">
+      <select class="goal-input" style="width:auto;" id="elRequiredDuty-${el.id}" title="اجعله خاصًا بتكليف معيّن (لا يظهر إلا لمعلم عليه هذا التكليف)">
+        <option value="" ${!el.required_duty_type ? 'selected' : ''}>يظهر للجميع</option>
+        ${DUTY_TYPES.filter(d => d.value !== 'none').map(d => `<option value="${d.value}" ${el.required_duty_type === d.value ? 'selected' : ''}>خاص بـ: ${escapeHtml(d.label)}</option>`).join('')}
+      </select>
       <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;" onclick="savePerformanceElement('${el.id}')">حفظ</button>
       <button class="btn btn-danger" style="padding:5px 10px;font-size:11px;" onclick="deletePerformanceElement('${el.id}')">حذف</button>
     </div>`).join('');
@@ -393,11 +397,11 @@ async function loadElementsMgmt(){
 async function savePerformanceElement(id){
   const label = document.getElementById('elLabel-' + id).value.trim();
   const weight = Number(document.getElementById('elWeight-' + id).value) || 0;
-  const weightActivityRaw = document.getElementById('elWeightActivity-' + id).value.trim();
-  const weight_activity = weightActivityRaw === '' ? null : (Number(weightActivityRaw) || 0);
-  const requires_student_activity = document.getElementById('elRequiresActivity-' + id).checked;
+  const weightDutyRaw = document.getElementById('elWeightDuty-' + id).value.trim();
+  const weight_with_duty = weightDutyRaw === '' ? null : (Number(weightDutyRaw) || 0);
+  const required_duty_type = document.getElementById('elRequiredDuty-' + id).value || null;
   try{
-    const { error } = await sb.from('performance_elements').update({ label, weight, weight_activity, requires_student_activity }).eq('id', id);
+    const { error } = await sb.from('performance_elements').update({ label, weight, weight_with_duty, required_duty_type }).eq('id', id);
     if(error) throw error;
     showToast('تم الحفظ', 'ok');
     loadPerformanceElements();
