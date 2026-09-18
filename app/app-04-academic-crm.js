@@ -1963,7 +1963,7 @@ function renderHomeProgressCard(){
         <span class="hp-arrow">ابدأ الآن ←</span>
       </div>`;
   } else {
-    suggestionHtml = `<div class="home-progress-suggest done">✓ وثّقت شواهد في كل عناصر الأداء الأحد عشر</div>`;
+    suggestionHtml = `<div class="home-progress-suggest done">✓ وثّقت شواهد في كل عناصر الأداء</div>`;
   }
 
   card.innerHTML = `
@@ -2122,7 +2122,7 @@ async function switchPlanYear(year){
 /* عرض للقراءة فقط لدورة سابقة — بلا أي حقول قابلة للتعديل */
 function renderPlanRowsReadOnly(){
   const box = document.getElementById('planRows');
-  const elements = getElementsOrder();
+  const elements = withOrphanPlanElements(getElementsOrder());
   const withGoals = elements.filter(el => (myPlanGoals[el.key] || []).length > 0);
 
   if(!withGoals.length){

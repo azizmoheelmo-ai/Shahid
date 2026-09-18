@@ -1899,6 +1899,7 @@ async function loadPlan(year){
     if(!_myPlanGoals[g.element_key]) _myPlanGoals[g.element_key] = [];
     _myPlanGoals[g.element_key].push({
       id: g.id,
+      element_label: g.element_label || g.element_key,
       goal_name: g.goal_name || '',
       target_level: g.target_level,
       target_count: g.target_count || 0,
@@ -1991,9 +1992,21 @@ function linesToArray(text){
   return (text || '').split('\n').map(s => s.trim()).filter(Boolean);
 }
 
+/* أهداف محفوظة لعنصر لم يعد ضمن قالب التقييم الحالي (نفس حالة renderShawahidGroups —
+   أشهرها: إلغاء تفعيل "نشاط طلابي" بعد وضع أهداف بعناصره). الهدف نفسه لا
+   يُحذف من القاعدة؛ نعرضه بعنوانه المحفوظ وقته (element_label بكل هدف) بدل
+   إخفائه كليًا عن شاشة الخطة — تُستخدم بشاشتي الخطة الحالية والقراءة فقط لدورة سابقة. */
+function withOrphanPlanElements(elements){
+  const activeKeys = new Set(elements.map(e => e.key));
+  const orphanElements = Object.keys(myPlanGoals)
+    .filter(k => !activeKeys.has(k) && (myPlanGoals[k] || []).length)
+    .map(key => ({ key, label: myPlanGoals[key][0].element_label || key, active: false }));
+  return elements.map(e => Object.assign({ active: true }, e)).concat(orphanElements);
+}
+
 function renderPlanRows(){
   const box = document.getElementById('planRows');
-  const elements = getElementsOrder();
+  const elements = withOrphanPlanElements(getElementsOrder());
   if(!elements.length){
     box.innerHTML = '<div class="empty-state">لم يتم تحميل عناصر الأداء بعد.</div>';
     return;

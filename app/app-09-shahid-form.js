@@ -283,7 +283,21 @@ function renderShawahidGroups(records, autoOpen){
     grouped[r.element_key].push(r);
   });
 
-  body.innerHTML = elements.map((el, idx) => {
+  /* عناصر لها شواهد محفوظة لكنها لم تعد ضمن قالب التقييم الحالي للمعلم —
+     أشهر سبب: كان مفعِّلًا "نشاط طلابي" وأنشأ شواهد بعناصره الأربعة، ثم ألغى
+     التفعيل، فتختفي هذه العناصر من getElementsOrder() (يعتمد على DB_ELEMENTS
+     الحالية). سبب آخر أقدم: حذف المسؤول لعنصر له شواهد قديمة. الشاهد نفسه لا
+     يُحذف أبدًا من القاعدة في كل الحالتين — لكن بدون هذه المعالجة كان يختفي
+     من "شواهدي المحفوظة" فقط لأن الحلقة أدناه كانت تكرّر elements الحالية دون
+     غيرها. نعرض هذه المجموعات بعنوانها المحفوظ وقت الحفظ (element_label) —
+     ثابت لكل سجل بصرف النظر عن أي تغيير لاحق بالقالب. */
+  const activeKeys = new Set(elements.map(e => e.key));
+  const orphanElements = Object.keys(grouped)
+    .filter(k => !activeKeys.has(k))
+    .map(key => ({ key, label: (grouped[key][0] && grouped[key][0].element_label) || key, active: false }));
+  const allElements = elements.map(e => Object.assign({ active: true }, e)).concat(orphanElements);
+
+  body.innerHTML = allElements.map((el, idx) => {
     const { name, weight } = splitLabel(el.label);
     const recs = grouped[el.key] || [];
     const count = recs.length;
@@ -296,6 +310,7 @@ function renderShawahidGroups(records, autoOpen){
           <div class="left">
             <span class="dot"></span>
             <span class="name">${escapeHtml(name)}</span>
+            ${el.active ? '' : '<span style="font-size:10px;color:var(--muted);margin-right:4px;">(غير مفعَّل حاليًا)</span>'}
             <span class="weight">${weight}</span>
           </div>
           <div class="left">
@@ -304,10 +319,10 @@ function renderShawahidGroups(records, autoOpen){
           </div>
         </div>
         <div class="criterion-body">
-          <div class="criterion-actions">
+          ${el.active ? `<div class="criterion-actions">
             <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="addShahidForElement('${escapeHtml(el.key)}')">+ إضافة شاهد لهذا العنصر</button>
             <button class="btn btn-outline" style="padding:5px 12px;font-size:11px;" onclick="goToPlanForElement('${escapeHtml(el.key)}')">عرض في الخطة</button>
-          </div>
+          </div>` : ''}
           ${recsHtml}
         </div>
       </div>`;

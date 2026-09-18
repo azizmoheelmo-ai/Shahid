@@ -164,7 +164,7 @@ async function loadSelfAssessment(year){
     const { data } = await sb.from('self_assessment')
       .select('*').eq('user_id', currentUser.id).eq('cycle_year', y);
     (data || []).forEach(s => {
-      _mySelfAssessment[s.element_key] = { self_level: s.self_level, self_note: s.self_note };
+      _mySelfAssessment[s.element_key] = { self_level: s.self_level, self_note: s.self_note, element_label: s.element_label || s.element_key };
     });
   } catch(e){ /* تجاهل */ }
 
@@ -175,7 +175,7 @@ async function loadSelfAssessment(year){
 /* عرض للقراءة فقط لتقييم ذاتي من دورة سابقة */
 function renderSelfRowsReadOnly(){
   const box = document.getElementById('selfRows');
-  const elements = getElementsOrder();
+  const elements = withOrphanSelfElements(getElementsOrder());
   const rated = elements.filter(el => mySelfAssessment[el.key] && mySelfAssessment[el.key].self_level);
 
   if(!rated.length){
@@ -202,9 +202,21 @@ function renderSelfRowsReadOnly(){
   }).join('');
 }
 
+/* عناصر لها تقييم ذاتي محفوظ لكنها لم تعد ضمن قالب التقييم الحالي (نفس حالة
+   renderShawahidGroups/renderPlanRows — أشهرها: إلغاء تفعيل "نشاط طلابي" بعد
+   تقييم عناصره). التقييم نفسه لا يُحذف من القاعدة؛ نعرضه بعنوانه المحفوظ
+   وقته (element_label بكل صف) بدل إخفائه كليًا. */
+function withOrphanSelfElements(elements){
+  const activeKeys = new Set(elements.map(e => e.key));
+  const orphanElements = Object.keys(mySelfAssessment)
+    .filter(k => !activeKeys.has(k) && mySelfAssessment[k])
+    .map(key => ({ key, label: mySelfAssessment[key].element_label || key, active: false }));
+  return elements.map(e => Object.assign({ active: true }, e)).concat(orphanElements);
+}
+
 function renderSelfRows(){
   const box = document.getElementById('selfRows');
-  const elements = getElementsOrder();
+  const elements = withOrphanSelfElements(getElementsOrder());
   if(!elements.length){
     box.innerHTML = '<div class="empty-state">لم يتم تحميل عناصر الأداء بعد.</div>';
     return;

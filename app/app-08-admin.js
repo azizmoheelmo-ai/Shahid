@@ -475,12 +475,26 @@ function buildCycleSheetAOA(year, shawahidYear, goalsYear, selfYear){
   const NAList = (arr, fallback) => (arr && arr.length ? arr.join(' | ') : fallback);
 
   aoa.push([`دورة الأداء ${year}`]);
-  aoa.push(['هذا الملف مرتب حسب عناصر الأداء الأحد عشر. كل عنصر يعرض أهدافه، وتحت كل هدف الشواهد الموثّقة المرتبطة به تحديدًا، وأسماء صورها، ثم التقييم الذاتي للعنصر. أي حقل غير معبَّأ يظهر بوضوح ولا يُترك فارغًا.']);
+  aoa.push(['هذا الملف مرتب حسب عناصر الأداء. كل عنصر يعرض أهدافه، وتحت كل هدف الشواهد الموثّقة المرتبطة به تحديدًا، وأسماء صورها، ثم التقييم الذاتي للعنصر. أي حقل غير معبَّأ يظهر بوضوح ولا يُترك فارغًا.']);
   aoa.push([]);
 
+  /* عناصر التقرير الافتراضية + أي عنصر له سجلات بهذه الدورة لكن لم يعد ضمن
+     قالب المعلم الحالي (مثلًا: شواهد/أهداف عناصر نشاط طلابي بعد إلغاء تفعيل
+     الخيار لاحقًا) — بدون هذا كانت هذه السجلات تُستبعد بصمت من نسخة المعلم
+     الاحتياطية الشخصية بمجرد تغيير الخيار، رغم بقائها محفوظة فعليًا بالقاعدة. */
   const elements = getElementsOrder();
+  const activeKeys = new Set(elements.map(e => e.key));
+  const orphanKeys = new Set();
+  shawahidYear.forEach(r => { if(!activeKeys.has(r.element_key)) orphanKeys.add(r.element_key); });
+  goalsYear.forEach(g => { if(!activeKeys.has(g.element_key)) orphanKeys.add(g.element_key); });
+  selfYear.forEach(s => { if(!activeKeys.has(s.element_key)) orphanKeys.add(s.element_key); });
+  const orphanElements = Array.from(orphanKeys).map(key => {
+    const sample = shawahidYear.find(r => r.element_key === key) || goalsYear.find(g => g.element_key === key) || selfYear.find(s => s.element_key === key);
+    return { key, label: (sample && sample.element_label) || key };
+  });
+  const allElements = elements.concat(orphanElements);
 
-  elements.forEach((el, idx) => {
+  allElements.forEach((el, idx) => {
     const { name, weight } = splitLabel(el.label);
     const elGoals = goalsYear.filter(g => g.element_key === el.key);
     const elShawahid = shawahidYear.filter(r => r.element_key === el.key);
@@ -613,7 +627,7 @@ async function exportBackup(evt){
       [`المدرسة: ${getProfileSchool() || '—'}    المادة: ${getProfileSubject() || '—'}`],
       [`تاريخ التصدير: ${new Date().toLocaleString('ar-SA')}`],
       [],
-      ['في كل تبويب دورة: العناصر الأحد عشر، وتحت كل عنصر أهدافه، وتحت كل هدف شواهده المرتبطة به وصوره، ثم التقييم الذاتي. أي حقل فارغ يُذكر صراحة (مثل "لم يُكتب").'],
+      ['في كل تبويب دورة: عناصر الأداء بالترتيب، وتحت كل عنصر أهدافه، وتحت كل هدف شواهده المرتبطة به وصوره، ثم التقييم الذاتي. أي حقل فارغ يُذكر صراحة (مثل "لم يُكتب").'],
       [],
       ['دورة الأداء', 'عدد الشواهد', 'عدد الأهداف', 'عناصر مُقيَّمة ذاتيًا']
     ];
@@ -768,7 +782,7 @@ async function exportBackup(evt){
       'محتوى هذا الملف:',
       '  • نسخة-احتياطية.xlsx   الملف الرئيسي — افتحه في Excel أو Google Sheets',
       '      - تبويب "الملخص": نظرة عامة على كل دورة أداء وإدارة الصف',
-      '      - تبويب لكل دورة: العناصر الأحد عشر بالترتيب، وتحت كل عنصر أهدافه،',
+      '      - تبويب لكل دورة: عناصر الأداء بالترتيب، وتحت كل عنصر أهدافه،',
       '        وتحت كل هدف شواهده الموثّقة المرتبطة به تحديدًا مع أسماء صورها،',
       '        ثم التقييم الذاتي لذلك العنصر. أي حقل غير معبَّأ يُذكر صراحة',
       '        (مثل: "لم يُكتب" أو "لم يُقيَّم بعد") بدل تركه فارغًا.',
