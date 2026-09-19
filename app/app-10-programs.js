@@ -24,7 +24,7 @@ async function loadActivityPrograms(){
 
 async function showPrograms(){
   hideAllMainViews();
-  setActiveBottomTab(null);
+  setActiveBottomTab('programs');
   document.getElementById('programsView').style.display = 'block';
   showProgramsSection('list');
   document.getElementById('programsListBody').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
@@ -259,7 +259,7 @@ async function showProgramDetail(programId){
      بدون هذا، يبقى نموذج الشاهد ظاهرًا كما هو رغم نجاح الحفظ فعليًا، فيظن
      المستخدم أن الحفظ لم يتم ويضغط "حفظ" مرة أخرى — يحفظ شاهدًا مكررًا. */
   hideAllMainViews();
-  setActiveBottomTab(null);
+  setActiveBottomTab('programs');
   document.getElementById('programsView').style.display = 'block';
   currentProgramId = programId;
   showProgramsSection('detail');

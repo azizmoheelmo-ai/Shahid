@@ -309,7 +309,7 @@ async function onLoggedIn(user){
    خطته/تقييمه الذاتي كما هي (بعناصره الخاصة، تُحسب عبر DB_ELEMENTS كالمعتاد). */
 function applyStaffRoleVisibility(){
   const isStandaloneRole = STANDALONE_ROLES.includes(dutyType);
-  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn'].forEach(id => {
+  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'programsNavTab'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = isStandaloneRole ? 'none' : '';
   });

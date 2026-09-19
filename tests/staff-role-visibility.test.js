@@ -19,7 +19,7 @@ function installLiveDom(app){
   app.document.getElementById = (id) => (registry[id] = registry[id] || makeLiveElement());
 }
 
-const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn'];
+const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'programsNavTab'];
 
 describe('applyStaffRoleVisibility', () => {
   ['vice_principal', 'school_principal', 'student_counselor', 'lab_technician'].forEach(role => {
