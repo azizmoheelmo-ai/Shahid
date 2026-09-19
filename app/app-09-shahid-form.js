@@ -53,7 +53,7 @@ async function refreshPlanSummary(){
       sub.textContent = `وثّقت ${totalDone} من ${totalTarget} شاهد — بحسب وزن كل عنصر: ${wp.pct}% إجمالًا`;
     }
   } catch(e){
-    sub.textContent = 'حدّد مستهدفاتك لعناصر الأداء قبل بدء التوثيق';
+    sub.textContent = 'حدّد مستهدفاتك لعناصر الأداء لتبدأ العمل عليها';
   }
 
   /* ملخص التقييم الذاتي */

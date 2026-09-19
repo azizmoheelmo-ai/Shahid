@@ -1963,7 +1963,7 @@ function renderHomeProgressCard(){
         <span class="hp-arrow">ابدأ الآن ←</span>
       </div>`;
   } else {
-    suggestionHtml = `<div class="home-progress-suggest done">✓ وثّقت شواهد في كل عناصر الأداء</div>`;
+    suggestionHtml = `<div class="home-progress-suggest done">✓ غطّيت كل عناصر الأداء</div>`;
   }
 
   card.innerHTML = `
@@ -1975,7 +1975,7 @@ function renderHomeProgressCard(){
       <div style="background:${barColor};height:100%;width:${wp.pct}%;transition:width .4s;"></div>
     </div>
     <div style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">
-      بدأت التوثيق في <b style="color:var(--navy);">${started} من ${elements.length}</b> عنصرًا
+      غطّيت <b style="color:var(--navy);">${started} من ${elements.length}</b> عنصرًا
       <span style="text-decoration:underline;cursor:pointer;margin-right:4px;" onclick="event.stopPropagation();showCoverageDetails()">(التفاصيل)</span>
     </div>
     ${suggestionHtml}`;

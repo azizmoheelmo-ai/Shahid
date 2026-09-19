@@ -52,7 +52,7 @@ function renderCoverageAlert(){
     box.style.borderColor = '#3E8A57';
     box.style.borderRightColor = '#3E8A57';
     box.style.color = '#215C34';
-    box.innerHTML = `✓ بدأت التوثيق في جميع العناصر (<b>${total} من ${total}</b>)` +
+    box.innerHTML = `✓ غطّيت جميع العناصر (<b>${total} من ${total}</b>)` +
       (completed ? ` — واكتمل مستهدف <b>${completed}</b> منها.` : '.');
     return;
   }
@@ -62,9 +62,9 @@ function renderCoverageAlert(){
   box.style.borderRightColor = '';
   box.style.color = '';
   box.innerHTML =
-    `بدأت التوثيق في <b>${started} من ${total}</b> عنصرًا` +
+    `غطّيت <b>${started} من ${total}</b> عنصرًا` +
     (completed ? ` (اكتمل مستهدف <b>${completed}</b>)` : '') +
-    ` — و<b>${missing.length}</b> ${missing.length === 1 ? 'عنصر' : 'عناصر'} بلا أي شاهد. اضغط لعرضها.`;
+    ` — و<b>${missing.length}</b> ${missing.length === 1 ? 'عنصر' : 'عناصر'} بلا أي شاهد بعد. اضغط لعرضها.`;
 }
 
 function showCoverageDetails(){
@@ -103,9 +103,9 @@ function showCoverageDetails(){
 
   showInfoModal(`
     <div style="text-align:right;">
-      <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">حالة التوثيق لكل عنصر</h3>
+      <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">حالة التغطية لكل عنصر</h3>
       <p style="font-size:11.5px;color:var(--muted);margin:0 0 12px;line-height:1.8;">
-        "لم يبدأ" = لا يوجد أي شاهد &nbsp;•&nbsp; "جارٍ" = وثّقت بعض الشواهد ولم تصل لمستهدفك &nbsp;•&nbsp; "مكتمل" = بلغت العدد المخطط له
+        "لم يبدأ" = لا يوجد أي شاهد &nbsp;•&nbsp; "جارٍ" = عندك بعض الشواهد ولم تصل لمستهدفك بعد &nbsp;•&nbsp; "مكتمل" = بلغت العدد المخطط له
       </p>
       <div style="border:1px solid var(--line);">${rows}</div>
     </div>`, '430px');
