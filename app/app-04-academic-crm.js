@@ -1927,6 +1927,7 @@ async function showHome(){
   hideAllMainViews();
   setActiveBottomTab('home');
   document.getElementById('homeView').style.display = 'block';
+  renderDateInfoBar();
   renderProfile();
   renderCycleCountdown();
   await refreshPlanSummary();

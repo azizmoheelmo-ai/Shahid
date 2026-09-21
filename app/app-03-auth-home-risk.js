@@ -627,6 +627,44 @@ const CYCLE_STAGES = {
   }
 };
 
+/* ============ شريط التاريخ (ميلادي/هجري/الفصل والأسبوع الدراسي) — أعلى الشاشة الرئيسية ============
+   تواريخ بداية/نهاية كل فصل دراسي مأخوذة من التقويم الدراسي الرسمي لوزارة التعليم للعام 1448هـ
+   (لعموم مناطق المملكة، عدا مكة/المدينة/جدة/الطائف اللواتي قد يختلف تقويمهنّ قليلًا).
+   بيانات ثابتة تحتاج تحديثًا يدويًا في بداية كل عام دراسي جديد — لا مصدر حي لها بالتطبيق. */
+const ACADEMIC_TERMS = [
+  { label: 'الفصل الدراسي الأول', start: '2026-08-23', end: '2027-01-07', weeks: 19 },
+  { label: 'الفصل الدراسي الثاني', start: '2027-01-17', end: '2027-06-23', weeks: 19 }
+];
+
+function getAcademicTermInfo(date){
+  const d = date || new Date();
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  for(const term of ACADEMIC_TERMS){
+    const start = new Date(term.start + 'T00:00:00');
+    const end = new Date(term.end + 'T00:00:00');
+    if(day < start || day > end) continue;
+    const totalDays = Math.round((end - start) / 86400000) + 1;
+    const elapsedDays = Math.round((day - start) / 86400000);
+    const week = Math.min(term.weeks, Math.floor(elapsedDays / (totalDays / term.weeks)) + 1);
+    return { label: term.label, week, totalWeeks: term.weeks };
+  }
+  return null; /* خارج فترات الدراسة الرسمية (إجازة) */
+}
+
+function renderDateInfoBar(){
+  const barGregorian = document.getElementById('dateInfoGregorian');
+  if(!barGregorian) return;
+  const now = new Date();
+
+  barGregorian.textContent = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(now);
+  document.getElementById('dateInfoHijri').textContent = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { year: 'numeric', month: 'long', day: 'numeric' }).format(now);
+
+  const term = getAcademicTermInfo(now);
+  document.getElementById('dateInfoTerm').textContent = term
+    ? `${term.label} — الأسبوع ${term.week} من ${term.totalWeeks}`
+    : 'إجازة';
+}
+
 function getCycleStageKey(date){
   const d = date || new Date();
   const m = d.getMonth() + 1; // 1-12

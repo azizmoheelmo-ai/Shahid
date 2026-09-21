@@ -211,3 +211,28 @@ describe('fetchAllRows (تجميع صفحات متتالية)', () => {
     assert.equal(data.length, 0);
   });
 });
+
+describe('getAcademicTermInfo (شريط التاريخ بالشاشة الرئيسية)', () => {
+  test('أول يوم بالفصل الأول يُرجع الأسبوع 1', () => {
+    const info = app.getAcademicTermInfo(new Date('2026-08-23T12:00:00'));
+    assert.equal(info.label, 'الفصل الدراسي الأول');
+    assert.equal(info.week, 1);
+    assert.equal(info.totalWeeks, 19);
+  });
+  test('آخر يوم بالفصل الأول يبقى محصورًا بالأسبوع 19 ولا يتجاوزه', () => {
+    const info = app.getAcademicTermInfo(new Date('2027-01-07T12:00:00'));
+    assert.equal(info.label, 'الفصل الدراسي الأول');
+    assert.equal(info.week, 19);
+  });
+  test('فترة إجازة منتصف العام (بين الفصلين) تُرجع null بدل رقم أسبوع خاطئ', () => {
+    assert.equal(app.getAcademicTermInfo(new Date('2027-01-10T12:00:00')), null);
+  });
+  test('أول يوم بالفصل الثاني يُرجع الأسبوع 1 من فصل جديد', () => {
+    const info = app.getAcademicTermInfo(new Date('2027-01-17T12:00:00'));
+    assert.equal(info.label, 'الفصل الدراسي الثاني');
+    assert.equal(info.week, 1);
+  });
+  test('الإجازة الصيفية (بعد نهاية الفصل الثاني) تُرجع null', () => {
+    assert.equal(app.getAcademicTermInfo(new Date('2027-07-01T12:00:00')), null);
+  });
+});
