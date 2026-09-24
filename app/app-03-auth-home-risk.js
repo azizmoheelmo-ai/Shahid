@@ -854,9 +854,104 @@ async function saveDutyType(duty){
 }
 
 function showSettingsSection(name){
-  const ids = { menu: 'settingsMenu', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody' };
+  const ids = { menu: 'settingsMenu', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', connector: 'settingsConnectorBody' };
   Object.values(ids).forEach(id => { document.getElementById(id).style.display = 'none'; });
   document.getElementById(ids[name] || ids.menu).style.display = 'block';
+}
+
+/* ============ موصل الذكاء الاصطناعي (رموز وصول شخصية، قراءة فقط) ============
+   الرمز الخام يُولَّد ويُعرض للمعلم مرة واحدة فقط، ولا يُخزَّن بالقاعدة إلا
+   بصيغته المُجزّأة (SHA-256) — بنفس منطق مفاتيح الوصول الشخصية المعتاد
+   (GitHub/Vercel وغيرها): فقدان الرمز يعني توليد رمز جديد، لا استرجاعه. */
+function showConnectorSettings(){
+  showSettingsSection('connector');
+  loadConnectorTokens();
+}
+
+async function loadConnectorTokens(){
+  const box = document.getElementById('connectorTokensList');
+  box.textContent = 'جارٍ التحميل...';
+  const { data, error } = await sb.from('personal_access_tokens')
+    .select('id, label, token_prefix, created_at, last_used_at, revoked_at')
+    .eq('user_id', currentUser.id)
+    .order('created_at', { ascending: false });
+  if(error){ box.textContent = 'تعذّر تحميل الرموز: ' + error.message; return; }
+  renderConnectorTokens(data || []);
+}
+
+function renderConnectorTokens(tokens){
+  const box = document.getElementById('connectorTokensList');
+  if(!tokens.length){ box.innerHTML = '<p style="margin:0;">لا يوجد أي رمز حتى الآن.</p>'; return; }
+  box.innerHTML = tokens.map(t => {
+    const active = !t.revoked_at;
+    const created = new Date(t.created_at).toLocaleDateString('ar-SA');
+    const lastUsed = t.last_used_at ? new Date(t.last_used_at).toLocaleDateString('ar-SA') : 'لم يُستخدم بعد';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);">
+      <div>
+        <div style="font-weight:700;color:var(--navy);">${escapeHtml(t.label)} <span style="font-family:monospace;color:var(--muted);font-weight:400;">${escapeHtml(t.token_prefix)}…</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">أُنشئ: ${created} — آخر استخدام: ${escapeHtml(lastUsed)}${active ? '' : ' — <b style="color:#B23A3A;">مُلغى</b>'}</div>
+      </div>
+      ${active ? `<button class="btn btn-outline" style="padding:5px 12px;font-size:11px;border-color:#B23A3A;color:#B23A3A;flex-shrink:0;" onclick="revokeConnectorToken('${t.id}')">إلغاء</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function generateRandomToken(){
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const b64 = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return 'shahid_pat_' + b64;
+}
+
+async function sha256Hex(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function generateConnectorToken(){
+  const btn = document.getElementById('genTokenBtn');
+  btn.disabled = true;
+  try{
+    const raw = generateRandomToken();
+    const hash = await sha256Hex(raw);
+    const prefix = raw.slice(0, 18);
+    const { error } = await sb.from('personal_access_tokens').insert({
+      user_id: currentUser.id,
+      label: 'موصل الذكاء الاصطناعي',
+      token_hash: hash,
+      token_prefix: prefix
+    });
+    if(error) throw error;
+    showInfoModal(`
+      <div style="text-align:right;">
+        <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">رمزك الجديد</h3>
+        <p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;">
+          احفظه الآن — لن يظهر بصيغته الكاملة مرة أخرى. لو ضاع، ألغِه وولّد رمزًا جديدًا.
+        </p>
+        <div style="background:#F1EEE6;padding:10px;font-family:monospace;font-size:12px;word-break:break-all;user-select:all;margin-bottom:10px;">${escapeHtml(raw)}</div>
+        <button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="navigator.clipboard.writeText('${raw}').then(()=>showToast('تم النسخ','ok'))">نسخ الرمز</button>
+      </div>`, '420px');
+    await loadConnectorTokens();
+  } catch(err){
+    showToast('تعذّر إنشاء الرمز: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function revokeConnectorToken(id){
+  const ok = await showConfirm('إلغاء هذا الرمز؟ أي مساعد ذكاء اصطناعي يستخدمه سيتوقف عن العمل فورًا.');
+  if(!ok) return;
+  try{
+    const { error } = await sb.from('personal_access_tokens')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('user_id', currentUser.id);
+    if(error) throw error;
+    await loadConnectorTokens();
+    showToast('تم إلغاء الرمز', 'ok');
+  } catch(err){
+    showToast('تعذّر الإلغاء: ' + err.message, 'error');
+  }
 }
 
 /* ============ مركز المخاطر ============ */

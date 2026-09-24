@@ -524,6 +524,10 @@
             <span class="hb-title">📦 البيانات والنسخ الاحتياطي</span>
             <span class="hb-sub">النسخة الاحتياطية الشخصية</span>
           </button>
+          <button class="home-btn" style="grid-column:1/-1;" onclick="showConnectorSettings()">
+            <span class="hb-title">🔌 موصل الذكاء الاصطناعي</span>
+            <span class="hb-sub">اسأل مساعدك الذكي عن خطتك وشواهدك وتقدمك مباشرة</span>
+          </button>
           <button class="home-btn" style="grid-column:1/-1;" onclick="showSettingsSection('about')">
             <span class="hb-title">ℹ️ عن التطبيق</span>
             <span class="hb-sub">معلومات عن إدارة الأداء الوظيفي</span>
@@ -600,6 +604,17 @@
           </div>
           <div id="personalBackupMsg" style="font-size:11px;color:var(--muted);margin-top:5px;"></div>
         </div>
+      </div>
+
+      <div id="settingsConnectorBody" class="section" style="display:none;">
+        <button class="btn btn-outline" style="margin-bottom:16px;" onclick="showSettingsSection('menu')">→ رجوع لقائمة الإعدادات</button>
+        <p style="font-size:12.5px;line-height:1.9;color:#413D33;margin:0 0 14px;">
+          يتيح لك الموصل ربط حساب شاهد بمساعد ذكاء اصطناعي (كلود مثلًا) تستخدمه أنت شخصيًا، لتسأله مباشرة عن خطتك وشواهدك وتقييمك الذاتي وتقدمك — <b>قراءة فقط</b>، لا يضيف ولا يعدّل أي شيء بحسابك. أنشئ رمزًا شخصيًا هنا وأضفه بإعدادات "الموصلات" (Connectors) بمساعدك الذكي.
+        </p>
+        <div style="margin-bottom:16px;">
+          <button class="btn btn-primary" id="genTokenBtn" onclick="generateConnectorToken()">+ توليد رمز جديد</button>
+        </div>
+        <div id="connectorTokensList" style="font-size:12.5px;color:var(--muted);">جارٍ التحميل...</div>
       </div>
 
       <div id="settingsAboutBody" class="section" style="display:none;">

@@ -965,6 +965,30 @@ create policy "المعلم يحذف حالاته فقط" on public.academic_cas
 drop policy if exists "المسؤول يشوف كل الحالات الأكاديمية" on public.academic_cases;
 create policy "المسؤول يشوف كل الحالات الأكاديمية" on public.academic_cases for select using (public.is_admin(auth.uid()));
 
+-- ============ موصل الذكاء الاصطناعي (رموز وصول شخصية للقراءة فقط) ============
+-- ملاحظة: هذا الجدول عمدًا غير مُدرَج بقوائم exportFullBackup/exportBackup —
+-- يحمل رموزًا مُجزّأة (hash) لا فائدة من تصديرها ضمن نسخة بيانات المعلم،
+-- وتصديرها يزيد سطح التعرّض بلا أي داعٍ.
+create table if not exists public.personal_access_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  label text not null default 'موصل الذكاء الاصطناعي',
+  token_hash text not null unique,
+  token_prefix text not null,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  revoked_at timestamptz
+);
+alter table public.personal_access_tokens enable row level security;
+drop policy if exists "المعلم يشوف رموزه فقط" on public.personal_access_tokens;
+create policy "المعلم يشوف رموزه فقط" on public.personal_access_tokens for select using (auth.uid() = user_id);
+drop policy if exists "المعلم يضيف رمزًا لنفسه فقط" on public.personal_access_tokens;
+create policy "المعلم يضيف رمزًا لنفسه فقط" on public.personal_access_tokens for insert with check (auth.uid() = user_id);
+drop policy if exists "المعلم يلغي رمزه فقط" on public.personal_access_tokens;
+create policy "المعلم يلغي رمزه فقط" on public.personal_access_tokens for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create index if not exists idx_pat_user on public.personal_access_tokens(user_id);
+create unique index if not exists idx_pat_hash on public.personal_access_tokens(token_hash);
+
 -- ============ انتهى ============
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:
 -- insert into public.admins (user_id) values ('ضع-UID-حسابك-هنا');
