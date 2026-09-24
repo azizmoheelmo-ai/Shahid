@@ -253,3 +253,81 @@ describe('أدوات الموصل — عزل بيانات كل معلم عن ا�
     await client.close(); await server.close();
   });
 });
+
+describe('أدوات إدارة الصف — عزل بيانات كل معلم عن معلم آخر (بيانات طلاب قاصرين)', () => {
+  async function connectedClient(userId, supabase){
+    const server = buildServer(userId, supabase);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return { client, server };
+  }
+  function textOf(result){
+    return JSON.parse(result.content[0].text);
+  }
+
+  test('list_my_students لا يرجع طلاب معلم آخر، ويستبعد غير النشطين افتراضيًا', async () => {
+    const seed = {
+      classroom_students: [
+        { teacher_id: 'u1', full_name: 'أحمد', student_number: '1', academic_year: '1448', is_active: true },
+        { teacher_id: 'u1', full_name: 'خالد', student_number: '2', academic_year: '1448', is_active: false },
+        { teacher_id: 'u2', full_name: 'طالب معلم آخر', student_number: '9', academic_year: '1448', is_active: true },
+      ],
+    };
+    const supabase = makeFakeSupabase(seed);
+    const { client, server } = await connectedClient('u1', supabase);
+    const result = await client.callTool({ name: 'list_my_students', arguments: {} });
+    const data = textOf(result);
+    assert.equal(data.total_count, 1, 'يستبعد الطالب غير النشط بالافتراضي، ويستبعد طالب المعلم الآخر');
+    assert.equal(data.students[0].full_name, 'أحمد');
+    await client.close(); await server.close();
+  });
+
+  test('list_my_incidents يقرن اسم الطالب ونوع المخالفة، ولا يرى مخالفات معلم آخر', async () => {
+    const seed = {
+      classroom_incidents: [
+        {
+          teacher_id: 'u1', incident_date: '2026-09-01', semester_label: 'الفصل الأول', current_stage: 'warning_1',
+          classroom_students: { full_name: 'أحمد' },
+          classroom_incident_types: { problem_name: 'الاستهزاء بالمعلم', problem_degree: 5 },
+        },
+        {
+          teacher_id: 'u2', incident_date: '2026-09-02', semester_label: 'الفصل الأول', current_stage: 'warning_1',
+          classroom_students: { full_name: 'طالب معلم آخر' },
+          classroom_incident_types: { problem_name: 'مخالفة أخرى', problem_degree: 2 },
+        },
+      ],
+    };
+    const supabase = makeFakeSupabase(seed);
+    const { client, server } = await connectedClient('u1', supabase);
+    const result = await client.callTool({ name: 'list_my_incidents', arguments: {} });
+    const data = textOf(result);
+    assert.equal(data.total_count, 1);
+    assert.equal(data.items[0].student_name, 'أحمد');
+    assert.equal(data.items[0].problem_name, 'الاستهزاء بالمعلم');
+    assert.equal(data.items[0].problem_degree, 5);
+    await client.close(); await server.close();
+  });
+
+  test('list_my_academic_cases يعزل حالات معلم آخر تمامًا، ويحترم فلتر status', async () => {
+    const seed = {
+      academic_cases: [
+        { teacher_id: 'u1', subject: 'رياضيات', weakness_description: 'ضعف بالجمع', status: 'plan_active', plan_started_at: '2026-09-01', classroom_students: { full_name: 'أحمد' } },
+        { teacher_id: 'u1', subject: 'علوم', weakness_description: 'ضعف بالتجارب', status: 'referred', plan_started_at: '2026-09-02', classroom_students: { full_name: 'خالد' } },
+        { teacher_id: 'u2', subject: 'لغتي', weakness_description: 'حالة معلم آخر', status: 'plan_active', plan_started_at: '2026-09-01', classroom_students: { full_name: 'طالب آخر' } },
+      ],
+    };
+    const supabase = makeFakeSupabase(seed);
+    const { client, server } = await connectedClient('u1', supabase);
+
+    const all = textOf(await client.callTool({ name: 'list_my_academic_cases', arguments: {} }));
+    assert.equal(all.total_count, 2, 'يستبعد حالة المعلم الآخر تمامًا');
+
+    const activeOnly = textOf(await client.callTool({ name: 'list_my_academic_cases', arguments: { status: 'plan_active' } }));
+    assert.equal(activeOnly.total_count, 1);
+    assert.equal(activeOnly.items[0].student_name, 'أحمد');
+
+    await client.close(); await server.close();
+  });
+});
