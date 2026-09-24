@@ -21,8 +21,10 @@ function makeFakeSupabase(seedByTable){
     const filters = [];
     let limitN = null;
     let orderBy = null;
+    let selectOpts = null;
+    const matchingRows = () => (seedByTable[table] || []).filter(r => filters.every(([c, v]) => r[c] === v));
     const rowsFor = () => {
-      let rows = (seedByTable[table] || []).filter(r => filters.every(([c, v]) => r[c] === v));
+      let rows = matchingRows();
       if(orderBy){
         const { col, ascending } = orderBy;
         rows = rows.slice().sort((a, b) => {
@@ -35,7 +37,7 @@ function makeFakeSupabase(seedByTable){
       return rows;
     };
     const api = {
-      select(){ return api; },
+      select(_cols, opts){ selectOpts = opts || null; return api; },
       eq(col, val){ filters.push([col, val]); return api; },
       order(col, opts){ orderBy = { col, ascending: !opts || opts.ascending !== false }; return api; },
       limit(n){ limitN = n; return api; },
@@ -52,7 +54,9 @@ function makeFakeSupabase(seedByTable){
         };
       },
       then(resolve, reject){
-        return Promise.resolve({ data: rowsFor(), error: null }).then(resolve, reject);
+        const count = selectOpts && selectOpts.count === 'exact' ? matchingRows().length : undefined;
+        const data = selectOpts && selectOpts.head ? null : rowsFor();
+        return Promise.resolve({ data, count, error: null }).then(resolve, reject);
       },
     };
     return api;
@@ -152,8 +156,9 @@ describe('أدوات الموصل — عزل بيانات كل معلم عن ا�
     const { client, server } = await connectedClient('u1', supabase);
     const result = await client.callTool({ name: 'list_my_shawahid', arguments: {} });
     const data = textOf(result);
-    assert.equal(data.length, 1);
-    assert.equal(data[0].lesson_title, 'شاهد للمستخدم الأول');
+    assert.equal(data.total_count, 1);
+    assert.equal(data.items.length, 1);
+    assert.equal(data.items[0].lesson_title, 'شاهد للمستخدم الأول');
     await client.close(); await server.close();
   });
 
@@ -191,8 +196,60 @@ describe('أدوات الموصل — عزل بيانات كل معلم عن ا�
     const { client, server } = await connectedClient('u1', supabase);
     const result = await client.callTool({ name: 'list_my_shawahid', arguments: { element_key: 'a', limit: 1 } });
     const data = textOf(result);
-    assert.equal(data.length, 1);
-    assert.equal(data[0].element_key, 'a');
+    assert.equal(data.total_count, 2, 'إجمالي المطابق فعليًا بالقاعدة (2 عنصر a)، بصرف النظر عن limit');
+    assert.equal(data.items.length, 1, 'العناصر المُرجَعة بالتفصيل مقصوصة بـlimit كما طُلب');
+    assert.equal(data.items[0].element_key, 'a');
+    await client.close(); await server.close();
+  });
+
+  test('list_my_shawahid: total_count لا يتأثر بـlimit حتى لو كان العدد الحقيقي أكبر منه (يمنع عدّ خاطئ لدى العميل)', async () => {
+    const seed = {
+      shawahid: Array.from({ length: 25 }, (_, i) => ({ user_id: 'u1', lesson_title: `شاهد ${i}`, element_key: 'a', created_at: `2026-01-${String(i + 1).padStart(2, '0')}` })),
+    };
+    const supabase = makeFakeSupabase(seed);
+    const { client, server } = await connectedClient('u1', supabase);
+    const result = await client.callTool({ name: 'list_my_shawahid', arguments: {} }); // limit الافتراضي 20
+    const data = textOf(result);
+    assert.equal(data.total_count, 25);
+    assert.equal(data.returned_count, 20);
+    assert.equal(data.items.length, 20);
+    await client.close(); await server.close();
+  });
+
+  test('get_my_coverage_summary يحسب التغطية حسب نوع تكليف المعلم، ويعزل بيانات كل معلم عن غيره', async () => {
+    const seed = {
+      profiles: [{ id: 'u1', duty_type: 'student_activity' }],
+      performance_elements: [
+        { key: 'base1', label: 'عنصر أساسي مُغطى', weight: 10, weight_with_duty: 8, required_duty_type: null, active: true },
+        { key: 'base2', label: 'عنصر أساسي غير مُغطى', weight: 10, weight_with_duty: 8, required_duty_type: null, active: true },
+        { key: 'act1', label: 'عنصر نشاط طلابي', weight: 10, weight_with_duty: 12, required_duty_type: 'student_activity', active: true },
+        { key: 'health1', label: 'عنصر توجيه صحي (لا يخصّه)', weight: 10, weight_with_duty: 12, required_duty_type: 'health_guidance', active: true },
+      ],
+      shawahid: [
+        { user_id: 'u1', element_key: 'base1' },
+        { user_id: 'u1', element_key: 'act1' },
+        { user_id: 'u2', element_key: 'base2' }, // يخص معلمًا آخر تمامًا — لا يجب أن يُحتسب لـu1
+      ],
+    };
+    const supabase = makeFakeSupabase(seed);
+    const { client, server } = await connectedClient('u1', supabase);
+    const result = await client.callTool({ name: 'get_my_coverage_summary', arguments: {} });
+    const data = textOf(result);
+
+    // عنصر health1 (خاص بتوجيه صحي) يجب ألا يظهر إطلاقًا لمعلم نشاط طلابي
+    assert.equal(data.total_elements, 3);
+    assert.equal(data.covered_elements, 2);
+    assert.equal(data.total_shawahid, 2, 'شاهد u2 لا يُحتسب ضمن إجمالي شواهد u1');
+
+    const byLabel = Object.fromEntries(data.elements.map(e => [e.label, e]));
+    assert.equal(byLabel['عنصر أساسي مُغطى'].covered, true);
+    assert.equal(byLabel['عنصر أساسي مُغطى'].shawahid_count, 1);
+    assert.equal(byLabel['عنصر أساسي مُغطى'].weight, 8, 'وزن العنصر الأساسي يُستبدل بـweight_with_duty لوجود تكليف إضافي');
+    assert.equal(byLabel['عنصر أساسي غير مُغطى'].covered, false);
+    assert.equal(byLabel['عنصر أساسي غير مُغطى'].shawahid_count, 0);
+    assert.equal(byLabel['عنصر نشاط طلابي'].covered, true);
+    assert.equal(byLabel['عنصر توجيه صحي (لا يخصّه)'], undefined);
+
     await client.close(); await server.close();
   });
 });

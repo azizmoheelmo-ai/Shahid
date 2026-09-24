@@ -27,6 +27,25 @@ const z = require('zod/v4');
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+/* نفس أدوار STANDALONE_ROLES وcomputeEffectiveElements المعرَّفة بـ
+   app/app-01-core.js — منسوخة هنا حرفيًا (لا استيراد، الملف الأصلي كود
+   متصفح لا Node) لحساب "أي عناصر أداء مفترَض توثيقها فعليًا" حسب نوع تكليف
+   المعلم، بنفس منطق شاشة "حالة التغطية" بالتطبيق. أي تعديل هناك يجب نقله هنا. */
+const STANDALONE_ROLES = ['vice_principal', 'school_principal', 'student_counselor', 'lab_technician'];
+function computeEffectiveElements(rawElements, forDutyType){
+  const duty = forDutyType || 'none';
+  if(STANDALONE_ROLES.includes(duty)){
+    return (rawElements || []).filter(el => el.required_duty_type === duty);
+  }
+  const hasDuty = duty !== 'none';
+  return (rawElements || [])
+    .filter(el => !STANDALONE_ROLES.includes(el.required_duty_type) && (!el.required_duty_type || el.required_duty_type === duty))
+    .map(el => {
+      const w = (hasDuty && el.weight_with_duty != null) ? el.weight_with_duty : el.weight;
+      return Object.assign({}, el, { weight: w });
+    });
+}
+
 function hashToken(raw){
   return crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
 }
@@ -103,12 +122,17 @@ function buildServer(userId, supabase){
 
   server.registerTool('list_my_shawahid', {
     title: 'شواهدي',
-    description: 'يعرض شواهد الأداء الموثّقة، من الأحدث للأقدم — لصاحب هذا الرمز فقط.',
+    description: 'يعرض شواهد الأداء الموثّقة، من الأحدث للأقدم — لصاحب هذا الرمز فقط. يتضمن الرد total_count (إجمالي المطابق فعليًا بالقاعدة) لأن النتائج قد تكون مقصوصة بحد limit — لا تفترض أن طول القائمة المُرجَعة هو العدد الكلي، اعتمد على total_count دومًا عند حساب أي عدّ إجمالي.',
     inputSchema: {
-      limit: z.number().int().min(1).max(100).optional().describe('الحد الأقصى لعدد النتائج، افتراضيًا 20'),
+      limit: z.number().int().min(1).max(100).optional().describe('الحد الأقصى لعدد العناصر المُرجَعة بالتفصيل، افتراضيًا 20 — لا يؤثر على total_count'),
       element_key: z.string().optional().describe('فلترة بعنصر أداء معيّن (اختياري)')
     }
   }, async ({ limit, element_key }) => {
+    let countQuery = supabase.from('shawahid').select('*', { count: 'exact', head: true }).eq('user_id', userId);
+    if(element_key) countQuery = countQuery.eq('element_key', element_key);
+    const { count, error: eCount } = await countQuery;
+    if(eCount) return textResult({ error: eCount.message });
+
     let q = supabase.from('shawahid')
       .select('lesson_title, element_label, lesson_date, description, quant_impact, qual_impact, reflection, created_at')
       .eq('user_id', userId)
@@ -116,7 +140,47 @@ function buildServer(userId, supabase){
       .limit(Math.min(limit || 20, 100));
     if(element_key) q = q.eq('element_key', element_key);
     const { data, error } = await q;
-    return textResult(error ? { error: error.message } : data);
+    if(error) return textResult({ error: error.message });
+
+    return textResult({ total_count: count, returned_count: data.length, items: data });
+  });
+
+  server.registerTool('get_my_coverage_summary', {
+    title: 'ملخص تغطية عناصر الأداء',
+    description: 'يعرض كل عنصر أداء مفترَض توثيقه (حسب نوع تكليف هذا المعلم)، وعدد شواهده الفعلي لكل عنصر، وهل هو "مغطى" (عنده شاهد واحد على الأقل) أو لا — الطريقة الصحيحة للإجابة عن أسئلة العدّ الإجمالي أو "أي العناصر ينقصها توثيق"، بدل عدّ يدوي من list_my_shawahid.'
+  }, async () => {
+    const { data: profile, error: eProfile } = await supabase.from('profiles')
+      .select('duty_type').eq('id', userId).maybeSingle();
+    if(eProfile) return textResult({ error: eProfile.message });
+
+    const { data: rawElements, error: eElements } = await supabase.from('performance_elements')
+      .select('key, label, weight, weight_with_duty, required_duty_type')
+      .eq('active', true)
+      .order('sort_order', { ascending: true });
+    if(eElements) return textResult({ error: eElements.message });
+
+    const effectiveElements = computeEffectiveElements(rawElements, (profile && profile.duty_type) || 'none');
+
+    const { data: shawahid, error: eShawahid } = await supabase.from('shawahid')
+      .select('element_key').eq('user_id', userId);
+    if(eShawahid) return textResult({ error: eShawahid.message });
+
+    const countByKey = new Map();
+    for(const s of shawahid) countByKey.set(s.element_key, (countByKey.get(s.element_key) || 0) + 1);
+
+    const elements = effectiveElements.map(el => ({
+      label: el.label,
+      weight: el.weight,
+      shawahid_count: countByKey.get(el.key) || 0,
+      covered: (countByKey.get(el.key) || 0) > 0
+    }));
+
+    return textResult({
+      total_shawahid: shawahid.length,
+      total_elements: elements.length,
+      covered_elements: elements.filter(e => e.covered).length,
+      elements
+    });
   });
 
   server.registerTool('get_my_self_assessment', {
