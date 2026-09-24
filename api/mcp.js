@@ -1,8 +1,13 @@
 /* ============================================================
    موصل الذكاء الاصطناعي (MCP Server) — قراءة فقط
    ============================================================
-   يعرض بيانات "خطتي، شواهدي، تقييمي الذاتي" لصاحب الرمز فقط. لا يضيف ولا
-   يعدّل أي شيء بقاعدة البيانات — كل الأدوات هنا SELECT فقط.
+   يعرض بيانات "خطتي، شواهدي، تقييمي الذاتي، وإدارة صفي (طلابي، مخالفاتهم
+   السلوكية، حالات ضعفهم الأكاديمي)" لصاحب الرمز فقط. لا يضيف ولا يعدّل أي
+   شيء بقاعدة البيانات — كل الأدوات هنا SELECT فقط.
+
+   تنبيه: أدوات "إدارة الصف" (list_my_students وlist_my_incidents
+   وlist_my_academic_cases) تعرض بيانات تخص طلابًا قاصرين لا صاحب الرمز
+   نفسه فقط — أُضيفت بطلب صريح من المستخدم بعد تنبيهه على هذا الفرق تحديدًا.
 
    المصادقة: رمز شخصي (Bearer token) يولّده المعلم من إعدادات شاهد
    ("موصل الذكاء الاصطناعي")، يُخزَّن بالقاعدة كـ SHA-256 hash فقط (لا نص
@@ -197,6 +202,93 @@ function buildServer(userId, supabase){
     if(cycle_year) q = q.eq('cycle_year', cycle_year);
     const { data, error } = await q;
     return textResult(error ? { error: error.message } : data);
+  });
+
+  /* ============ إدارة الصف — بيانات طلاب قاصرين، أضيفت بطلب صريح من
+     المستخدم بعد تنبيهه على حساسيتها الإضافية مقارنة ببيانات أدائه الشخصية.
+     كل أداة هنا مُقيَّدة بـteacher_id صاحب الرمز بنفس الانضباط. ============ */
+
+  server.registerTool('list_my_students', {
+    title: 'طلابي',
+    description: 'يعرض قائمة طلاب هذا المعلم بإدارة الصف — لصاحب هذا الرمز فقط. بيانات طلاب قاصرين، تعامل معها بحساسية.',
+    inputSchema: {
+      academic_year: z.string().optional().describe('فلترة بعام دراسي معيّن (اختياري)'),
+      active_only: z.boolean().optional().describe('إظهار الطلاب النشطين فقط فقط — افتراضيًا true')
+    }
+  }, async ({ academic_year, active_only }) => {
+    let q = supabase.from('classroom_students')
+      .select('full_name, student_number, grade_level, section_number, academic_year, is_active')
+      .eq('teacher_id', userId)
+      .order('full_name', { ascending: true });
+    if(academic_year) q = q.eq('academic_year', academic_year);
+    if(active_only !== false) q = q.eq('is_active', true);
+    const { data, error } = await q;
+    return textResult(error ? { error: error.message } : { total_count: data.length, students: data });
+  });
+
+  server.registerTool('list_my_incidents', {
+    title: 'المخالفات السلوكية المسجَّلة',
+    description: 'يعرض المخالفات السلوكية التي سجّلها هذا المعلم لطلابه — لصاحب هذا الرمز فقط. بيانات حساسة تخص طلابًا قاصرين، تعامل معها بحساسية. يتضمن total_count لأن النتائج قد تكون مقصوصة بحد limit.',
+    inputSchema: {
+      limit: z.number().int().min(1).max(100).optional().describe('الحد الأقصى لعدد النتائج، افتراضيًا 20'),
+      semester_label: z.string().optional().describe('فلترة بفصل دراسي معيّن (اختياري)')
+    }
+  }, async ({ limit, semester_label }) => {
+    let countQuery = supabase.from('classroom_incidents').select('*', { count: 'exact', head: true }).eq('teacher_id', userId);
+    if(semester_label) countQuery = countQuery.eq('semester_label', semester_label);
+    const { count, error: eCount } = await countQuery;
+    if(eCount) return textResult({ error: eCount.message });
+
+    let q = supabase.from('classroom_incidents')
+      .select('incident_date, semester_label, occurrence_number, current_stage, notes, classroom_students(full_name), classroom_incident_types(problem_name, problem_degree)')
+      .eq('teacher_id', userId)
+      .order('incident_date', { ascending: false })
+      .limit(Math.min(limit || 20, 100));
+    if(semester_label) q = q.eq('semester_label', semester_label);
+    const { data, error } = await q;
+    if(error) return textResult({ error: error.message });
+
+    const items = data.map(r => ({
+      student_name: r.classroom_students && r.classroom_students.full_name,
+      problem_name: r.classroom_incident_types && r.classroom_incident_types.problem_name,
+      problem_degree: r.classroom_incident_types && r.classroom_incident_types.problem_degree,
+      incident_date: r.incident_date,
+      semester_label: r.semester_label,
+      occurrence_number: r.occurrence_number,
+      current_stage: r.current_stage,
+      notes: r.notes
+    }));
+
+    return textResult({ total_count: count, returned_count: items.length, items });
+  });
+
+  server.registerTool('list_my_academic_cases', {
+    title: 'حالات الضعف الأكاديمي',
+    description: 'يعرض حالات الضعف الأكاديمي وخطط العلاج التي سجّلها هذا المعلم لطلابه — لصاحب هذا الرمز فقط. بيانات حساسة تخص طلابًا قاصرين، تعامل معها بحساسية.',
+    inputSchema: {
+      status: z.enum(['plan_active', 'referred']).optional().describe('فلترة بحالة المتابعة (اختياري)')
+    }
+  }, async ({ status }) => {
+    let q = supabase.from('academic_cases')
+      .select('subject, weakness_description, plan_description, plan_started_at, academic_year, status, session_type, classroom_students(full_name)')
+      .eq('teacher_id', userId)
+      .order('plan_started_at', { ascending: false });
+    if(status) q = q.eq('status', status);
+    const { data, error } = await q;
+    if(error) return textResult({ error: error.message });
+
+    const items = data.map(r => ({
+      student_name: r.classroom_students && r.classroom_students.full_name,
+      subject: r.subject,
+      weakness_description: r.weakness_description,
+      plan_description: r.plan_description,
+      plan_started_at: r.plan_started_at,
+      academic_year: r.academic_year,
+      status: r.status,
+      session_type: r.session_type
+    }));
+
+    return textResult({ total_count: items.length, items });
   });
 
   return server;
