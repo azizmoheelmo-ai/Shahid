@@ -614,7 +614,13 @@
         <p style="font-size:12.5px;line-height:1.9;color:#413D33;margin:0 0 14px;">
           يتيح لك الموصل ربط حساب شاهد بمساعد ذكاء اصطناعي (كلود مثلًا) تستخدمه أنت شخصيًا، لتسأله مباشرة عن خطتك وشواهدك وتقييمك الذاتي وتقدمك — <b>قراءة فقط</b>، لا يضيف ولا يعدّل أي شيء بحسابك. أنشئ رمزًا شخصيًا هنا وأضفه بإعدادات "الموصلات" (Connectors) بمساعدك الذكي.
         </p>
-        <div style="margin-bottom:16px;">
+        <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <label style="font-size:11.5px;color:var(--muted);">صلاحية الرمز:</label>
+          <select class="goal-input" id="connectorExpirySelect" style="width:auto;padding:6px 8px;">
+            <option value="90">90 يومًا</option>
+            <option value="365">سنة واحدة</option>
+            <option value="">بلا انتهاء</option>
+          </select>
           <button class="btn btn-primary" id="genTokenBtn" onclick="generateConnectorToken()">+ توليد رمز جديد</button>
         </div>
         <div id="connectorTokensList" style="font-size:12.5px;color:var(--muted);">جارٍ التحميل...</div>
