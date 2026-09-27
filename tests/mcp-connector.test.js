@@ -61,7 +61,24 @@ function makeFakeSupabase(seedByTable){
     };
     return api;
   }
-  return { from: chain };
+  /* محاكاة check_mcp_rate_limit الحقيقية (نفس منطق دالة Postgres): نافذة
+     منزلقة مخزَّنة على صف الرمز نفسه بجدول personal_access_tokens. */
+  async function rpc(fnName, args){
+    if(fnName !== 'check_mcp_rate_limit') return { data: null, error: { message: 'unknown rpc: ' + fnName } };
+    const row = (seedByTable.personal_access_tokens || []).find(r => r.id === args.p_token_id);
+    if(!row) return { data: false, error: null };
+    const now = Date.now();
+    const windowStart = row.rate_window_start ? new Date(row.rate_window_start).getTime() : null;
+    if(windowStart == null || (now - windowStart) > args.p_window_seconds * 1000){
+      row.rate_window_start = new Date(now).toISOString();
+      row.rate_window_count = 1;
+      return { data: true, error: null };
+    }
+    if((row.rate_window_count || 0) >= args.p_max_requests) return { data: false, error: null };
+    row.rate_window_count = (row.rate_window_count || 0) + 1;
+    return { data: true, error: null };
+  }
+  return { from: chain, rpc };
 }
 
 describe('hashToken', () => {
@@ -73,44 +90,74 @@ describe('hashToken', () => {
   });
 });
 
-describe('authenticate — يرفض أي شيء غير رمز صحيح وغير مُلغى', () => {
+describe('authenticate — يرفض أي شيء غير رمز صحيح وغير مُلغى/منتهي/متجاوز للحد', () => {
   const rawToken = 'shahid_pat_test_' + crypto.randomBytes(8).toString('hex');
-  function seedWith(revoked){
+  function seedWith(overrides){
     return {
       personal_access_tokens: [
-        { id: 'tok-1', user_id: 'u1', token_hash: hashToken(rawToken), revoked_at: revoked ? '2026-01-01T00:00:00Z' : null },
+        Object.assign({ id: 'tok-1', user_id: 'u1', token_hash: hashToken(rawToken), revoked_at: null, expires_at: null }, overrides || {}),
       ],
     };
   }
 
-  test('بلا ترويسة Authorization إطلاقًا → null', async () => {
-    const supabase = makeFakeSupabase(seedWith(false));
+  test('بلا ترويسة Authorization إطلاقًا → مرفوض', async () => {
+    const supabase = makeFakeSupabase(seedWith());
     const result = await authenticate({ headers: {} }, supabase);
-    assert.equal(result, null);
+    assert.equal(result.userId, null);
+    assert.equal(result.reason, 'missing_token');
   });
 
-  test('ترويسة بلا "Bearer" → null', async () => {
-    const supabase = makeFakeSupabase(seedWith(false));
+  test('ترويسة بلا "Bearer" → مرفوض', async () => {
+    const supabase = makeFakeSupabase(seedWith());
     const result = await authenticate({ headers: { authorization: rawToken } }, supabase);
-    assert.equal(result, null);
+    assert.equal(result.userId, null);
+    assert.equal(result.reason, 'missing_token');
   });
 
-  test('رمز غير موجود بالقاعدة إطلاقًا → null', async () => {
-    const supabase = makeFakeSupabase(seedWith(false));
+  test('رمز غير موجود بالقاعدة إطلاقًا → مرفوض', async () => {
+    const supabase = makeFakeSupabase(seedWith());
     const result = await authenticate({ headers: { authorization: 'Bearer shahid_pat_ghost' } }, supabase);
-    assert.equal(result, null);
+    assert.equal(result.userId, null);
+    assert.equal(result.reason, 'invalid_token');
   });
 
-  test('رمز صحيح وغير مُلغى → يرجع user_id صاحبه', async () => {
-    const supabase = makeFakeSupabase(seedWith(false));
+  test('رمز صحيح وغير مُلغى وغير منتهٍ → يرجع user_id صاحبه', async () => {
+    const supabase = makeFakeSupabase(seedWith());
     const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
-    assert.equal(result, 'u1');
+    assert.equal(result.userId, 'u1');
+    assert.equal(result.reason, 'ok');
   });
 
-  test('رمز صحيح لكن مُلغى (revoked_at) → null', async () => {
-    const supabase = makeFakeSupabase(seedWith(true));
+  test('رمز صحيح لكن مُلغى (revoked_at) → مرفوض', async () => {
+    const supabase = makeFakeSupabase(seedWith({ revoked_at: '2026-01-01T00:00:00Z' }));
     const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
-    assert.equal(result, null);
+    assert.equal(result.userId, null);
+    assert.equal(result.reason, 'revoked_token');
+  });
+
+  test('رمز منتهي الصلاحية (expires_at بالماضي) → مرفوض', async () => {
+    const supabase = makeFakeSupabase(seedWith({ expires_at: '2020-01-01T00:00:00Z' }));
+    const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
+    assert.equal(result.userId, null);
+    assert.equal(result.reason, 'expired_token');
+  });
+
+  test('رمز بتاريخ انتهاء مستقبلي → يبقى مقبولًا', async () => {
+    const supabase = makeFakeSupabase(seedWith({ expires_at: '2099-01-01T00:00:00Z' }));
+    const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
+    assert.equal(result.userId, 'u1');
+  });
+
+  test('تجاوز حد الاستخدام الحقيقي (60 طلبًا/5 دقائق) عبر authenticate() نفسها → الطلب 61 مرفوض بسبب rate_limited', async () => {
+    const supabase = makeFakeSupabase(seedWith());
+    const req = { headers: { authorization: `Bearer ${rawToken}` } };
+    for(let i = 0; i < 60; i++){
+      const r = await authenticate(req, supabase);
+      assert.equal(r.userId, 'u1', `الطلب رقم ${i + 1} من أصل 60 يجب أن يُقبل`);
+    }
+    const blocked = await authenticate(req, supabase);
+    assert.equal(blocked.userId, null);
+    assert.equal(blocked.reason, 'rate_limited');
   });
 });
 

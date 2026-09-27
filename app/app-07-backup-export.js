@@ -977,7 +977,10 @@ create table if not exists public.personal_access_tokens (
   token_prefix text not null,
   created_at timestamptz not null default now(),
   last_used_at timestamptz,
-  revoked_at timestamptz
+  revoked_at timestamptz,
+  expires_at timestamptz,
+  rate_window_start timestamptz,
+  rate_window_count int not null default 0
 );
 alter table public.personal_access_tokens enable row level security;
 drop policy if exists "المعلم يشوف رموزه فقط" on public.personal_access_tokens;
@@ -988,6 +991,46 @@ drop policy if exists "المعلم يلغي رمزه فقط" on public.personal
 create policy "المعلم يلغي رمزه فقط" on public.personal_access_tokens for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create index if not exists idx_pat_user on public.personal_access_tokens(user_id);
 create unique index if not exists idx_pat_hash on public.personal_access_tokens(token_hash);
+
+-- فحص وزيادة عدّاد حد الاستخدام أتوميًا لموصل الذكاء الاصطناعي (يُستدعى فقط
+-- من خادم api/mcp.js عبر مفتاح service role — ممنوع الاستدعاء المباشر من
+-- anon/authenticated لمنع تلاعب مستخدم بعدّاد رمز غيره)
+create or replace function public.check_mcp_rate_limit(p_token_id uuid, p_max_requests int, p_window_seconds int)
+returns boolean
+language plpgsql
+as $$
+declare
+  v_window_start timestamptz;
+  v_count int;
+  v_now timestamptz := now();
+begin
+  select rate_window_start, rate_window_count into v_window_start, v_count
+  from public.personal_access_tokens
+  where id = p_token_id
+  for update;
+
+  if not found then
+    return false;
+  end if;
+
+  if v_window_start is null or v_now - v_window_start > (p_window_seconds || ' seconds')::interval then
+    update public.personal_access_tokens
+    set rate_window_start = v_now, rate_window_count = 1
+    where id = p_token_id;
+    return true;
+  end if;
+
+  if v_count >= p_max_requests then
+    return false;
+  end if;
+
+  update public.personal_access_tokens
+  set rate_window_count = rate_window_count + 1
+  where id = p_token_id;
+  return true;
+end;
+$$;
+revoke all on function public.check_mcp_rate_limit(uuid, int, int) from public, anon, authenticated;
 
 -- ============ انتهى ============
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:

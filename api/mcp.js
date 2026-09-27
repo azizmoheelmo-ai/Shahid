@@ -32,6 +32,12 @@ const z = require('zod/v4');
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+/* حد الاستخدام: عدد الطلبات المسموحة لكل رمز خلال نافذة زمنية واحدة —
+   سخي بما يكفي لاستخدام شخصي حقيقي (عدة أدوات باستدعاء واحد من المساعد
+   الذكي)، ضيّق بما يكفي لإيقاف رمز مسروق يُستدعى بحلقة لا نهائية. */
+const RATE_LIMIT_MAX_REQUESTS = 60;
+const RATE_LIMIT_WINDOW_SECONDS = 300;
+
 /* نفس أدوار STANDALONE_ROLES وcomputeEffectiveElements المعرَّفة بـ
    app/app-01-core.js — منسوخة هنا حرفيًا (لا استيراد، الملف الأصلي كود
    متصفح لا Node) لحساب "أي عناصر أداء مفترَض توثيقها فعليًا" حسب نوع تكليف
@@ -55,21 +61,37 @@ function hashToken(raw){
   return crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
 }
 
-/* يرجع user_id صاحب الرمز، أو null لو الرمز مفقود/غير صالح/مُلغى.
-   لا يرمي خطأ أبدًا — فشل التحقق يعني "غير مصرَّح"، لا خطأ خادم. */
+/* يتحقق من رمز الوصول ويرجع نتيجة مفصَّلة (لا user_id مجرَّد) — الحاجة
+   لتمييز أسباب الرفض (مفقود/غير صالح/مُلغى/منتهي/تجاوز حد الاستخدام)
+   مطلوبة لتسجيل audit_log بدقة، ولإرجاع رمز HTTP صحيح (429 لتجاوز الحد
+   بدل 401 العام). لا يرمي خطأ أبدًا — أي حالة رفض تُرجَع لا تُستثنى.
+   reason ∈ 'ok' | 'missing_token' | 'invalid_token' | 'revoked_token' |
+            'expired_token' | 'rate_limited' | 'rate_limit_error' */
 async function authenticate(req, supabase){
   const header = req.headers['authorization'] || '';
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if(!match) return null;
+  if(!match) return { userId: null, reason: 'missing_token' };
   const raw = match[1].trim();
-  if(!raw) return null;
+  if(!raw) return { userId: null, reason: 'missing_token' };
 
   const { data, error } = await supabase
     .from('personal_access_tokens')
-    .select('id, user_id, revoked_at')
+    .select('id, user_id, revoked_at, expires_at')
     .eq('token_hash', hashToken(raw))
     .maybeSingle();
-  if(error || !data || data.revoked_at) return null;
+  if(error || !data) return { userId: null, reason: 'invalid_token' };
+  if(data.revoked_at) return { userId: null, reason: 'revoked_token', ownerId: data.user_id };
+  if(data.expires_at && new Date(data.expires_at).getTime() < Date.now()){
+    return { userId: null, reason: 'expired_token', ownerId: data.user_id };
+  }
+
+  const { data: allowed, error: rlError } = await supabase.rpc('check_mcp_rate_limit', {
+    p_token_id: data.id,
+    p_max_requests: RATE_LIMIT_MAX_REQUESTS,
+    p_window_seconds: RATE_LIMIT_WINDOW_SECONDS
+  });
+  if(rlError) return { userId: null, reason: 'rate_limit_error', ownerId: data.user_id };
+  if(!allowed) return { userId: null, reason: 'rate_limited', ownerId: data.user_id };
 
   /* تحديث آخر استخدام — لا ننتظره، مجرد سجلّ إعلامي، فشله لا يوقف الطلب */
   supabase.from('personal_access_tokens')
@@ -77,8 +99,32 @@ async function authenticate(req, supabase){
     .eq('id', data.id)
     .then(() => {}, () => {});
 
-  return data.user_id;
+  return { userId: data.user_id, reason: 'ok' };
 }
+
+/* تسجيل كل محاولة استدعاء (ناجحة أو مرفوضة) بسجلّ التدقيق العام — لا
+   ننتظره (fire-and-forget)، فشله لا يوقف الرد على الطلب. */
+function logMcpAccess(supabase, req, auth){
+  const performedBy = auth.userId || auth.ownerId || null;
+  supabase.from('audit_log').insert({
+    action: 'mcp_connector_request',
+    table_name: 'personal_access_tokens',
+    performed_by: performedBy,
+    details: {
+      outcome: auth.reason,
+      ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null
+    }
+  }).then(() => {}, () => {});
+}
+
+const AUTH_FAILURE_MESSAGES = {
+  missing_token: 'رمز غير صالح أو ملغى أو مفقود من ترويسة Authorization',
+  invalid_token: 'رمز غير صالح أو ملغى أو مفقود من ترويسة Authorization',
+  revoked_token: 'هذا الرمز مُلغى — ولّد رمزًا جديدًا من إعدادات شاهد',
+  expired_token: 'هذا الرمز منتهي الصلاحية — ولّد رمزًا جديدًا من إعدادات شاهد',
+  rate_limited: 'تجاوزت الحد المسموح من الطلبات لهذا الرمز — حاول بعد قليل',
+  rate_limit_error: 'تعذّر التحقق من حد الاستخدام — حاول مرة أخرى'
+};
 
 function textResult(obj){
   return { content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] };
@@ -313,14 +359,17 @@ async function handler(req, res){
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
-  const userId = await authenticate(req, supabase);
-  if(!userId){
-    jsonRpcError(res, 401, 'رمز غير صالح أو ملغى أو مفقود من ترويسة Authorization');
+  const auth = await authenticate(req, supabase);
+  logMcpAccess(supabase, req, auth);
+
+  if(!auth.userId){
+    const status = auth.reason === 'rate_limited' ? 429 : 401;
+    jsonRpcError(res, status, AUTH_FAILURE_MESSAGES[auth.reason] || AUTH_FAILURE_MESSAGES.invalid_token);
     return;
   }
 
   try{
-    const server = buildServer(userId, supabase);
+    const server = buildServer(auth.userId, supabase);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => { transport.close(); server.close(); });
     await server.connect(transport);
