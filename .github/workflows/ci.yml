@@ -24,6 +24,9 @@ jobs:
       - name: تثبيت الاعتماديات (لموصل الذكاء الاصطناعي فقط)
         run: npm ci
 
+      - name: فحص أمني للاعتماديات (npm audit — يفشل عند ثغرة عالية الخطورة فأعلى)
+        run: npm audit --omit=dev --audit-level=high
+
       - name: فحص صياغة JavaScript (index.html + sw.js)
         run: node scripts/check-syntax.js
 

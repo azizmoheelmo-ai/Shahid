@@ -992,6 +992,15 @@ create policy "المعلم يلغي رمزه فقط" on public.personal_access_
 create index if not exists idx_pat_user on public.personal_access_tokens(user_id);
 create unique index if not exists idx_pat_hash on public.personal_access_tokens(token_hash);
 
+-- تقييد التعديل بعمود revoked_at فقط: سياسة RLS أعلاه تسمح بتعديل الصف كاملًا
+-- (auth.uid() = user_id) لكنها لا تُقيّد الأعمدة — بلا هذا التقييد يمكن لصاحب
+-- الحساب نفسه (عبر استدعاء مباشر لـSupabase REST خارج واجهة التطبيق) تصفير
+-- rate_window_count أو حذف expires_at، فيُبطل حد الاستخدام وانتهاء الصلاحية
+-- المضافين باليوم الأول من التحصين. الواجهة (revokeConnectorToken) لا تعدّل
+-- إلا revoked_at أصلًا، فهذا التقييد لا يكسر أي استخدام مشروع حالي.
+revoke update on public.personal_access_tokens from authenticated, anon;
+grant update (revoked_at) on public.personal_access_tokens to authenticated;
+
 -- فحص وزيادة عدّاد حد الاستخدام أتوميًا لموصل الذكاء الاصطناعي (يُستدعى فقط
 -- من خادم api/mcp.js عبر مفتاح service role — ممنوع الاستدعاء المباشر من
 -- anon/authenticated لمنع تلاعب مستخدم بعدّاد رمز غيره)
