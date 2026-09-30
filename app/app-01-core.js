@@ -566,6 +566,7 @@ let DB_ELEMENTS = []; // العناصر الفعّالة للمعلم الحال
 let ALL_PERFORMANCE_ELEMENTS = []; // كل العناصر كما في القاعدة، بدون فلترة/إعادة وزن — لأي حساب يشمل عدة معلمين
 let dutyType = 'none'; // نوع تكليف/دور المعلم الحالي: 'none' | 'student_activity' | 'health_guidance' | 'vice_principal' | 'school_principal' | 'student_counselor' | 'lab_technician' | ...
 let calendarRegion = null; // نطاق التقويم الدراسي الرسمي الذي اختاره المعلم: 'makkah_group' | 'other_regions' | null (لم يُحدَّد بعد)
+let uiMode = null; // مسار الاستخدام المفضَّل: 'quick' | 'full' | null (لم يختر بعد — يُعامَل كـ'full' بالعرض)
 const DUTY_TYPES = [
   { value: 'none', label: 'بلا تكليف إضافي (معلم)' },
   { value: 'student_activity', label: 'معلم — نشاط طلابي' },

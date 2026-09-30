@@ -1937,6 +1937,8 @@ async function showHome(){
   renderServiceAlert();
   renderHomeProgressCard();
   renderCurrentWeekWidget();
+  applyUiModeVisibility();
+  maybeShowUiModeBanner();
   maybeShowOnboardingTour();
 }
 

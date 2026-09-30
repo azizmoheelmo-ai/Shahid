@@ -285,17 +285,25 @@
 
       <div id="currentWeekCard" style="display:none;" onclick="showCalendar()"></div>
 
+      <div id="uiModeBanner" style="display:none;margin:0 32px 16px;padding:12px 15px;background:#F1EEE6;border:1px solid var(--line);font-size:12.5px;">
+        <p style="margin:0 0 8px;line-height:1.8;">🆕 جرّب <b>المسار السريع</b>: رئيسية مبسّطة تركّز على توثيق الشواهد فقط، بلا خطة أو تقييم ذاتي أو مهام تشتّت انتباهك.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" style="padding:5px 14px;font-size:12px;" onclick="switchUiMode('quick')">جرّب الآن</button>
+          <button class="btn btn-outline" style="padding:5px 14px;font-size:12px;" onclick="switchUiMode('full')">لا، أفضّل الوضع الحالي</button>
+        </div>
+      </div>
+
       <div class="home-section-label">المهام</div>
       <div class="home-actions">
         <button class="home-btn primary" style="grid-column:1/-1;" onclick="showList()">
           <span class="hb-title">شواهدي</span>
           <span class="hb-sub">استعراض الشواهد وإضافة شاهد جديد</span>
         </button>
-        <button class="home-btn" style="grid-column:1/-1;" onclick="showCalendar()">
+        <button class="home-btn" id="calendarHomeBtn" style="grid-column:1/-1;" onclick="showCalendar()">
           <span class="hb-title">التقويم الدراسي</span>
           <span class="hb-sub">توزيع الأسابيع والإجازات الرسمية لنطاقك</span>
         </button>
-        <button class="home-btn" style="grid-column:1/-1;" onclick="showTasks()">
+        <button class="home-btn" id="tasksHomeBtn" style="grid-column:1/-1;" onclick="showTasks()">
           <span class="hb-title">مهامّي</span>
           <span class="hb-sub">مهام شخصية، تظهر بالتقويم وتُربَط بأهدافك وبرامجك عند الحاجة</span>
         </button>
@@ -303,7 +311,7 @@
           <span class="hb-title">خطة الأداء السنوية</span>
           <span class="hb-sub" id="planHomeSub">حدّد مستهدفاتك لعناصر الأداء لتبدأ العمل عليها</span>
         </button>
-        <button class="home-btn" style="grid-column:1/-1;" onclick="showSelfAssessment()">
+        <button class="home-btn" id="selfAssessmentHomeBtn" style="grid-column:1/-1;" onclick="showSelfAssessment()">
           <span class="hb-title">التقييم الذاتي</span>
           <span class="hb-sub" id="selfHomeSub">قيّم أداءك استعدادًا لجلسة التقييم النهائية</span>
         </button>
@@ -329,6 +337,10 @@
             <span class="hb-sub">إحصائيات وشواهد كل المعلمين</span>
           </button>
         </div>
+      </div>
+
+      <div style="text-align:center;padding:4px 32px 0;">
+        <a href="#" id="uiModeSwitchLink" onclick="switchUiMode(uiMode==='quick' ? 'full' : 'quick');return false;" style="font-size:11.5px;color:var(--muted);text-decoration:underline;">🔄 التبديل للمسار السريع</a>
       </div>
 
       <div style="margin-top:26px;padding:16px 32px 24px;border-top:1px solid var(--line);text-align:center;font-size:11.5px;color:var(--muted);">
