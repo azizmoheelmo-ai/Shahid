@@ -20,6 +20,31 @@ const { test, expect } = require('@playwright/test');
 
 const TEST_EMAIL = 'staging-test@shahid.test';
 const TEST_PASSWORD = 'ShahidStaging#2026';
+/* نفس القيم العامة (publishable) المشحونة بكود التطبيق — app-01-core.js —
+   لا سرّ هنا، تُستخدم فقط لتنظيف صفوف الاختبار من staging بعد كل تشغيلة CI
+   (بدونه تتراكم شواهد اختبار بلا نهاية، اكتُشف هذا فعليًا بعد عدة تشغيلات). */
+const SUPABASE_URL = 'https://urpsznuywezkqxhnwkyo.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_YsdvYhGJq9UUCiFaB4JPvQ_iZj5JSsF';
+
+/* يحذف من staging.shawahid أي صف بعلامة الاختبار (lesson_title) هذه —
+   عبر REST مباشرة (لا عبر sb الداخلي بالتطبيق: متغيّر const بأعلى المستوى
+   لا يظهر كخاصية window حتى بمتصفح حقيقي، فلا يمكن الوصول له من page.evaluate).
+   يُستدعى بـfinally بعد اختبار "إضافة شاهد جديد" فقط — لا يمسّ أي جدول آخر. */
+async function cleanupTestShahid(request, marker){
+  const authRes = await request.post(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    headers: { apikey: SUPABASE_ANON_KEY, 'content-type': 'application/json' },
+    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+  });
+  if(!authRes.ok()) return; // فشل تنظيف لا يجب أن يُسقط نتيجة الاختبار نفسه
+  const { access_token } = await authRes.json();
+  await request.delete(`${SUPABASE_URL}/rest/v1/shawahid?lesson_title=eq.${encodeURIComponent(marker)}`, {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      authorization: `Bearer ${access_token}`,
+      'content-profile': 'staging',
+    },
+  }).catch(() => {});
+}
 
 /* تسجيل الدخول بحساب staging التجريبي — مشترك بين الاختبارات الثلاثة */
 async function login(page){
@@ -63,32 +88,38 @@ test.describe('المسارات الأساسية (بيئة staging)', () => {
     expect(pageErrors, `أخطاء JS غير متوقعة بالشاشة الرئيسية: ${pageErrors.join('; ')}`).toEqual([]);
   });
 
-  test('إضافة شاهد جديد', async ({ page }) => {
-    await login(page);
-
-    /* شواهدي (الزر الرئيسي الأول بالشاشة الرئيسية) */
-    await page.click('.home-btn.primary');
-    await expect(page.locator('#listView')).toBeVisible();
-
-    /* + شاهد جديد */
-    await page.click('button:has-text("+ شاهد جديد")');
-    await expect(page.locator('#formView')).toBeVisible();
-
-    /* عنصر الأداء مطلوب — انتظار تعبئة القائمة (تحميل غير متزامن بعد الدخول)
-       ثم انتظار مرئيّته الفعلية قبل الاختيار. */
-    await expect
-      .poll(() => page.locator('#elementSelect option').count(), { timeout: 10000 })
-      .toBeGreaterThan(1);
-    await expect(page.locator('#elementSelect')).toBeVisible({ timeout: 10000 });
-    await page.selectOption('#elementSelect', { index: 1 });
-
+  test('إضافة شاهد جديد', async ({ page, request }) => {
     const marker = `اختبار Playwright ${Date.now()}`;
-    await page.fill('#mLesson', marker);
+    try {
+      await login(page);
 
-    await page.click('#saveBtn');
+      /* شواهدي (الزر الرئيسي الأول بالشاشة الرئيسية) */
+      await page.click('.home-btn.primary');
+      await expect(page.locator('#listView')).toBeVisible();
 
-    await expect(page.locator('#saveMsg')).toContainText('تم حفظ الشاهد بنجاح', { timeout: 15000 });
-    /* التطبيق ينتقل تلقائيًا لشاشة القائمة بعد نجاح الحفظ (بعد ~900ms) */
-    await expect(page.locator('#listView')).toBeVisible({ timeout: 15000 });
+      /* + شاهد جديد */
+      await page.click('button:has-text("+ شاهد جديد")');
+      await expect(page.locator('#formView')).toBeVisible();
+
+      /* عنصر الأداء مطلوب — انتظار تعبئة القائمة (تحميل غير متزامن بعد الدخول)
+         ثم انتظار مرئيّته الفعلية قبل الاختيار. */
+      await expect
+        .poll(() => page.locator('#elementSelect option').count(), { timeout: 10000 })
+        .toBeGreaterThan(1);
+      await expect(page.locator('#elementSelect')).toBeVisible({ timeout: 10000 });
+      await page.selectOption('#elementSelect', { index: 1 });
+
+      await page.fill('#mLesson', marker);
+
+      await page.click('#saveBtn');
+
+      await expect(page.locator('#saveMsg')).toContainText('تم حفظ الشاهد بنجاح', { timeout: 15000 });
+      /* التطبيق ينتقل تلقائيًا لشاشة القائمة بعد نجاح الحفظ (بعد ~900ms) */
+      await expect(page.locator('#listView')).toBeVisible({ timeout: 15000 });
+    } finally {
+      /* ينظّف الشاهد الذي أنشأه هذا التشغيل بصرف النظر عن نجاح الاختبار أو
+         فشله — بدونه يتراكم صف جديد بـstaging.shawahid مع كل تشغيلة CI. */
+      await cleanupTestShahid(request, marker);
+    }
   });
 });
