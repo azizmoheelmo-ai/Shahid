@@ -927,6 +927,7 @@ function hideAllMainViews(){
   document.getElementById('academicView').style.display = 'none';
   document.getElementById('acLetterView').style.display = 'none';
   document.getElementById('programsView').style.display = 'none';
+  document.getElementById('calendarView').style.display = 'none';
 }
 function switchCrmTab(tab){
   const recordBtn = document.getElementById('crmTabBtnRecord');
@@ -1934,6 +1935,7 @@ async function showHome(){
   renderCycleCard();
   renderServiceAlert();
   renderHomeProgressCard();
+  renderCurrentWeekWidget();
   maybeShowOnboardingTour();
 }
 

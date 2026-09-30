@@ -1145,6 +1145,59 @@ end;
 $$;
 revoke all on function public.check_mcp_rate_limit(uuid, int, int) from public, anon, authenticated;
 
+-- ============ 10) التقويم الدراسي الرسمي ============
+-- جداول مرجعية مشتركة بين كل المعلمين (بلا user_id) — توزيع الأسابيع
+-- الدراسية والإجازات الرسمية، لنطاقين جغرافيين (مكة/المدينة/جدة/الطائف
+-- مقابل بقية المناطق). بيانات عام 1448-1449هـ نفسها لا تُزرع هنا — تُستعاد
+-- من ملفات CSV بالنسخة الاحتياطية (مُدرَجة بقائمة exportFullBackup) بعد
+-- تشغيل هذا الملف، تمامًا كجدول classroom_incident_types.
+create table if not exists public.academic_calendar_weeks (
+  id uuid primary key default gen_random_uuid(),
+  academic_year text not null,
+  region_group text not null,
+  semester int not null,
+  week_label text,
+  hijri_month text,
+  day_name text not null,
+  hijri_date text,
+  gregorian_date date not null,
+  note text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_academic_calendar_weeks_lookup
+  on public.academic_calendar_weeks(region_group, academic_year, gregorian_date);
+
+alter table public.academic_calendar_weeks enable row level security;
+
+drop policy if exists "أي معلم يقرأ تقويم الأسابيع" on public.academic_calendar_weeks;
+create policy "أي معلم يقرأ تقويم الأسابيع"
+  on public.academic_calendar_weeks for select using (auth.uid() is not null);
+
+create table if not exists public.academic_calendar_holidays (
+  id uuid primary key default gen_random_uuid(),
+  academic_year text not null,
+  region_group text not null,
+  semester int not null,
+  holiday_name text not null,
+  event_label text not null,
+  day_name text,
+  hijri_date text,
+  gregorian_date date not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_academic_calendar_holidays_lookup
+  on public.academic_calendar_holidays(region_group, academic_year, gregorian_date);
+
+alter table public.academic_calendar_holidays enable row level security;
+
+drop policy if exists "أي معلم يقرأ إجازات التقويم" on public.academic_calendar_holidays;
+create policy "أي معلم يقرأ إجازات التقويم"
+  on public.academic_calendar_holidays for select using (auth.uid() is not null);
+
+alter table public.profiles add column if not exists calendar_region text;
+
 -- ============ انتهى ============
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:
 -- insert into public.admins (user_id) values ('ضع-UID-حسابك-هنا');
@@ -1196,7 +1249,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'support_messages'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
