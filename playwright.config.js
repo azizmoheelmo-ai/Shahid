@@ -26,7 +26,11 @@ module.exports = defineConfig({
   timeout: 30000,
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
-  reporter: 'list',
+  /* 'list' للمخرجات الحية بالطرفية + 'html' يولّد playwright-report/ فعليًا
+     (بدونه لا يوجد أي ملف يُرفَع بخطوة "رفع تقرير Playwright عند الفشل"
+     بخط CI — 'list' وحدها لا تكتب أي تقرير على القرص). open:'never' يمنع
+     محاولة فتح المتصفح تلقائيًا بعد الاختبار (لا معنى له بيئة CI). */
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',

@@ -8,7 +8,14 @@
    app-07-backup-export.js وتعليق PRODUCTION_HOSTNAMES بـapp-01-core.js).
    hostname الخادم المحلي هنا (127.0.0.1) ليس ضمن نطاقات الإنتاج، فيختار
    التطبيق staging تلقائيًا — لا حاجة لأي إعداد إضافي بهذا الملف.
-   ============================================================ */
+
+   ملاحظة لو احتجت إعادة إنشاء حساب staging هذا مستقبلًا (حُذف بالخطأ مثلًا):
+   إدراج صف بـauth.users مباشرة عبر SQL (بدل التسجيل من واجهة التطبيق) يترك
+   confirmation_token/recovery_token/email_change_token_new/email_change
+   بقيمة NULL افتراضيًا — GoTrue يفشل حينها بخطأ 500 غامض ("error finding
+   user: ... converting NULL to string is unsupported") عند أي محاولة دخول،
+   رغم أن كلمة المرور صحيحة تمامًا. الحل: عيّنها فارغة '' صراحة عند الإدراج،
+   لا تتركها NULL (اكتُشف هذا فعليًا أول تشغيل لهذه الاختبارات بـCI). */
 const { test, expect } = require('@playwright/test');
 
 const TEST_EMAIL = 'staging-test@shahid.test';
