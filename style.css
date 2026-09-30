@@ -1269,6 +1269,7 @@
   .cal-dot{width:6px;height:6px;border-radius:50%;background:var(--navy);display:inline-block;}
   .cal-dot.dot-shahid{background:#215C34;}
   .cal-dot.dot-program{background:var(--gold);}
+  .cal-dot.dot-task{background:#2B6CB0;}
 
   .cal-week-group{margin-bottom:14px;padding:0 32px;}
   .cal-week-group h3{margin:0 0 6px;font-size:13px;color:var(--navy);}

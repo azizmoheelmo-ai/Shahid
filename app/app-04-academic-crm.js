@@ -928,6 +928,7 @@ function hideAllMainViews(){
   document.getElementById('acLetterView').style.display = 'none';
   document.getElementById('programsView').style.display = 'none';
   document.getElementById('calendarView').style.display = 'none';
+  document.getElementById('tasksView').style.display = 'none';
 }
 function switchCrmTab(tab){
   const recordBtn = document.getElementById('crmTabBtnRecord');

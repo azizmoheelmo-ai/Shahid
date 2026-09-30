@@ -109,4 +109,13 @@ test('buildSchemaSql', async (t) => {
     assert.match(sql, /create policy "أي معلم يقرأ تقويم الأسابيع"\s*\n\s*on public\.academic_calendar_weeks for select using \(auth\.uid\(\) is not null\)/);
     assert.match(sql, /create policy "أي معلم يقرأ إجازات التقويم"\s*\n\s*on public\.academic_calendar_holidays for select using \(auth\.uid\(\) is not null\)/);
   });
+
+  await t.test('المهام: جدول tasks بملكية صريحة وربط اختياري (FK) بهدف/برنامج', () => {
+    const app = loadApp();
+    const sql = app.buildSchemaSql();
+    assert.match(sql, /create table if not exists public\.tasks/);
+    assert.match(sql, /linked_goal_id uuid references public\.performance_goals\(id\) on delete set null/);
+    assert.match(sql, /linked_program_id uuid references public\.activity_programs\(id\) on delete set null/);
+    assert.match(sql, /create policy "المعلم يشوف مهامه فقط"\s*\n\s*on public\.tasks for select using \(auth\.uid\(\) = user_id\)/);
+  });
 });

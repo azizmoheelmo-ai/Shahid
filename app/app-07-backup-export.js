@@ -1198,6 +1198,54 @@ create policy "أي معلم يقرأ إجازات التقويم"
 
 alter table public.profiles add column if not exists calendar_region text;
 
+-- ============ 11) المهام ============
+-- كيان شخصي بسيط (عنوان/وصف اختياري/أولوية/تاريخ استحقاق/حالة إنجاز)، مع
+-- ربط اختياري بهدف أداء أو برنامج نشاط — FK حقيقي بعمودين منفصلين، يُنظَّف
+-- تلقائيًا (on delete set null) لو حُذف الهدف/البرنامج المرتبط.
+create table if not exists public.tasks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  title text not null,
+  description text,
+  priority text not null default 'medium' check (priority in ('low', 'medium', 'high')),
+  due_date date,
+  done boolean not null default false,
+  linked_goal_id uuid references public.performance_goals(id) on delete set null,
+  linked_program_id uuid references public.activity_programs(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.tasks enable row level security;
+
+drop policy if exists "المعلم يشوف مهامه فقط" on public.tasks;
+create policy "المعلم يشوف مهامه فقط"
+  on public.tasks for select using (auth.uid() = user_id);
+
+drop policy if exists "المعلم يضيف مهمة لنفسه فقط" on public.tasks;
+create policy "المعلم يضيف مهمة لنفسه فقط"
+  on public.tasks for insert with check (auth.uid() = user_id);
+
+drop policy if exists "المعلم يعدّل مهامه فقط" on public.tasks;
+create policy "المعلم يعدّل مهامه فقط"
+  on public.tasks for update using (auth.uid() = user_id);
+
+drop policy if exists "المعلم يحذف مهامه فقط" on public.tasks;
+create policy "المعلم يحذف مهامه فقط"
+  on public.tasks for delete using (auth.uid() = user_id);
+
+create index if not exists idx_tasks_user_due on public.tasks(user_id, due_date);
+
+create or replace function public.set_tasks_updated_at()
+returns trigger as $$
+begin new.updated_at = now(); return new; end;
+$$ language plpgsql security definer;
+
+drop trigger if exists trg_tasks_updated_at on public.tasks;
+create trigger trg_tasks_updated_at
+before update on public.tasks
+for each row execute function public.set_tasks_updated_at();
+
 -- ============ انتهى ============
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:
 -- insert into public.admins (user_id) values ('ضع-UID-حسابك-هنا');
@@ -1249,7 +1297,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
