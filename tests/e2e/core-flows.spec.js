@@ -66,45 +66,21 @@ test.describe('المسارات الأساسية (بيئة staging)', () => {
   test('إضافة شاهد جديد', async ({ page }) => {
     await login(page);
 
-    // تشخيص مؤقت: فشل عابر متكرر (formView يصير مرئيًا ثم يعود لـhomeView
-    // قبل selectOption) — نُغلِّف دوال التنقّل الرئيسية لنسجّل مباشرة (مع
-    // stack الاستدعاء الفعلي) من نادى كلًا منها ومتى، بدل مراقبة الأعراض
-    // فقط عبر MutationObserver (الذي يفقد stack الاستدعاء الأصلي لأنه
-    // microtask منفصل). يُحذف فور إيجاد السبب الفعلي.
-    await page.evaluate(() => {
-      window.__callLog = [];
-      ['showHome', 'showList', 'showForm', 'hideAllMainViews', 'onLoggedIn'].forEach(name => {
-        const orig = window[name];
-        if(typeof orig !== 'function') return;
-        window[name] = function(...args){
-          window.__callLog.push({ t: performance.now(), name, stack: new Error().stack });
-          return orig.apply(this, args);
-        };
-      });
-    });
+    /* شواهدي (الزر الرئيسي الأول بالشاشة الرئيسية) */
+    await page.click('.home-btn.primary');
+    await expect(page.locator('#listView')).toBeVisible();
 
-    try {
-      /* شواهدي (الزر الرئيسي الأول بالشاشة الرئيسية) */
-      await page.click('.home-btn.primary');
-      await expect(page.locator('#listView')).toBeVisible();
+    /* + شاهد جديد */
+    await page.click('button:has-text("+ شاهد جديد")');
+    await expect(page.locator('#formView')).toBeVisible();
 
-      /* + شاهد جديد */
-      await page.click('button:has-text("+ شاهد جديد")');
-      await expect(page.locator('#formView')).toBeVisible();
-
-      /* عنصر الأداء مطلوب — انتظار تعبئة القائمة (تحميل غير متزامن بعد الدخول)
-         ثم انتظار مرئيّته الفعلية (لا الاكتفاء بوجود الخيارات) قبل الاختيار —
-         شُوهد فشل عابر مرة واحدة بلا هذا الانتظار الصريح رغم أن #formView
-         نفسه كان مرئيًا أصلًا، ما يرجّح لحظة إعادة رسم قصيرة بعد التنقّل. */
-      await expect
-        .poll(() => page.locator('#elementSelect option').count(), { timeout: 10000 })
-        .toBeGreaterThan(1);
-      await expect(page.locator('#elementSelect')).toBeVisible({ timeout: 10000 });
-      await page.selectOption('#elementSelect', { index: 1 });
-    } finally {
-      const log = await page.evaluate(() => window.__callLog || []);
-      console.log('CALLLOG:', JSON.stringify(log, null, 2));
-    }
+    /* عنصر الأداء مطلوب — انتظار تعبئة القائمة (تحميل غير متزامن بعد الدخول)
+       ثم انتظار مرئيّته الفعلية قبل الاختيار. */
+    await expect
+      .poll(() => page.locator('#elementSelect option').count(), { timeout: 10000 })
+      .toBeGreaterThan(1);
+    await expect(page.locator('#elementSelect')).toBeVisible({ timeout: 10000 });
+    await page.selectOption('#elementSelect', { index: 1 });
 
     const marker = `اختبار Playwright ${Date.now()}`;
     await page.fill('#mLesson', marker);

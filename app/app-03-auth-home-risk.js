@@ -298,9 +298,23 @@ async function onLoggedIn(user){
   /* لا حاجة لاستدعاء loadPlan() هنا بشكل منفصل — showHome() (بالأسفل) يستدعيها
      أصلًا عبر refreshPlanSummary() وينتظرها فعليًا قبل حساب الاكتمال الموزون؛
      استدعاء إضافي هنا كان يكرّر نفس 3 الاستعلامات بلا أي فائدة، ويُبطئ تسجيل
-     الدخول بلا داعٍ. */
-  await showHome();
-  offerDraftRestore();
+     الدخول بلا داعٍ.
+
+     حالة سباق حقيقية (اكتُشفت أثناء اختبارات Playwright، مصادفة توقيت لا خلل
+     بالاختبار نفسه): appView يظهر مبكرًا بالأعلى (قبل هذا await)، فعلى اتصال
+     بطيء قد يتنقّل المستخدم فعليًا لشاشة أخرى (مثل "شواهدي") قبل اكتمال
+     loadPerformanceElements — فيُعيده showHome قسرًا للرئيسية ويقاطعه
+     offerDraftRestore بحوار استعادة مسودة، فوق ما يعمل عليه فعليًا الآن. لذا
+     نتحقق أولًا: لو انتقل المستخدم بالفعل لأي شاشة رئيسية أخرى، لا نلمس شيئًا. */
+  const alreadyNavigatedAway = [
+    'formView', 'listView', 'planView', 'selfView', 'classroomView',
+    'referralLetterView', 'settingsView', 'riskView', 'academicView',
+    'acLetterView', 'programsView', 'adminView'
+  ].some(id => (document.getElementById(id) || {}).style.display === 'block');
+  if(!alreadyNavigatedAway){
+    await showHome();
+    offerDraftRestore();
+  }
 }
 
 /* وكيل/مدير المدرسة (STANDALONE_ROLES) دور وظيفي مختلف كليًا عن المعلم — لا
