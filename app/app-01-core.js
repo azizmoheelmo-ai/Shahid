@@ -1,7 +1,25 @@
 /* ============ إعداد Supabase ============ */
 const SUPABASE_URL = "https://urpsznuywezkqxhnwkyo.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_YsdvYhGJq9UUCiFaB4JPvQ_iZj5JSsF";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* بيئة تجريبية (staging): نفس مشروع Supabase بالضبط (نفس URL/المفتاح — علنيان
+   أصلًا، لا سرّ بمشاركتهما)، لكن schema منفصلة تمامًا ("staging" بدل
+   "public") — بلا أي تكلفة مشروع إضافي (راجع buildSchemaSql بـ
+   app-07-backup-export.js لتوليدها). الاختيار بالـhostname حصرًا، بقائمة
+   "سماح" (allow-list) لنطاقات الإنتاج المعروفة فقط — أي نطاق آخر (بما فيها
+   localhost أو أي معاينة Vercel أخرى لم تُدرَج بعد) يقع افتراضيًا على
+   staging لا public، عمدًا: الخطأ الآمن هنا هو "اعتقاد خاطئ أننا بالإنتاج
+   فنكتب لـstaging"، لا العكس (كتابة بيانات اختبار بالخطأ على قاعدة حقيقية
+   فيها معلمون وطلاب حقيقيون). حدِّث هذه القائمة فقط لو أُضيف نطاق إنتاج جديد
+   فعليًا (مثل دومين مخصص) — لا توسّعها بلا داعٍ. */
+const PRODUCTION_HOSTNAMES = [
+  'shahid-classroom.vercel.app',
+  'shahid-classroom-shahid-3eaf.vercel.app',
+  'shahid-classroom-git-main-shahid-3eaf.vercel.app'
+];
+const IS_PRODUCTION_HOST = typeof location !== 'undefined' && PRODUCTION_HOSTNAMES.includes(location.hostname);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+  IS_PRODUCTION_HOST ? undefined : { db: { schema: 'staging' } });
 
 /* ============ تحميل كسول للمكتبات الثقيلة (تُحمّل فقط وقت الحاجة الفعلية) ============ */
 const _loadedScripts = {};

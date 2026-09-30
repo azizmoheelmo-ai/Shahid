@@ -15,8 +15,14 @@ let adminIds = new Set();
    تشمل: كل الجداول + الصور الفعلية + ملفات CSV مقروءة
    ============================================ */
 /* ملف SQL كامل لإعادة بناء بنية قاعدة البيانات من الصفر */
-function buildSchemaSql(){
-  return `-- ============================================================
+/* schema: اسم الـschema المُولَّد لها السكربت — 'public' افتراضيًا (سلوك
+   الاستدعاءات الحالية بلا تغيير إطلاقًا). أي قيمة أخرى (مثل 'staging') تولّد
+   نفس البنية بالضبط تحت schema منفصلة بنفس مشروع Supabase — نسخة مطابقة
+   حرفيًا، بلا ازدواج صيانة — باستثناء تريجرات auth.users المشتركة عالميًا
+   (راجع تعليق @@STAGING_SKIP_START@@ بالأسفل لسبب استبعادها). */
+function buildSchemaSql(schema){
+  schema = schema || 'public';
+  const sql = `-- ============================================================
 -- إعادة بناء بنية قاعدة بيانات "شاهد الأداء الوظيفي" من الصفر
 -- شغّل هذا الملف كاملًا في SQL Editor على مشروع Supabase جديد
 -- ثم استورد البيانات من ملف backup-full.json
@@ -75,6 +81,89 @@ drop policy if exists "المسؤول يعدّل أي ملف" on public.profiles
 create policy "المسؤول يعدّل أي ملف"
   on public.profiles for update using (public.is_admin(auth.uid()));
 
+-- ============ 2ب) حماية الدخول (محاولات فاشلة + إحصاء نشاط) ============
+-- ملاحظة: كانت هذه الأعمدة/الجدول/الدوال الثلاثة موجودة فعليًا بقاعدة
+-- الإنتاج (طُبِّقت مباشرة سابقًا) لكن غائبة تمامًا عن هذا الملف — اكتُشف
+-- الغياب أثناء بناء بيئة staging لأول مرة من هذا السكربت (لا من نسخة إنتاج
+-- قديمة أصلًا فيها هذه الكائنات)، فكان سيفشل استرجاع الإنتاج من كارثة حقيقية
+-- بفقدان حد محاولات الدخول الفاشلة وإحصاء النشاط بصمت (app-03 يستدعيها
+-- بـtry/catch فلا يمنع الدخول، لكن الحماية والإحصاء يختفيان).
+alter table public.profiles add column if not exists last_login_at timestamptz;
+alter table public.profiles add column if not exists login_count int default 0;
+alter table public.profiles add column if not exists active_days int default 0;
+alter table public.profiles add column if not exists last_active_date date;
+
+-- (غير مُدرَج عمدًا بقوائم exportFullBackup/exportBackup — نفس منطق
+-- personal_access_tokens: سجلّ أمني تقني لا بيانات معلم، ويحمل عناوين بريد
+-- محاولات فاشلة قد لا تخص صاحب الحساب نفسه)
+create table if not exists public.login_attempts (
+  id bigint generated always as identity primary key,
+  email text not null,
+  success boolean not null default false,
+  created_at timestamptz not null default now()
+);
+-- RLS مفعَّلة بلا أي سياسة عمدًا: لا عميل (anon/authenticated) يقرأ أو يكتب
+-- بهذا الجدول مباشرة أبدًا — الوصول الوحيد عبر الدوال الثلاث أدناه
+-- (security definer، تتجاوز RLS بصلاحية مالك الدالة) فقط.
+alter table public.login_attempts enable row level security;
+
+create or replace function public.check_login_allowed(p_email text)
+returns boolean
+language plpgsql security definer
+set search_path to 'public'
+as $$
+declare
+  recent_failures int;
+begin
+  select count(*) into recent_failures
+    from public.login_attempts
+    where email = lower(trim(p_email))
+      and success = false
+      and created_at > now() - interval '15 minutes';
+  return recent_failures < 5;
+end;
+$$;
+
+create or replace function public.record_login_attempt(p_email text, p_success boolean)
+returns void
+language plpgsql security definer
+set search_path to 'public'
+as $$
+begin
+  insert into public.login_attempts (email, success)
+  values (lower(trim(p_email)), p_success);
+  -- تنظيف تلقائي للسجلات الأقدم من ساعة لتفادي تضخم الجدول
+  delete from public.login_attempts where created_at < now() - interval '1 hour';
+end;
+$$;
+
+create or replace function public.record_login()
+returns void
+language plpgsql security definer
+as $$
+declare
+  today date := current_date;
+  prev_date date;
+begin
+  select last_active_date into prev_date from public.profiles where id = auth.uid();
+  update public.profiles
+    set last_login_at = now(),
+        login_count = coalesce(login_count, 0) + 1,
+        active_days = case
+          when prev_date is null or prev_date <> today then coalesce(active_days, 0) + 1
+          else coalesce(active_days, 0)
+        end,
+        last_active_date = today
+    where id = auth.uid();
+end;
+$$;
+
+-- @@STAGING_SKIP_START@@ (راجع buildSchemaSql: auth.users جدول مشترك عالميًا
+-- لا يخص أي schema بعينها — تشغيل هذا القسم لبيئة staging يسحب التريجر بنفس
+-- الاسم من الإنتاج (auth.users يسمح بتريجر واحد بهذا الاسم لا اثنين) ويحوّله
+-- ليكتب بدل ذلك بجدول staging.profiles، فتتعطل مزامنة التسجيل الحقيقي بالإنتاج.
+-- لذلك يُستبعد هذا القسم بالكامل عند التوليد لأي schema غير 'public' (بيانات
+-- المعلم التجريبي بـstaging تُدرَج يدويًا بدل الاعتماد على هذا التريجر).
 -- تزامن تلقائي مع حسابات المصادقة
 create or replace function public.sync_profile_from_auth()
 returns trigger as $$
@@ -103,6 +192,7 @@ drop trigger if exists trg_sync_profile_update on auth.users;
 create trigger trg_sync_profile_update
 after update of raw_user_meta_data, email on auth.users
 for each row execute function public.sync_profile_from_auth();
+-- @@STAGING_SKIP_END@@
 
 -- ============ 3) عناصر الأداء ============
 create table if not exists public.performance_elements (
@@ -363,9 +453,19 @@ create table if not exists public.shawahid (
    IF NOT EXISTS يجعل هذا آمنًا للتشغيل حتى لو كانا مضافين مسبقًا، وضروري
    لأي قاعدة أُنشئت من نسخة سابقة من هذا الملف لا تتضمنهما: بدونهما يفشل كل
    استعلام في loadPlan() على shawahid بصمت (عمود غير موجود)، فتظهر الخطة
-   والنسبة الموزونة فارغتين رغم أن بيانات الخطة نفسها سليمة تمامًا. */
-alter table public.shawahid add column if not exists goal_id uuid references public.performance_goals(id) on delete set null;
+   والنسبة الموزونة فارغتين رغم أن بيانات الخطة نفسها سليمة تمامًا.
+   ملاحظة: عمود goal_id بالذات (مرجع FK لـperformance_goals) يُضاف لاحقًا
+   بالملف بعد إنشاء ذلك الجدول (قسم 5) لا هنا — راجع تعليقه هناك؛ إنشاؤه هنا
+   كان يفشل فعليًا عند تشغيل هذا الملف كاملًا على مشروع جديد فارغ (الغرض
+   المعلن بأعلى الملف) لأن performance_goals لم يكن موجودًا بعد بهذه النقطة. */
 alter table public.shawahid add column if not exists cycle_year text;
+
+/* أُضيف لاحقًا أيضًا (تصنيف كل شاهد على مرحلة دورة الأداء وقت توثيقه —
+   getCycleStageKey بـapp-03) — غائب هنا بنفس سبب غياب login_attempts أعلاه:
+   لم يُكتشف غيابه إلا أول تشغيل فعلي لهذا الملف من الصفر (بيئة staging)،
+   حيث فشل saveShahid فعليًا بخطأ "Could not find the 'cycle_stage' column
+   of 'shawahid' in the schema cache" عند أول محاولة حفظ حقيقية. */
+alter table public.shawahid add column if not exists cycle_stage text;
 
 alter table public.shawahid enable row level security;
 
@@ -622,6 +722,10 @@ create table if not exists public.performance_goals (
   updated_at timestamptz default now(),
   unique(user_id, cycle_year, element_key, goal_order)
 );
+
+-- ربط اختياري لكل شاهد بهدف محدد بالخطة — لازم يجي هنا بعد إنشاء الجدول
+-- مباشرة، لا قبله بقسم (4) الشواهد (راجع تعليق cycle_year هناك لسبب النقل).
+alter table public.shawahid add column if not exists goal_id uuid references public.performance_goals(id) on delete set null;
 
 alter table public.performance_goals enable row level security;
 
@@ -1045,6 +1149,11 @@ revoke all on function public.check_mcp_rate_limit(uuid, int, int) from public, 
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:
 -- insert into public.admins (user_id) values ('ضع-UID-حسابك-هنا');
 `;
+  if(schema === 'public') return sql;
+  return sql
+    .replace(/-- @@STAGING_SKIP_START@@[\s\S]*?-- @@STAGING_SKIP_END@@\n?/, '-- (تريجرات مزامنة auth.users مُستبعدة عمدًا لبيئات staging — راجع تعليق buildSchemaSql)\n')
+    .replace(/table_schema='public'/g, `table_schema='${schema}'`)
+    .replace(/\bpublic\./g, schema + '.');
 }
 
 
