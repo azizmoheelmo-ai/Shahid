@@ -23,6 +23,13 @@ const TEST_PASSWORD = 'ShahidStaging#2026';
 
 /* تسجيل الدخول بحساب staging التجريبي — مشترك بين الاختبارات الثلاثة */
 async function login(page){
+  /* تعطيل الجولة التعريفية (تظهر مرة واحدة فقط لأي معلم جديد — راجع
+     ONBOARDING_KEY بـapp-03-auth-home-risk.js) قبل أي تنقّل: بدونه تظهر
+     نافذة "مرحبًا بك في شاهد" كحوار مُعلَّق فوق الصفحة عند أول دخول بكل
+     سياق متصفح جديد (كل اختبار Playwright يبدأ بسياق فارغ)، فتحجب أي عنصر
+     تحته (مثل #elementSelect) — لا علاقة لهذا بسلوك المستخدم الحقيقي
+     المُختبَر هنا، فنتخطاه بدل التعامل مع نافذة الجولة بكل اختبار. */
+  await page.addInitScript(() => localStorage.setItem('shahid_onboarded_v1', '1'));
   await page.goto('/');
   await page.fill('#authEmail', TEST_EMAIL);
   await page.fill('#authPassword', TEST_PASSWORD);

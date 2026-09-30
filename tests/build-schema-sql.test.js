@@ -69,6 +69,23 @@ test('buildSchemaSql', async (t) => {
     assert.ok(createGoalsIdx < fkIdx, 'مرجع FK لـperformance_goals يسبق إنشاء الجدول نفسه بالسكربت');
   });
 
+  await t.test('اكتمال المخطط: أعمدة/جداول اكتُشف غيابها فعليًا أثناء تجهيز staging', () => {
+    // هذا السكربت مُعلَن بتعليقه الخاص كأداة استرجاع كاملة من الصفر، لكن لم
+    // يُشغَّل فعليًا من الصفر قبل بناء بيئة staging بهذا الأسبوع — فكُشفت
+    // فجوتان حقيقيتان كانتا ستفشلان أي استرجاع كارثة حقيقي بصمت أو بخطأ:
+    // (1) جدول login_attempts + الدوال الثلاث (حد محاولات الدخول الفاشلة)،
+    // (2) عمود shawahid.cycle_stage (فشل saveShahid فعليًا بخطأ "schema
+    // cache" أول محاولة حفظ حقيقية على staging لولا هذا العمود). هذا
+    // الاختبار يمنع تكرار حذف أي منهما سهوًا مستقبلًا.
+    const app = loadApp();
+    const sql = app.buildSchemaSql();
+    assert.match(sql, /create table if not exists public\.login_attempts/);
+    assert.match(sql, /create or replace function public\.check_login_allowed/);
+    assert.match(sql, /create or replace function public\.record_login_attempt/);
+    assert.match(sql, /create or replace function public\.record_login\(\)/);
+    assert.match(sql, /alter table public\.shawahid add column if not exists cycle_stage text/);
+  });
+
   await t.test("schema='staging' يستبعد تريجرات auth.users المشتركة عالميًا", () => {
     const app = loadApp();
     const sql = app.buildSchemaSql('staging');

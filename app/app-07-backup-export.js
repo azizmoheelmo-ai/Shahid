@@ -460,6 +460,13 @@ create table if not exists public.shawahid (
    المعلن بأعلى الملف) لأن performance_goals لم يكن موجودًا بعد بهذه النقطة. */
 alter table public.shawahid add column if not exists cycle_year text;
 
+/* أُضيف لاحقًا أيضًا (تصنيف كل شاهد على مرحلة دورة الأداء وقت توثيقه —
+   getCycleStageKey بـapp-03) — غائب هنا بنفس سبب غياب login_attempts أعلاه:
+   لم يُكتشف غيابه إلا أول تشغيل فعلي لهذا الملف من الصفر (بيئة staging)،
+   حيث فشل saveShahid فعليًا بخطأ "Could not find the 'cycle_stage' column
+   of 'shawahid' in the schema cache" عند أول محاولة حفظ حقيقية. */
+alter table public.shawahid add column if not exists cycle_stage text;
+
 alter table public.shawahid enable row level security;
 
 drop policy if exists "المعلم يشوف شواهده فقط" on public.shawahid;
