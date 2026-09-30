@@ -81,6 +81,83 @@ drop policy if exists "المسؤول يعدّل أي ملف" on public.profiles
 create policy "المسؤول يعدّل أي ملف"
   on public.profiles for update using (public.is_admin(auth.uid()));
 
+-- ============ 2ب) حماية الدخول (محاولات فاشلة + إحصاء نشاط) ============
+-- ملاحظة: كانت هذه الأعمدة/الجدول/الدوال الثلاثة موجودة فعليًا بقاعدة
+-- الإنتاج (طُبِّقت مباشرة سابقًا) لكن غائبة تمامًا عن هذا الملف — اكتُشف
+-- الغياب أثناء بناء بيئة staging لأول مرة من هذا السكربت (لا من نسخة إنتاج
+-- قديمة أصلًا فيها هذه الكائنات)، فكان سيفشل استرجاع الإنتاج من كارثة حقيقية
+-- بفقدان حد محاولات الدخول الفاشلة وإحصاء النشاط بصمت (app-03 يستدعيها
+-- بـtry/catch فلا يمنع الدخول، لكن الحماية والإحصاء يختفيان).
+alter table public.profiles add column if not exists last_login_at timestamptz;
+alter table public.profiles add column if not exists login_count int default 0;
+alter table public.profiles add column if not exists active_days int default 0;
+alter table public.profiles add column if not exists last_active_date date;
+
+-- (غير مُدرَج عمدًا بقوائم exportFullBackup/exportBackup — نفس منطق
+-- personal_access_tokens: سجلّ أمني تقني لا بيانات معلم، ويحمل عناوين بريد
+-- محاولات فاشلة قد لا تخص صاحب الحساب نفسه)
+create table if not exists public.login_attempts (
+  id bigint generated always as identity primary key,
+  email text not null,
+  success boolean not null default false,
+  created_at timestamptz not null default now()
+);
+-- RLS مفعَّلة بلا أي سياسة عمدًا: لا عميل (anon/authenticated) يقرأ أو يكتب
+-- بهذا الجدول مباشرة أبدًا — الوصول الوحيد عبر الدوال الثلاث أدناه
+-- (security definer، تتجاوز RLS بصلاحية مالك الدالة) فقط.
+alter table public.login_attempts enable row level security;
+
+create or replace function public.check_login_allowed(p_email text)
+returns boolean
+language plpgsql security definer
+set search_path to 'public'
+as $$
+declare
+  recent_failures int;
+begin
+  select count(*) into recent_failures
+    from public.login_attempts
+    where email = lower(trim(p_email))
+      and success = false
+      and created_at > now() - interval '15 minutes';
+  return recent_failures < 5;
+end;
+$$;
+
+create or replace function public.record_login_attempt(p_email text, p_success boolean)
+returns void
+language plpgsql security definer
+set search_path to 'public'
+as $$
+begin
+  insert into public.login_attempts (email, success)
+  values (lower(trim(p_email)), p_success);
+  -- تنظيف تلقائي للسجلات الأقدم من ساعة لتفادي تضخم الجدول
+  delete from public.login_attempts where created_at < now() - interval '1 hour';
+end;
+$$;
+
+create or replace function public.record_login()
+returns void
+language plpgsql security definer
+as $$
+declare
+  today date := current_date;
+  prev_date date;
+begin
+  select last_active_date into prev_date from public.profiles where id = auth.uid();
+  update public.profiles
+    set last_login_at = now(),
+        login_count = coalesce(login_count, 0) + 1,
+        active_days = case
+          when prev_date is null or prev_date <> today then coalesce(active_days, 0) + 1
+          else coalesce(active_days, 0)
+        end,
+        last_active_date = today
+    where id = auth.uid();
+end;
+$$;
+
 -- @@STAGING_SKIP_START@@ (راجع buildSchemaSql: auth.users جدول مشترك عالميًا
 -- لا يخص أي schema بعينها — تشغيل هذا القسم لبيئة staging يسحب التريجر بنفس
 -- الاسم من الإنتاج (auth.users يسمح بتريجر واحد بهذا الاسم لا اثنين) ويحوّله
