@@ -65,9 +65,16 @@ self.addEventListener('fetch', (event) => {
 
   if(isAppLogicRequest(url)){
     /* الشبكة أولًا: أي تحديث منشور يظهر فورًا بلا أي كاش قديم يحجبه.
-       يُلجأ للكاش فقط لو تعذّر الاتصال فعلاً (عمل بلا إنترنت). */
+       يُلجأ للكاش فقط لو تعذّر الاتصال فعلاً (عمل بلا إنترنت).
+
+       cache:'no-store' ضروري هنا فعليًا لا تجميلًا: fetch() العادي يمرّ
+       أولًا عبر كاش HTTP القياسي بالمتصفح نفسه (منفصل كليًا عن كاش
+       Service Worker أعلاه) — لو خدم المتصفح نسخة HTML/JS قديمة من ذلك
+       الكاش، يفشل "الشبكة أولًا" بصمت رغم أن الكود هنا يظنّ أنه يجلب من
+       الشبكة فعليًا. هذا بالضبط سبب الحادثة الموثّقة أعلاه (ظهور تحديث
+       بجهاز المطوّر دون جهاز المستخدم لحظة النشر). */
     event.respondWith(
-      fetch(req).then((response) => {
+      fetch(req, { cache: 'no-store' }).then((response) => {
         if(response && response.ok){
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
