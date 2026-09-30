@@ -75,35 +75,13 @@ test.describe('المسارات الأساسية (بيئة staging)', () => {
     await expect(page.locator('#formView')).toBeVisible();
 
     /* عنصر الأداء مطلوب — انتظار تعبئة القائمة (تحميل غير متزامن بعد الدخول)
-       قبل الاختيار، بدل افتراض أنها جاهزة فورًا. */
+       ثم انتظار مرئيّته الفعلية (لا الاكتفاء بوجود الخيارات) قبل الاختيار —
+       شُوهد فشل عابر مرة واحدة بلا هذا الانتظار الصريح رغم أن #formView
+       نفسه كان مرئيًا أصلًا، ما يرجّح لحظة إعادة رسم قصيرة بعد التنقّل. */
     await expect
       .poll(() => page.locator('#elementSelect option').count(), { timeout: 10000 })
       .toBeGreaterThan(1);
-
-    // تشخيص مؤقت: لماذا #elementSelect "غير مرئي" رغم أن #formView مرئي —
-    // يُطبَع مباشرة بسجلّ خطوة CI نفسها (لا يعتمد على تنزيل تقرير Playwright).
-    const diag = await page.evaluate(() => {
-      const el = document.getElementById('elementSelect');
-      const form = document.getElementById('formView');
-      const rect = el ? el.getBoundingClientRect() : null;
-      const cs = el ? getComputedStyle(el) : null;
-      return {
-        formDisplay: form ? getComputedStyle(form).display : 'MISSING',
-        elExists: !!el,
-        elRect: rect ? { w: rect.width, h: rect.height, top: rect.top, left: rect.left } : null,
-        elDisplay: cs ? cs.display : null,
-        elVisibility: cs ? cs.visibility : null,
-        elOpacity: cs ? cs.opacity : null,
-        parentChain: (() => {
-          const chain = [];
-          let n = el && el.parentElement;
-          while (n) { chain.push({ tag: n.tagName, id: n.id, display: getComputedStyle(n).display }); n = n.parentElement; }
-          return chain;
-        })()
-      };
-    });
-    console.log('DIAG elementSelect:', JSON.stringify(diag));
-
+    await expect(page.locator('#elementSelect')).toBeVisible({ timeout: 10000 });
     await page.selectOption('#elementSelect', { index: 1 });
 
     const marker = `اختبار Playwright ${Date.now()}`;
