@@ -118,4 +118,10 @@ test('buildSchemaSql', async (t) => {
     assert.match(sql, /linked_program_id uuid references public\.activity_programs\(id\) on delete set null/);
     assert.match(sql, /create policy "المعلم يشوف مهامه فقط"\s*\n\s*on public\.tasks for select using \(auth\.uid\(\) = user_id\)/);
   });
+
+  await t.test('المسار السريع/الشامل: عمود profiles.ui_mode بقيد CHECK صحيح', () => {
+    const app = loadApp();
+    const sql = app.buildSchemaSql();
+    assert.match(sql, /alter table public\.profiles add column if not exists ui_mode text check \(ui_mode in \('quick', 'full'\)\)/);
+  });
 });

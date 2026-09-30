@@ -278,8 +278,9 @@ async function onLoggedIn(user){
   dutyType = 'none'; // إعادة الضبط صراحة: قد يبقى من جلسة سابقة على نفس الصفحة (تسجيل خروج/دخول)
   calendarRegion = null;
   calendarDataCache = null; // لا نُبقي بيانات تقويم مستخدم سابق على نفس الصفحة
+  uiMode = null;
   try{
-    const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region').eq('id', user.id).maybeSingle();
+    const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region, ui_mode').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){
       await sb.auth.signOut();
       currentUser = null;
@@ -288,6 +289,7 @@ async function onLoggedIn(user){
     }
     dutyType = (profile && profile.duty_type) || 'none';
     calendarRegion = (profile && profile.calendar_region) || null;
+    uiMode = (profile && profile.ui_mode) || null;
   } catch(e){ /* تجاهل أي خطأ هنا حتى لا يمنع الدخول */ }
 
   document.getElementById('authView').style.display = 'none';
@@ -702,31 +704,49 @@ function renderCycleCard(){
    (4) جولة تعريفية قصيرة — تظهر مرة واحدة فقط لأي معلم جديد
    ============================================ */
 const ONBOARDING_KEY = 'shahid_onboarded_v1';
-const ONBOARDING_STEPS = [
-  { title: 'مرحبًا بك في شاهد 👋', body: 'أداة بسيطة تساعدك على توثيق شواهد أدائك الوظيفي بثلاث خطوات، على مدار العام.' },
-  { title: '١. خطتي', body: 'ابدأ من "خطتي" — حدّد لكل عنصر أداء المستوى الذي تستهدفه وعدد الشواهد التي تنوي توثيقها. اختياري، لكنه يوجّه توثيقك.' },
-  { title: '٢. شواهدي', body: 'وثّق أعمالك اليومية بالصور والوصف من "شواهدي". فيه نماذج جاهزة توفّر عليك وقت الكتابة.' },
-  { title: '٣. تقييمي الذاتي', body: 'في نهاية الدورة، قيّم نفسك من "تقييمي الذاتي" واستعد لجلسة التقييم مع مديرك — وصدّر كل شيء كملف PDF جاهز.' }
-];
+
+/* دالة صرفة (لا DOM ولا localStorage) — تبني خطوات الجولة حسب مسار
+   الاستخدام الحالي، حتى لا نذكر بالجولة أزرارًا (خطتي/تقييمي الذاتي)
+   مخفيّة فعليًا عن معلم اختار المسار السريع. */
+function getOnboardingSteps(mode){
+  const intro = { title: 'مرحبًا بك في شاهد 👋', body: 'أداة بسيطة تساعدك على توثيق شواهد أدائك الوظيفي، على مدار العام.' };
+  const shahidStep = { title: 'شواهدي', body: 'وثّق أعمالك اليومية بالصور والوصف من "شواهدي". فيه نماذج جاهزة توفّر عليك وقت الكتابة.' };
+  if(mode === 'quick'){
+    return [
+      intro,
+      shahidStep,
+      { title: 'وضعك الحالي: المسار السريع', body: 'رئيسية مبسّطة تركّز على توثيق الشواهد فقط. تقدر تبدّل للمسار الشامل (يضيف الخطة والتقييم الذاتي والمهام) بأي وقت من الزر أسفل الرئيسية.' }
+    ];
+  }
+  return [
+    intro,
+    { title: '١. خطتي', body: 'ابدأ من "خطتي" — حدّد لكل عنصر أداء المستوى الذي تستهدفه وعدد الشواهد التي تنوي توثيقها. اختياري، لكنه يوجّه توثيقك.' },
+    { title: '٢. ' + shahidStep.title, body: shahidStep.body },
+    { title: '٣. تقييمي الذاتي', body: 'في نهاية الدورة، قيّم نفسك من "تقييمي الذاتي" واستعد لجلسة التقييم مع مديرك — وصدّر كل شيء كملف PDF جاهز.' }
+  ];
+}
+
 let _onboardStep = 0;
+let _onboardSteps = [];
 
 function maybeShowOnboardingTour(){
   try{
     if(localStorage.getItem(ONBOARDING_KEY)) return;
   } catch(e){ return; }
   _onboardStep = 0;
+  _onboardSteps = getOnboardingSteps(uiMode);
   showOnboardingStep();
 }
 
 function showOnboardingStep(){
-  const s = ONBOARDING_STEPS[_onboardStep];
-  const isLast = _onboardStep === ONBOARDING_STEPS.length - 1;
+  const s = _onboardSteps[_onboardStep];
+  const isLast = _onboardStep === _onboardSteps.length - 1;
   showInfoModal(`
     <div style="text-align:center;">
       <h3 style="margin:0 0 10px;font-size:16px;color:var(--navy);">${escapeHtml(s.title)}</h3>
       <p style="font-size:13px;color:#413D33;line-height:1.9;margin:0 0 16px;">${escapeHtml(s.body)}</p>
       <div style="display:flex;justify-content:center;gap:6px;margin-bottom:14px;">
-        ${ONBOARDING_STEPS.map((_, i) => `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${i === _onboardStep ? 'var(--gold)' : 'var(--line)'};"></span>`).join('')}
+        ${_onboardSteps.map((_, i) => `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${i === _onboardStep ? 'var(--gold)' : 'var(--line)'};"></span>`).join('')}
       </div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="advanceOnboarding()">${isLast ? 'ابدأ الاستخدام' : 'التالي'}</button>
     </div>`, '340px');
@@ -743,7 +763,7 @@ function showOnboardingStep(){
 
 function advanceOnboarding(){
   _onboardStep++;
-  if(_onboardStep >= ONBOARDING_STEPS.length){
+  if(_onboardStep >= _onboardSteps.length){
     finishOnboarding();
   } else {
     showOnboardingStep();
@@ -754,6 +774,60 @@ function finishOnboarding(){
   try{ localStorage.setItem(ONBOARDING_KEY, '1'); } catch(e){}
   const cancelBtn = document.getElementById('confirmCancelBtn');
   if(cancelBtn) cancelBtn.click();
+}
+
+/* ============================================
+   (5) المسار السريع/الشامل — رئيسية مبسّطة اختيارية
+   ------------------------------------------------------------
+   uiMode: 'quick' (شواهدي + ملف الإنجاز فقط) | 'full' (كل الميزات،
+   السلوك الأصلي) | null (لم يختر بعد — يُعامَل كـ'full' بالعرض، مع بانر
+   تعريفي بالمسار السريع). التبديل بين الوضعين لا يحذف ولا يخفي أي بيانات
+   فعلية بقاعدة البيانات — فقط أي أزرار تظهر بالرئيسية، فلا حاجة لتأكيد.
+   إدارة الصف/المتابعة الأكاديمية/لوحة المسؤول محكومة حصرًا بشروطها
+   الحالية (تكليفك الوظيفي/كونك مسؤولًا)، بصرف النظر تمامًا عن uiMode —
+   محوران مستقلّان يعملان بالتوازي، لا محور واحد يُلغي الآخر. */
+function applyUiModeVisibility(){
+  const isQuick = uiMode === 'quick';
+  ['calendarHomeBtn', 'tasksHomeBtn', 'planHomeBtn', 'selfAssessmentHomeBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.style.display = isQuick ? 'none' : '';
+  });
+  const switchLink = document.getElementById('uiModeSwitchLink');
+  if(switchLink) switchLink.textContent = isQuick ? '🔄 التبديل للمسار الشامل' : '🔄 التبديل للمسار السريع';
+}
+
+/* لا يظهر البانر إلا بعد انتهاء الجولة التعريفية (لا نُزعج مستخدمًا جديدًا
+   بقرارين بأول ١٠ ثوانٍ)، ولمن لم يختر مسارًا صراحة بعد فقط. */
+function shouldShowUiModeBanner(mode, onboardingDone){
+  return mode === null && !!onboardingDone;
+}
+
+function maybeShowUiModeBanner(){
+  const banner = document.getElementById('uiModeBanner');
+  if(!banner) return;
+  let onboardingDone = false;
+  try{ onboardingDone = !!localStorage.getItem(ONBOARDING_KEY); } catch(e){}
+  banner.style.display = shouldShowUiModeBanner(uiMode, onboardingDone) ? 'block' : 'none';
+}
+
+/* تحديث مباشر بـ.eq('id', uid) صريحًا (لا اعتماد على RLS وحدها) — نفس
+   نمط saveDutyType/saveCalendarRegion. */
+let _switchingUiMode = false; // يمنع نقرة مزدوجة سريعة (زرّا البانر أو رابط التبديل) من إرسال طلبين متزامنين
+async function switchUiMode(newMode){
+  if(_switchingUiMode) return;
+  _switchingUiMode = true;
+  try{
+    const uid = currentUser.id;
+    const { error } = await sb.from('profiles').update({ ui_mode: newMode }).eq('id', uid);
+    if(error){ showToast('تعذّر تغيير المسار: ' + error.message, 'error'); return; }
+    if(!currentUser || currentUser.id !== uid) return; // تغيّر المستخدم الحالي أثناء الانتظار
+    uiMode = newMode;
+    applyUiModeVisibility();
+    maybeShowUiModeBanner();
+    showToast(newMode === 'quick' ? 'تم التبديل للمسار السريع' : 'تم التبديل للمسار الشامل', 'ok');
+  } finally {
+    _switchingUiMode = false;
+  }
 }
 
 function showInfoModal(bodyHtml, maxWidth){

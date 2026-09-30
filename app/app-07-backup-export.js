@@ -1198,6 +1198,10 @@ create policy "أي معلم يقرأ إجازات التقويم"
 
 alter table public.profiles add column if not exists calendar_region text;
 
+-- مسار الاستخدام المفضَّل: 'quick' (رئيسية مبسّطة) أو 'full' (كل الميزات)
+-- — null = لم يختر بعد، يُعامَل كـ'full' بالعرض مع بانر تعريفي بالسريع.
+alter table public.profiles add column if not exists ui_mode text check (ui_mode in ('quick', 'full'));
+
 -- ============ 11) المهام ============
 -- كيان شخصي بسيط (عنوان/وصف اختياري/أولوية/تاريخ استحقاق/حالة إنجاز)، مع
 -- ربط اختياري بهدف أداء أو برنامج نشاط — FK حقيقي بعمودين منفصلين، يُنظَّف
