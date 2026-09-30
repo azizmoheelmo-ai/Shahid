@@ -105,13 +105,17 @@ function buildWeekLabelDateIndex(weekRows){
 }
 
 /* ============ ويدجت "الأسبوع الحالي" بالشاشة الرئيسية ============ */
+/* يكتب بشريط التاريخ أعلى الرئيسية (dateInfoWeek/dateInfoBar) لا ببطاقة
+   منفصلة — كانا يظهران معًا بنفس الشاشة (شريط التاريخ + بطاقة الأسبوع)
+   بمظهر تكرار، فدُمجا بعنصر واحد قابل للنقر (يفتح التقويم، أو إعدادات
+   الملف الشخصي لو لم يُحدَّد النطاق بعد). */
 async function renderCurrentWeekWidget(){
-  const card = document.getElementById('currentWeekCard');
-  if(!card) return;
+  const weekSpan = document.getElementById('dateInfoWeek');
+  const bar = document.getElementById('dateInfoBar');
+  if(!weekSpan || !bar) return;
   if(!calendarRegion){
-    card.style.display = 'block';
-    card.textContent = '📅 حدّد نطاقك الجغرافي لعرض الأسبوع الدراسي الحالي — اضغط هنا';
-    card.onclick = () => showSettings('profile');
+    weekSpan.textContent = '📅 حدّد نطاقك لعرض الأسبوع الدراسي';
+    bar.onclick = () => showSettings('profile');
     return;
   }
   const regionAtCallTime = calendarRegion; // احتياطًا: لو تغيّر النطاق أثناء الانتظار، لا نطبّق نتيجة النطاق القديم
@@ -120,12 +124,12 @@ async function renderCurrentWeekWidget(){
     if(calendarRegion !== regionAtCallTime) return;
     const today = new Date().toISOString().slice(0, 10);
     const info = resolveCurrentWeekInfo(weeks, holidays, today);
-    card.onclick = () => showCalendar();
-    if(info.status === 'holiday'){ card.style.display = 'block'; card.textContent = `📅 إجازة حاليًا: ${info.holidayName}`; }
-    else if(info.status === 'ok'){ card.style.display = 'block'; card.textContent = `📅 ${info.weekLabel}`; }
-    else card.style.display = 'none';
+    bar.onclick = () => showCalendar();
+    if(info.status === 'holiday'){ weekSpan.textContent = `📅 إجازة حاليًا: ${info.holidayName}`; }
+    else if(info.status === 'ok'){ weekSpan.textContent = `📅 ${info.weekLabel}`; }
+    else weekSpan.textContent = '';
   } catch(e){
-    card.style.display = 'none';
+    weekSpan.textContent = '';
   }
 }
 
