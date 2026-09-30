@@ -766,7 +766,7 @@ function finishOnboarding(){
    محوران مستقلّان يعملان بالتوازي، لا محور واحد يُلغي الآخر. */
 function applyUiModeVisibility(){
   const isQuick = uiMode === 'quick';
-  ['calendarHomeBtn', 'tasksHomeBtn', 'planHomeBtn', 'selfAssessmentHomeBtn'].forEach(id => {
+  ['calendarHomeBtn', 'tasksHomeBtn', 'planHomeBtn', 'selfAssessmentHomeBtn', 'cycleCard'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = isQuick ? 'none' : '';
   });
