@@ -295,6 +295,10 @@
           <span class="hb-title">التقويم الدراسي</span>
           <span class="hb-sub">توزيع الأسابيع والإجازات الرسمية لنطاقك</span>
         </button>
+        <button class="home-btn" style="grid-column:1/-1;" onclick="showTasks()">
+          <span class="hb-title">مهامّي</span>
+          <span class="hb-sub">مهام شخصية، تظهر بالتقويم وتُربَط بأهدافك وبرامجك عند الحاجة</span>
+        </button>
         <button class="home-btn" id="planHomeBtn" style="grid-column:1/-1;" onclick="showPlan()">
           <span class="hb-title">خطة الأداء السنوية</span>
           <span class="hb-sub" id="planHomeSub">حدّد مستهدفاتك لعناصر الأداء لتبدأ العمل عليها</span>
@@ -537,6 +541,10 @@
             <span class="hb-title">🔌 موصل الذكاء الاصطناعي</span>
             <span class="hb-sub">اسأل مساعدك الذكي عن خطتك وشواهدك وتقدمك مباشرة</span>
           </button>
+          <button class="home-btn" style="grid-column:1/-1;" onclick="showCalendarFeedSettings()">
+            <span class="hb-title">🗓️ الاشتراك بالتقويم (ICS)</span>
+            <span class="hb-sub">رابط دائم يضيف تقويمك لجوجل/أوتلوك ويتحدّث تلقائيًا</span>
+          </button>
           <button class="home-btn" style="grid-column:1/-1;" onclick="showSettingsSection('about')">
             <span class="hb-title">ℹ️ عن التطبيق</span>
             <span class="hb-sub">معلومات عن إدارة الأداء الوظيفي</span>
@@ -642,6 +650,15 @@
           <button class="btn btn-primary" id="genTokenBtn" onclick="generateConnectorToken()">+ توليد رمز جديد</button>
         </div>
         <div id="connectorTokensList" style="font-size:12.5px;color:var(--muted);">جارٍ التحميل...</div>
+      </div>
+
+      <div id="settingsCalendarFeedBody" class="section" style="display:none;">
+        <button class="btn btn-outline" style="margin-bottom:16px;" onclick="showSettingsSection('menu')">→ رجوع لقائمة الإعدادات</button>
+        <p style="font-size:12.5px;line-height:1.9;color:#413D33;margin:0 0 14px;">
+          رابط اشتراك دائم (لا ملف تُنزّله مرة واحدة) تضيفه لتقويم جوجل أو أوتلوك — يتحدّث تلقائيًا كل ما يفتحه التطبيق، ويشمل: الإجازات الرسمية لنطاقك، شواهدك، مهامك غير المُنجَزة، وجلسات برامج أنشطتك. <b>عامل الرابط كسرّ</b> — أي شخص يحصل عليه يرى تقويمك؛ ألغه وولّد رابطًا جديدًا لو شككت بتسريبه.
+        </p>
+        <button class="btn btn-primary" id="genCalendarFeedBtn" style="margin-bottom:16px;" onclick="generateCalendarFeedToken()">+ توليد رابط جديد</button>
+        <div id="calendarFeedTokensList" style="font-size:12.5px;color:var(--muted);">جارٍ التحميل...</div>
       </div>
 
       <div id="settingsAboutBody" class="section" style="display:none;">
@@ -1332,7 +1349,7 @@
           <button class="btn btn-outline" style="padding:4px 10px;" onclick="changeCalendarMonth(1)">التالي ›</button>
         </div>
         <div id="calMonthGrid" class="cal-month-grid"></div>
-        <p style="padding:6px 32px 0;font-size:10.5px;color:var(--muted);">📗 شاهد مُضاف &nbsp; 🟡 جلسة برنامج نشاط</p>
+        <p style="padding:6px 32px 0;font-size:10.5px;color:var(--muted);">📗 شاهد مُضاف &nbsp; 🟡 جلسة برنامج نشاط &nbsp; 🔵 مهمة مستحقة</p>
       </div>
 
       <div id="calWeekSection" style="display:none;">
@@ -1343,6 +1360,56 @@
         <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
       </div>
     </div>
+  </div>
+
+  <!-- ---------- المهام ---------- -->
+  <div id="tasksView" style="display:none;">
+
+    <div id="tasksListSection" class="list-card">
+      <div class="list-header">
+        <h2>مهامّي</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="showNewTaskForm()">+ مهمة جديدة</button>
+          <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
+        </div>
+      </div>
+      <div id="tasksListBody">
+        <div class="loading-state">جارِ التحميل...</div>
+      </div>
+    </div>
+
+    <div id="tasksFormSection" class="list-card" style="display:none;margin-top:16px;">
+      <div class="list-header">
+        <h2 id="taskFormTitle">مهمة جديدة</h2>
+        <button class="btn btn-outline" onclick="cancelTaskForm()">إلغاء</button>
+      </div>
+      <div style="padding:20px 26px;">
+        <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">العنوان</label><input type="text" class="goal-input" id="tkTitle" maxlength="200" placeholder="مثال: تجهيز اختبار منتصف الفصل"></div>
+        <div style="margin-top:12px;"><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">وصف (اختياري)</label><textarea class="goal-input" id="tkDescription" maxlength="2000" rows="3"></textarea></div>
+
+        <div class="plan-fields" style="margin-top:14px;">
+          <div><label>الأولوية</label>
+            <select class="goal-input" id="tkPriority">
+              <option value="low">منخفضة</option>
+              <option value="medium" selected>متوسطة</option>
+              <option value="high">عالية</option>
+            </select>
+          </div>
+          <div><label>تاريخ الاستحقاق (اختياري)</label><input type="date" class="goal-input" id="tkDueDate"></div>
+        </div>
+
+        <div class="plan-fields" style="margin-top:14px;">
+          <div><label>ربط بهدف أداء (اختياري)</label><select class="goal-input" id="tkLinkedGoal"><option value="">— بلا ربط —</option></select></div>
+          <div><label>ربط ببرنامج نشاط (اختياري)</label><select class="goal-input" id="tkLinkedProgram"><option value="">— بلا ربط —</option></select></div>
+        </div>
+
+        <div style="margin-top:18px;">
+          <button class="btn btn-primary" id="tkSaveBtn" onclick="saveTaskForm()">حفظ المهمة</button>
+        </div>
+        <div id="tkSaveMsg" class="save-msg"></div>
+      </div>
+    </div>
+
   </div>
 
 </div>
@@ -1364,6 +1431,7 @@
 <script src="app/app-10-programs.js"></script>
 <script src="app/app-11-support.js"></script>
 <script src="app/app-12-calendar.js"></script>
+<script src="app/app-13-tasks.js"></script>
 
 </body>
 </html>

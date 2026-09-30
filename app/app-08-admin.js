@@ -576,7 +576,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, supportRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, supportRes, tasksRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -587,7 +587,8 @@ async function exportBackup(evt){
       sb.from('classroom_incident_types').select('*'),
       fetchAllRows((from, to) => sb.from('academic_cases').select('*').eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('activity_programs').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
-      sb.from('support_messages').select('*').eq('user_id', uid).order('created_at', { ascending: false })
+      sb.from('support_messages').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
+      sb.from('tasks').select('*').eq('user_id', uid).order('due_date', { ascending: true })
     ]);
 
     const shawahid = shRes.data || [];
@@ -605,6 +606,7 @@ async function exportBackup(evt){
        رغم عدم وجود أي خلل فعلي (const محلية لا تمسّ let العامة). */
     const myPrograms = programsRes.data || [];
     const supportMsgs = supportRes.data || [];
+    const myTasksBackup = tasksRes.data || [];
     const meta = (currentUser && currentUser.user_metadata) || {};
     const teacherName = meta.full_name || '';
     const currentCycle = getCycleYear();
@@ -764,6 +766,26 @@ async function exportBackup(evt){
       wsSupport['!cols'] = [{ wch: 20 }, { wch: 50 }, { wch: 10 }, { wch: 20 }, { wch: 12 }];
       setXlsxPrintMargins(wsSupport);
       XLSX.utils.book_append_sheet(wb, wsSupport, 'رسائل الدعم');
+    }
+
+    /* ---- تبويب: المهام ---- */
+    if(myTasksBackup.length){
+      const tasksAOA = [['العنوان', 'الوصف', 'الأولوية', 'تاريخ الاستحقاق', 'الحالة', 'مرتبطة بـ']];
+      const priorityLabels = { low: 'منخفضة', medium: 'متوسطة', high: 'عالية' };
+      myTasksBackup.forEach(t => {
+        tasksAOA.push([
+          t.title,
+          t.description || '—',
+          priorityLabels[t.priority] || t.priority,
+          t.due_date || '—',
+          t.done ? 'مُنجَزة' : 'قيد الانتظار',
+          t.linked_goal_id ? 'هدف أداء' : (t.linked_program_id ? 'برنامج نشاط' : '—')
+        ]);
+      });
+      const wsTasks = XLSX.utils.aoa_to_sheet(tasksAOA);
+      wsTasks['!cols'] = [{ wch: 26 }, { wch: 40 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+      setXlsxPrintMargins(wsTasks);
+      XLSX.utils.book_append_sheet(wb, wsTasks, 'المهام');
     }
 
     const xlsxArray = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });

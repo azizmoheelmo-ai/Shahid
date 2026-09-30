@@ -873,7 +873,7 @@ async function saveDutyType(duty){
 }
 
 function showSettingsSection(name){
-  const ids = { menu: 'settingsMenu', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', connector: 'settingsConnectorBody' };
+  const ids = { menu: 'settingsMenu', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', connector: 'settingsConnectorBody', calendarFeed: 'settingsCalendarFeedBody' };
   Object.values(ids).forEach(id => { document.getElementById(id).style.display = 'none'; });
   document.getElementById(ids[name] || ids.menu).style.display = 'block';
 }

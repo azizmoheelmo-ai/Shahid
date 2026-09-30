@@ -18,7 +18,12 @@
    زمنيًا لهذا الاسم (الفصل الأول) — قد يكون غير دقيق لبرنامج فعليًا
    بالفصل الثاني. مجرد نقطة عرض تقريبية، لا تُستخدم بأي حساب حسّاس.
 
-   ميزة "المهام" وربطها بالتقويم، وتصدير ICS، دفعة لاحقة منفصلة.
+   ميزة "المهام" بـapp-13-tasks.js (دفعة ثانية)، وتظهر مهامها غير
+   المُنجَزة كنقطة زرقاء هنا أيضًا. تصدير ICS عبر رابط اشتراك دائم
+   (api/calendar-feed.js) — أسفل هذا الملف — بدل ملف تنزيل ثابت يصبح
+   قديمًا فورًا، بإعادة استخدام نظام personal_access_tokens الموجود أصلًا
+   لموصل الذكاء الاصطناعي لكن بتصنيف (label) مختلف تمامًا، فلا يعمل رمز
+   أحدهما مكان الآخر حتى لو تسرّب.
    ============================================================ */
 
 const CALENDAR_ACADEMIC_YEAR = '1448-1449';
@@ -199,19 +204,22 @@ async function renderCalendarBody(){
   else renderCalendarWeekList(data, markers);
 }
 
-/* ============ جلب علامات المستخدم الشخصية (شواهد + جلسات برامج) ============ */
+/* ============ جلب علامات المستخدم الشخصية (شواهد + جلسات برامج + مهام) ============ */
+function emptyMarkerBucket(){ return { shahid: [], program: [], task: [] }; }
+
 async function loadUserCalendarMarkers(calendarData){
-  const markers = {}; // isoDate -> { shahid: string[], program: string[] }
+  const markers = {}; // isoDate -> { shahid: string[], program: string[], task: string[] }
   if(!currentUser) return markers;
 
-  const [{ data: shawahid }, { data: programs }] = await Promise.all([
+  const [{ data: shawahid }, { data: programs }, { data: tasks }] = await Promise.all([
     sb.from('shawahid').select('lesson_title, lesson_date').eq('user_id', currentUser.id).not('lesson_date', 'is', null),
     sb.from('activity_programs').select('name, sessions').eq('user_id', currentUser.id),
+    sb.from('tasks').select('title, due_date, done').eq('user_id', currentUser.id).not('due_date', 'is', null),
   ]);
 
   (shawahid || []).forEach(s => {
     if(!s.lesson_date) return;
-    (markers[s.lesson_date] = markers[s.lesson_date] || { shahid: [], program: [] }).shahid.push(s.lesson_title || 'شاهد');
+    (markers[s.lesson_date] = markers[s.lesson_date] || emptyMarkerBucket()).shahid.push(s.lesson_title || 'شاهد');
   });
 
   const weekLabelDateIndex = buildWeekLabelDateIndex(calendarData.weeks);
@@ -219,8 +227,13 @@ async function loadUserCalendarMarkers(calendarData){
     (p.sessions || []).forEach(s => {
       const date = weekLabelDateIndex[s.week_label];
       if(!date) return;
-      (markers[date] = markers[date] || { shahid: [], program: [] }).program.push(`${p.name || 'برنامج'} — جلسة ${s.session_no || ''}`);
+      (markers[date] = markers[date] || emptyMarkerBucket()).program.push(`${p.name || 'برنامج'} — جلسة ${s.session_no || ''}`);
     });
+  });
+
+  (tasks || []).forEach(t => {
+    if(!t.due_date || t.done) return; // لا نعلّم المهام المُنجَزة بالتقويم — لا تحتاج انتباهًا بعد
+    (markers[t.due_date] = markers[t.due_date] || emptyMarkerBucket()).task.push(t.title || 'مهمة');
   });
 
   return markers;
@@ -261,6 +274,7 @@ function renderCalendarMonthGrid(data, markers){
     if(m){
       if(m.shahid.length) dotsHtml += '<span class="cal-dot dot-shahid" title="شاهد مُضاف"></span>';
       if(m.program.length) dotsHtml += '<span class="cal-dot dot-program" title="جلسة برنامج نشاط"></span>';
+      if(m.task.length) dotsHtml += '<span class="cal-dot dot-task" title="مهمة مستحقة"></span>';
     }
 
     const classes = ['cal-day'];
@@ -305,6 +319,7 @@ function renderCalendarWeekList(data, markers){
       const marks = m ? [
         ...m.shahid.map(t => '📗 ' + escapeHtml(t)),
         ...m.program.map(t => '🟡 ' + escapeHtml(t)),
+        ...m.task.map(t => '🔵 ' + escapeHtml(t)),
       ] : [];
       const classes = ['cal-week-day-row'];
       if(r.note) classes.push('is-holiday');
@@ -322,4 +337,100 @@ function renderCalendarWeekList(data, markers){
   }).join('');
 
   box.innerHTML = holidaysHtml + weeksHtml;
+}
+
+/* ============================================================
+   رابط اشتراك التقويم (ICS/webcal) — الإعدادات > الاشتراك بالتقويم
+   ============================================================
+   نفس نمط generateConnectorToken/loadConnectorTokens (app-03) حرفيًا،
+   لكن بتصنيف (label) مختلف كليًا — CALENDAR_FEED_TOKEN_LABEL أدناه يجب
+   أن يطابق نفس الثابت بـapi/calendar-feed.js تمامًا، وإلا لن يعمل أي
+   رابط جديد يُولَّد هنا. */
+const CALENDAR_FEED_TOKEN_LABEL = 'رابط تقويم ICS';
+
+function calendarFeedUrl(rawToken){
+  return `${location.origin}/api/calendar-feed?token=${encodeURIComponent(rawToken)}`;
+}
+
+async function showCalendarFeedSettings(){
+  showSettingsSection('calendarFeed');
+  await loadCalendarFeedTokens();
+}
+
+async function loadCalendarFeedTokens(){
+  const box = document.getElementById('calendarFeedTokensList');
+  box.textContent = 'جارٍ التحميل...';
+  const { data, error } = await sb.from('personal_access_tokens')
+    .select('id, token_prefix, created_at, last_used_at, revoked_at, expires_at')
+    .eq('user_id', currentUser.id)
+    .eq('label', CALENDAR_FEED_TOKEN_LABEL)
+    .order('created_at', { ascending: false });
+  if(error){ box.textContent = 'تعذّر تحميل الروابط: ' + error.message; return; }
+  renderCalendarFeedTokens(data || []);
+}
+
+function renderCalendarFeedTokens(tokens){
+  const box = document.getElementById('calendarFeedTokensList');
+  if(!tokens.length){ box.innerHTML = '<p style="margin:0;">لا يوجد أي رابط حتى الآن.</p>'; return; }
+  box.innerHTML = tokens.map(t => {
+    const revoked = !!t.revoked_at;
+    const created = new Date(t.created_at).toLocaleDateString('ar-SA');
+    const lastUsed = t.last_used_at ? new Date(t.last_used_at).toLocaleDateString('ar-SA') : 'لم يُستخدم بعد';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);">
+      <div>
+        <div style="font-weight:700;color:var(--navy);font-family:monospace;">${escapeHtml(t.token_prefix)}…</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">أُنشئ: ${created} — آخر استخدام: ${escapeHtml(lastUsed)}${revoked ? ' — <b style="color:#B23A3A;">مُلغى</b>' : ''}</div>
+      </div>
+      ${revoked ? '' : `<button class="btn btn-outline" style="padding:5px 12px;font-size:11px;border-color:#B23A3A;color:#B23A3A;flex-shrink:0;" onclick="revokeCalendarFeedToken('${t.id}')">إلغاء</button>`}
+    </div>`;
+  }).join('');
+}
+
+async function generateCalendarFeedToken(){
+  const btn = document.getElementById('genCalendarFeedBtn');
+  btn.disabled = true;
+  try{
+    const raw = generateRandomToken();
+    const hash = await sha256Hex(raw);
+    const prefix = raw.slice(0, 18);
+    const { error } = await sb.from('personal_access_tokens').insert({
+      user_id: currentUser.id,
+      label: CALENDAR_FEED_TOKEN_LABEL,
+      token_hash: hash,
+      token_prefix: prefix,
+    });
+    if(error) throw error;
+    const url = calendarFeedUrl(raw);
+    const webcalUrl = url.replace(/^https?:\/\//, 'webcal://');
+    showInfoModal(`
+      <div style="text-align:right;">
+        <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">رابط تقويمك</h3>
+        <p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;">
+          احفظه الآن — لن يظهر كاملًا مرة أخرى. لو ضاع أو شككت بتسريبه، ألغه وولّد رابطًا جديدًا.
+        </p>
+        <div style="background:#F1EEE6;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;user-select:all;margin-bottom:10px;">${escapeHtml(url)}</div>
+        <button class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="navigator.clipboard.writeText('${url}').then(()=>showToast('تم النسخ','ok'))">نسخ الرابط</button>
+        <a class="btn btn-primary" style="display:flex;justify-content:center;text-decoration:none;" href="${escapeHtml(webcalUrl)}">➕ إضافة مباشرة لتقويم الجهاز</a>
+        <p style="font-size:10.5px;color:var(--muted);margin:10px 0 0;line-height:1.7;">جوجل تقويم: أضف بالرابط أعلاه عبر "إعدادات ← إضافة تقويم ← عبر الرابط". أوتلوك/آيفون: زر "إضافة لتقويم الجهاز" أعلاه يعمل مباشرة غالبًا.</p>
+      </div>`, '440px');
+    await loadCalendarFeedTokens();
+  } catch(err){
+    showToast('تعذّر إنشاء الرابط: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function revokeCalendarFeedToken(id){
+  const ok = await showConfirm('إلغاء هذا الرابط؟ أي تقويم مشترك به سيتوقف عن التحديث فورًا.');
+  if(!ok) return;
+  /* .eq('user_id', ...) إضافية رغم اعتماد RLS أصلًا على auth.uid() = user_id
+     — نفس نمط revokeConnectorToken بالضبط (app-03)، دفاع إضافي غير مكلف. */
+  const { error } = await sb.from('personal_access_tokens')
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', currentUser.id);
+  if(error){ showToast('تعذّر الإلغاء: ' + error.message, 'error'); return; }
+  showToast('تم إلغاء الرابط', 'ok');
+  await loadCalendarFeedTokens();
 }
