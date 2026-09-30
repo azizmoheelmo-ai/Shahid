@@ -15,8 +15,14 @@ let adminIds = new Set();
    تشمل: كل الجداول + الصور الفعلية + ملفات CSV مقروءة
    ============================================ */
 /* ملف SQL كامل لإعادة بناء بنية قاعدة البيانات من الصفر */
-function buildSchemaSql(){
-  return `-- ============================================================
+/* schema: اسم الـschema المُولَّد لها السكربت — 'public' افتراضيًا (سلوك
+   الاستدعاءات الحالية بلا تغيير إطلاقًا). أي قيمة أخرى (مثل 'staging') تولّد
+   نفس البنية بالضبط تحت schema منفصلة بنفس مشروع Supabase — نسخة مطابقة
+   حرفيًا، بلا ازدواج صيانة — باستثناء تريجرات auth.users المشتركة عالميًا
+   (راجع تعليق @@STAGING_SKIP_START@@ بالأسفل لسبب استبعادها). */
+function buildSchemaSql(schema){
+  schema = schema || 'public';
+  const sql = `-- ============================================================
 -- إعادة بناء بنية قاعدة بيانات "شاهد الأداء الوظيفي" من الصفر
 -- شغّل هذا الملف كاملًا في SQL Editor على مشروع Supabase جديد
 -- ثم استورد البيانات من ملف backup-full.json
@@ -75,6 +81,12 @@ drop policy if exists "المسؤول يعدّل أي ملف" on public.profiles
 create policy "المسؤول يعدّل أي ملف"
   on public.profiles for update using (public.is_admin(auth.uid()));
 
+-- @@STAGING_SKIP_START@@ (راجع buildSchemaSql: auth.users جدول مشترك عالميًا
+-- لا يخص أي schema بعينها — تشغيل هذا القسم لبيئة staging يسحب التريجر بنفس
+-- الاسم من الإنتاج (auth.users يسمح بتريجر واحد بهذا الاسم لا اثنين) ويحوّله
+-- ليكتب بدل ذلك بجدول staging.profiles، فتتعطل مزامنة التسجيل الحقيقي بالإنتاج.
+-- لذلك يُستبعد هذا القسم بالكامل عند التوليد لأي schema غير 'public' (بيانات
+-- المعلم التجريبي بـstaging تُدرَج يدويًا بدل الاعتماد على هذا التريجر).
 -- تزامن تلقائي مع حسابات المصادقة
 create or replace function public.sync_profile_from_auth()
 returns trigger as $$
@@ -103,6 +115,7 @@ drop trigger if exists trg_sync_profile_update on auth.users;
 create trigger trg_sync_profile_update
 after update of raw_user_meta_data, email on auth.users
 for each row execute function public.sync_profile_from_auth();
+-- @@STAGING_SKIP_END@@
 
 -- ============ 3) عناصر الأداء ============
 create table if not exists public.performance_elements (
@@ -363,8 +376,11 @@ create table if not exists public.shawahid (
    IF NOT EXISTS يجعل هذا آمنًا للتشغيل حتى لو كانا مضافين مسبقًا، وضروري
    لأي قاعدة أُنشئت من نسخة سابقة من هذا الملف لا تتضمنهما: بدونهما يفشل كل
    استعلام في loadPlan() على shawahid بصمت (عمود غير موجود)، فتظهر الخطة
-   والنسبة الموزونة فارغتين رغم أن بيانات الخطة نفسها سليمة تمامًا. */
-alter table public.shawahid add column if not exists goal_id uuid references public.performance_goals(id) on delete set null;
+   والنسبة الموزونة فارغتين رغم أن بيانات الخطة نفسها سليمة تمامًا.
+   ملاحظة: عمود goal_id بالذات (مرجع FK لـperformance_goals) يُضاف لاحقًا
+   بالملف بعد إنشاء ذلك الجدول (قسم 5) لا هنا — راجع تعليقه هناك؛ إنشاؤه هنا
+   كان يفشل فعليًا عند تشغيل هذا الملف كاملًا على مشروع جديد فارغ (الغرض
+   المعلن بأعلى الملف) لأن performance_goals لم يكن موجودًا بعد بهذه النقطة. */
 alter table public.shawahid add column if not exists cycle_year text;
 
 alter table public.shawahid enable row level security;
@@ -622,6 +638,10 @@ create table if not exists public.performance_goals (
   updated_at timestamptz default now(),
   unique(user_id, cycle_year, element_key, goal_order)
 );
+
+-- ربط اختياري لكل شاهد بهدف محدد بالخطة — لازم يجي هنا بعد إنشاء الجدول
+-- مباشرة، لا قبله بقسم (4) الشواهد (راجع تعليق cycle_year هناك لسبب النقل).
+alter table public.shawahid add column if not exists goal_id uuid references public.performance_goals(id) on delete set null;
 
 alter table public.performance_goals enable row level security;
 
@@ -1045,6 +1065,11 @@ revoke all on function public.check_mcp_rate_limit(uuid, int, int) from public, 
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:
 -- insert into public.admins (user_id) values ('ضع-UID-حسابك-هنا');
 `;
+  if(schema === 'public') return sql;
+  return sql
+    .replace(/-- @@STAGING_SKIP_START@@[\s\S]*?-- @@STAGING_SKIP_END@@\n?/, '-- (تريجرات مزامنة auth.users مُستبعدة عمدًا لبيئات staging — راجع تعليق buildSchemaSql)\n')
+    .replace(/table_schema='public'/g, `table_schema='${schema}'`)
+    .replace(/\bpublic\./g, schema + '.');
 }
 
 

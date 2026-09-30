@@ -142,13 +142,20 @@ function loadApp(opts) {
     Promise, Date, Math, JSON, Array, Object, String, Number, Boolean, RegExp, Map, Set, Symbol,
     document: fakeDocument,
     navigator: { onLine: true, canShare: undefined, share: undefined, serviceWorker: undefined },
-    location: { protocol: 'file:', hash: '', pathname: '/index.html', href: 'file:///index.html' },
+    location: Object.assign({ protocol: 'file:', hash: '', pathname: '/index.html', href: 'file:///index.html' }, (opts && opts.location) || {}),
     history: { replaceState: () => {} },
     addEventListener: () => {},
     removeEventListener: () => {},
     open: () => {},
     window: undefined, // يُملأ أدناه بعد الإنشاء (يشير لنفس sandbox)
-    supabase: { createClient: () => (opts && opts.supabaseClient) || makeFakeSupabaseClient() },
+    /* يسجّل آخر استدعاء (url, key, options) — يتيح للاختبارات التحقق من أي
+       schema اختارها التطبيق (public/staging) بدل قراءة متغيّر داخلي. */
+    supabase: {
+      createClient: (...args) => {
+        sandbox.__lastCreateClientArgs = args;
+        return (opts && opts.supabaseClient) || makeFakeSupabaseClient();
+      }
+    },
     localStorage: makeFakeStorage(),
     URL: { createObjectURL: () => 'blob:fake', revokeObjectURL: () => {} },
   };
