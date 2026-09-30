@@ -98,4 +98,15 @@ test('buildSchemaSql', async (t) => {
     assert.doesNotMatch(sql, /after insert on auth\.users/);
     assert.doesNotMatch(sql, /after update of raw_user_meta_data, email on auth\.users/);
   });
+
+  await t.test('التقويم الدراسي الرسمي: جداول academic_calendar_weeks/holidays وعمود calendar_region', () => {
+    const app = loadApp();
+    const sql = app.buildSchemaSql();
+    assert.match(sql, /create table if not exists public\.academic_calendar_weeks/);
+    assert.match(sql, /create table if not exists public\.academic_calendar_holidays/);
+    assert.match(sql, /alter table public\.profiles add column if not exists calendar_region text/);
+    // قراءة عامة لأي معلم (بلا user_id — جداول مرجعية مشتركة)، بلا اعتماد على RLS الافتراضي فقط
+    assert.match(sql, /create policy "أي معلم يقرأ تقويم الأسابيع"\s*\n\s*on public\.academic_calendar_weeks for select using \(auth\.uid\(\) is not null\)/);
+    assert.match(sql, /create policy "أي معلم يقرأ إجازات التقويم"\s*\n\s*on public\.academic_calendar_holidays for select using \(auth\.uid\(\) is not null\)/);
+  });
 });

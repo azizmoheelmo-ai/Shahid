@@ -273,10 +273,13 @@ let isAdmin = false;
 async function onLoggedIn(user){
   currentUser = user;
 
-  /* التحقق من كون الحساب معطّلًا من قبل المسؤول، وقراءة نوع التكليف الإضافي */
+  /* التحقق من كون الحساب معطّلًا من قبل المسؤول، وقراءة نوع التكليف الإضافي
+     ونطاق التقويم الدراسي المختار */
   dutyType = 'none'; // إعادة الضبط صراحة: قد يبقى من جلسة سابقة على نفس الصفحة (تسجيل خروج/دخول)
+  calendarRegion = null;
+  calendarDataCache = null; // لا نُبقي بيانات تقويم مستخدم سابق على نفس الصفحة
   try{
-    const { data: profile } = await sb.from('profiles').select('disabled, duty_type').eq('id', user.id).maybeSingle();
+    const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){
       await sb.auth.signOut();
       currentUser = null;
@@ -284,6 +287,7 @@ async function onLoggedIn(user){
       return;
     }
     dutyType = (profile && profile.duty_type) || 'none';
+    calendarRegion = (profile && profile.calendar_region) || null;
   } catch(e){ /* تجاهل أي خطأ هنا حتى لا يمنع الدخول */ }
 
   document.getElementById('authView').style.display = 'none';
@@ -835,6 +839,7 @@ function showSettings(section){
   document.getElementById('passwordChangeMsg').textContent = '';
   document.getElementById('peDutyType').value = dutyType;
   document.getElementById('dutyTypeMsg').textContent = '';
+  document.getElementById('calRegionSelect').value = calendarRegion || '';
   showSettingsSection(section || 'menu');
 }
 
