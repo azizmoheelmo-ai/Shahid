@@ -123,8 +123,18 @@ function loadApp(opts) {
   const html = fs.readFileSync(htmlPath, 'utf-8');
   const script = extractAppScript(htmlDir, html);
 
+  /* عنصر واحد ثابت لكل id عبر كل نداءات getElementById بنفس الجلسة (كسلوك
+     المتصفح الحقيقي تمامًا) — ضروري لاختبار أي حالة سباق يفحص فيها كود
+     التطبيق نفسه حالة عنصر (مثل style.display) كان اختبار آخر قد عدّلها على
+     نفس id مسبقًا؛ بدون هذا الكاش كل نداء getElementById كان يُرجع عنصرًا
+     جديدًا منفصلًا فيضيع أي تعديل سابق. */
+  const elementCache = new Map();
+  function getCachedElement(id){
+    if(!elementCache.has(id)) elementCache.set(id, makeFakeElement());
+    return elementCache.get(id);
+  }
   const fakeDocument = {
-    getElementById: () => makeFakeElement(),
+    getElementById: (id) => getCachedElement(id),
     createElement: () => makeFakeElement(),
     querySelector: () => makeFakeElement(),
     querySelectorAll: () => [],
