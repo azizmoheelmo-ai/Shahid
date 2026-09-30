@@ -42,6 +42,10 @@ jobs:
       - name: اختبارات المتصفح الآلية (دخول/إضافة شاهد/الشاشة الرئيسية — بيئة staging)
         run: npx playwright test
 
+      - name: طباعة سياق DOM عند الفشل (لتشخيص عنصر غير مرئي بلا تحميل ملف ثنائي)
+        if: failure()
+        run: find test-results -name "error-context.md" -print -exec cat {} \;
+
       - name: رفع تقرير Playwright عند الفشل (للتشخيص)
         if: failure()
         uses: actions/upload-artifact@v4
