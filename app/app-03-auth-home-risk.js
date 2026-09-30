@@ -679,10 +679,14 @@ function renderDateInfoBar(){
   barGregorian.textContent = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(now);
   document.getElementById('dateInfoHijri').textContent = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { year: 'numeric', month: 'long', day: 'numeric' }).format(now);
 
+  /* رقم الأسبوع الحقيقي (المستمد من التقويم الرسمي بـdateInfoWeek عبر
+     renderCurrentWeekWidget) هو المصدر الوحيد لعدّ الأسابيع بالشريط — هذا
+     التقدير التقريبي (تقسيم أيام الفصل على 19 أسبوعًا متساوية بلا وعي
+     بالإجازات الفعلية) كان يُنتج رقمًا مختلفًا فعليًا عن الرقم الرسمي بنفس
+     الشاشة (تكرار وتناقض حقيقي اكتُشف أثناء هذا التعديل)، فاقتصر هنا على
+     اسم الفصل فقط. */
   const term = getAcademicTermInfo(now);
-  document.getElementById('dateInfoTerm').textContent = term
-    ? `${term.label} — الأسبوع ${term.week} من ${term.totalWeeks}`
-    : 'إجازة';
+  document.getElementById('dateInfoTerm').textContent = term ? term.label : 'إجازة';
 }
 
 function getCycleStageKey(date){
