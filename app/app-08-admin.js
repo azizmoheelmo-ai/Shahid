@@ -576,7 +576,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, supportRes, tasksRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -587,6 +587,7 @@ async function exportBackup(evt){
       sb.from('classroom_incident_types').select('*'),
       fetchAllRows((from, to) => sb.from('academic_cases').select('*').eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('activity_programs').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
+      sb.from('program_sections').select('*').eq('teacher_id', uid),
       sb.from('support_messages').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
       sb.from('tasks').select('*').eq('user_id', uid).order('due_date', { ascending: true })
     ]);
@@ -597,6 +598,7 @@ async function exportBackup(evt){
     const crmStudents = crmStudentsRes.data || [];
     const crmGrades = crmGradesRes.data || [];
     const crmSections = crmSectionsRes.data || [];
+    const myProgramSections = programSectionsRes.data || [];
     const crmIncidents = crmIncidentsRes.data || [];
     const crmTypes = crmTypesRes.data || [];
     const acCases = acCasesRes.data || [];
@@ -735,17 +737,26 @@ async function exportBackup(evt){
 
     /* ---- تبويب: برامج الأنشطة الطلابية ---- */
     if(myPrograms.length){
-      const progAOA = [['اسم البرنامج', 'الحصص الموثَّقة', 'إجمالي الحصص', 'عدد الطلبة', 'السنة', 'تفاصيل الحصص']];
+      /* اسم الشعبة من crmSections/crmGrades (مُحمَّلتان أصلًا أعلاه لتبويب
+         "إدارة الصف") — مطابقة بمعرّف grade_level_id، لا نصًا حرًا، لأن
+         program_sections يربط بمعرّف classroom_sections.id فعليًا. */
+      const sectionLabel = sid => {
+        const sec = crmSections.find(s => s.id === sid);
+        const grade = sec ? crmGrades.find(g => g.id === sec.grade_level_id) : null;
+        return sec ? `${grade ? grade.name + ' - ' : ''}شعبة ${sec.name}` : null;
+      };
+      const progAOA = [['اسم البرنامج', 'الحصص الموثَّقة', 'إجمالي الحصص', 'عدد الطلبة', 'السنة', 'الشُعب المرتبطة', 'تفاصيل الحصص']];
       myPrograms.forEach(p => {
         const sessions = p.sessions || [];
         const done = sessions.filter(s => s.done).length;
         const sessionsDetail = sessions
           .map(s => `${s.session_no}: ${s.week_label || '—'} — ${s.done ? 'موثَّقة' + (s.done_date ? ' (' + s.done_date + ')' : '') : 'لم تُوثَّق بعد'}`)
           .join(' | ');
-        progAOA.push([p.name, done, p.total_sessions, p.student_count || '—', p.cycle_year || '—', sessionsDetail]);
+        const sectionsLabel = myProgramSections.filter(ps => ps.program_id === p.id).map(ps => sectionLabel(ps.section_id)).filter(Boolean).join('، ');
+        progAOA.push([p.name, done, p.total_sessions, p.student_count || '—', p.cycle_year || '—', sectionsLabel || '—', sessionsDetail]);
       });
       const wsPrograms = XLSX.utils.aoa_to_sheet(progAOA);
-      wsPrograms['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 80 }];
+      wsPrograms['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 80 }];
       setXlsxPrintMargins(wsPrograms);
       XLSX.utils.book_append_sheet(wb, wsPrograms, 'برامج الأنشطة الطلابية');
     }
@@ -844,7 +855,9 @@ async function exportBackup(evt){
       classroom_incident_types_reference: crmTypes,
       academic_cases: acCases,
       activity_programs: myPrograms,
-      support_messages: supportMsgs
+      program_sections: myProgramSections,
+      support_messages: supportMsgs,
+      tasks: myTasksBackup
     };
     zip.file('بيانات-كاملة.json', JSON.stringify(fullData, null, 2));
 

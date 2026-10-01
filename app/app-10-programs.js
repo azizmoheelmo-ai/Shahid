@@ -80,13 +80,149 @@ function renderProgramsList(){
    حتى لا ينكسر ربط الحصص الموثَّقة فعليًا (shahid_id) بأرقامها. */
 let pgSessionsDraft = [];
 
+/* ============ ربط البرنامج بالشُعب (اختياري) ============
+   استخدام فعلي للتخطيط لا مجرد توثيق: (1) عدّ الطلبة يُحسب تلقائيًا من
+   عدد طلاب الشُعب المختارة النشطين، مع إمكانية التعديل اليدوي بعدها،
+   (2) تحذير (لا منع) لو تكرر ربط نفس الشعبة ببرنامج آخر بنفس نص الأسبوع
+   المخطَّط. الربط بمستوى البرنامج كاملاً (لا لكل حصة بمفردها) — نفس
+   الشُعب تنطبق على كل حصصه عبر كل الأسابيع، باتفاق صريح مع المستخدم.
+   لا نفلتر الشُعب بالسنة الدراسية هنا: classroom_sections.academic_year
+   نص حر هجري ("1448-1449") يُدخله المعلم بنفسه، بينما activity_programs
+   .cycle_year محسوب تلقائيًا بصيغة ميلادية مختلفة كليًا ("2026/2027") —
+   مطابقتهما كانت ستُخفي شُعبًا حقيقية بصمت بسبب اختلاف الصيغة لا غيابها
+   فعليًا، فنعرض كل شُعب المعلم بلا فلترة بالسنة. */
+let pgCrmGradeLevels = [];
+let pgCrmSections = [];
+let pgSelectedSectionIds = [];
+
+async function loadProgramFormSections(){
+  const [{ data: grades, error: gErr }, { data: sections, error: sErr }] = await Promise.all([
+    sb.from('classroom_grade_levels').select('*').eq('teacher_id', currentUser.id).order('created_at'),
+    sb.from('classroom_sections').select('*').eq('teacher_id', currentUser.id).order('created_at')
+  ]);
+  pgCrmGradeLevels = gErr ? [] : (grades || []);
+  pgCrmSections = sErr ? [] : (sections || []);
+}
+
+function renderProgramSectionPicker(){
+  const box = document.getElementById('pgSectionsPicker');
+  if(!box) return;
+  if(!pgCrmSections.length){
+    box.innerHTML = '<div style="font-size:11.5px;color:var(--muted);">لا توجد شُعب مسجَّلة بعد — يمكنك إضافتها من "إدارة الصف ← المراحل والشُعب"، أو تجاهل هذا الحقل والمتابعة بلا ربط.</div>';
+    return;
+  }
+  box.innerHTML = pgCrmGradeLevels.map(g => {
+    const secs = pgCrmSections.filter(s => s.grade_level_id === g.id);
+    if(!secs.length) return '';
+    return `<div style="margin-bottom:8px;">
+      <div style="font-size:11.5px;font-weight:700;color:var(--navy);margin-bottom:4px;">${escapeHtml(g.name)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        ${secs.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;background:#F7F5F0;border:1px solid var(--line);padding:4px 8px;cursor:pointer;">
+          <input type="checkbox" value="${s.id}" ${pgSelectedSectionIds.includes(s.id) ? 'checked' : ''} onchange="toggleProgramSection('${s.id}', this.checked)">
+          الشعبة ${escapeHtml(s.name)}
+        </label>`).join('')}
+      </div>
+    </div>`;
+  }).join('') || '<div style="font-size:11.5px;color:var(--muted);">لا توجد شُعب مسجَّلة بعد.</div>';
+}
+
+async function toggleProgramSection(sectionId, checked){
+  pgSelectedSectionIds = checked
+    ? [...new Set([...pgSelectedSectionIds, sectionId])]
+    : pgSelectedSectionIds.filter(id => id !== sectionId);
+  await recomputeProgramStudentCountFromSections();
+}
+
+/* دالة صرفة: مطابقة نصية (grade_level/section_number) لا بمعرّف — نفس
+   طريقة ربط الطالب بشعبته المستخدمة أصلًا بكل شاشات "إدارة الصف"
+   (classroom_students لا يحمل عمود section_id، فقط نصًا حرًا يُملأ من
+   اسم الشعبة وقت إضافة الطالب). */
+function countActiveStudentsInSections(students, selectedSections){
+  return (students || []).filter(s => s.is_active && (selectedSections || []).some(sel =>
+    (s.grade_level || '') === sel.grade_level_name && (s.section_number || '') === sel.section_name
+  )).length;
+}
+
+async function recomputeProgramStudentCountFromSections(){
+  const input = document.getElementById('pgStudentCount');
+  if(!input) return;
+  if(!pgSelectedSectionIds.length) return; /* لا نمسح رقمًا أدخله المعلم يدويًا لو أزال آخر شعبة محدَّدة */
+  const selectionAtCallTime = pgSelectedSectionIds; /* احتياطًا: لو بدّل المعلم الاختيار بسرعة قبل
+    اكتمال هذا الاستعلام (نقر عدة مربّعات متتالية)، لا نطبّق نتيجة اختيار قديم فوق اختيار أحدث منه */
+  const selectedSections = selectionAtCallTime.map(id => {
+    const sec = pgCrmSections.find(s => s.id === id);
+    const grade = sec ? pgCrmGradeLevels.find(g => g.id === sec.grade_level_id) : null;
+    return { grade_level_name: grade ? grade.name : '', section_name: sec ? sec.name : '' };
+  });
+  const { data: students, error } = await sb.from('classroom_students').select('grade_level, section_number, is_active').eq('teacher_id', currentUser.id);
+  if(error) return; /* فشل صامت — لا نمنع المتابعة، المعلم يقدر يُدخل الرقم يدويًا */
+  if(pgSelectedSectionIds !== selectionAtCallTime) return; /* تغيّر الاختيار أثناء الانتظار — نداء أحدث سيتولى التحديث الصحيح */
+  input.value = countActiveStudentsInSections(students || [], selectedSections);
+}
+
+/* دالة صرفة: تحذير فقط (لا منع حفظ) — مطابقة نصية مباشرة لـweek_label
+   بين برامج مختلفة تشترك بنفس الشعبة. لا حل للتاريخ الفعلي عبر التقويم
+   الرسمي عمدًا (تبسيط مقبول لتحذير استرشادي): لو برنامجان كتبا نفس نص
+   الأسبوع ("الأسبوع الخامس") لنفس الشعبة، هذا تعارض محتمل يستحق تنبيهًا،
+   بصرف النظر عن أي حل دقيق للتاريخ. */
+function findSectionWeekConflicts(currentProgramId, currentSectionIds, currentWeekLabels, otherProgramsWithSections){
+  const weekSet = new Set((currentWeekLabels || []).map(w => (w || '').trim()).filter(Boolean));
+  const sectionSet = new Set(currentSectionIds || []);
+  if(!weekSet.size || !sectionSet.size) return [];
+  const conflicts = [];
+  (otherProgramsWithSections || []).forEach(p => {
+    if(String(p.id) === String(currentProgramId)) return;
+    const sharedSection = (p.sectionIds || []).some(id => sectionSet.has(id));
+    if(!sharedSection) return;
+    const sharedWeeks = [...new Set((p.sessions || [])
+      .map(s => (s.week_label || '').trim())
+      .filter(w => w && weekSet.has(w)))];
+    if(sharedWeeks.length) conflicts.push({ programName: p.name, weeks: sharedWeeks });
+  });
+  return conflicts;
+}
+
+/* يُستدعى قبل الحفظ مباشرة — يجلب روابط بقية برامج نفس المعلم بالشُعب
+   (جدول program_sections) ليبني مدخلات findSectionWeekConflicts، ثم
+   يعرض تحذيرًا (Toast) لو وُجد تعارض بلا أي منع للحفظ. */
+async function warnOnSectionWeekConflicts(programId, sessionsPlan){
+  if(!pgSelectedSectionIds.length) return;
+  const { data: links, error } = await sb.from('program_sections').select('program_id, section_id').eq('teacher_id', currentUser.id);
+  if(error) return; /* تحذير استرشادي فقط — فشل الفحص لا يوقف الحفظ */
+  const sectionIdsByProgram = new Map();
+  (links || []).forEach(l => {
+    if(!sectionIdsByProgram.has(l.program_id)) sectionIdsByProgram.set(l.program_id, []);
+    sectionIdsByProgram.get(l.program_id).push(l.section_id);
+  });
+  const otherProgramsWithSections = activityPrograms.map(p => ({
+    id: p.id, name: p.name, sessions: p.sessions, sectionIds: sectionIdsByProgram.get(p.id) || []
+  }));
+  const conflicts = findSectionWeekConflicts(programId, pgSelectedSectionIds, sessionsPlan.map(s => s.week_label), otherProgramsWithSections);
+  if(conflicts.length){
+    const detail = conflicts.map(c => `"${c.programName}" (${c.weeks.join('، ')})`).join(' — ');
+    showToast(`تنبيه تعارض جدولة: شعبة مرتبطة أيضًا ببرنامج آخر بنفس الأسبوع: ${detail}`, 'error');
+  }
+}
+
+/* يحفظ ربط البرنامج بالشُعب فعليًا بعد نجاح حفظ البرنامج نفسه — حذف كامل
+   ثم إعادة إدراج (بسيط وآمن لجدول ربط صغير)، بفلترة teacher_id صريحة
+   إضافية رغم اعتماد RLS أصلًا (نفس نمط بقية حذف/إدراج هذا الملف). */
+async function saveProgramSectionLinks(programId){
+  const { error: delErr } = await sb.from('program_sections').delete().eq('program_id', programId).eq('teacher_id', currentUser.id);
+  if(delErr) return; /* فشل تحديث الربط لا يجب أن يُفشل رسالة نجاح حفظ البرنامج نفسه */
+  if(!pgSelectedSectionIds.length) return;
+  await sb.from('program_sections').insert(
+    pgSelectedSectionIds.map(sectionId => ({ teacher_id: currentUser.id, program_id: programId, section_id: sectionId }))
+  );
+}
+
 function populateProgramElementSelect(){
   const select = document.getElementById('pgElementSelect');
   select.innerHTML = '<option value="">— بلا ربط —</option>' +
     DB_ELEMENTS.map(el => `<option value="${escapeHtml(el.key)}">${escapeHtml(el.label)} (${el.weight}%)</option>`).join('');
 }
 
-function showNewProgramForm(){
+async function showNewProgramForm(){
   currentProgramId = null;
   editingProgramScheduleOnly = false;
   document.getElementById('programFormTitle').textContent = 'برنامج جديد';
@@ -99,7 +235,12 @@ function showNewProgramForm(){
   document.getElementById('pgSaveMsg').className = 'save-msg';
   pgSessionsDraft = [{ session_no: 1, week_label: '', done: false, done_date: null, shahid_id: null }];
   renderProgramScheduleRows();
+  pgSelectedSectionIds = [];
+  document.getElementById('pgSectionsPicker').textContent = 'جارٍ التحميل...';
   showProgramsSection('form');
+  await loadProgramFormSections();
+  if(currentProgramId !== null) return; /* المعلم فتح برنامجًا آخر للتعديل أثناء الانتظار */
+  renderProgramSectionPicker();
 }
 
 function cancelProgramForm(){
@@ -145,7 +286,7 @@ function removeProgramSessionRow(idx){
   renderProgramScheduleRows();
 }
 
-function editProgramSchedule(programId){
+async function editProgramSchedule(programId){
   const p = activityPrograms.find(x => String(x.id) === String(programId));
   if(!p) return;
 
@@ -162,7 +303,17 @@ function editProgramSchedule(programId){
   document.getElementById('pgSaveMsg').className = 'save-msg';
   pgSessionsDraft = (p.sessions || []).map(s => ({ ...s }));
   renderProgramScheduleRows();
+  pgSelectedSectionIds = [];
+  document.getElementById('pgSectionsPicker').textContent = 'جارٍ التحميل...';
   showProgramsSection('form');
+
+  const [, { data: links }] = await Promise.all([
+    loadProgramFormSections(),
+    sb.from('program_sections').select('section_id').eq('program_id', p.id).eq('teacher_id', currentUser.id)
+  ]);
+  if(currentProgramId !== p.id) return; /* المعلم فتح برنامجًا آخر للتعديل أثناء الانتظار */
+  pgSelectedSectionIds = (links || []).map(l => l.section_id);
+  renderProgramSectionPicker();
 }
 
 async function saveProgramForm(){
@@ -215,10 +366,17 @@ async function saveProgramForm(){
         showToast('تنبيه: حصة تم توثيقها حديثًا من مكان آخر — أُعيدت للجدول تلقائيًا كي لا تُفقد', 'error');
       }
 
+      /* student_count يُحفظ هنا أيضًا — خلل حقيقي سابق: الحقل ظاهر وقابل
+         للتعديل بشاشة "تعديل الجدول" لكن لم يكن يُحفَظ إطلاقًا (الحفظ هنا
+         كان يحدِّث sessions/total_sessions فقط)، فأي تعديل يدوي عليه، أو
+         القيمة المحسوبة تلقائيًا من الشُعب أدناه، كانت تُفقد بصمت. */
+      const studentCount = document.getElementById('pgStudentCount').value ? Number(document.getElementById('pgStudentCount').value) : null;
       const { error } = await sb.from('activity_programs')
-        .update({ sessions: finalSessions, total_sessions: finalSessions.length })
+        .update({ sessions: finalSessions, total_sessions: finalSessions.length, student_count: studentCount })
         .eq('id', currentProgramId);
       if(error) throw error;
+      await warnOnSectionWeekConflicts(currentProgramId, finalSessions);
+      await saveProgramSectionLinks(currentProgramId);
       await loadActivityPrograms();
       msg.textContent = 'تم تحديث الجدول ✓';
       msg.className = 'save-msg ok';
@@ -236,6 +394,8 @@ async function saveProgramForm(){
       };
       const { data: inserted, error } = await sb.from('activity_programs').insert(record).select().single();
       if(error) throw error;
+      await warnOnSectionWeekConflicts(inserted.id, sessionsPlan);
+      await saveProgramSectionLinks(inserted.id);
       await loadActivityPrograms();
       msg.textContent = 'تم إنشاء البرنامج ✓';
       msg.className = 'save-msg ok';
@@ -252,6 +412,21 @@ async function saveProgramForm(){
 }
 
 /* ============ تفاصيل البرنامج ============ */
+let programDetailSectionLabels = [];
+
+async function loadProgramDetailSections(programId){
+  const [{ data: links }] = await Promise.all([
+    sb.from('program_sections').select('section_id').eq('program_id', programId).eq('teacher_id', currentUser.id),
+    pgCrmSections.length ? Promise.resolve() : loadProgramFormSections()
+  ]);
+  const ids = (links || []).map(l => l.section_id);
+  programDetailSectionLabels = ids.map(id => {
+    const sec = pgCrmSections.find(s => s.id === id);
+    const grade = sec ? pgCrmGradeLevels.find(g => g.id === sec.grade_level_id) : null;
+    return sec ? `${grade ? grade.name + ' - ' : ''}شعبة ${sec.name}` : null;
+  }).filter(Boolean);
+}
+
 async function showProgramDetail(programId){
   /* لازم hideAllMainViews + إظهار #programsView هنا صراحة (مثل showPrograms
      تمامًا) — لا نعتمد على كون #programsView ظاهرة أصلًا: هذي الدالة تُستدعى
@@ -264,11 +439,13 @@ async function showProgramDetail(programId){
   currentProgramId = programId;
   showProgramsSection('detail');
   document.getElementById('programDetailBody').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
-  /* استعلامان مستقلان — بالتوازي بدل التتابع لتقليل زمن الانتظار على جلسة باردة */
+  /* استعلامات مستقلة — بالتوازي بدل التتابع لتقليل زمن الانتظار على جلسة باردة */
   await Promise.all([
     activityPrograms.length ? Promise.resolve() : loadActivityPrograms(),
     myRecords.length ? Promise.resolve() : loadMyShawahid(),
+    loadProgramDetailSections(programId),
   ]);
+  if(String(currentProgramId) !== String(programId)) return; /* انتقل المعلم لبرنامج آخر أثناء الانتظار */
   renderProgramDetail(programId);
 }
 
@@ -308,6 +485,7 @@ function renderProgramDetail(programId){
       ${p.student_count ? `<span>عدد الطلبة: <b style="color:var(--navy);">${p.student_count}</b></span>` : ''}
       ${elLabel ? `<span>مرتبط بعنصر: <b style="color:var(--navy);">${escapeHtml(elLabel)}</b></span>` : ''}
       ${p.cycle_year ? `<span>السنة: <b style="color:var(--navy);">${escapeHtml(p.cycle_year)}</b></span>` : ''}
+      ${programDetailSectionLabels.length ? `<span>الشُعب: <b style="color:var(--navy);">${escapeHtml(programDetailSectionLabels.join('، '))}</b></span>` : ''}
     </div>
     <div class="plan-goals-list">${sessionsHtml}</div>
     <div class="rec-actions" style="margin-top:18px;flex-wrap:wrap;">
@@ -464,6 +642,7 @@ function buildProgramSummaryHtml(program){
       ${metaCellProgram('عدد الطلبة', program.student_count ? String(program.student_count) : '—')}
       ${metaCellProgram('العنصر المرتبط', elLabel || '—')}
       ${metaCellProgram('السنة الدراسية', program.cycle_year || '—')}
+      ${metaCellProgram('الشُعب', programDetailSectionLabels.length ? programDetailSectionLabels.join('، ') : '—')}
     </div>
     ${sectionProgram('جدول الحصص وحالة التوثيق', `
       <table style="width:100%;border-collapse:collapse;background:#F1EEE6;">
