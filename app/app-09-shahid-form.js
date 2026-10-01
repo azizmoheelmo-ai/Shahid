@@ -926,6 +926,7 @@ async function saveShahid(){
     if(programSessionContext){
       record.program_id = programSessionContext.programId;
       record.program_session_no = programSessionContext.sessionNo;
+      record.program_section_id = programSessionContext.sectionId || null;
     }
 
     if(!editingId){
@@ -958,7 +959,7 @@ async function saveShahid(){
            "عرض الشاهد" بحثه عن هذا الشاهد المُنشأ للتو (myRecords.find) رغم
            نجاح الحفظ فعليًا بقاعدة البيانات. */
         myRecords.unshift(inserted);
-        await markProgramSessionDone(ctx.programId, ctx.sessionNo, inserted.id);
+        await markProgramSessionDone(ctx.programId, ctx.sessionNo, inserted.id, undefined, ctx.sectionId);
         setTimeout(() => { showProgramDetail(ctx.programId); }, 900);
       } else {
         setTimeout(() => { showList(); }, 900);
@@ -1007,7 +1008,7 @@ async function deleteRecord(id, afterDelete){
      نفسه، فهو أصلاً منجَز أعلاه). */
   let clearedProgramSessionMeta = null;
   if(rec.program_id && rec.program_session_no != null){
-    try{ clearedProgramSessionMeta = await clearProgramSessionLink(rec.program_id, rec.program_session_no); } catch(e){ /* غير حرج */ }
+    try{ clearedProgramSessionMeta = await clearProgramSessionLink(rec.program_id, rec.program_session_no, rec.program_section_id); } catch(e){ /* غير حرج */ }
   }
 
   const originalIndex = myRecords.findIndex(r => String(r.id) === String(id));
@@ -1036,7 +1037,7 @@ async function deleteRecord(id, afterDelete){
          الأصلي لا تاريخ اليوم) — عكس التفريغ أعلاه */
       if(rec.program_id && rec.program_session_no != null){
         const originalDoneDate = clearedProgramSessionMeta && clearedProgramSessionMeta.done_date;
-        try{ await markProgramSessionDone(rec.program_id, rec.program_session_no, rec.id, originalDoneDate); } catch(e){ /* غير حرج */ }
+        try{ await markProgramSessionDone(rec.program_id, rec.program_session_no, rec.id, originalDoneDate, rec.program_section_id); } catch(e){ /* غير حرج */ }
       }
       if(afterDelete){ try{ afterDelete(); } catch(e){ /* غير حرج */ } }
       showToast('تم التراجع عن الحذف', 'ok');

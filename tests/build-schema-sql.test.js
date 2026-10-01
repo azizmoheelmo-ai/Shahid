@@ -140,4 +140,14 @@ test('buildSchemaSql', async (t) => {
     assert.ok(createProgIdx > -1 && createSectionsIdx > -1 && createLinkIdx > -1);
     assert.ok(createProgIdx < createLinkIdx && createSectionsIdx < createLinkIdx, 'program_sections يجب أن يُنشأ بعد كل من activity_programs وclassroom_sections');
   });
+
+  await t.test('توثيق حصة لكل شعبة بمفردها: عمود shawahid.program_section_id يأتي بعد إنشاء classroom_sections', () => {
+    const app = loadApp();
+    const sql = app.buildSchemaSql();
+    assert.match(sql, /alter table public\.shawahid add column if not exists program_section_id uuid references public\.classroom_sections\(id\) on delete set null/);
+    const createSectionsIdx = sql.indexOf('create table if not exists public.classroom_sections');
+    const addColumnIdx = sql.indexOf('alter table public.shawahid add column if not exists program_section_id');
+    assert.ok(createSectionsIdx > -1 && addColumnIdx > -1);
+    assert.ok(createSectionsIdx < addColumnIdx, 'عمود program_section_id (مرجع FK لـclassroom_sections) يجب أن يُضاف بعد إنشاء الجدول لا قبله');
+  });
 });

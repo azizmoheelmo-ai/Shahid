@@ -990,6 +990,13 @@ create policy "المعلم يربط برامجه فقط" on public.program_sect
 drop policy if exists "المعلم يحذف روابط برامجه فقط" on public.program_sections;
 create policy "المعلم يحذف روابط برامجه فقط" on public.program_sections for delete using (auth.uid() = teacher_id);
 
+-- أي شاهد يوثّق حصة من برنامج مرتبط بأكثر من شعبة يُسجَّل بشعبته المحدَّدة
+-- هنا (توثيق كل شعبة بوقتها الخاص بشاهد مستقل) — nullable، وعلى delete set
+-- null لا تتأثر بقية بيانات الشاهد لو حُذفت الشعبة لاحقًا. يجب أن يأتي هذا
+-- بعد إنشاء classroom_sections أعلاه (مرجع FK)، لا بجانب عمودي program_id/
+-- program_session_no الأقدم (قبل إنشاء classroom_sections بمئات الأسطر).
+alter table public.shawahid add column if not exists program_section_id uuid references public.classroom_sections(id) on delete set null;
+
 create table if not exists public.classroom_incident_types (
   id uuid primary key default gen_random_uuid(),
   problem_name text not null,
@@ -1398,13 +1405,13 @@ async function exportFullBackup(){
       '     1. profiles.csv',
       '     2. performance_elements.csv',
       '     3. admins.csv',
-      '     4. activity_programs.csv (لازم قبل shawahid.csv لأنها تُشير إليه)',
-      '     5. shawahid.csv',
-      '     6. performance_goals.csv',
-      '     7. plan_header.csv',
-      '     8. self_assessment.csv',
-      '     9. classroom_grade_levels.csv',
-      '     10. classroom_sections.csv',
+      '     4. activity_programs.csv',
+      '     5. classroom_grade_levels.csv',
+      '     6. classroom_sections.csv (لازم قبل shawahid.csv — شاهد توثيق شعبة بعينها يُشير إليها)',
+      '     7. shawahid.csv (لازم بعد activity_programs وclassroom_sections لأنها قد تُشير لكليهما)',
+      '     8. performance_goals.csv',
+      '     9. plan_header.csv',
+      '     10. self_assessment.csv',
       '     11. classroom_incident_types.csv (أو أدخلها يدويًا — راجع الملاحظة أعلى 01-schema.sql)',
       '     12. classroom_students.csv',
       '     13. classroom_incidents.csv',

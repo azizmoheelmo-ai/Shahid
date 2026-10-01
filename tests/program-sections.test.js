@@ -1,13 +1,63 @@
 'use strict';
 /* ============================================================
-   اختبارات الدالتين الصرفتين بـapp-10-programs.js لميزة "ربط البرنامج
-   بالشُعب": countActiveStudentsInSections (عدّ الطلبة التلقائي)
-   وfindSectionWeekConflicts (تحذير تعارض جدولة — لا منع حفظ).
+   اختبارات الدوال الصرفة بـapp-10-programs.js لميزة "ربط البرنامج
+   بالشُعب": countActiveStudentsInSections (عدّ الطلبة التلقائي)،
+   findSectionWeekConflicts (تحذير تعارض جدولة — لا منع حفظ)،
+   وprogramProgress (حساب التقدّم — على مستوى الحصة بلا شُعب، أو على
+   مستوى "فتحة التوثيق" لكل شعبة بكل حصة لو كان البرنامج مرتبطًا بشُعب،
+   باتفاق صريح مع المستخدم: التوثيق أدق فورًا بدل انتظار اكتمال كل
+   شُعب حصة واحدة).
    ============================================================ */
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { loadApp } = require('./load-app');
+
+test('programProgress', async (t) => {
+  await t.test('بلا شُعب مرتبطة (أو sectionIds غير مُمرَّرة): سلوك الحصة الأصلي كاملًا', () => {
+    const app = loadApp();
+    const program = { total_sessions: 3, sessions: [
+      { session_no: 1, done: true },
+      { session_no: 2, done: false },
+      { session_no: 3, done: true },
+    ]};
+    const { done, total, pct, isDone } = app.programProgress(program);
+    assert.equal(done, 2);
+    assert.equal(total, 3);
+    assert.equal(pct, 67);
+    assert.equal(isDone, false);
+  });
+
+  await t.test('بشُعب مرتبطة: الإجمالي = عدد الحصص × عدد الشُعب، لا عدد الحصص فقط', () => {
+    const app = loadApp();
+    const program = { total_sessions: 2, sessions: [
+      { session_no: 1, section_status: { 'sec-a': { done: true }, 'sec-b': { done: true } } },
+      { session_no: 2, section_status: { 'sec-a': { done: true }, 'sec-b': { done: false } } },
+    ]};
+    const { done, total, isDone } = app.programProgress(program, ['sec-a', 'sec-b']);
+    assert.equal(total, 4); // حصتان × شعبتان
+    assert.equal(done, 3);  // 3 فتحات توثيق مكتملة من أصل 4
+    assert.equal(isDone, false);
+  });
+
+  await t.test('بشُعب مرتبطة لكن حصة بلا section_status إطلاقًا: تُحتسب 0 لتلك الحصة بلا خطأ', () => {
+    const app = loadApp();
+    const program = { total_sessions: 1, sessions: [{ session_no: 1 }] };
+    const { done, total } = app.programProgress(program, ['sec-a', 'sec-b']);
+    assert.equal(total, 2);
+    assert.equal(done, 0);
+  });
+
+  await t.test('اكتمال كل الفتحات بكل الشُعب يُعتبر isDone=true', () => {
+    const app = loadApp();
+    const program = { total_sessions: 1, sessions: [
+      { session_no: 1, section_status: { 'sec-a': { done: true }, 'sec-b': { done: true } } },
+    ]};
+    const { isDone, pct } = app.programProgress(program, ['sec-a', 'sec-b']);
+    assert.equal(isDone, true);
+    assert.equal(pct, 100);
+  });
+});
 
 test('countActiveStudentsInSections', async (t) => {
   const students = [
