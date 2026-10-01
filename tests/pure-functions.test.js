@@ -211,3 +211,23 @@ describe('fetchAllRows (تجميع صفحات متتالية)', () => {
     assert.equal(data.length, 0);
   });
 });
+
+describe('riskRow (بطاقات تنبيهات الرئيسية — إدارة الصف/المتابعة الأكاديمية/الأداء)', () => {
+  test('ثغرة حقيقية اكتُشفت ثم أُصلحت: اسم طالب/مادة يحوي HTML خام لا يُحقن بصمت', () => {
+    const app = loadApp();
+    // نفس شكل النص الفعلي ببناء buildAdminRisks/buildAcademicRisks —
+    // "اسم الطالب — مخالفة/إحالة ..." — لو كتب المعلم اسمًا خبيثًا، كان
+    // يُنفَّذ كـHTML فعلي عند عرض بطاقة التنبيه بصمت (XSS مخزَّن بالحساب
+    // نفسه) قبل هذا الإصلاح.
+    const maliciousName = '<img src=x onerror="alert(1)">';
+    const html = app.riskRow('high', `${maliciousName} — مخالفة لم تُوثَّق بعد`, 'اذهب', null);
+    assert.ok(!html.includes('<img'), 'النص الخبيث يجب أن يُفلَت لا أن يبقى وسمًا فعليًا: ' + html);
+    assert.ok(html.includes('&lt;img'), 'النص المفلَت يجب أن يظهر كنص عادي (&lt;img...)');
+  });
+
+  test('نص عادي بلا حروف خاصة يبقى كما هو', () => {
+    const app = loadApp();
+    const html = app.riskRow('low', 'أحمد — تنبيه عادي', 'عرض', null);
+    assert.ok(html.includes('أحمد — تنبيه عادي'));
+  });
+});

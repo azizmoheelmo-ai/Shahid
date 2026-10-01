@@ -1072,7 +1072,7 @@ function riskRow(level, text, actionLabel, actionFn){
   const btnId = 'riskBtn' + Math.random().toString(36).slice(2, 9);
   window['_' + btnId] = actionFn;
   return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line);background:${bg};">
-    <span style="font-size:12.5px;color:${c};flex:1;">${text}</span>
+    <span style="font-size:12.5px;color:${c};flex:1;">${escapeHtml(text)}</span>
     ${actionFn ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;flex-shrink:0;" onclick="window._${btnId}()">${actionLabel || 'اذهب'}</button>` : ''}
   </div>`;
 }
