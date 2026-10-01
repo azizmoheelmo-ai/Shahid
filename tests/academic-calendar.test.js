@@ -99,3 +99,29 @@ test('buildWeekLabelDateIndex', async (t) => {
     assert.equal(Object.keys(app.buildWeekLabelDateIndex([])).length, 0);
   });
 });
+
+test('isAndroidUserAgent (زر "إضافة مباشرة لتقويم الجهاز" برابط ICS)', async (t) => {
+  await t.test('متصفح أندرويد (Chrome Mobile) يُكتشف صحيحًا', () => {
+    const app = loadApp();
+    const ua = 'Mozilla/5.0 (Linux; Android 13; SM-A135F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+    assert.equal(app.isAndroidUserAgent(ua), true);
+  });
+
+  await t.test('آيفون لا يُعتبر أندرويد (الزر يعمل غالبًا فلا نُخفيه)', () => {
+    const app = loadApp();
+    const ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
+    assert.equal(app.isAndroidUserAgent(ua), false);
+  });
+
+  await t.test('حاسوب مكتبي (Windows) لا يُعتبر أندرويد', () => {
+    const app = loadApp();
+    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+    assert.equal(app.isAndroidUserAgent(ua), false);
+  });
+
+  await t.test('قيمة فارغة/غير معرَّفة لا تُسبب خطأ وتُرجع false', () => {
+    const app = loadApp();
+    assert.equal(app.isAndroidUserAgent(''), false);
+    assert.equal(app.isAndroidUserAgent(undefined), false);
+  });
+});
