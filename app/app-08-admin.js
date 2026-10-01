@@ -745,15 +745,24 @@ async function exportBackup(evt){
         const grade = sec ? crmGrades.find(g => g.id === sec.grade_level_id) : null;
         return sec ? `${grade ? grade.name + ' - ' : ''}شعبة ${sec.name}` : null;
       };
-      const progAOA = [['اسم البرنامج', 'الحصص الموثَّقة', 'إجمالي الحصص', 'عدد الطلبة', 'السنة', 'الشُعب المرتبطة', 'تفاصيل الحصص']];
+      const progAOA = [['اسم البرنامج', 'فتحات التوثيق المكتملة', 'إجمالي فتحات التوثيق', 'عدد الطلبة', 'السنة', 'الشُعب المرتبطة', 'تفاصيل الحصص']];
       myPrograms.forEach(p => {
         const sessions = p.sessions || [];
-        const done = sessions.filter(s => s.done).length;
-        const sessionsDetail = sessions
-          .map(s => `${s.session_no}: ${s.week_label || '—'} — ${s.done ? 'موثَّقة' + (s.done_date ? ' (' + s.done_date + ')' : '') : 'لم تُوثَّق بعد'}`)
-          .join(' | ');
-        const sectionsLabel = myProgramSections.filter(ps => ps.program_id === p.id).map(ps => sectionLabel(ps.section_id)).filter(Boolean).join('، ');
-        progAOA.push([p.name, done, p.total_sessions, p.student_count || '—', p.cycle_year || '—', sectionsLabel || '—', sessionsDetail]);
+        const sectionIds = myProgramSections.filter(ps => ps.program_id === p.id).map(ps => ps.section_id);
+        /* programProgress (app-10-programs.js) — نفس دالة حساب التقدّم
+           المستخدمة بالواجهة، لا حساب مستقل قد ينحرف عنها لاحقًا. بلا شُعب
+           مرتبطة: عدّ الحصص كما كان دائمًا (s.done). بشُعب مرتبطة: s.done
+           لم يعد يُكتب إطلاقًا (التوثيق أصبح لكل شعبة بمفردها عبر
+           section_status) — عدّه هنا كان سيُظهر صفرًا دائمًا بالخطأ. */
+        const { done, total } = programProgress(p, sectionIds);
+        const sessionsDetail = sectionIds.length
+          ? sessions.flatMap(s => sectionIds.map(sid => {
+              const st = (s.section_status && s.section_status[sid]) || {};
+              return `${s.session_no} (${sectionLabel(sid) || '—'}): ${s.week_label || '—'} — ${st.done ? 'موثَّقة' + (st.done_date ? ' (' + st.done_date + ')' : '') : 'لم تُوثَّق بعد'}`;
+            })).join(' | ')
+          : sessions.map(s => `${s.session_no}: ${s.week_label || '—'} — ${s.done ? 'موثَّقة' + (s.done_date ? ' (' + s.done_date + ')' : '') : 'لم تُوثَّق بعد'}`).join(' | ');
+        const sectionsLabel = sectionIds.map(sectionLabel).filter(Boolean).join('، ');
+        progAOA.push([p.name, done, total, p.student_count || '—', p.cycle_year || '—', sectionsLabel || '—', sessionsDetail]);
       });
       const wsPrograms = XLSX.utils.aoa_to_sheet(progAOA);
       wsPrograms['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 80 }];

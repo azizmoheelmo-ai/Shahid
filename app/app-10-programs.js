@@ -10,15 +10,29 @@ let activityPrograms = [];
 let currentProgramId = null;       // البرنامج المفتوح حاليًا في شاشة التفاصيل/تعديل الجدول
 let editingProgramScheduleOnly = false; // true = نعدّل جدول برنامج موجود بدل إنشاء برنامج جديد
 
+/* معرّفات الشُعب المرتبطة بكل برنامج (Map<programId, sectionId[]>) — محمَّلة
+   هنا مرة واحدة مع كل البرامج، لا استعلام منفصل لكل برنامج بالقائمة (N+1).
+   برنامج بلا شُعب مرتبطة (القيمة الافتراضية لأي برنامج قديم سابق لهذه
+   الميزة) يحافظ على السلوك الأصلي بالكامل: شاهد واحد لكل حصة، بلا تغيير. */
+let programSectionIdsMap = new Map();
+
 async function loadActivityPrograms(){
   /* فلترة صريحة بمعرّف المستخدم ضرورية — نفس سبب فلترة loadMyShawahid */
-  const { data, error } = await fetchAllRows((from, to) => sb
-    .from('activity_programs')
-    .select('*')
-    .eq('user_id', currentUser.id)
-    .order('created_at', { ascending: false })
-    .range(from, to));
+  const [{ data, error }, linksRes] = await Promise.all([
+    fetchAllRows((from, to) => sb
+      .from('activity_programs')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false })
+      .range(from, to)),
+    sb.from('program_sections').select('program_id, section_id').eq('teacher_id', currentUser.id)
+  ]);
   activityPrograms = error ? [] : (data || []);
+  programSectionIdsMap = new Map();
+  (linksRes.data || []).forEach(l => {
+    if(!programSectionIdsMap.has(l.program_id)) programSectionIdsMap.set(l.program_id, []);
+    programSectionIdsMap.get(l.program_id).push(l.section_id);
+  });
   return !error;
 }
 
@@ -38,10 +52,24 @@ function showProgramsSection(section){
   document.getElementById('programsDetailSection').style.display = section === 'detail' ? 'block' : 'none';
 }
 
-function programProgress(program){
+/* دالة صرفة: sectionIds فارغة (أو غير مُمرَّرة) = السلوك الأصلي بالكامل
+   (قبل ميزة ربط الشُعب) — حصة واحدة = فتحة توثيق واحدة. لو البرنامج مرتبط
+   بشُعب، كل حصة تحوي (عدد الشُعب) فتحات توثيق مستقلة (section_status)،
+   فالإجمالي = عدد الحصص × عدد الشُعب — نسبة أدق تعكس التقدّم الحقيقي فورًا
+   بدل انتظار اكتمال كل شُعب حصة واحدة (باتفاق صريح مع المستخدم). */
+function programProgress(program, sectionIds){
   const sessions = program.sessions || [];
-  const total = program.total_sessions || sessions.length || 1;
-  const done = sessions.filter(s => s.done).length;
+  const secCount = (sectionIds && sectionIds.length) || 0;
+  if(!secCount){
+    const total = program.total_sessions || sessions.length || 1;
+    const done = sessions.filter(s => s.done).length;
+    const pct = Math.round((done / total) * 100);
+    return { done, total, pct, isDone: total > 0 && done >= total };
+  }
+  const total = (program.total_sessions || sessions.length || 1) * secCount;
+  const done = sessions.reduce((sum, s) => sum + sectionIds.filter(id =>
+    s.section_status && s.section_status[id] && s.section_status[id].done
+  ).length, 0);
   const pct = Math.round((done / total) * 100);
   return { done, total, pct, isDone: total > 0 && done >= total };
 }
@@ -53,7 +81,7 @@ function renderProgramsList(){
     return;
   }
   body.innerHTML = activityPrograms.map(p => {
-    const { done, total, pct, isDone } = programProgress(p);
+    const { done, total, pct, isDone } = programProgress(p, programSectionIdsMap.get(p.id));
     const elLabel = (DB_ELEMENTS.find(e => e.key === p.element_key) || {}).label;
     return `<div class="rec">
       <div class="rec-top">
@@ -350,17 +378,25 @@ async function saveProgramForm(){
       if(fetchErr) throw fetchErr;
       const freshSessions = (freshProg && freshProg.sessions) || [];
       const freshBySessionNo = new Map(freshSessions.map(s => [s.session_no, s]));
+      /* أي تقدّم فعلي بالحصة — إما الشكل القديم (s.done، برنامج بلا شُعب
+         مرتبطة) أو الجديد (section_status، لأي شعبة واحدة على الأقل).
+         بدون تغطية section_status هنا، نفس حادثة "بيانات ضائعة صامتة"
+         الموثَّقة أعلاه تتكرر فعليًا لكل برنامج مرتبط بشُعب. */
+      const hasProgress = s => !!s.done || Object.values(s.section_status || {}).some(v => v && v.done);
 
       const merged = sessionsPlan.map(s => {
         const fresh = freshBySessionNo.get(s.session_no);
-        return (fresh && fresh.done) ? { ...s, done: fresh.done, done_date: fresh.done_date, shahid_id: fresh.shahid_id } : s;
+        if(!fresh) return s;
+        if(fresh.done) return { ...s, done: fresh.done, done_date: fresh.done_date, shahid_id: fresh.shahid_id };
+        if(fresh.section_status) return { ...s, section_status: { ...(s.section_status || {}), ...fresh.section_status } };
+        return s;
       });
 
-      /* لو وُثّقت حصة من مكان آخر ثم أزالها المستخدم من هذا الجدول قبل
-         الحفظ (لم يكن يعلم بتوثيقها وقت فتح التعديل)، لا نفقدها بصمت —
-         نُعيدها بنهاية القائمة بدل حذفها فعليًا */
+      /* لو وُثّقت حصة (أو شعبة منها) من مكان آخر ثم أزالها المستخدم من هذا
+         الجدول قبل الحفظ (لم يكن يعلم بتوثيقها وقت فتح التعديل)، لا نفقدها
+         بصمت — نُعيدها بنهاية القائمة بدل حذفها فعليًا */
       const mergedSessionNos = new Set(merged.map(s => s.session_no));
-      const reintroduced = freshSessions.filter(s => s.done && !mergedSessionNos.has(s.session_no));
+      const reintroduced = freshSessions.filter(s => hasProgress(s) && !mergedSessionNos.has(s.session_no));
       const finalSessions = merged.concat(reintroduced);
       if(reintroduced.length){
         showToast('تنبيه: حصة تم توثيقها حديثًا من مكان آخر — أُعيدت للجدول تلقائيًا كي لا تُفقد', 'error');
@@ -412,7 +448,10 @@ async function saveProgramForm(){
 }
 
 /* ============ تفاصيل البرنامج ============ */
-let programDetailSectionLabels = [];
+/* {id, label}[] — لا نكتفي بالتسمية النصية هنا (خلافًا للإصدار السابق)
+   لأن توثيق كل شعبة بمفردها (documentProgramSessionForSection) يحتاج
+   معرّف الشعبة الفعلي، لا نصًا فقط. */
+let programDetailSections = [];
 
 async function loadProgramDetailSections(programId){
   const [{ data: links }] = await Promise.all([
@@ -420,10 +459,10 @@ async function loadProgramDetailSections(programId){
     pgCrmSections.length ? Promise.resolve() : loadProgramFormSections()
   ]);
   const ids = (links || []).map(l => l.section_id);
-  programDetailSectionLabels = ids.map(id => {
+  programDetailSections = ids.map(id => {
     const sec = pgCrmSections.find(s => s.id === id);
     const grade = sec ? pgCrmGradeLevels.find(g => g.id === sec.grade_level_id) : null;
-    return sec ? `${grade ? grade.name + ' - ' : ''}شعبة ${sec.name}` : null;
+    return sec ? { id, label: `${grade ? grade.name + ' - ' : ''}شعبة ${sec.name}` } : null;
   }).filter(Boolean);
 }
 
@@ -455,10 +494,35 @@ function renderProgramDetail(programId){
   if(!p){ body.innerHTML = '<div class="empty-state">تعذّر إيجاد هذا البرنامج.</div>'; return; }
 
   document.getElementById('programDetailTitle').textContent = p.name;
-  const { done, total, pct, isDone } = programProgress(p);
+  const sectionIds = programDetailSections.map(sec => sec.id);
+  const { done, total, pct, isDone } = programProgress(p, sectionIds);
   const elLabel = (DB_ELEMENTS.find(e => e.key === p.element_key) || {}).label;
 
+  /* برنامج مرتبط بشُعب: كل حصة تعرض بطاقة توثيق مستقلة لكل شعبة (باتفاق
+     صريح مع المستخدم — كل شعبة تُدرَّس بوقتها الخاص غالبًا، فتُوثَّق
+     بوقتها الخاص أيضًا)، بدل شاهد واحد يمثّل الحصة كاملة. برنامج بلا شُعب
+     مرتبطة (sectionIds فارغة) يحافظ على السلوك الأصلي بالضبط. */
   const sessionsHtml = (p.sessions || []).map(s => {
+    if(sectionIds.length){
+      const rowsHtml = programDetailSections.map(sec => {
+        const st = (s.section_status && s.section_status[sec.id]) || {};
+        const statusBadge = st.done
+          ? `<span class="plan-badge-count done">✓ وُثّقت${st.done_date ? ' — ' + escapeHtml(st.done_date) : ''}</span>`
+          : `<span class="plan-badge-count">لم تُوثَّق بعد</span>`;
+        const actionBtn = st.done
+          ? `<button class="btn btn-outline" onclick="viewProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}')">عرض</button>
+             <button class="btn btn-outline" onclick="deleteProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}', '${p.id}')" style="color:#8A2C2C;border-color:#8A2C2C;">حذف</button>`
+          : `<button class="btn btn-primary" onclick="documentProgramSessionForSection('${p.id}', ${s.session_no}, '${sec.id}')">توثيق</button>`;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:7px 0;border-top:1px dashed var(--line);">
+          <span style="font-size:11.5px;">${escapeHtml(sec.label)}</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${statusBadge}${actionBtn}</div>
+        </div>`;
+      }).join('');
+      return `<div class="goal-card">
+        <div class="goal-card-head-top"><span class="plan-elem-name">الحصة ${s.session_no} — ${escapeHtml(s.week_label || '')}</span></div>
+        ${rowsHtml}
+      </div>`;
+    }
     const statusBadge = s.done
       ? `<span class="plan-badge-count done">✓ وُثّقت${s.done_date ? ' — ' + escapeHtml(s.done_date) : ''}</span>`
       : `<span class="plan-badge-count">لم تُوثَّق بعد</span>`;
@@ -478,14 +542,14 @@ function renderProgramDetail(programId){
   body.innerHTML = `
     <div class="plan-progress-bar"><div class="plan-progress-fill ${isDone ? 'done' : ''}" style="width:${pct}%;"></div></div>
     <div class="plan-progress-text">
-      <span>الحصص الموثَّقة: <b>${done}</b> من <b>${total}</b></span>
+      <span>${sectionIds.length ? 'فتحات التوثيق المكتملة' : 'الحصص الموثَّقة'}: <b>${done}</b> من <b>${total}</b></span>
       <span>${isDone ? '✓ اكتمل البرنامج' : pct + '%'}</span>
     </div>
     <div style="margin:12px 0 18px;font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:14px;">
       ${p.student_count ? `<span>عدد الطلبة: <b style="color:var(--navy);">${p.student_count}</b></span>` : ''}
       ${elLabel ? `<span>مرتبط بعنصر: <b style="color:var(--navy);">${escapeHtml(elLabel)}</b></span>` : ''}
       ${p.cycle_year ? `<span>السنة: <b style="color:var(--navy);">${escapeHtml(p.cycle_year)}</b></span>` : ''}
-      ${programDetailSectionLabels.length ? `<span>الشُعب: <b style="color:var(--navy);">${escapeHtml(programDetailSectionLabels.join('، '))}</b></span>` : ''}
+      ${programDetailSections.length ? `<span>الشُعب: <b style="color:var(--navy);">${escapeHtml(programDetailSections.map(sec => sec.label).join('، '))}</b></span>` : ''}
     </div>
     <div class="plan-goals-list">${sessionsHtml}</div>
     <div class="rec-actions" style="margin-top:18px;flex-wrap:wrap;">
@@ -513,25 +577,54 @@ function documentProgramSession(programId, sessionNo){
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+/* توثيق حصة لشعبة واحدة بعينها — لبرنامج مرتبط بأكثر من شعبة، حيث كل
+   شعبة تُوثَّق بوقتها الخاص بشاهد مستقل (باتفاق صريح مع المستخدم). يملأ
+   "الصف/الفصل" تلقائيًا باسم الشعبة المحدَّدة — بدل الصف الافتراضي
+   بالإعدادات الشخصية الذي لا علاقة له بالشعبة الفعلية المُدرَّسة. */
+function documentProgramSessionForSection(programId, sessionNo, sectionId){
+  const p = activityPrograms.find(x => String(x.id) === String(programId));
+  if(!p) return;
+  const sec = programDetailSections.find(s => s.id === sectionId);
+
+  startNewShahid();
+  programSessionContext = { programId: p.id, sessionNo, sectionId };
+  document.getElementById('mClass').value = sec ? sec.label : '';
+  document.getElementById('mLesson').value = `${p.name} — الحصة ${sessionNo} من ${p.total_sessions}${sec ? ' — ' + sec.label : ''}`;
+  if(p.element_key){
+    elementSelect.value = p.element_key;
+    updateExample();
+  }
+  formDirty = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 /* تُستدعى من saveShahid (app-09) بعد نجاح إدراج شاهد يوثّق حصة من برنامج،
    ومن التراجع عن حذف شاهد كان موثِّقًا لحصة (deleteRecord) — تُحدِّث حالة
    الحصة في activity_programs.sessions دون التأثير على غيرها. doneDate
    اختياري (لتاريخ اليوم افتراضيًا) — يُستخدم للتراجع عن الحذف بنفس تاريخ
-   التوثيق الأصلي بدل تاريخ اليوم.
+   التوثيق الأصلي بدل تاريخ اليوم. sectionId اختياري: لو موجود (برنامج
+   مرتبط بشُعب)، التحديث يذهب لـsection_status[sectionId] بدل الحقول
+   العلوية للحصة — بلا أي أثر على برامج بلا شُعب مرتبطة (سلوك أصلي كامل).
    نقرأ الحالة الحالية من القاعدة مباشرة (لا من activityPrograms المحمَّلة
    بالذاكرة) حتى تعمل الدالة حتى لو لم تُفتح شاشة "برامجي" أصلًا بهذه
    الجلسة، وحتى لا تُكتب فوق أي تعديل حصل على الجدول من مكان آخر (تبويب/جهاز
    آخر) بين وقت تحميل البرنامج ووقت حفظ الشاهد. */
-async function markProgramSessionDone(programId, sessionNo, shahidId, doneDate){
+async function markProgramSessionDone(programId, sessionNo, shahidId, doneDate, sectionId){
   const { data: prog, error: fetchErr } = await sb.from('activity_programs').select('sessions').eq('id', programId).maybeSingle();
   if(fetchErr || !prog){
     showToast('تم حفظ الشاهد، لكن تعذّر تحديث تقدّم البرنامج.', 'error');
     return;
   }
+  const resolvedDate = doneDate || new Date().toISOString().slice(0, 10);
 
-  const sessions = (prog.sessions || []).map(s => s.session_no === sessionNo
-    ? { ...s, done: true, done_date: doneDate || new Date().toISOString().slice(0, 10), shahid_id: shahidId }
-    : s);
+  const sessions = (prog.sessions || []).map(s => {
+    if(s.session_no !== sessionNo) return s;
+    if(sectionId){
+      const section_status = { ...(s.section_status || {}), [sectionId]: { done: true, done_date: resolvedDate, shahid_id: shahidId } };
+      return { ...s, section_status };
+    }
+    return { ...s, done: true, done_date: resolvedDate, shahid_id: shahidId };
+  });
 
   const { error } = await sb.from('activity_programs').update({ sessions }).eq('id', programId);
   if(error){
@@ -543,18 +636,31 @@ async function markProgramSessionDone(programId, sessionNo, shahidId, doneDate){
 }
 
 /* تُستدعى من deleteRecord (app-09) عند حذف شاهد كان يوثّق حصة من برنامج —
-   تُعيد تلك الحصة لحالة "لم تُوثَّق بعد" حتى تبقى قابلة لإعادة التوثيق، بدل
-   أن تبقى عالقة للأبد على أنها موثَّقة بشاهد لم يعد موجودًا. تُرجع بيانات
-   الحصة كما كانت قبل التفريغ (لاستخدامها في التراجع عن الحذف إن حصل). */
-async function clearProgramSessionLink(programId, sessionNo){
+   تُعيد تلك الحصة (أو شعبتها المحدَّدة، لو sectionId موجودة) لحالة "لم
+   تُوثَّق بعد" حتى تبقى قابلة لإعادة التوثيق، بدل أن تبقى عالقة للأبد على
+   أنها موثَّقة بشاهد لم يعد موجودًا. تُرجع {done, done_date, shahid_id}
+   كما كانت قبل التفريغ (لاستخدامها بالتراجع عن الحذف إن حصل) — نفس الشكل
+   بالحالتين (الحصة كاملة أو شعبة بعينها) حتى يبقى المستدعي (deleteRecord)
+   موحَّدًا بلا تفرّع. */
+async function clearProgramSessionLink(programId, sessionNo, sectionId){
   const { data: prog, error: fetchErr } = await sb.from('activity_programs').select('sessions').eq('id', programId).maybeSingle();
   if(fetchErr || !prog) return null;
 
   const sessions = prog.sessions || [];
-  const previous = sessions.find(s => s.session_no === sessionNo) || null;
-  const updated = sessions.map(s => s.session_no === sessionNo
-    ? { ...s, done: false, done_date: null, shahid_id: null }
-    : s);
+  const session = sessions.find(s => s.session_no === sessionNo) || null;
+  const previous = sectionId
+    ? (session && session.section_status && session.section_status[sectionId]) || null
+    : session;
+
+  const updated = sessions.map(s => {
+    if(s.session_no !== sessionNo) return s;
+    if(sectionId){
+      const section_status = { ...(s.section_status || {}) };
+      delete section_status[sectionId];
+      return { ...s, section_status };
+    }
+    return { ...s, done: false, done_date: null, shahid_id: null };
+  });
 
   const { error } = await sb.from('activity_programs').update({ sessions: updated }).eq('id', programId);
   if(error) return previous; /* حتى لو فشل التحديث، previous معروفة فعلًا من الجلب أعلاه —
@@ -617,17 +723,29 @@ function sectionProgram(title, bodyHtml){
   </div>`;
 }
 function buildProgramSummaryHtml(program){
-  const { done, total, pct, isDone } = programProgress(program);
+  const sectionIds = programDetailSections.map(sec => sec.id);
+  const { done, total, pct, isDone } = programProgress(program, sectionIds);
   const elLabel = (DB_ELEMENTS.find(e => e.key === program.element_key) || {}).label;
   const teacherName = (currentUser.user_metadata && currentUser.user_metadata.full_name) || '';
 
-  const rowsHtml = (program.sessions || []).map(s => `
-    <tr style="border-bottom:1px solid #D8D2C4;">
-      <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.session_no}</td>
-      <td style="padding:8px 10px;font-size:10.5px;">${escapeHtml(s.week_label || '—')}</td>
-      <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.done ? '✓ وُثّقت' : '—'}</td>
-      <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${escapeHtml(s.done_date || '—')}</td>
-    </tr>`).join('');
+  const rowsHtml = sectionIds.length
+    ? (program.sessions || []).flatMap(s => programDetailSections.map(sec => {
+        const st = (s.section_status && s.section_status[sec.id]) || {};
+        return `<tr style="border-bottom:1px solid #D8D2C4;">
+          <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.session_no}</td>
+          <td style="padding:8px 10px;font-size:10.5px;">${escapeHtml(s.week_label || '—')}</td>
+          <td style="padding:8px 10px;font-size:10.5px;">${escapeHtml(sec.label)}</td>
+          <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${st.done ? '✓ وُثّقت' : '—'}</td>
+          <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${escapeHtml(st.done_date || '—')}</td>
+        </tr>`;
+      })).join('')
+    : (program.sessions || []).map(s => `
+      <tr style="border-bottom:1px solid #D8D2C4;">
+        <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.session_no}</td>
+        <td style="padding:8px 10px;font-size:10.5px;">${escapeHtml(s.week_label || '—')}</td>
+        <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.done ? '✓ وُثّقت' : '—'}</td>
+        <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${escapeHtml(s.done_date || '—')}</td>
+      </tr>`).join('');
 
   return `
   <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;box-sizing:border-box;">
@@ -642,7 +760,7 @@ function buildProgramSummaryHtml(program){
       ${metaCellProgram('عدد الطلبة', program.student_count ? String(program.student_count) : '—')}
       ${metaCellProgram('العنصر المرتبط', elLabel || '—')}
       ${metaCellProgram('السنة الدراسية', program.cycle_year || '—')}
-      ${metaCellProgram('الشُعب', programDetailSectionLabels.length ? programDetailSectionLabels.join('، ') : '—')}
+      ${metaCellProgram('الشُعب', programDetailSections.length ? programDetailSections.map(sec => sec.label).join('، ') : '—')}
     </div>
     ${sectionProgram('جدول الحصص وحالة التوثيق', `
       <table style="width:100%;border-collapse:collapse;background:#F1EEE6;">
@@ -650,13 +768,14 @@ function buildProgramSummaryHtml(program){
           <tr style="border-bottom:1px solid #D8D2C4;">
             <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:center;">الحصة</th>
             <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:right;">الأسبوع المخطَّط</th>
+            ${sectionIds.length ? '<th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:right;">الشعبة</th>' : ''}
             <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:center;">الحالة</th>
             <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:center;">تاريخ التوثيق</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
       </table>`)}
-    ${sectionProgram('التقدّم الإجمالي', `<div style="font-size:11px;">تم توثيق <b>${done}</b> من إجمالي <b>${total}</b> حصص (${pct}%).</div>`)}
+    ${sectionProgram('التقدّم الإجمالي', `<div style="font-size:11px;">تم توثيق <b>${done}</b> من إجمالي <b>${total}</b> ${sectionIds.length ? 'فتحة توثيق' : 'حصص'} (${pct}%).</div>`)}
     <div style="padding:16px 28px 18px;max-width:220px;">
       <div style="border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">توقيع المعلم</div>
     </div>
