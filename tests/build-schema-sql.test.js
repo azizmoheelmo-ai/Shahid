@@ -124,4 +124,20 @@ test('buildSchemaSql', async (t) => {
     const sql = app.buildSchemaSql();
     assert.match(sql, /alter table public\.profiles add column if not exists ui_mode text check \(ui_mode in \('quick', 'full'\)\)/);
   });
+
+  await t.test('ربط البرامج بالشُعب: جدول program_sections تعدد-لتعدد بملكية صريحة وحذف تتابعي', () => {
+    const app = loadApp();
+    const sql = app.buildSchemaSql();
+    assert.match(sql, /create table if not exists public\.program_sections/);
+    assert.match(sql, /program_id uuid references public\.activity_programs\(id\) on delete cascade not null/);
+    assert.match(sql, /section_id uuid references public\.classroom_sections\(id\) on delete cascade not null/);
+    assert.match(sql, /unique\(program_id, section_id\)/);
+    assert.match(sql, /create policy "المعلم يشوف روابط برامجه فقط" on public\.program_sections for select using \(auth\.uid\(\) = teacher_id\)/);
+    /* ترتيب: FK لـactivity_programs/classroom_sections يجب أن يأتي بعد إنشاء كليهما */
+    const createProgIdx = sql.indexOf('create table if not exists public.activity_programs');
+    const createSectionsIdx = sql.indexOf('create table if not exists public.classroom_sections');
+    const createLinkIdx = sql.indexOf('create table if not exists public.program_sections');
+    assert.ok(createProgIdx > -1 && createSectionsIdx > -1 && createLinkIdx > -1);
+    assert.ok(createProgIdx < createLinkIdx && createSectionsIdx < createLinkIdx, 'program_sections يجب أن يُنشأ بعد كل من activity_programs وclassroom_sections');
+  });
 });

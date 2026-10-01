@@ -970,6 +970,26 @@ create policy "المعلم يدير شعبه فقط - إضافة" on public.cla
 drop policy if exists "المعلم يدير شعبه فقط - حذف" on public.classroom_sections;
 create policy "المعلم يدير شعبه فقط - حذف" on public.classroom_sections for delete using (auth.uid() = teacher_id);
 
+-- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:
+-- عدّ الطلبة التلقائي وتحذير تعارض الجدولة بين برامج مختلفة بنفس الشعبة
+-- بنفس الأسبوع (راجع app-10-programs.js). حذف تلقائي للرابط عند حذف
+-- البرنامج أو الشعبة (on delete cascade) — لا مراجع يتيمة.
+create table if not exists public.program_sections (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid references auth.users(id) on delete cascade not null,
+  program_id uuid references public.activity_programs(id) on delete cascade not null,
+  section_id uuid references public.classroom_sections(id) on delete cascade not null,
+  created_at timestamptz default now(),
+  unique(program_id, section_id)
+);
+alter table public.program_sections enable row level security;
+drop policy if exists "المعلم يشوف روابط برامجه فقط" on public.program_sections;
+create policy "المعلم يشوف روابط برامجه فقط" on public.program_sections for select using (auth.uid() = teacher_id);
+drop policy if exists "المعلم يربط برامجه فقط" on public.program_sections;
+create policy "المعلم يربط برامجه فقط" on public.program_sections for insert with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يحذف روابط برامجه فقط" on public.program_sections;
+create policy "المعلم يحذف روابط برامجه فقط" on public.program_sections for delete using (auth.uid() = teacher_id);
+
 create table if not exists public.classroom_incident_types (
   id uuid primary key default gen_random_uuid(),
   problem_name text not null,
@@ -1301,7 +1321,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1391,6 +1411,10 @@ async function exportFullBackup(){
       '     14. classroom_letter_counters.csv',
       '     15. academic_cases.csv',
       '     16. support_messages.csv',
+      '     17. academic_calendar_weeks.csv',
+      '     18. academic_calendar_holidays.csv',
+      '     19. tasks.csv (لازم بعد activity_programs وperformance_goals لأنها تُشير إليهما)',
+      '     20. program_sections.csv (لازم بعد activity_programs وclassroom_sections)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',
