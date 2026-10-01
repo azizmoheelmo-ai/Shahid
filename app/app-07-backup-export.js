@@ -1121,7 +1121,11 @@ create policy "المعلم يضيف رمزًا لنفسه فقط" on public.per
 drop policy if exists "المعلم يلغي رمزه فقط" on public.personal_access_tokens;
 create policy "المعلم يلغي رمزه فقط" on public.personal_access_tokens for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create index if not exists idx_pat_user on public.personal_access_tokens(user_id);
-create unique index if not exists idx_pat_hash on public.personal_access_tokens(token_hash);
+-- لا حاجة لفهرس idx_pat_hash منفصل: عمود token_hash معرَّف أعلاه بقيد
+-- "unique" مباشرة على مستوى العمود، وهو ينشئ فهرسًا فريدًا تلقائيًا
+-- (personal_access_tokens_token_hash_key) — فهرس idx_pat_hash المنفصل كان
+-- مكررًا 100% لنفس العمود، واكتُشف فعليًا عبر Supabase advisors
+-- (duplicate_index) وأُزيل من قاعدة البيانات الحية بترحيل منفصل.
 
 -- تقييد التعديل بعمود revoked_at فقط: سياسة RLS أعلاه تسمح بتعديل الصف كاملًا
 -- (auth.uid() = user_id) لكنها لا تُقيّد الأعمدة — بلا هذا التقييد يمكن لصاحب
