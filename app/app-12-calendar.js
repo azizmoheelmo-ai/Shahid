@@ -356,6 +356,15 @@ function calendarFeedUrl(rawToken){
   return `${location.origin}/api/calendar-feed?token=${encodeURIComponent(rawToken)}`;
 }
 
+/* دالة صرفة: على أندرويد لا يوجد عادة أي تطبيق مسجَّل لفتح روابط
+   webcal:// (خلافًا لآيفون/ماك حيث يلتقطها تطبيق التقويم تلقائيًا) —
+   فزر "إضافة مباشرة" لا يفعل شيئًا بصمت هناك (مصدر شكوى حقيقية من
+   مستخدم: "ما يربط"). نكتشف هذا لنستبدل الزر بتعليمات صحيحة بدل
+   وعد بزر لا يعمل. */
+function isAndroidUserAgent(ua){
+  return /android/i.test(ua || '');
+}
+
 async function showCalendarFeedSettings(){
   showSettingsSection('calendarFeed');
   await loadCalendarFeedTokens();
@@ -406,6 +415,10 @@ async function generateCalendarFeedToken(){
     if(error) throw error;
     const url = calendarFeedUrl(raw);
     const webcalUrl = url.replace(/^https?:\/\//, 'webcal://');
+    const addSectionHtml = isAndroidUserAgent(navigator.userAgent)
+      ? `<p style="font-size:11.5px;color:var(--navy);background:#F1EEE6;padding:10px;line-height:1.85;margin:0;">⚠️ بجهاز أندرويد: لا يوجد تطبيق مسجَّل لفتح هذا النوع من الروابط تلقائيًا — زر "إضافة مباشرة" لن يفعل شيئًا هنا. الطريقة الصحيحة: انسخ الرابط أعلاه، ثم من متصفح الجهاز افتح <b>calendar.google.com</b> ← الإعدادات ← إضافة تقويم ← "عبر الرابط" ← الصق الرابط هناك.</p>`
+      : `<a class="btn btn-primary" style="display:flex;justify-content:center;text-decoration:none;" href="${escapeHtml(webcalUrl)}">➕ إضافة مباشرة لتقويم الجهاز</a>
+         <p style="font-size:10.5px;color:var(--muted);margin:10px 0 0;line-height:1.7;">جوجل تقويم (من حاسوب): أضف بالرابط أعلاه عبر "إعدادات ← إضافة تقويم ← عبر الرابط". أوتلوك/آيفون: الزر أعلاه يعمل مباشرة غالبًا.</p>`;
     showInfoModal(`
       <div style="text-align:right;">
         <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">رابط تقويمك</h3>
@@ -414,8 +427,7 @@ async function generateCalendarFeedToken(){
         </p>
         <div style="background:#F1EEE6;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;user-select:all;margin-bottom:10px;">${escapeHtml(url)}</div>
         <button class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="navigator.clipboard.writeText('${url}').then(()=>showToast('تم النسخ','ok'))">نسخ الرابط</button>
-        <a class="btn btn-primary" style="display:flex;justify-content:center;text-decoration:none;" href="${escapeHtml(webcalUrl)}">➕ إضافة مباشرة لتقويم الجهاز</a>
-        <p style="font-size:10.5px;color:var(--muted);margin:10px 0 0;line-height:1.7;">جوجل تقويم: أضف بالرابط أعلاه عبر "إعدادات ← إضافة تقويم ← عبر الرابط". أوتلوك/آيفون: زر "إضافة لتقويم الجهاز" أعلاه يعمل مباشرة غالبًا.</p>
+        ${addSectionHtml}
       </div>`, '440px');
     await loadCalendarFeedTokens();
   } catch(err){
