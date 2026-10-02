@@ -1947,12 +1947,38 @@ async function showHome(){
    (3) اقتراح "التالي" — أقرب عنصر يحتاج توثيقًا
    ============================================ */
 /* بطاقة واحدة موحّدة في الرئيسية تجمع: النسبة الموزونة + حالة التغطية + المقترح التالي */
+/* بطاقة الاكتمال الموزون بالرئيسية: الرأس (النسبة + الشريط) ظاهر دائمًا، وتفاصيل
+   دورة الأداء (المرحلة، التغطية، المقترح التالي، العدّاد) تتمدد بالضغط على البطاقة.
+   حالة الفتح تبقى بين إعادات الرسم (showHome يعيد الرسم كل مرة) داخل الجلسة فقط. */
+let homeProgressOpen = false;
+
+function applyHomeProgressOpenState(){
+  const root = document.getElementById('cycleCard');
+  const head = document.getElementById('hpHead');
+  if(!root || !head) return;
+  root.classList.toggle('open', homeProgressOpen);
+  head.setAttribute('aria-expanded', homeProgressOpen ? 'true' : 'false');
+  const hint = document.getElementById('hpHint');
+  if(hint) hint.textContent = homeProgressOpen ? 'إخفاء التفاصيل' : 'اضغط لعرض التفاصيل';
+}
+
+function toggleHomeProgressDetails(){
+  homeProgressOpen = !homeProgressOpen;
+  applyHomeProgressOpenState();
+}
+
 function renderHomeProgressCard(){
   const card = document.getElementById('homeProgressCard');
-  if(!card) return;
+  const root = document.getElementById('cycleCard');
+  if(!card || !root) return;
 
   const elements = getElementsOrder();
-  if(!elements.length){ card.style.display = 'none'; return; }
+  if(!elements.length){
+    root.classList.add('no-progress');
+    card.style.display = 'none';
+    return;
+  }
+  root.classList.remove('no-progress');
 
   const wp = computeWeightedProgress();
   const missing = getUncoveredElements();
@@ -1973,21 +1999,28 @@ function renderHomeProgressCard(){
     suggestionHtml = `<div class="home-progress-suggest done">✓ غطّيت كل عناصر الأداء</div>`;
   }
 
+  /* الرأس: النسبة + الشريط */
+  const pctEl = document.getElementById('hpPct');
+  const fillEl = document.getElementById('hpBarFill');
+  if(pctEl){
+    pctEl.textContent = `${wp.pct}%`;
+    pctEl.style.color = barColor;
+  }
+  if(fillEl){
+    fillEl.style.width = `${wp.pct}%`;
+    fillEl.style.background = barColor;
+  }
+
+  /* التفاصيل: حالة التغطية + المقترح التالي */
   card.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-      <span style="font-size:12px;color:var(--muted);">الاكتمال الموزون لعناصر الأداء</span>
-      <span style="font-size:17px;font-weight:800;color:${barColor};">${wp.pct}%</span>
-    </div>
-    <div style="background:#F1EEE6;height:9px;margin-bottom:8px;">
-      <div style="background:${barColor};height:100%;width:${wp.pct}%;transition:width .4s;"></div>
-    </div>
-    <div style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">
       غطّيت <b style="color:var(--navy);">${started} من ${elements.length}</b> عنصرًا
       <span style="text-decoration:underline;cursor:pointer;margin-right:4px;" onclick="event.stopPropagation();showCoverageDetails()">(التفاصيل)</span>
     </div>
     ${suggestionHtml}`;
 
   card.style.display = 'block';
+  applyHomeProgressOpenState();
 }
 
 /* ============================================

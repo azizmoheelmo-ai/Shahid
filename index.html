@@ -269,17 +269,31 @@
 
       <div id="homeActionCard" style="display:none;margin:0 32px 16px;padding:12px 15px;background:#FCFBF9;border:1px solid var(--line);border-right:4px solid var(--gold);font-size:12.5px;line-height:1.9;"></div>
 
+      <!-- بطاقة الاكتمال الموزون: مختصرة افتراضيًا، وتتمدد بالضغط لتُظهر تفاصيل دورة الأداء -->
       <div class="cycle-card" id="cycleCard">
-        <div class="cycle-top">
-          <span class="cycle-label">دورة الأداء الحالية</span>
-          <span class="cycle-badge" id="cycleBadge" onclick="showPhaseInfoModal()" style="cursor:pointer;" title="اضغط لقراءة تفاصيل المراحل من الدليل الرسمي">—</span>
+        <button type="button" class="hp-head" id="hpHead" aria-expanded="false" aria-controls="hpDetails" onclick="toggleHomeProgressDetails()">
+          <span class="hp-top">
+            <span class="hp-title">الاكتمال الموزون لعناصر الأداء</span>
+            <span class="hp-pct" id="hpPct">—</span>
+          </span>
+          <span class="hp-bar"><span class="hp-bar-fill" id="hpBarFill"></span></span>
+          <span class="hp-toggle"><span id="hpHint">اضغط لعرض التفاصيل</span><span class="hp-chev">▾</span></span>
+        </button>
+
+        <div class="hp-details-wrap" id="hpDetails">
+          <div class="hp-details-inner">
+            <div class="cycle-top">
+              <span class="cycle-label">دورة الأداء الحالية</span>
+              <span class="cycle-badge" id="cycleBadge" onclick="showPhaseInfoModal()" style="cursor:pointer;" title="اضغط لقراءة تفاصيل المراحل من الدليل الرسمي">—</span>
+            </div>
+            <p class="cycle-tip" id="cycleTip">جارٍ التحديد...</p>
+
+            <div id="homeProgressCard" class="hp-section" style="display:none;"></div>
+
+            <div id="cycleCountdown" class="hp-section hp-countdown"></div>
+            <p class="hp-link" onclick="showPhaseInfoModal()">اقرأ عن مراحل دورة الأداء (حسب الدليل الرسمي) ▾</p>
+          </div>
         </div>
-        <p class="cycle-tip" id="cycleTip">جارٍ التحديد...</p>
-
-        <div id="homeProgressCard" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);"></div>
-
-        <div id="cycleCountdown" style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--navy);"></div>
-        <p style="margin:6px 0 0;font-size:10.5px;color:var(--muted);cursor:pointer;text-decoration:underline;" onclick="showPhaseInfoModal()">اقرأ عن مراحل دورة الأداء (حسب الدليل الرسمي) ▾</p>
       </div>
 
       <div id="serviceAlert" style="display:none;margin:0 32px 16px;padding:12px 15px;font-size:12.5px;line-height:1.85;"></div>

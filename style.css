@@ -120,12 +120,70 @@
   .pe-remove:hover{color:#B23A3A;}
   .home-edit-wrap{padding:2px 32px 18px;}
 
+  /* بطاقة الاكتمال الموزون — مختصرة، وتتمدد بالضغط (نفس تنسيق بطاقات الرئيسية النظيف) */
   .cycle-card{
-    margin:0 32px 18px;
-    background:#F4F0E4;
-    border-right:3px solid var(--gold);
-    padding:12px 16px;
+    margin:0 32px 16px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
   }
+  .hp-head{
+    display:block;
+    width:100%;
+    box-sizing:border-box;
+    padding:14px 16px 10px;
+    background:transparent;
+    border:none;
+    text-align:right;
+    font-family:'Cairo', sans-serif;
+    color:inherit;
+    cursor:pointer;
+  }
+  .hp-head:focus-visible{outline:2px solid var(--gold);outline-offset:-2px;}
+  .hp-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px;}
+  .hp-title{font-size:12px;color:var(--muted);}
+  .hp-pct{font-size:18px;font-weight:800;color:var(--gold);}
+  .hp-bar{display:block;height:9px;background:#F1EEE6;border-radius:5px;overflow:hidden;}
+  .hp-bar-fill{display:block;height:100%;width:0;background:var(--gold);border-radius:5px;transition:width .4s;}
+  .hp-toggle{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    margin-top:8px;
+    font-size:10.5px;
+    color:var(--muted);
+  }
+  .hp-chev{display:inline-block;transition:transform .25s;}
+  .cycle-card.open .hp-chev{transform:rotate(180deg);}
+
+  .hp-details-wrap{
+    display:grid;
+    grid-template-rows:0fr;
+    transition:grid-template-rows .25s ease;
+  }
+  .cycle-card.open .hp-details-wrap{grid-template-rows:1fr;}
+  .hp-details-inner{
+    min-height:0;
+    overflow:hidden;
+    visibility:hidden;
+    padding:0 16px;
+    background:#FCFBF9;
+    border-top:1px solid transparent;
+    transition:visibility 0s .25s;
+  }
+  .cycle-card.open .hp-details-inner{
+    visibility:visible;
+    padding:12px 16px 14px;
+    border-top-color:var(--line);
+    transition-delay:0s;
+  }
+  /* لا بيانات تقدّم بعد (لا عناصر): نخفي الرأس ونعرض التفاصيل مفتوحة دائمًا */
+  .cycle-card.no-progress .hp-head{display:none;}
+  .cycle-card.no-progress .hp-details-wrap{grid-template-rows:1fr;}
+  .cycle-card.no-progress .hp-details-inner{visibility:visible;padding:12px 16px 14px;background:#fff;border-top-color:transparent;}
+
   .cycle-top{
     display:flex;
     align-items:center;
@@ -136,9 +194,16 @@
   .cycle-badge{
     font-size:12px;font-weight:700;color:var(--navy);
     background:#fff;border:1px solid var(--gold);
+    border-radius:6px;
     padding:2px 12px;
   }
   .cycle-tip{margin:0;font-size:12.5px;color:#4A4636;line-height:1.8;}
+  .hp-section{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
+  .hp-countdown{font-size:12px;color:var(--navy);}
+  .hp-link{margin:8px 0 0;font-size:10.5px;color:var(--muted);cursor:pointer;text-decoration:underline;}
+  @media (prefers-reduced-motion:reduce){
+    .hp-details-wrap,.hp-chev,.hp-bar-fill{transition:none;}
+  }
 
   .stage-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;}
   .stage-filter button{
@@ -678,6 +743,7 @@
     padding:10px 12px;
     background:#F1EEE6;
     border-right:3px solid var(--gold);
+    border-radius:8px;
     font-size:12px;
     color:var(--navy);
     cursor:pointer;
