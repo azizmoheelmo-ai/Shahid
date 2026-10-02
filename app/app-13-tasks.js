@@ -64,6 +64,15 @@ function sortTasksForDisplay(tasks){
   });
 }
 
+/* مهام "تحتاج إجراء" لبطاقة "يحتاج إجراء الآن" بالرئيسية: غير منجزة ولها
+   تاريخ استحقاق لا يتجاوز cutoffIso (يشمل المتأخرة فعلًا، لأن تاريخها
+   أقدم من اليوم فهو بالتأكيد ≤ أي سقف لاحق). دالة صرفة: المستدعي يحسب
+   cutoffIso (اليوم + مهلة الأيام) ويمرّره صراحة، بلا اعتماد على Date()
+   الحقيقي داخلها، لتسهيل الاختبار. */
+function countTasksNeedingAttention(tasks, cutoffIso){
+  return (tasks || []).filter(t => !t.done && t.due_date && t.due_date <= cutoffIso).length;
+}
+
 function renderTasksList(){
   const body = document.getElementById('tasksListBody');
   if(!myTasks.length){

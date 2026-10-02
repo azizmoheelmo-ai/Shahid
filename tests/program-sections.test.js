@@ -146,3 +146,65 @@ test('findSectionWeekConflicts', async (t) => {
     assert.equal(conflicts.length, 0);
   });
 });
+
+/* بطاقة "يحتاج إجراء الآن" بالرئيسية: عدد فتحات التوثيق غير المكتملة
+   لحصص تقع تحديدًا بالأسبوع الحالي (مطابقة نصية لـweek_label). */
+test('countUndocumentedSessionsForWeek', async (t) => {
+  await t.test('برنامج بلا شُعب: حصة غير موثَّقة بالأسبوع الحالي تُحسب فتحة واحدة', () => {
+    const app = loadApp();
+    const programs = [
+      { id: 'p1', sessions: [{ session_no: 1, week_label: 'الأسبوع الخامس', done: false }] },
+    ];
+    assert.equal(app.countUndocumentedSessionsForWeek(programs, new Map(), 'الأسبوع الخامس'), 1);
+  });
+
+  await t.test('حصة موثَّقة فعلًا بالأسبوع الحالي لا تُحسب', () => {
+    const app = loadApp();
+    const programs = [
+      { id: 'p1', sessions: [{ session_no: 1, week_label: 'الأسبوع الخامس', done: true }] },
+    ];
+    assert.equal(app.countUndocumentedSessionsForWeek(programs, new Map(), 'الأسبوع الخامس'), 0);
+  });
+
+  await t.test('حصة بأسبوع مختلف عن الأسبوع الحالي لا تُحسب', () => {
+    const app = loadApp();
+    const programs = [
+      { id: 'p1', sessions: [{ session_no: 1, week_label: 'الأسبوع العاشر', done: false }] },
+    ];
+    assert.equal(app.countUndocumentedSessionsForWeek(programs, new Map(), 'الأسبوع الخامس'), 0);
+  });
+
+  await t.test('برنامج بشُعب: فتحة لكل شعبة غير موثَّقة ضمن حصة الأسبوع الحالي', () => {
+    const app = loadApp();
+    const programs = [
+      { id: 'p1', sessions: [{ session_no: 1, week_label: 'الأسبوع الخامس',
+        section_status: { 'sec-a': { done: true }, 'sec-b': { done: false } } }] },
+    ];
+    const map = new Map([['p1', ['sec-a', 'sec-b']]]);
+    assert.equal(app.countUndocumentedSessionsForWeek(programs, map, 'الأسبوع الخامس'), 1);
+  });
+
+  await t.test('يجمع عبر أكثر من برنامج بنفس الوقت', () => {
+    const app = loadApp();
+    const programs = [
+      { id: 'p1', sessions: [{ session_no: 1, week_label: 'الأسبوع الخامس', done: false }] },
+      { id: 'p2', sessions: [{ session_no: 1, week_label: 'الأسبوع الخامس', done: false }] },
+    ];
+    assert.equal(app.countUndocumentedSessionsForWeek(programs, new Map(), 'الأسبوع الخامس'), 2);
+  });
+
+  await t.test('weekLabel فارغ (لم يُحدَّد النطاق الجغرافي بعد) = صفر بلا خطأ', () => {
+    const app = loadApp();
+    const programs = [
+      { id: 'p1', sessions: [{ session_no: 1, week_label: 'الأسبوع الخامس', done: false }] },
+    ];
+    assert.equal(app.countUndocumentedSessionsForWeek(programs, new Map(), ''), 0);
+    assert.equal(app.countUndocumentedSessionsForWeek(programs, new Map(), null), 0);
+  });
+
+  await t.test('قائمة برامج فارغة أو غير مُعرَّفة = صفر بلا خطأ', () => {
+    const app = loadApp();
+    assert.equal(app.countUndocumentedSessionsForWeek([], new Map(), 'الأسبوع الخامس'), 0);
+    assert.equal(app.countUndocumentedSessionsForWeek(undefined, new Map(), 'الأسبوع الخامس'), 0);
+  });
+});

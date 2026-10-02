@@ -74,6 +74,29 @@ function programProgress(program, sectionIds){
   return { done, total, pct, isDone: total > 0 && done >= total };
 }
 
+/* عدد "فتحات التوثيق" غير المكتملة لحصص تقع تحديدًا بالأسبوع الحالي
+   (مطابقة نصية لـweek_label — نفس تبسيط findSectionWeekConflicts المتفَق
+   عليه مسبقًا)، لبطاقة "يحتاج إجراء الآن" بالرئيسية. برنامج بلا شُعب
+   مرتبطة = فتحة واحدة لكل حصة غير موثَّقة؛ برنامج بشُعب = فتحة لكل شعبة
+   غير موثَّقة ضمن الحصة. دالة صرفة: weekLabel فارغ (لم يُحدَّد النطاق
+   الجغرافي بعد) = صفر بلا أي خطأ. */
+function countUndocumentedSessionsForWeek(programs, sectionIdsMap, weekLabel){
+  if(!weekLabel) return 0;
+  let count = 0;
+  (programs || []).forEach(p => {
+    const sectionIds = (sectionIdsMap && sectionIdsMap.get(p.id)) || [];
+    (p.sessions || []).forEach(s => {
+      if((s.week_label || '').trim() !== weekLabel) return;
+      if(sectionIds.length){
+        count += sectionIds.filter(id => !(s.section_status && s.section_status[id] && s.section_status[id].done)).length;
+      } else if(!s.done){
+        count += 1;
+      }
+    });
+  });
+  return count;
+}
+
 function renderProgramsList(){
   const body = document.getElementById('programsListBody');
   if(!activityPrograms.length){

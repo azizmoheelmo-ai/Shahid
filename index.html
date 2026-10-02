@@ -267,6 +267,8 @@
         </p>
       </div>
 
+      <div id="homeActionCard" style="display:none;margin:0 32px 16px;padding:12px 15px;background:#FCFBF9;border:1px solid var(--line);border-right:4px solid var(--gold);font-size:12.5px;line-height:1.9;"></div>
+
       <div class="cycle-card" id="cycleCard">
         <div class="cycle-top">
           <span class="cycle-label">دورة الأداء الحالية</span>
@@ -292,11 +294,15 @@
 
       <div class="home-section-label">الأداء والتوثيق</div>
       <div class="home-actions">
-        <button class="home-btn primary" style="grid-column:1/-1;" onclick="showList()">
-          <span class="hb-title">شواهدي</span>
-          <span class="hb-sub">استعراض الشواهد وإضافة شاهد جديد</span>
+        <button class="home-btn primary" style="grid-column:1/-1;" onclick="startNewShahid()">
+          <span class="hb-title">+ شاهد جديد</span>
+          <span class="hb-sub">وثّق عملًا قمت به الآن</span>
         </button>
-        <button class="home-btn" id="planHomeBtn" style="grid-column:1/-1;" onclick="showPlan()">
+        <button class="home-btn" id="workHomeBtn" onclick="showTasks()">
+          <span class="hb-title">✅ أعمالي</span>
+          <span class="hb-sub" id="workHomeSub">مهامّك وحصص برامجك</span>
+        </button>
+        <button class="home-btn" id="planHomeBtn" onclick="showPlan()">
           <span class="hb-title">📋 أدائي</span>
           <span class="hb-sub" id="planHomeSub">حدّد مستهدفاتك لعناصر الأداء لتبدأ العمل عليها</span>
           <span class="hb-sub" id="selfHomeSub" style="margin-top:3px;">قيّم أداءك استعدادًا لجلسة التقييم النهائية</span>
