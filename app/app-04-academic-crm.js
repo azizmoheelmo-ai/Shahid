@@ -2041,7 +2041,7 @@ function renderServiceAlert(){
 }
 function showForm(){
   hideAllMainViews();
-  setActiveBottomTab(null);
+  setActiveBottomTab('shahid');
   document.getElementById('formView').style.display = 'block';
   /* saveShahid (app-09) تتعمّد ترك saveBtn معطَّلاً بعد نجاح الحفظ (حتى
      ينتقل المستخدم فعليًا للشاشة التالية دون فرصة نقرة "حفظ" ثانية تُنشئ
@@ -2052,7 +2052,7 @@ function showForm(){
 }
 async function showList(){
   hideAllMainViews();
-  setActiveBottomTab(null);
+  setActiveBottomTab('shahid');
   document.getElementById('listView').style.display = 'block';
   await loadMyShawahid();
 }
@@ -2085,7 +2085,7 @@ let planViewYear = null;
 
 async function showPlan(){
   hideAllMainViews();
-  setActiveBottomTab('plan');
+  setActiveBottomTab(null);
   document.getElementById('planView').style.display = 'block';
   planViewYear = getCycleYear();
   document.getElementById('planRows').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';

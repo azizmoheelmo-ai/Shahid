@@ -32,7 +32,7 @@ async function loadMyTasks(){
 
 async function showTasks(){
   hideAllMainViews();
-  setActiveBottomTab(null);
+  setActiveBottomTab('work');
   document.getElementById('tasksView').style.display = 'block';
   showTasksSection('list');
   document.getElementById('tasksListBody').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';

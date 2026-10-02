@@ -329,7 +329,7 @@ async function onLoggedIn(user){
    خطته/تقييمه الذاتي كما هي (بعناصره الخاصة، تُحسب عبر DB_ELEMENTS كالمعتاد). */
 function applyStaffRoleVisibility(){
   const isStandaloneRole = STANDALONE_ROLES.includes(dutyType);
-  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'programsNavTab'].forEach(id => {
+  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = isStandaloneRole ? 'none' : '';
   });
@@ -766,7 +766,7 @@ function finishOnboarding(){
    محوران مستقلّان يعملان بالتوازي، لا محور واحد يُلغي الآخر. */
 function applyUiModeVisibility(){
   const isQuick = uiMode === 'quick';
-  ['calendarHomeBtn', 'tasksHomeBtn', 'planHomeBtn', 'selfAssessmentHomeBtn', 'cycleCard'].forEach(id => {
+  ['planHomeBtn', 'cycleCard'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = isQuick ? 'none' : '';
   });

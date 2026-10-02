@@ -219,6 +219,10 @@
         لوحة التحكم
         <span id="supportMsgNavBadge" style="display:none;position:absolute;top:-4px;left:-4px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
       </button>
+      <button class="ghost" onclick="showRiskCenter()" title="التنبيهات" style="position:relative;width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">
+        🔔
+        <span id="riskNavBadge" style="display:none;position:absolute;top:-4px;left:-4px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
+      </button>
       <button class="ghost" onclick="showSupportModal()" title="تواصل معنا" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">💬</button>
       <button class="ghost" onclick="showSettings()" title="الإعدادات" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">⚙</button>
       <button onclick="handleLogout()" title="تسجيل خروج" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">🚪</button>
@@ -231,13 +235,13 @@
       <span style="font-size:19px;">🏠</span>
       <span style="font-size:10px;">الرئيسية</span>
     </button>
-    <button class="bottom-tab-btn" data-tab="plan" onclick="showPlan()" style="background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
-      <span style="font-size:19px;">📋</span>
-      <span style="font-size:10px;">خطتي</span>
+    <button class="bottom-tab-btn" data-tab="shahid" onclick="showList()" style="background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
+      <span style="font-size:19px;">📑</span>
+      <span style="font-size:10px;">الشواهد</span>
     </button>
-    <button class="bottom-tab-btn" id="programsNavTab" data-tab="programs" onclick="showPrograms()" style="background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
-      <span style="font-size:19px;">📚</span>
-      <span style="font-size:10px;">برامجي</span>
+    <button class="bottom-tab-btn" id="workNavTab" data-tab="work" onclick="showTasks()" style="background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
+      <span style="font-size:19px;">✅</span>
+      <span style="font-size:10px;">أعمالي</span>
     </button>
     <button class="bottom-tab-btn" id="classroomNavTab" data-tab="classroom" onclick="showClassroomManagement()" style="position:relative;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
       <span style="font-size:19px;">🏫</span>
@@ -248,11 +252,6 @@
       <span style="font-size:19px;">🎓</span>
       <span style="font-size:10px;">المتابعة الأكاديمية</span>
       <span id="academicNavBadge" style="display:none;position:absolute;top:2px;left:10px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
-    </button>
-    <button class="bottom-tab-btn" data-tab="risk" onclick="showRiskCenter()" style="position:relative;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
-      <span style="font-size:19px;">🔔</span>
-      <span style="font-size:10px;">التنبيهات</span>
-      <span id="riskNavBadge" style="display:none;position:absolute;top:2px;left:14px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
     </button>
   </div>
 
@@ -291,27 +290,16 @@
         </div>
       </div>
 
-      <div class="home-section-label">المهام</div>
+      <div class="home-section-label">الأداء والتوثيق</div>
       <div class="home-actions">
         <button class="home-btn primary" style="grid-column:1/-1;" onclick="showList()">
           <span class="hb-title">شواهدي</span>
           <span class="hb-sub">استعراض الشواهد وإضافة شاهد جديد</span>
         </button>
-        <button class="home-btn" id="calendarHomeBtn" style="grid-column:1/-1;" onclick="showCalendar()">
-          <span class="hb-title">التقويم الدراسي</span>
-          <span class="hb-sub">توزيع الأسابيع والإجازات الرسمية لنطاقك</span>
-        </button>
-        <button class="home-btn" id="tasksHomeBtn" style="grid-column:1/-1;" onclick="showTasks()">
-          <span class="hb-title">مهامّي</span>
-          <span class="hb-sub">مهام شخصية، تظهر بالتقويم وتُربَط بأهدافك وبرامجك عند الحاجة</span>
-        </button>
         <button class="home-btn" id="planHomeBtn" style="grid-column:1/-1;" onclick="showPlan()">
-          <span class="hb-title">خطة الأداء السنوية</span>
+          <span class="hb-title">📋 أدائي</span>
           <span class="hb-sub" id="planHomeSub">حدّد مستهدفاتك لعناصر الأداء لتبدأ العمل عليها</span>
-        </button>
-        <button class="home-btn" id="selfAssessmentHomeBtn" style="grid-column:1/-1;" onclick="showSelfAssessment()">
-          <span class="hb-title">التقييم الذاتي</span>
-          <span class="hb-sub" id="selfHomeSub">قيّم أداءك استعدادًا لجلسة التقييم النهائية</span>
+          <span class="hb-sub" id="selfHomeSub" style="margin-top:3px;">قيّم أداءك استعدادًا لجلسة التقييم النهائية</span>
         </button>
         <button class="home-btn" style="grid-column:1/-1;" onclick="exportPortfolio(event)">
           <span class="hb-title">ملف الإنجاز</span>
@@ -896,6 +884,10 @@
         <p style="margin:0;font-size:11.5px;color:var(--muted);">
           حسب الدليل الرسمي: التقييم الذاتي أول خطوة في مرحلة التقييم، ولا يدخل في احتساب درجتك النهائية — لكنه أساس المناقشة الموضوعية مع مديرك.
         </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <button class="btn btn-outline" style="flex:1;min-width:150px;" onclick="showPlan()">الخطة والأهداف</button>
+          <button class="btn btn-primary" style="flex:1;min-width:150px;" onclick="showSelfAssessment()">التقييم الذاتي</button>
+        </div>
       </div>
 
       <div class="section">
@@ -945,7 +937,7 @@
           <span onclick="showPlanNoteInfo()" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--navy);color:#fff;font-size:10px;font-weight:800;cursor:pointer;margin-right:4px;vertical-align:middle;">؟</span>
         </p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
-          <button class="btn btn-outline" style="flex:1;min-width:150px;" onclick="showList()">شواهدي</button>
+          <button class="btn btn-primary" style="flex:1;min-width:150px;" onclick="showPlan()">الخطة والأهداف</button>
           <button class="btn btn-outline" style="flex:1;min-width:150px;" onclick="showSelfAssessment()">التقييم الذاتي</button>
         </div>
       </div>
@@ -1280,12 +1272,17 @@
   <!-- ---------- برامج الأنشطة الطلابية متعددة الحصص ---------- -->
   <div id="programsView" style="display:none;">
 
+    <div style="display:flex;gap:8px;padding:16px 26px 0;">
+      <button class="btn btn-outline" style="flex:1;" onclick="showTasks()">مهامّي</button>
+      <button class="btn btn-primary" id="workSubnavProgramsBtnPrograms" style="flex:1;" onclick="showPrograms()">البرامج</button>
+    </div>
+
     <div id="programsListSection" class="list-card">
       <div class="list-header">
         <h2>برامجي</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="showNewProgramForm()">+ برنامج جديد</button>
-          <button class="btn btn-outline" onclick="showList()">رجوع لشواهدي</button>
+          <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
         </div>
       </div>
       <div id="programsListBody">
@@ -1371,6 +1368,11 @@
 
   <!-- ---------- المهام ---------- -->
   <div id="tasksView" style="display:none;">
+
+    <div style="display:flex;gap:8px;padding:16px 26px 0;">
+      <button class="btn btn-primary" style="flex:1;" onclick="showTasks()">مهامّي</button>
+      <button class="btn btn-outline" id="workSubnavProgramsBtnTasks" style="flex:1;" onclick="showPrograms()">البرامج</button>
+    </div>
 
     <div id="tasksListSection" class="list-card">
       <div class="list-header">
