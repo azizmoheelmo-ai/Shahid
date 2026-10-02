@@ -1937,6 +1937,7 @@ async function showHome(){
   renderServiceAlert();
   renderHomeProgressCard();
   renderCurrentWeekWidget();
+  loadAndRenderHomeDashboardExtras();
   applyUiModeVisibility();
   maybeShowUiModeBanner();
   maybeShowOnboardingTour();
@@ -1987,6 +1988,79 @@ function renderHomeProgressCard(){
     ${suggestionHtml}`;
 
   card.style.display = 'block';
+}
+
+/* ============================================
+   بطاقة "يحتاج إجراء الآن" + ملخّص "أعمالي" بالرئيسية
+   ------------------------------------------------------------
+   تُستدعى من showHome بلا await (fire-and-forget)، بنفس نمط
+   renderCurrentWeekWidget تمامًا: تجلب مهامّي وبرامجي (غير محمَّلة أصلًا
+   عند showHome، فقط عند زيارة "أعمالي" فعليًا)، ثم تتحقق أن المستخدم لا
+   يزال فعليًا بالرئيسية (stillOnHome) بعد كل await قبل أي كتابة بالـDOM —
+   لو انتقل لشاشة أخرى أثناء انتظار الشبكة، نتجاهل النتيجة بصمت بدل كتابة
+   بيانات على بطاقة لم تعد ظاهرة أصلًا.
+   ============================================ */
+function stillOnHome(){
+  const el = document.getElementById('homeView');
+  return !!el && el.style.display === 'block';
+}
+
+async function loadAndRenderHomeDashboardExtras(){
+  await Promise.all([loadMyTasks(), loadActivityPrograms()]);
+  if(!stillOnHome()) return;
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const cutoffIso = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const tasksNeedingAttention = countTasksNeedingAttention(myTasks, cutoffIso);
+
+  let sessionsThisWeek = 0;
+  if(calendarRegion){
+    try{
+      const { weeks, holidays } = await loadCalendarData(calendarRegion);
+      if(!stillOnHome()) return;
+      const info = resolveCurrentWeekInfo(weeks, holidays, todayIso);
+      if(info.status === 'ok'){
+        sessionsThisWeek = countUndocumentedSessionsForWeek(activityPrograms, programSectionIdsMap, info.weekLabel);
+      }
+    } catch(e){ /* تجاهل — البطاقة تعرض ما توفّر فقط، لا خطأ ظاهر للمستخدم */ }
+  }
+  if(!stillOnHome()) return;
+
+  renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek);
+  renderWorkHomeSummary();
+}
+
+function renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek){
+  const card = document.getElementById('homeActionCard');
+  if(!card) return;
+  if(!tasksNeedingAttention && !sessionsThisWeek){ card.style.display = 'none'; return; }
+
+  const lines = [];
+  if(tasksNeedingAttention){
+    lines.push(`<div style="cursor:pointer;" onclick="showTasks()">• ${tasksNeedingAttention} ${tasksNeedingAttention === 1 ? 'مهمة تحتاج إنجازًا قريبًا' : 'مهام تحتاج إنجازًا قريبًا'}</div>`);
+  }
+  if(sessionsThisWeek){
+    lines.push(`<div style="cursor:pointer;" onclick="showPrograms()">• ${sessionsThisWeek} ${sessionsThisWeek === 1 ? 'حصة برنامج غير موثَّقة هذا الأسبوع' : 'حصص برامج غير موثَّقة هذا الأسبوع'}</div>`);
+  }
+  card.innerHTML = `<div style="font-weight:800;color:var(--navy);margin-bottom:6px;">⚡ يحتاج إجراء الآن</div>${lines.join('')}`;
+  card.style.display = 'block';
+}
+
+function renderWorkHomeSummary(){
+  const sub = document.getElementById('workHomeSub');
+  if(!sub) return;
+
+  const openTasks = myTasks.filter(t => !t.done).length;
+  let pendingSessions = 0;
+  activityPrograms.forEach(p => {
+    const prog = programProgress(p, programSectionIdsMap.get(p.id));
+    pendingSessions += Math.max(0, prog.total - prog.done);
+  });
+
+  const parts = [];
+  if(openTasks) parts.push(`${openTasks} ${openTasks === 1 ? 'مهمة' : 'مهام'}`);
+  if(pendingSessions) parts.push(`${pendingSessions} ${pendingSessions === 1 ? 'حصة' : 'حصص'}`);
+  sub.textContent = parts.length ? parts.join(' · ') : 'لا مهام أو حصص معلّقة حاليًا';
 }
 
 /* ============================================
