@@ -19,7 +19,7 @@ function installLiveDom(app){
   app.document.getElementById = (id) => (registry[id] = registry[id] || makeLiveElement());
 }
 
-const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'programsNavTab'];
+const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'];
 
 describe('applyStaffRoleVisibility', () => {
   ['vice_principal', 'school_principal', 'student_counselor', 'lab_technician'].forEach(role => {
@@ -33,6 +33,27 @@ describe('applyStaffRoleVisibility', () => {
       IDS.forEach(id => {
         assert.equal(app.document.getElementById(id).style.display, 'none', `${id} يجب أن يكون مخفيًا لـ${role}`);
       });
+    });
+  });
+
+  ['vice_principal', 'school_principal', 'student_counselor', 'lab_technician'].forEach(role => {
+    test(`دور مستقل (${role}): تبويب "أعمالي" (workNavTab) يبقى ظاهرًا رغم إخفاء زر "البرامج" — مهامّي ليست خاصة بمن له فصل`, () => {
+      /* خلل حقيقي كاد يقع أثناء إعادة تنظيم التنقّل: تبويب "البرامج" القديم
+         (id=programsNavTab) كان يُخفى بالكامل لهذه الأدوار لأن البرامج ميزة
+         خاصة بمعلم له فصل. لمّا دُمجت مهامّي والبرامج بتبويب سفلي واحد
+         ("أعمالي")، إعادة استخدام نفس الـid على التبويب الجديد كانت ستُخفي
+         مهامّي أيضًا عن هذه الأدوار بلا أي مبرر (المهام الشخصية لا تتطلب
+         فصلًا). الإصلاح: تبويب "أعمالي" نفسه (workNavTab) لا يظهر إطلاقًا
+         بقائمة applyStaffRoleVisibility، وفقط زرّا "البرامج" الفرعيّان
+         (workSubnavProgramsBtnTasks/Programs) يُخفيان. */
+      const app = loadApp();
+      installLiveDom(app);
+      runInAppContext(app, `dutyType = '${role}';`);
+
+      app.applyStaffRoleVisibility();
+
+      const workTab = app.document.getElementById('workNavTab');
+      assert.notEqual(workTab.style.display, 'none', `workNavTab يجب أن يبقى ظاهرًا لـ${role} (مهامّي متاحة للجميع)`);
     });
   });
 
