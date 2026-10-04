@@ -113,8 +113,10 @@ async function renderCurrentWeekWidget(){
   const weekSpan = document.getElementById('dateInfoWeek');
   const bar = document.getElementById('dateInfoBar');
   if(!weekSpan || !bar) return;
+  /* السطر نفسه يبدأ بأيقونة 📅 ثابتة بالـHTML، فنص الأسبوع هنا يُلحَق بفاصل
+     " · " لا بأيقونة ثانية. */
   if(!calendarRegion){
-    weekSpan.textContent = '📅 حدّد نطاقك لعرض الأسبوع الدراسي';
+    weekSpan.textContent = ' · حدّد نطاقك لعرض الأسبوع الدراسي';
     bar.onclick = () => showSettings('profile');
     return;
   }
@@ -125,8 +127,8 @@ async function renderCurrentWeekWidget(){
     const today = new Date().toISOString().slice(0, 10);
     const info = resolveCurrentWeekInfo(weeks, holidays, today);
     bar.onclick = () => showCalendar();
-    if(info.status === 'holiday'){ weekSpan.textContent = `📅 إجازة حاليًا: ${info.holidayName}`; }
-    else if(info.status === 'ok'){ weekSpan.textContent = `📅 ${info.weekLabel}`; }
+    if(info.status === 'holiday'){ weekSpan.textContent = ` · إجازة حاليًا: ${info.holidayName}`; }
+    else if(info.status === 'ok'){ weekSpan.textContent = ` · ${info.weekLabel}`; }
     else weekSpan.textContent = '';
   } catch(e){
     weekSpan.textContent = '';

@@ -894,7 +894,6 @@ async function saveProfile(){
 
     currentUser = data.user;
     document.getElementById('whoName').textContent = full_name || currentUser.email;
-    renderProfile();
     msg.style.color = '#215C34';
     msg.textContent = 'تم الحفظ ✓';
     setTimeout(() => {
@@ -1930,62 +1929,39 @@ async function showHome(){
   setActiveBottomTab('home');
   document.getElementById('homeView').style.display = 'block';
   renderDateInfoBar();
-  renderProfile();
-  renderCycleCountdown();
   await refreshPlanSummary();
-  renderCycleCard();
   renderServiceAlert();
   renderHomeProgressCard();
   renderCurrentWeekWidget();
   loadAndRenderHomeDashboardExtras();
-  applyUiModeVisibility();
-  maybeShowUiModeBanner();
   maybeShowOnboardingTour();
 }
 
 /* ============================================
-   (3) اقتراح "التالي" — أقرب عنصر يحتاج توثيقًا
+   بطاقة التقدّم بالرئيسية — بسيطة باتفاق صريح مع المستخدم: النسبة الموزونة
+   + شريط + شارة صغيرة لمرحلة دورة الأداء الحالية، بلا نصوص شرح. التفاصيل
+   (حالة كل عنصر) بالضغط على البطاقة، وشرح المرحلة الرسمي بالضغط على الشارة.
    ============================================ */
-/* بطاقة واحدة موحّدة في الرئيسية تجمع: النسبة الموزونة + حالة التغطية + المقترح التالي */
 function renderHomeProgressCard(){
   const card = document.getElementById('homeProgressCard');
   if(!card) return;
 
-  const elements = getElementsOrder();
-  if(!elements.length){ card.style.display = 'none'; return; }
+  if(!getElementsOrder().length){ card.style.display = 'none'; return; }
 
   const wp = computeWeightedProgress();
-  const missing = getUncoveredElements();
-  const started = elements.length - missing.length;
   const barColor = wp.pct >= 80 ? '#215C34' : (wp.pct >= 40 ? 'var(--gold)' : '#B23A3A');
-
-  let suggestionHtml = '';
-  if(missing.length){
-    const sorted = [...missing].sort((a, b) => getElementWeight(b.key) - getElementWeight(a.key));
-    const next = sorted[0];
-    const { name } = splitLabel(next.label);
-    suggestionHtml = `
-      <div class="home-progress-suggest" onclick="addShahidForElement('${escapeHtml(next.key)}')">
-        <span>المقترح التالي: <b>${escapeHtml(name)}</b></span>
-        <span class="hp-arrow">ابدأ الآن ←</span>
-      </div>`;
-  } else {
-    suggestionHtml = `<div class="home-progress-suggest done">✓ غطّيت كل عناصر الأداء</div>`;
-  }
+  const pctColor = wp.pct >= 80 ? '#215C34' : (wp.pct >= 40 ? 'var(--gold-text)' : '#B23A3A');
+  const stage = CYCLE_STAGES[getCycleStageKey()];
 
   card.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-      <span style="font-size:12px;color:var(--muted);">الاكتمال الموزون لعناصر الأداء</span>
-      <span style="font-size:17px;font-weight:800;color:${barColor};">${wp.pct}%</span>
+    <div class="home-progress-top">
+      <span class="home-progress-label">
+        الاكتمال الموزون لعناصر الأداء
+        <button type="button" class="home-stage-chip" onclick="event.stopPropagation();showPhaseInfoModal()">${escapeHtml(stage.label)}</button>
+      </span>
+      <span class="home-progress-pct" style="color:${pctColor};">${wp.pct}%</span>
     </div>
-    <div style="background:#F1EEE6;height:9px;margin-bottom:8px;">
-      <div style="background:${barColor};height:100%;width:${wp.pct}%;transition:width .4s;"></div>
-    </div>
-    <div style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">
-      غطّيت <b style="color:var(--navy);">${started} من ${elements.length}</b> عنصرًا
-      <span style="text-decoration:underline;cursor:pointer;margin-right:4px;" onclick="event.stopPropagation();showCoverageDetails()">(التفاصيل)</span>
-    </div>
-    ${suggestionHtml}`;
+    <div class="home-progress-track"><div class="home-progress-fill" style="background:${barColor};width:${wp.pct}%;"></div></div>`;
 
   card.style.display = 'block';
 }
@@ -2006,43 +1982,79 @@ function stillOnHome(){
 }
 
 async function loadAndRenderHomeDashboardExtras(){
-  await Promise.all([loadMyTasks(), loadActivityPrograms()]);
+  const [tasksOk, programsOk] = await Promise.all([loadMyTasks(), loadActivityPrograms()]);
   if(!stillOnHome()) return;
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const cutoffIso = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const cutoffIso = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   const tasksNeedingAttention = countTasksNeedingAttention(myTasks, cutoffIso);
 
+  /* sessionsStatus: 'ok' (فُحصت حصص الأسبوع، أو لا برامج أصلًا)،
+     'no_region' (لا نطاق جغرافي = لا نعرف الأسبوع الحالي — إجراء مطلوب
+     بحد ذاته)، 'failed' (تعذّر جلب التقويم). */
   let sessionsThisWeek = 0;
-  if(calendarRegion){
-    try{
-      const { weeks, holidays } = await loadCalendarData(calendarRegion);
-      if(!stillOnHome()) return;
-      const info = resolveCurrentWeekInfo(weeks, holidays, todayIso);
-      if(info.status === 'ok'){
-        sessionsThisWeek = countUndocumentedSessionsForWeek(activityPrograms, programSectionIdsMap, info.weekLabel);
-      }
-    } catch(e){ /* تجاهل — البطاقة تعرض ما توفّر فقط، لا خطأ ظاهر للمستخدم */ }
+  let sessionsStatus = 'ok';
+  if(activityPrograms.length){
+    if(!calendarRegion){
+      sessionsStatus = 'no_region';
+    } else {
+      try{
+        const { weeks, holidays } = await loadCalendarData(calendarRegion);
+        if(!stillOnHome()) return;
+        const info = resolveCurrentWeekInfo(weeks, holidays, todayIso);
+        if(info.status === 'ok'){
+          sessionsThisWeek = countUndocumentedSessionsForWeek(activityPrograms, programSectionIdsMap, info.weekLabel);
+        }
+      } catch(e){ sessionsStatus = 'failed'; }
+    }
   }
   if(!stillOnHome()) return;
 
-  renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek);
-  renderWorkHomeSummary();
+  renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek, sessionsStatus, tasksOk && programsOk);
+  if(tasksOk && programsOk) renderWorkHomeSummary();
 }
 
-function renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek){
+/* دالة صرفة: حالة بطاقة "يحتاج إجراء الآن".
+   mode: 'items' (بنود تحتاج إجراء) | 'clear' ("لا إجراء عاجل") | 'hidden'.
+   لا تُرجَع 'clear' إلا بعد فحص مكتمل فعلًا — رسالة "كل شيء تمام" مبنية
+   على فحص فاشل أخطر من غيابها (نفس المبدأ المتّبع بمركز التنبيهات/
+   runQueriesWithRetry). */
+function homeActionCardState(tasksCount, sessionsCount, sessionsStatus, loadedOk){
+  const items = [];
+  if(tasksCount){
+    items.push({ kind: 'tasks', text: arabicCountPhrase(tasksCount, {
+      one: 'مهمة مستحقة هذا الأسبوع', two: 'مهمتان مستحقتان هذا الأسبوع',
+      few: '{n} مهام مستحقة هذا الأسبوع', many: '{n} مهمة مستحقة هذا الأسبوع',
+    }) });
+  }
+  if(sessionsCount){
+    items.push({ kind: 'sessions', text: arabicCountPhrase(sessionsCount, {
+      one: 'حصة برنامج غير موثّقة', two: 'حصتا برنامج غير موثّقتين',
+      few: '{n} حصص برامج غير موثّقة', many: '{n} حصة برنامج غير موثّقة',
+    }) });
+  }
+  if(sessionsStatus === 'no_region'){
+    items.push({ kind: 'region', text: 'حدّد نطاقك الجغرافي لمتابعة حصص برامجك' });
+  }
+  if(items.length) return { mode: 'items', items };
+  if(!loadedOk || sessionsStatus !== 'ok') return { mode: 'hidden', items };
+  return { mode: 'clear', items };
+}
+
+const HOME_ACTION_HANDLERS = { tasks: 'showTasks()', sessions: 'showPrograms()', region: "showSettings('profile')" };
+
+function renderHomeActionCard(tasksCount, sessionsCount, sessionsStatus, loadedOk){
   const card = document.getElementById('homeActionCard');
   if(!card) return;
-  if(!tasksNeedingAttention && !sessionsThisWeek){ card.style.display = 'none'; return; }
 
-  const lines = [];
-  if(tasksNeedingAttention){
-    lines.push(`<div style="cursor:pointer;" onclick="showTasks()">• ${tasksNeedingAttention} ${tasksNeedingAttention === 1 ? 'مهمة تحتاج إنجازًا قريبًا' : 'مهام تحتاج إنجازًا قريبًا'}</div>`);
+  const state = homeActionCardState(tasksCount, sessionsCount, sessionsStatus, loadedOk);
+  if(state.mode === 'hidden'){ card.style.display = 'none'; return; }
+  if(state.mode === 'clear'){
+    card.innerHTML = '<div class="home-action-none">✓ لا إجراء عاجل</div>';
+  } else {
+    const lines = state.items.map(it => `<div class="home-action-line" onclick="${HOME_ACTION_HANDLERS[it.kind]}">• ${escapeHtml(it.text)}</div>`).join('');
+    card.innerHTML = `<div class="home-action-title">⚡ يحتاج إجراء الآن</div><div class="home-action-lines">${lines}</div>`;
   }
-  if(sessionsThisWeek){
-    lines.push(`<div style="cursor:pointer;" onclick="showPrograms()">• ${sessionsThisWeek} ${sessionsThisWeek === 1 ? 'حصة برنامج غير موثَّقة هذا الأسبوع' : 'حصص برامج غير موثَّقة هذا الأسبوع'}</div>`);
-  }
-  card.innerHTML = `<div style="font-weight:800;color:var(--navy);margin-bottom:6px;">⚡ يحتاج إجراء الآن</div>${lines.join('')}`;
   card.style.display = 'block';
 }
 
@@ -2058,9 +2070,9 @@ function renderWorkHomeSummary(){
   });
 
   const parts = [];
-  if(openTasks) parts.push(`${openTasks} ${openTasks === 1 ? 'مهمة' : 'مهام'}`);
-  if(pendingSessions) parts.push(`${pendingSessions} ${pendingSessions === 1 ? 'حصة' : 'حصص'}`);
-  sub.textContent = parts.length ? parts.join(' · ') : 'لا مهام أو حصص معلّقة حاليًا';
+  if(openTasks) parts.push(arabicCountPhrase(openTasks, { one: 'مهمة واحدة', two: 'مهمتان', few: '{n} مهام', many: '{n} مهمة' }));
+  if(pendingSessions) parts.push(arabicCountPhrase(pendingSessions, { one: 'حصة واحدة', two: 'حصتان', few: '{n} حصص', many: '{n} حصة' }));
+  sub.textContent = parts.length ? parts.join(' · ') : 'لا شيء معلّق';
 }
 
 /* ============================================
