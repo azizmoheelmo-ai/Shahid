@@ -399,8 +399,6 @@ async function checkAdminStatus(){
     isAdmin = false;
   }
   document.getElementById('adminNavBtn').style.display = isAdmin ? 'inline-block' : 'none';
-  document.getElementById('adminHomeBtn').style.display = isAdmin ? 'flex' : 'none';
-  document.getElementById('homeToolsSection').style.display = isAdmin ? 'block' : 'none';
   if(isAdmin) refreshSupportMessagesBadge();
   refreshCrmPendingBadges();
   buildAdminRisks();
