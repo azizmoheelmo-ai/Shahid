@@ -19,7 +19,7 @@ function installLiveDom(app){
   app.document.getElementById = (id) => (registry[id] = registry[id] || makeLiveElement());
 }
 
-const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'];
+const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'];
 
 describe('applyStaffRoleVisibility', () => {
   ['vice_principal', 'school_principal', 'student_counselor', 'lab_technician'].forEach(role => {
@@ -55,6 +55,19 @@ describe('applyStaffRoleVisibility', () => {
       const workTab = app.document.getElementById('workNavTab');
       assert.notEqual(workTab.style.display, 'none', `workNavTab يجب أن يبقى ظاهرًا لـ${role} (مهامّي متاحة للجميع)`);
     });
+  });
+
+  test('تبويبات الشريط السفلي تبقى عمودية (أيقونة فوق النص) بعد إعادة إظهارها', () => {
+    /* خلل حقيقي اكتُشف بلقطة شاشة للجوال: الدالة تُظهر تبويبَي إدارة الصف/
+       المتابعة الأكاديمية بـstyle.display = ''، فيُمسح display:flex المكتوب
+       inline بالزر، وتظهر الأيقونة بجانب النص لكل معلم. الضمان الوحيد بعد
+       ذلك المسح: قاعدة CSS للصنف نفسه بـdisplay:flex واتجاه عمودي. */
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+    const rule = (css.match(/\.bottom-tab-btn\{([^}]*)\}/) || [])[1] || '';
+    assert.match(rule, /display:\s*flex/, 'قاعدة .bottom-tab-btn يجب أن تحدد display:flex');
+    assert.match(rule, /flex-direction:\s*column/, 'قاعدة .bottom-tab-btn يجب أن تحدد flex-direction:column');
   });
 
   test('معلم (بأي نوع تكليف إضافي أو بدونه): تبقى الميزات ظاهرة', () => {

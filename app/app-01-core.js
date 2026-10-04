@@ -238,6 +238,16 @@ function endExportBusy(btn){
   }
 }
 
+/* صياغة العدد مع المعدود حسب قواعد العربية: 1 مفرد، 2 مثنى، 3-10 جمع،
+   11 فأكثر مفرد منصوب ("3 مهام" لكن "11 مهمة"). دالة صرفة. few/many قوالب
+   يُستبدل فيها {n} بالعدد. */
+function arabicCountPhrase(n, forms){
+  if(n === 1) return forms.one;
+  if(n === 2) return forms.two;
+  const tpl = (n >= 3 && n <= 10) ? forms.few : forms.many;
+  return tpl.replace('{n}', String(n));
+}
+
 /* تحذير المعلم قبل مغادرة الصفحة بتعديلات غير محفوظة، أو أثناء عملية طباعة/تصدير لم تكتمل بعد */
 window.addEventListener('beforeunload', (e) => {
   const hasUnsavedForm = formDirty && document.getElementById('formView').style.display !== 'none';
@@ -566,7 +576,6 @@ let DB_ELEMENTS = []; // العناصر الفعّالة للمعلم الحال
 let ALL_PERFORMANCE_ELEMENTS = []; // كل العناصر كما في القاعدة، بدون فلترة/إعادة وزن — لأي حساب يشمل عدة معلمين
 let dutyType = 'none'; // نوع تكليف/دور المعلم الحالي: 'none' | 'student_activity' | 'health_guidance' | 'vice_principal' | 'school_principal' | 'student_counselor' | 'lab_technician' | ...
 let calendarRegion = null; // نطاق التقويم الدراسي الرسمي الذي اختاره المعلم: 'makkah_group' | 'other_regions' | null (لم يُحدَّد بعد)
-let uiMode = null; // مسار الاستخدام المفضَّل: 'quick' | 'full' | null (لم يختر بعد — يُعامَل كـ'full' بالعرض)
 const DUTY_TYPES = [
   { value: 'none', label: 'بلا تكليف إضافي (معلم)' },
   { value: 'student_activity', label: 'معلم — نشاط طلابي' },

@@ -120,25 +120,52 @@
   .pe-remove:hover{color:#B23A3A;}
   .home-edit-wrap{padding:2px 32px 18px;}
 
-  .cycle-card{
-    margin:0 32px 18px;
-    background:#F4F0E4;
-    border-right:3px solid var(--gold);
-    padding:12px 16px;
+  /* ===== لوحة الرئيسية (مطابقة للتصميم المعتمد) ===== */
+  .home-dash{display:flex;flex-direction:column;gap:14px;padding:18px 0 8px;}
+  .home-date{margin:0;font-size:12px;color:var(--muted);cursor:pointer;}
+  .home-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;}
+  .home-action-card{background:#FCFBF9;border-right:4px solid var(--gold);}
+  .home-action-title{font-size:14px;font-weight:800;color:var(--navy);}
+  .home-action-lines{margin-top:6px;font-size:12.5px;color:#413D33;line-height:1.9;}
+  .home-action-line{cursor:pointer;}
+  .home-action-none{font-size:13px;font-weight:700;color:#215C34;}
+  .home-progress-card{cursor:pointer;}
+  .home-progress-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .home-progress-label{font-size:11.5px;color:var(--muted);display:flex;align-items:center;flex-wrap:wrap;gap:6px;}
+  .home-progress-pct{font-size:16px;font-weight:800;}
+  .home-progress-track{background:#F1EEE6;height:9px;border-radius:5px;margin-top:8px;overflow:hidden;}
+  .home-progress-fill{height:100%;transition:width .4s;}
+  .home-stage-chip{
+    font-family:'Cairo', sans-serif;font-size:10.5px;font-weight:700;color:var(--navy);
+    background:#F1EEE6;border:1px solid var(--line);border-radius:10px;
+    padding:0 8px;line-height:18px;cursor:pointer;white-space:nowrap;
   }
-  .cycle-top{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    margin-bottom:6px;
+  .home-cta{
+    width:100%;background:var(--navy);color:#fff;border:none;border-radius:10px;
+    padding:14px;font-family:'Cairo', sans-serif;font-size:15px;font-weight:800;cursor:pointer;
   }
-  .cycle-label{font-size:11px;color:var(--muted);}
-  .cycle-badge{
-    font-size:12px;font-weight:700;color:var(--navy);
-    background:#fff;border:1px solid var(--gold);
-    padding:2px 12px;
+  .home-cta:hover{background:var(--navy-deep);}
+  .home-tiles{display:flex;gap:12px;}
+  .home-tile{
+    flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;
+    background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;
+    font-family:'Cairo', sans-serif;cursor:pointer;
   }
-  .cycle-tip{margin:0;font-size:12.5px;color:#4A4636;line-height:1.8;}
+  .home-tile:hover{background:#FCFBF9;}
+  .home-tile-title{font-size:13px;font-weight:700;color:var(--navy);}
+  .home-tile-sub{font-size:11px;color:var(--muted);text-align:center;}
+  .home-footer{
+    display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap;
+    margin-top:10px;padding-top:14px;border-top:1px solid var(--line);
+    font-size:11.5px;color:var(--muted);
+  }
+  .home-footer a{color:var(--muted);}
+  .home-link-btn{
+    background:none;border:none;padding:0;font-family:'Cairo', sans-serif;font-size:11.5px;
+    color:var(--muted);text-decoration:underline;cursor:pointer;
+  }
+  .home-dash .home-section-label,
+  .home-dash .home-actions{padding-left:0;padding-right:0;}
 
   .stage-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;}
   .stage-filter button{
@@ -522,7 +549,11 @@
   .elem-mgmt-row input[type=number]{width:70px;}
 
   /* ===== الزر العائم لإضافة شاهد جديد ===== */
-  .bottom-tab-btn{color:var(--muted);transition:background .15s, color .15s;}
+  /* display:flex هنا (لا inline فقط): applyStaffRoleVisibility تُعيد إظهار
+     تبويبَي إدارة الصف/المتابعة الأكاديمية بـstyle.display = '' — فيُمسح
+     display:flex المكتوب inline، ويسقط الزر لعرضه الافتراضي (الأيقونة بجانب
+     النص بدل فوقه). هذه القاعدة هي ما يبقى بعد ذلك المسح. */
+  .bottom-tab-btn{display:flex;flex-direction:column;align-items:center;color:var(--muted);transition:background .15s, color .15s;}
   .bottom-tab-btn.active{background:#F0EEE6;color:var(--navy);font-weight:700;}
   .fab-btn{
     position:fixed;
@@ -670,34 +701,6 @@
   .goal-delete-btn:hover{text-decoration:underline;}
 
   /* ===== تنبيه التغطية الناقصة ===== */
-  .home-progress-suggest{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    gap:8px;
-    padding:10px 12px;
-    background:#F1EEE6;
-    border-right:3px solid var(--gold);
-    font-size:12px;
-    color:var(--navy);
-    cursor:pointer;
-  }
-  .home-progress-suggest:hover{background:#EAE5D8;}
-  .home-progress-suggest .hp-arrow{
-    font-size:11px;
-    font-weight:800;
-    color:var(--gold-text);
-    white-space:nowrap;
-  }
-  .home-progress-suggest.done{
-    background:#EAF3EC;
-    border-right-color:#3E8A57;
-    color:#215C34;
-    font-weight:700;
-    cursor:default;
-    justify-content:center;
-  }
-
   .coverage-alert{
     margin:0 32px 16px;
     background:#FBF3E6;

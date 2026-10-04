@@ -33,6 +33,9 @@ function computeWeightedProgress(){
   return { pct, weightedDone: Math.round(weightedDone * 10) / 10, totalWeight };
 }
 
+/* ملخّص بطاقة "أدائي" بالرئيسية — سطر قصير واحد (بطاقة نصف عرض بالجوال):
+   نسبة ما وُثّق من مستهدفات الخطة. loadPlan هنا مطلوبة أيضًا لما بعدها
+   بـshowHome (computeWeightedProgress ببطاقة التقدّم تعتمد على myPlan). */
 async function refreshPlanSummary(){
   const sub = document.getElementById('planHomeSub');
   if(!sub) return;
@@ -40,7 +43,7 @@ async function refreshPlanSummary(){
     await loadPlan();
     const planned = Object.values(myPlan).filter(p => p.target_count > 0);
     if(!planned.length){
-      sub.textContent = 'لم تضع خطتك بعد — ابدأ بتحديد مستهدفاتك لهذا العام';
+      sub.textContent = 'لم تضع خطتك بعد';
     } else {
       const totalTarget = planned.reduce((s, p) => s + (p.target_count || 0), 0);
       let totalDone = 0;
@@ -49,24 +52,10 @@ async function refreshPlanSummary(){
         if(t > 0) totalDone += Math.min(t, planShahidCounts[k] || 0);
       });
       const pct = totalTarget ? Math.round((totalDone / totalTarget) * 100) : 0;
-      const wp = computeWeightedProgress();
-      sub.textContent = `وثّقت ${totalDone} من ${totalTarget} شاهد — بحسب وزن كل عنصر: ${wp.pct}% إجمالًا`;
+      sub.textContent = `${pct}% من الخطة`;
     }
   } catch(e){
-    sub.textContent = 'حدّد مستهدفاتك لعناصر الأداء لتبدأ العمل عليها';
-  }
-
-  /* ملخص التقييم الذاتي */
-  const selfSub = document.getElementById('selfHomeSub');
-  if(selfSub){
-    try{
-      await loadSelfAssessment();
-      const filled = Object.values(mySelfAssessment).filter(s => s.self_level).length;
-      const total = getElementsOrder().length;
-      selfSub.textContent = filled
-        ? `قيّمت ${filled} من ${total} عنصرًا`
-        : 'قيّم أداءك استعدادًا لجلسة التقييم النهائية';
-    } catch(e){ /* تجاهل */ }
+    sub.textContent = 'الخطة · التقييم الذاتي';
   }
 }
 
@@ -191,7 +180,7 @@ async function loadMyShawahid(){
   document.getElementById('shahidSearch').value = '';
   currentStageFilter = '';
   document.querySelectorAll('.stage-filter button').forEach(b => b.classList.toggle('active', b.dataset.stage === ''));
-  document.getElementById('listTitle').textContent = `شواهدي المحفوظة (${myRecords.length})`;
+  document.getElementById('listTitle').textContent = `الشواهد (${myRecords.length})`;
   updateFilterSummary();
   document.getElementById('filterPanel').style.display = 'none';
   document.getElementById('filterChevron').textContent = '▾ عرض';
@@ -248,7 +237,7 @@ function filterMyShawahid(){
   const isFiltering = !!(q || currentStageFilter);
   document.getElementById('listTitle').textContent = isFiltering
     ? `نتائج (${filtered.length})`
-    : `شواهدي المحفوظة (${myRecords.length})`;
+    : `الشواهد (${myRecords.length})`;
   renderShawahidGroups(filtered, isFiltering);
 }
 

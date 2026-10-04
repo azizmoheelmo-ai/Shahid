@@ -719,7 +719,7 @@ function deleteProgramSessionShahid(shahidId, programId){
 }
 
 async function deleteActivityProgram(id){
-  const ok = await showConfirm('حذف هذا البرنامج؟ الشواهد المرتبطة بحصصه المُوثَّقة تبقى محفوظة في "شواهدي".');
+  const ok = await showConfirm('حذف هذا البرنامج؟ الشواهد المرتبطة بحصصه المُوثَّقة تبقى محفوظة في "الشواهد".');
   if(!ok) return;
 
   const { error } = await sb.from('activity_programs').delete().eq('id', id);

@@ -80,10 +80,14 @@ test.describe('المسارات الأساسية (بيئة staging)', () => {
 
     await login(page);
 
-    await expect(page.locator('#homeView h1')).toHaveText('لوحة المعلم');
-    await expect(page.locator('#cycleCard')).toBeVisible();
-    await expect(page.locator('.home-btn.primary')).toBeVisible();
+    await expect(page.locator('#dateInfoBar')).toBeVisible();
+    await expect(page.locator('#homeProgressCard')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.home-cta')).toBeVisible();
     await expect(page.locator('#planHomeBtn')).toBeVisible();
+    await expect(page.locator('#workHomeBtn')).toBeVisible();
+    /* بطاقة "يحتاج إجراء الآن" تظهر دائمًا بعد اكتمال الفحص (إما بنود أو
+       "لا إجراء عاجل") — تُحمَّل بعد الشبكة، فننتظرها بمهلة. */
+    await expect(page.locator('#homeActionCard')).toBeVisible({ timeout: 15000 });
 
     expect(pageErrors, `أخطاء JS غير متوقعة بالشاشة الرئيسية: ${pageErrors.join('; ')}`).toEqual([]);
   });
@@ -93,12 +97,8 @@ test.describe('المسارات الأساسية (بيئة staging)', () => {
     try {
       await login(page);
 
-      /* شواهدي (الزر الرئيسي الأول بالشاشة الرئيسية) */
-      await page.click('.home-btn.primary');
-      await expect(page.locator('#listView')).toBeVisible();
-
-      /* + شاهد جديد */
-      await page.click('button:has-text("+ شاهد جديد")');
+      /* زر "+ شاهد جديد" بالرئيسية يفتح النموذج مباشرة */
+      await page.click('.home-cta');
       await expect(page.locator('#formView')).toBeVisible();
 
       /* عنصر الأداء مطلوب — انتظار تعبئة القائمة (تحميل غير متزامن بعد الدخول)

@@ -257,59 +257,25 @@
 
   <!-- ---------- الصفحة الرئيسية ---------- -->
   <div id="homeView">
-    <div class="sheet">
-      <div class="band" style="padding:14px 32px;">
-        <h1 style="font-size:22px;">لوحة المعلم</h1>
-        <p id="dateInfoBar" style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px 10px;cursor:pointer;">
-          <span id="dateInfoGregorian" style="font-weight:700;color:#fff;"></span>
-          <span id="dateInfoHijri"></span>
-          <span id="dateInfoWeek" style="font-weight:700;color:#fff;"></span>
-        </p>
-      </div>
+    <div class="home-dash">
+      <p id="dateInfoBar" class="home-date">📅 <span id="dateInfoDay"></span> <span id="dateInfoHijri"></span><span id="dateInfoWeek"></span></p>
 
-      <div id="homeActionCard" style="display:none;margin:0 32px 16px;padding:12px 15px;background:#FCFBF9;border:1px solid var(--line);border-right:4px solid var(--gold);font-size:12.5px;line-height:1.9;"></div>
+      <div id="homeActionCard" class="home-card home-action-card" style="display:none;"></div>
 
-      <div class="cycle-card" id="cycleCard">
-        <div class="cycle-top">
-          <span class="cycle-label">دورة الأداء الحالية</span>
-          <span class="cycle-badge" id="cycleBadge" onclick="showPhaseInfoModal()" style="cursor:pointer;" title="اضغط لقراءة تفاصيل المراحل من الدليل الرسمي">—</span>
-        </div>
-        <p class="cycle-tip" id="cycleTip">جارٍ التحديد...</p>
+      <div id="homeProgressCard" class="home-card home-progress-card" style="display:none;" onclick="showCoverageDetails()"></div>
 
-        <div id="homeProgressCard" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);"></div>
+      <div id="serviceAlert" style="display:none;padding:12px 15px;font-size:12.5px;line-height:1.85;"></div>
 
-        <div id="cycleCountdown" style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--navy);"></div>
-        <p style="margin:6px 0 0;font-size:10.5px;color:var(--muted);cursor:pointer;text-decoration:underline;" onclick="showPhaseInfoModal()">اقرأ عن مراحل دورة الأداء (حسب الدليل الرسمي) ▾</p>
-      </div>
+      <button class="home-cta" onclick="startNewShahid()">+ شاهد جديد</button>
 
-      <div id="serviceAlert" style="display:none;margin:0 32px 16px;padding:12px 15px;font-size:12.5px;line-height:1.85;"></div>
-
-      <div id="uiModeBanner" style="display:none;margin:0 32px 16px;padding:12px 15px;background:#F1EEE6;border:1px solid var(--line);font-size:12.5px;">
-        <p style="margin:0 0 8px;line-height:1.8;">🆕 جرّب <b>المسار السريع</b>: رئيسية مبسّطة تركّز على توثيق الشواهد فقط، بلا خطة أو تقييم ذاتي أو مهام تشتّت انتباهك.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" style="padding:5px 14px;font-size:12px;" onclick="switchUiMode('quick')">جرّب الآن</button>
-          <button class="btn btn-outline" style="padding:5px 14px;font-size:12px;" onclick="switchUiMode('full')">لا، أفضّل الوضع الحالي</button>
-        </div>
-      </div>
-
-      <div class="home-section-label">الأداء والتوثيق</div>
-      <div class="home-actions">
-        <button class="home-btn primary" style="grid-column:1/-1;" onclick="startNewShahid()">
-          <span class="hb-title">+ شاهد جديد</span>
-          <span class="hb-sub">وثّق عملًا قمت به الآن</span>
+      <div class="home-tiles">
+        <button class="home-tile" id="planHomeBtn" onclick="showPlan()">
+          <span class="home-tile-title">📋 أدائي</span>
+          <span class="home-tile-sub" id="planHomeSub">الخطة · التقييم الذاتي</span>
         </button>
-        <button class="home-btn" id="workHomeBtn" onclick="showTasks()">
-          <span class="hb-title">✅ أعمالي</span>
-          <span class="hb-sub" id="workHomeSub">مهامّك وحصص برامجك</span>
-        </button>
-        <button class="home-btn" id="planHomeBtn" onclick="showPlan()">
-          <span class="hb-title">📋 أدائي</span>
-          <span class="hb-sub" id="planHomeSub">حدّد مستهدفاتك لعناصر الأداء لتبدأ العمل عليها</span>
-          <span class="hb-sub" id="selfHomeSub" style="margin-top:3px;">قيّم أداءك استعدادًا لجلسة التقييم النهائية</span>
-        </button>
-        <button class="home-btn" style="grid-column:1/-1;" onclick="exportPortfolio(event)">
-          <span class="hb-title">ملف الإنجاز</span>
-          <span class="hb-sub">تصدير PDF كامل ومنظّم</span>
+        <button class="home-tile" id="workHomeBtn" onclick="showTasks()">
+          <span class="home-tile-title">✅ أعمالي</span>
+          <span class="home-tile-sub" id="workHomeSub">المهام · البرامج</span>
         </button>
       </div>
 
@@ -323,12 +289,10 @@
         </div>
       </div>
 
-      <div style="text-align:center;padding:4px 32px 0;">
-        <a href="#" id="uiModeSwitchLink" onclick="switchUiMode(uiMode==='quick' ? 'full' : 'quick');return false;" style="font-size:11.5px;color:var(--muted);text-decoration:underline;">🔄 التبديل للمسار السريع</a>
-      </div>
-
-      <div style="margin-top:26px;padding:16px 32px 24px;border-top:1px solid var(--line);text-align:center;font-size:11.5px;color:var(--muted);">
-        <a href="#" onclick="showTermsModal();return false;" style="color:var(--muted);text-decoration:underline;">سياسة الخصوصية</a>
+      <div class="home-footer">
+        <button type="button" class="home-link-btn" onclick="exportPortfolio(event)">📄 تصدير ملف الإنجاز</button>
+        <span aria-hidden="true">·</span>
+        <a href="#" onclick="showTermsModal();return false;">سياسة الخصوصية</a>
       </div>
     </div>
   </div>
@@ -880,9 +844,13 @@
   <!-- ---------- التقييم الذاتي (نهاية دورة الأداء) ---------- -->
   <div id="selfView" style="display:none;">
     <div class="sheet">
-      <div class="band"><h1>التقييم الذاتي</h1></div>
+      <div class="band"><h1>أدائي</h1></div>
 
       <div class="section">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+          <button class="btn btn-outline" style="flex:1;min-width:150px;" onclick="showPlan()">الخطة والأهداف</button>
+          <button class="btn btn-primary" style="flex:1;min-width:150px;" onclick="showSelfAssessment()">التقييم الذاتي</button>
+        </div>
         <p style="margin:0 0 6px;font-size:13px;line-height:1.9;color:#413D33;">
           قيّم أداءك في كل عنصر مقارنةً بما خططت له وبما وثّقته فعليًا.
           هذه ورقة استعدادك لجلسة التقييم مع مديرك المباشر.
@@ -890,10 +858,6 @@
         <p style="margin:0;font-size:11.5px;color:var(--muted);">
           حسب الدليل الرسمي: التقييم الذاتي أول خطوة في مرحلة التقييم، ولا يدخل في احتساب درجتك النهائية — لكنه أساس المناقشة الموضوعية مع مديرك.
         </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
-          <button class="btn btn-outline" style="flex:1;min-width:150px;" onclick="showPlan()">الخطة والأهداف</button>
-          <button class="btn btn-primary" style="flex:1;min-width:150px;" onclick="showSelfAssessment()">التقييم الذاتي</button>
-        </div>
       </div>
 
       <div class="section">
@@ -930,10 +894,14 @@
   <div id="planView" style="display:none;">
     <div class="sheet">
       <div class="band">
-        <h1>خطة الأداء السنوية</h1>
+        <h1>أدائي</h1>
       </div>
 
       <div class="section">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+          <button class="btn btn-primary" style="flex:1;min-width:150px;" onclick="showPlan()">الخطة والأهداف</button>
+          <button class="btn btn-outline" style="flex:1;min-width:150px;" onclick="showSelfAssessment()">التقييم الذاتي</button>
+        </div>
         <p style="margin:0 0 6px;font-size:13px;line-height:1.9;color:#413D33;">
           حدّد لكل عنصر من عناصر الأداء: <b>المستوى الذي تستهدفه</b>، و<b>عدد الشواهد</b> التي تنوي توثيقها، وملاحظة أو خطة شخصية مختصرة.
           هذه الخطة مرجعك طوال العام، وتقيس تقدمك تلقائيًا كلما وثّقت شاهدًا جديدًا.
@@ -942,10 +910,6 @@
           حسب الدليل الرسمي: المعلم لا يضع أهدافًا فردية منفصلة، بل يُناقَش على عناصر التقييم الجاهزة — وهذه الخطة أداة شخصية تساعدك على الاستعداد لجلسة التخطيط مع مديرك المباشر.
           <span onclick="showPlanNoteInfo()" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--navy);color:#fff;font-size:10px;font-weight:800;cursor:pointer;margin-right:4px;vertical-align:middle;">؟</span>
         </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
-          <button class="btn btn-primary" style="flex:1;min-width:150px;" onclick="showPlan()">الخطة والأهداف</button>
-          <button class="btn btn-outline" style="flex:1;min-width:150px;" onclick="showSelfAssessment()">التقييم الذاتي</button>
-        </div>
       </div>
 
       <div class="section">
@@ -1247,10 +1211,9 @@
   <div id="listView" style="display:none;">
     <div class="list-card">
       <div class="list-header">
-        <h2 id="listTitle">شواهدي المحفوظة</h2>
+        <h2 id="listTitle">الشواهد</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="startNewShahid()">+ شاهد جديد</button>
-          <button class="btn btn-outline" id="myProgramsBtn" onclick="showPrograms()">برامجي</button>
           <button class="btn btn-outline" id="exportAllBtn" onclick="exportAllShawahid()">تصدير الكل PDF</button>
         </div>
       </div>
@@ -1278,14 +1241,17 @@
   <!-- ---------- برامج الأنشطة الطلابية متعددة الحصص ---------- -->
   <div id="programsView" style="display:none;">
 
-    <div style="display:flex;gap:8px;padding:16px 26px 0;">
-      <button class="btn btn-outline" style="flex:1;" onclick="showTasks()">مهامّي</button>
-      <button class="btn btn-primary" id="workSubnavProgramsBtnPrograms" style="flex:1;" onclick="showPrograms()">البرامج</button>
+    <div class="sheet" style="margin-bottom:16px;">
+      <div class="band"><h1>أعمالي</h1></div>
+      <div style="display:flex;gap:8px;padding:14px 26px;">
+        <button class="btn btn-outline" style="flex:1;" onclick="showTasks()">مهامّي</button>
+        <button class="btn btn-primary" id="workSubnavProgramsBtnPrograms" style="flex:1;" onclick="showPrograms()">البرامج</button>
+      </div>
     </div>
 
     <div id="programsListSection" class="list-card">
       <div class="list-header">
-        <h2>برامجي</h2>
+        <h2>البرامج</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="showNewProgramForm()">+ برنامج جديد</button>
           <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
@@ -1375,9 +1341,12 @@
   <!-- ---------- المهام ---------- -->
   <div id="tasksView" style="display:none;">
 
-    <div style="display:flex;gap:8px;padding:16px 26px 0;">
-      <button class="btn btn-primary" style="flex:1;" onclick="showTasks()">مهامّي</button>
-      <button class="btn btn-outline" id="workSubnavProgramsBtnTasks" style="flex:1;" onclick="showPrograms()">البرامج</button>
+    <div class="sheet" style="margin-bottom:16px;">
+      <div class="band"><h1>أعمالي</h1></div>
+      <div style="display:flex;gap:8px;padding:14px 26px;">
+        <button class="btn btn-primary" style="flex:1;" onclick="showTasks()">مهامّي</button>
+        <button class="btn btn-outline" id="workSubnavProgramsBtnTasks" style="flex:1;" onclick="showPrograms()">البرامج</button>
+      </div>
     </div>
 
     <div id="tasksListSection" class="list-card">

@@ -278,9 +278,8 @@ async function onLoggedIn(user){
   dutyType = 'none'; // إعادة الضبط صراحة: قد يبقى من جلسة سابقة على نفس الصفحة (تسجيل خروج/دخول)
   calendarRegion = null;
   calendarDataCache = null; // لا نُبقي بيانات تقويم مستخدم سابق على نفس الصفحة
-  uiMode = null;
   try{
-    const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region, ui_mode').eq('id', user.id).maybeSingle();
+    const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){
       await sb.auth.signOut();
       currentUser = null;
@@ -289,7 +288,6 @@ async function onLoggedIn(user){
     }
     dutyType = (profile && profile.duty_type) || 'none';
     calendarRegion = (profile && profile.calendar_region) || null;
-    uiMode = (profile && profile.ui_mode) || null;
   } catch(e){ /* تجاهل أي خطأ هنا حتى لا يمنع الدخول */ }
 
   document.getElementById('authView').style.display = 'none';
@@ -329,7 +327,7 @@ async function onLoggedIn(user){
    خطته/تقييمه الذاتي كما هي (بعناصره الخاصة، تُحسب عبر DB_ELEMENTS كالمعتاد). */
 function applyStaffRoleVisibility(){
   const isStandaloneRole = STANDALONE_ROLES.includes(dutyType);
-  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'myProgramsBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'].forEach(id => {
+  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = isStandaloneRole ? 'none' : '';
   });
@@ -577,10 +575,6 @@ function getProfileClass(){ return getFieldValue(['فصل', 'الفصل', 'صف'
    بإضافة حقل "المنطقة/المحافظة" من الإعدادات — تُستخدم بخطاب الإحالة السلوكية */
 function getProfileRegion(){ return getFieldValue(['منطقة', 'محافظة']) || 'جدة'; }
 
-function renderProfile(){
-  renderCycleCard();
-}
-
 /* ============ دورة الأداء الوظيفي (تخطيط / مراجعة نصف سنوية / تقييم) ============
    تقسيم تقريبي بحسب العام الدراسي — يمكن تعديله لاحقًا وفق تقويم الوزارة الرسمي
    التفاصيل والخطوات الرسمية منقولة من "الدليل الإرشادي لإدارة الأداء الوظيفي" الصادر عن وزارة التعليم */
@@ -588,13 +582,6 @@ const CYCLE_STAGES = {
   planning: {
     label: 'مرحلة التخطيط',
     timing: 'تبدأ مع بداية دورة الأداء (العام الدراسي)',
-    tip: function(){
-      const hasPlan = Object.keys(myPlan || {}).some(k => ((myPlan[k] || {}).target_count || 0) > 0);
-      if(!hasPlan){
-        return 'حدّد خطتك الآن: ادخل «خطتي» وحدّد المستوى الذي تستهدفه لكل عنصر، وعدد الشواهد التي تنوي توثيقها — يساعدك هذا تدخل جلسة التخطيط مع مديرك وأنت مستعد.';
-      }
-      return 'خطتك جاهزة — الآن انطلق بالعمل الفعلي على عناصر أدائك، ولا يزال أمامك وقت كافٍ قبل نهاية دورة الأداء.';
-    },
     steps: [
       'مناقشة المهام والأدوار والمسؤوليات والأهداف المتوقعة منك خلال دورة الأداء',
       'الاطلاع على عناصر تقييم الأداء الوظيفي',
@@ -607,13 +594,6 @@ const CYCLE_STAGES = {
   midreview: {
     label: 'المراجعة نصف السنوية',
     timing: 'تبدأ في منتصف دورة الأداء',
-    tip: function(){
-      const wp = computeWeightedProgress();
-      if(wp.pct < 30){
-        return 'تقدّمك أقل من المتوقع عند منتصف العام — راجع أسباب التأخر وخصّص وقتًا للتوثيق قبل جلسة المراجعة.';
-      }
-      return 'تقدّمك جيد لهذه المرحلة — جهّز أبرز شواهدك من الفصل الأول لعرضها في جلسة المراجعة النصف سنوية.';
-    },
     steps: [
       'استعراض مستويات الأداء التي أظهرتها',
       'تقبّل ما يُطرح من أفكار جديدة لتطوير العمل',
@@ -627,15 +607,6 @@ const CYCLE_STAGES = {
   evaluation: {
     label: 'مرحلة التقييم',
     timing: 'تبدأ في نهاية العام الدراسي',
-    tip: function(){
-      const elements = getElementsOrder();
-      const missing = elements.filter(e => (planShahidCounts[e.key] || 0) === 0).map(e => e.label);
-      if(missing.length){
-        const list = missing.slice(0, 3).join('، ') + (missing.length > 3 ? ' وغيرها' : '');
-        return `لم توثّق بعد: ${list} — أكملها قبل إغلاق الدورة.`;
-      }
-      return 'غطّيت كل العناصر بشاهد واحد على الأقل — راجع الأقل توثيقًا وأضف ما ينقص قبل التقييم النهائي.';
-    },
     steps: [
       'تعبئة التقييم الذاتي (لا يدخل في احتساب الدرجة النهائية)',
       'مناقشة نتائج تقييم الأداء الوظيفي وبيان أسبابها',
@@ -647,7 +618,7 @@ const CYCLE_STAGES = {
   }
 };
 
-/* ============ شريط التاريخ (ميلادي/هجري/الأسبوع الدراسي) — أعلى الشاشة الرئيسية ============
+/* ============ سطر التاريخ (اليوم/هجري/الأسبوع الدراسي) — أعلى الشاشة الرئيسية ============
    الأسبوع الدراسي (dateInfoWeek) يُملأ من renderCurrentWeekWidget (app-12-calendar.js)
    عبر التقويم الرسمي — لا حساب تقريبي هنا. كان بهذا الشريط سابقًا حساب منفصل
    تقريبي لاسم الفصل ورقم أسبوع (تقسيم أيام الفصل على 19 أسبوعًا متساوية بلا
@@ -655,11 +626,11 @@ const CYCLE_STAGES = {
    بنفس الشاشة (تكرار وتناقض حقيقي اكتُشف أثناء دمج الشريط مع بطاقة "الأسبوع
    الحالي") — حُذف بالكامل، والأسبوع الرسمي وحده هو المصدر المعروض. */
 function renderDateInfoBar(){
-  const barGregorian = document.getElementById('dateInfoGregorian');
-  if(!barGregorian) return;
+  const dayEl = document.getElementById('dateInfoDay');
+  if(!dayEl) return;
   const now = new Date();
 
-  barGregorian.textContent = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(now);
+  dayEl.textContent = new Intl.DateTimeFormat('ar-SA', { weekday: 'long' }).format(now);
   document.getElementById('dateInfoHijri').textContent = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { year: 'numeric', month: 'long', day: 'numeric' }).format(now);
 }
 
@@ -671,36 +642,20 @@ function getCycleStageKey(date){
   return 'evaluation'; // مارس حتى نهاية يوليو — تشمل إغلاق الدورة نهاية العام
 }
 
-function renderCycleCard(){
-  const key = getCycleStageKey();
-  const stage = CYCLE_STAGES[key];
-  document.getElementById('cycleBadge').textContent = stage.label;
-  document.getElementById('cycleTip').textContent = typeof stage.tip === 'function' ? stage.tip() : stage.tip;
-}
-
 /* ============================================
    (4) جولة تعريفية قصيرة — تظهر مرة واحدة فقط لأي معلم جديد
    ============================================ */
 const ONBOARDING_KEY = 'shahid_onboarded_v1';
 
-/* دالة صرفة (لا DOM ولا localStorage) — تبني خطوات الجولة حسب مسار
-   الاستخدام الحالي، حتى لا نذكر بالجولة أزرارًا (خطتي/تقييمي الذاتي)
-   مخفيّة فعليًا عن معلم اختار المسار السريع. */
-function getOnboardingSteps(mode){
-  const intro = { title: 'مرحبًا بك في شاهد 👋', body: 'أداة بسيطة تساعدك على توثيق شواهد أدائك الوظيفي، على مدار العام.' };
-  const shahidStep = { title: 'شواهدي', body: 'وثّق أعمالك اليومية بالصور والوصف من "شواهدي". فيه نماذج جاهزة توفّر عليك وقت الكتابة.' };
-  if(mode === 'quick'){
-    return [
-      intro,
-      shahidStep,
-      { title: 'وضعك الحالي: المسار السريع', body: 'رئيسية مبسّطة تركّز على توثيق الشواهد فقط. تقدر تبدّل للمسار الشامل (يضيف الخطة والتقييم الذاتي والمهام) بأي وقت من الزر أسفل الرئيسية.' }
-    ];
-  }
+/* دالة صرفة (لا DOM ولا localStorage). أسماء الخطوات يجب أن تطابق أسماء
+   التنقّل الفعلية بالتطبيق ("أدائي"/"الشواهد"/"التقييم الذاتي") — الجولة
+   أول ما يراه المعلم الجديد، فذكر اسم لا يجده بأي زر يربكه من البداية. */
+function getOnboardingSteps(){
   return [
-    intro,
-    { title: '١. خطتي', body: 'ابدأ من "خطتي" — حدّد لكل عنصر أداء المستوى الذي تستهدفه وعدد الشواهد التي تنوي توثيقها. اختياري، لكنه يوجّه توثيقك.' },
-    { title: '٢. ' + shahidStep.title, body: shahidStep.body },
-    { title: '٣. تقييمي الذاتي', body: 'في نهاية الدورة، قيّم نفسك من "تقييمي الذاتي" واستعد لجلسة التقييم مع مديرك — وصدّر كل شيء كملف PDF جاهز.' }
+    { title: 'مرحبًا بك في شاهد 👋', body: 'أداة بسيطة تساعدك على توثيق شواهد أدائك الوظيفي، على مدار العام.' },
+    { title: '١. أدائي', body: 'ابدأ من بطاقة "أدائي" بالرئيسية — حدّد لكل عنصر أداء المستوى الذي تستهدفه وعدد الشواهد التي تنوي توثيقها. اختياري، لكنه يوجّه توثيقك.' },
+    { title: '٢. الشواهد', body: 'وثّق أعمالك اليومية بالصور والوصف من زر "+ شاهد جديد" بالرئيسية، وتجدها كلها في تبويب "الشواهد". فيه نماذج جاهزة توفّر عليك وقت الكتابة.' },
+    { title: '٣. التقييم الذاتي', body: 'في نهاية الدورة، قيّم نفسك من "أدائي ← التقييم الذاتي" واستعد لجلسة التقييم مع مديرك — وصدّر كل شيء كملف PDF جاهز.' }
   ];
 }
 
@@ -712,7 +667,7 @@ function maybeShowOnboardingTour(){
     if(localStorage.getItem(ONBOARDING_KEY)) return;
   } catch(e){ return; }
   _onboardStep = 0;
-  _onboardSteps = getOnboardingSteps(uiMode);
+  _onboardSteps = getOnboardingSteps();
   showOnboardingStep();
 }
 
@@ -752,60 +707,6 @@ function finishOnboarding(){
   try{ localStorage.setItem(ONBOARDING_KEY, '1'); } catch(e){}
   const cancelBtn = document.getElementById('confirmCancelBtn');
   if(cancelBtn) cancelBtn.click();
-}
-
-/* ============================================
-   (5) المسار السريع/الشامل — رئيسية مبسّطة اختيارية
-   ------------------------------------------------------------
-   uiMode: 'quick' (شواهدي + ملف الإنجاز فقط) | 'full' (كل الميزات،
-   السلوك الأصلي) | null (لم يختر بعد — يُعامَل كـ'full' بالعرض، مع بانر
-   تعريفي بالمسار السريع). التبديل بين الوضعين لا يحذف ولا يخفي أي بيانات
-   فعلية بقاعدة البيانات — فقط أي أزرار تظهر بالرئيسية، فلا حاجة لتأكيد.
-   إدارة الصف/المتابعة الأكاديمية/لوحة المسؤول محكومة حصرًا بشروطها
-   الحالية (تكليفك الوظيفي/كونك مسؤولًا)، بصرف النظر تمامًا عن uiMode —
-   محوران مستقلّان يعملان بالتوازي، لا محور واحد يُلغي الآخر. */
-function applyUiModeVisibility(){
-  const isQuick = uiMode === 'quick';
-  ['planHomeBtn', 'workHomeBtn', 'cycleCard'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.style.display = isQuick ? 'none' : '';
-  });
-  const switchLink = document.getElementById('uiModeSwitchLink');
-  if(switchLink) switchLink.textContent = isQuick ? '🔄 التبديل للمسار الشامل' : '🔄 التبديل للمسار السريع';
-}
-
-/* لا يظهر البانر إلا بعد انتهاء الجولة التعريفية (لا نُزعج مستخدمًا جديدًا
-   بقرارين بأول ١٠ ثوانٍ)، ولمن لم يختر مسارًا صراحة بعد فقط. */
-function shouldShowUiModeBanner(mode, onboardingDone){
-  return mode === null && !!onboardingDone;
-}
-
-function maybeShowUiModeBanner(){
-  const banner = document.getElementById('uiModeBanner');
-  if(!banner) return;
-  let onboardingDone = false;
-  try{ onboardingDone = !!localStorage.getItem(ONBOARDING_KEY); } catch(e){}
-  banner.style.display = shouldShowUiModeBanner(uiMode, onboardingDone) ? 'block' : 'none';
-}
-
-/* تحديث مباشر بـ.eq('id', uid) صريحًا (لا اعتماد على RLS وحدها) — نفس
-   نمط saveDutyType/saveCalendarRegion. */
-let _switchingUiMode = false; // يمنع نقرة مزدوجة سريعة (زرّا البانر أو رابط التبديل) من إرسال طلبين متزامنين
-async function switchUiMode(newMode){
-  if(_switchingUiMode) return;
-  _switchingUiMode = true;
-  try{
-    const uid = currentUser.id;
-    const { error } = await sb.from('profiles').update({ ui_mode: newMode }).eq('id', uid);
-    if(error){ showToast('تعذّر تغيير المسار: ' + error.message, 'error'); return; }
-    if(!currentUser || currentUser.id !== uid) return; // تغيّر المستخدم الحالي أثناء الانتظار
-    uiMode = newMode;
-    applyUiModeVisibility();
-    maybeShowUiModeBanner();
-    showToast(newMode === 'quick' ? 'تم التبديل للمسار السريع' : 'تم التبديل للمسار الشامل', 'ok');
-  } finally {
-    _switchingUiMode = false;
-  }
 }
 
 function showInfoModal(bodyHtml, maxWidth){

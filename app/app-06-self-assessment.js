@@ -1,4 +1,4 @@
-/* ============ (4) عدّاد دورة الأداء ============ */
+/* ============ (4) نهاية دورة الأداء (تقريبية — تُستخدم بتنبيهات الأداء) ============ */
 function getCycleEndDate(){
   const d = new Date();
   const y = d.getFullYear();
@@ -6,21 +6,6 @@ function getCycleEndDate(){
   /* نهاية الدورة تقريبًا نهاية يونيو من سنة انتهاء العام الدراسي */
   const endYear = (m >= 9) ? y + 1 : y;
   return new Date(endYear, 5, 30); // 30 يونيو
-}
-
-function renderCycleCountdown(){
-  const box = document.getElementById('cycleCountdown');
-  if(!box) return;
-  const end = getCycleEndDate();
-  const now = new Date();
-  const days = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
-
-  if(days < 0){
-    box.innerHTML = 'انتهت دورة الأداء الحالية — استعد لدورة العام القادم.';
-    return;
-  }
-  const color = days <= 30 ? '#8A2C2C' : (days <= 90 ? '#6B5420' : 'var(--navy)');
-  box.innerHTML = `<span style="color:${color};">متبقٍ <b>${days}</b> يومًا على انتهاء دورة الأداء (${end.toLocaleDateString('ar-SA')})</span>`;
 }
 
 /* ============ (2) تنبيه التغطية الناقصة ============ */
