@@ -92,7 +92,7 @@ function showCrmOverlayPane(name){
     const el = document.getElementById(panes[k]);
     if(el) el.style.display = k === name ? 'block' : 'none';
   });
-  document.getElementById('crmTabsBar').style.display = name ? 'none' : 'flex';
+  document.getElementById('crmTabsBar').style.display = name ? 'none' : '';
   if(name){
     ['crmTabToday', 'crmTabRecord', 'crmTabStudents', 'crmLinkBanner'].forEach(id => {
       const el = document.getElementById(id);
