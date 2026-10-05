@@ -59,7 +59,20 @@ function buildStudentStatusLines(data, todayIso){
     behaviorLine = 'لا مواقف رسمية';
   }
   behaviorLine += ` · ⭐ ${positives.length}`;
-  return { attendanceLine, behaviorLine };
+
+  const fus = data.followups || [];
+  const open = fus.filter(f => f.status === 'open').sort((a, b) => a.review_date.localeCompare(b.review_date));
+  const closed = fus.filter(f => f.status === 'closed').sort((a, b) => String(b.closed_at).localeCompare(String(a.closed_at)));
+  const outcomeLabels = { improved: 'تحسّن', partial: 'تحسّن جزئي', not_improved: 'لم يتحسّن' };
+  let followupLine;
+  if(open.length){
+    followupLine = `مفتوحة: ${open[0].reason_text} — المراجعة ${open[0].review_date}${open.length > 1 ? ` (+${open.length - 1})` : ''}`;
+  } else if(closed.length){
+    followupLine = `آخر متابعة: ${closed[0].reason_text} — ${outcomeLabels[closed[0].outcome] || ''}`;
+  } else {
+    followupLine = 'لا متابعات';
+  }
+  return { attendanceLine, behaviorLine, followupLine };
 }
 
 /* خط زمني واحد للمواقف الرسمية والإيجابية، الأحدث أولًا */
@@ -127,12 +140,13 @@ async function loadCrmStudentProfileData(student){
       .eq('teacher_id', uid).eq('student_id', student.id),
     sb.from('classroom_positive_notes').select('id, note_date, note_text').eq('teacher_id', uid).eq('student_id', student.id),
     sb.from('classroom_private_notes').select('id, body, created_at, updated_at').eq('teacher_id', uid).eq('student_id', student.id).order('created_at', { ascending: false }),
+    sb.from('classroom_followups').select('id, reason_type, reason_text, review_date, status, outcome, next_step, closed_at, created_at').eq('teacher_id', uid).eq('student_id', student.id),
     student.section_id
       ? sb.from('classroom_lessons').select('id', { count: 'exact', head: true }).eq('teacher_id', uid).eq('section_id', student.section_id)
       : Promise.resolve({ count: 0, error: null })
   ];
-  const [attRes, incRes, posRes, privRes, lessonsRes] = await Promise.all(queries);
-  const failed = [attRes, incRes, posRes, privRes, lessonsRes].find(r => r && r.error);
+  const [attRes, incRes, posRes, privRes, fuRes, lessonsRes] = await Promise.all(queries);
+  const failed = [attRes, incRes, posRes, privRes, fuRes, lessonsRes].find(r => r && r.error);
   if(failed) throw failed.error;
 
   const attendance = attRes.data || [];
@@ -152,7 +166,8 @@ async function loadCrmStudentProfileData(student){
     recordedLessons: lessonsRes.count || 0,
     incidents,
     positives: posRes.data || [],
-    privateNotes: privRes.data || []
+    privateNotes: privRes.data || [],
+    followups: fuRes.data || []
   };
 }
 
@@ -205,6 +220,13 @@ async function renderCrmStudentProfile(){
       <span class="crm-tl-meta">${i.incident_date} · ${stageLabel[i.current_stage] || ''}${letter}</span></div>`;
   }).join('') || '<div class="crm-today-empty">لا مواقف مسجّلة.</div>';
 
+  const outcomeLabels = { improved: 'تحسّن', partial: 'تحسّن جزئي', not_improved: 'لم يتحسّن' };
+  const followupsHtml = data.followups.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(f => `
+    <div class="crm-tl-row"><span>${escapeHtml(f.reason_text)}</span>
+      <span class="crm-tl-meta">${f.status === 'open'
+        ? `مفتوحة · المراجعة ${f.review_date} <button class="btn btn-outline crm-mini-btn" style="min-height:28px;padding:2px 8px;" onclick="openCrmReviewModal('${f.id}')">مراجعة</button>`
+        : (outcomeLabels[f.outcome] || '')}</span></div>`).join('') || '<div class="crm-today-empty">لا متابعات لهذا الطالب.</div>';
+
   const privateRows = data.privateNotes.map(n => `<div class="crm-private-note">
       <div style="white-space:pre-wrap;">${escapeHtml(n.body)}</div>
       <div class="crm-tl-meta" style="margin-top:4px;">${localIsoDate(new Date(n.updated_at || n.created_at))}
@@ -218,15 +240,18 @@ async function renderCrmStudentProfile(){
     <div class="crm-today-card">
       <div class="crm-status-line"><span class="crm-status-key">الحضور</span><span>${lines.attendanceLine}</span></div>
       <div class="crm-status-line"><span class="crm-status-key">المواقف</span><span>${escapeHtml(lines.behaviorLine)}</span></div>
+      <div class="crm-status-line"><span class="crm-status-key">المتابعة</span><span>${escapeHtml(lines.followupLine)}</span></div>
     </div>
 
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmIncidentModal('${student.id}')">موقف رسمي</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmPositiveModal('${student.id}')">⭐ ملاحظة إيجابية</button>
+      <button class="btn btn-outline crm-mini-btn" onclick="openCrmFollowupModal('${student.id}')">فتح متابعة</button>
     </div>
 
     ${crmProfileSection('crmProfAtt', 'الحضور (الاستثناءات فقط)', attendanceRows)}
     ${crmProfileSection('crmProfBeh', 'المواقف', timeline)}
+    ${crmProfileSection('crmProfFu', 'المتابعات', followupsHtml)}
     ${crmProfileSection('crmProfPriv', 'ملاحظاتي', `
       <p style="font-size:11px;color:var(--muted);margin:0 0 8px;line-height:1.7;">رأيك أنت لا واقعة — لا يراها غيرك (ولا المسؤول)، ولا تدخل في أي حساب أو تقرير.</p>
       <textarea class="goal-input" id="crmPrivateNoteInput" maxlength="2000" rows="2" placeholder="اكتب ملاحظة خاصة..." style="margin-bottom:6px;"></textarea>

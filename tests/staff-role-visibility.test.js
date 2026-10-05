@@ -19,7 +19,8 @@ function installLiveDom(app){
   app.document.getElementById = (id) => (registry[id] = registry[id] || makeLiveElement());
 }
 
-const IDS = ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'];
+/* لا تبويب سفلي للمتابعة الأكاديمية بعد الآن — تُفتح من إدارة الصف ← المتابعات */
+const IDS = ['classroomNavTab', 'classroomHomeBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'];
 
 describe('applyStaffRoleVisibility', () => {
   ['vice_principal', 'school_principal', 'student_counselor', 'lab_technician'].forEach(role => {

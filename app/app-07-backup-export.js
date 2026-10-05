@@ -1208,6 +1208,62 @@ alter table public.classroom_private_notes enable row level security;
 drop policy if exists "المعلم وحده يرى ملاحظاته الخاصة" on public.classroom_private_notes;
 create policy "المعلم وحده يرى ملاحظاته الخاصة" on public.classroom_private_notes for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
+-- المتابعة الموحّدة: سبب ← خط أساس مجمّد ← إجراءات ← مراجعة ← نتيجة إلزامية عند الإغلاق
+create table if not exists public.classroom_followups (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  student_id uuid not null,
+  section_id uuid,
+  reason_type text not null check (reason_type in ('absence', 'lateness', 'exits', 'behavior', 'grades', 'other')),
+  reason_text text not null check (char_length(reason_text) between 1 and 500),
+  baseline jsonb,
+  review_date date not null,
+  status text not null default 'open' check (status in ('open', 'closed')),
+  outcome text check (outcome in ('improved', 'partial', 'not_improved')),
+  result jsonb,
+  next_step text check (next_step in ('new_followup', 'escalate', 'no_action')),
+  closed_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade,
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id),
+  check ((status = 'closed') = (outcome is not null))
+);
+create index if not exists classroom_followups_student_idx on public.classroom_followups(student_id);
+create index if not exists classroom_followups_open_idx on public.classroom_followups(teacher_id, status, review_date);
+
+create table if not exists public.classroom_followup_actions (
+  id uuid primary key default gen_random_uuid(),
+  followup_id uuid not null,
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  action_type text not null check (action_type in ('verbal_warning', 'individual_session', 'remedial_task', 'reteach', 'seat_change', 'counselor', 'referral', 'other')),
+  note text check (note is null or char_length(note) <= 500),
+  action_date date not null default current_date,
+  created_at timestamptz not null default now(),
+  foreign key (followup_id, teacher_id) references public.classroom_followups(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_followup_actions_fu_idx on public.classroom_followup_actions(followup_id);
+
+-- "تجاهل" بطاقة انتباه (تُخفى 14 يومًا) — البطاقات نفسها تُحسب لحظيًا ولا تُخزَّن
+create table if not exists public.classroom_attention_dismissals (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  rule_key text not null,
+  subject_key text not null,
+  dismissed_at timestamptz not null default now(),
+  unique (teacher_id, rule_key, subject_key)
+);
+
+alter table public.classroom_followups enable row level security;
+alter table public.classroom_followup_actions enable row level security;
+alter table public.classroom_attention_dismissals enable row level security;
+drop policy if exists "المعلم يدير متابعاته فقط" on public.classroom_followups;
+create policy "المعلم يدير متابعاته فقط" on public.classroom_followups for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير إجراءات متابعاته فقط" on public.classroom_followup_actions;
+create policy "المعلم يدير إجراءات متابعاته فقط" on public.classroom_followup_actions for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير تجاهلاته فقط" on public.classroom_attention_dismissals;
+create policy "المعلم يدير تجاهلاته فقط" on public.classroom_attention_dismissals for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
   next_number int not null default 1,
@@ -1492,7 +1548,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1591,6 +1647,9 @@ async function exportFullBackup(){
       '     23. classroom_attendance.csv (لازم بعد classroom_lessons وclassroom_students)',
       '     24. classroom_positive_notes.csv (لازم بعد classroom_students وclassroom_sections)',
       '     25. classroom_private_notes.csv (لازم بعد classroom_students)',
+      '     26. classroom_followups.csv (لازم بعد classroom_students وclassroom_sections)',
+      '     27. classroom_followup_actions.csv (لازم بعد classroom_followups)',
+      '     28. classroom_attention_dismissals.csv',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

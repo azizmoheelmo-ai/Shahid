@@ -248,11 +248,6 @@
       <span style="font-size:10px;">إدارة الصف</span>
       <span id="classroomNavBadge" style="display:none;position:absolute;top:2px;left:14px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
     </button>
-    <button class="bottom-tab-btn" id="academicNavTab" data-tab="academic" onclick="showAcademicTracking()" style="position:relative;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;">
-      <span style="font-size:19px;">🎓</span>
-      <span style="font-size:10px;">المتابعة الأكاديمية</span>
-      <span id="academicNavBadge" style="display:none;position:absolute;top:2px;left:10px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
-    </button>
   </div>
 
   <!-- ---------- الصفحة الرئيسية ---------- -->
@@ -294,24 +289,8 @@
 
       <div class="section">
         <p style="margin:0;font-size:12.5px;line-height:1.85;color:#413D33;">
-          نظرة سريعة على كل ما يحتاج انتباهك الآن، مرتبة حسب الأولوية — إدارية، أداء وظيفي، وبيانات تقنية.
+          نظرة سريعة على ما يحتاج انتباهك في أدائك الوظيفي وبياناتك. تنبيهات الطلاب (الخطابات، الغياب، المتابعات) في إدارة الصف ← المتابعات.
         </p>
-      </div>
-
-      <div id="riskAdminSection" class="section">
-        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCrmGroup('riskAdminBody')">
-          <h2 style="margin:0;">🔴 تنبيهات إدارية (إدارة الصف)</h2>
-          <span id="riskAdminBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
-        </div>
-        <div id="riskAdminBody" style="display:none;margin-top:10px;"><div class="loading-state">جارٍ الفحص...</div></div>
-      </div>
-
-      <div id="riskAcademicSection" class="section">
-        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCrmGroup('riskAcademicBody')">
-          <h2 style="margin:0;">🟣 تنبيهات المتابعة الأكاديمية</h2>
-          <span id="riskAcademicBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
-        </div>
-        <div id="riskAcademicBody" style="display:none;margin-top:10px;"><div class="loading-state">جارٍ الفحص...</div></div>
       </div>
 
       <div id="riskPerfSection" class="section">
@@ -657,14 +636,20 @@
 
       <!-- تبويبان فرعيان -->
       <div id="crmTabsBar" style="display:flex;gap:8px;padding:0 32px;margin-bottom:14px;">
-        <button class="btn btn-primary" id="crmTabBtnToday" style="flex:1;" onclick="switchCrmTab('today')">اليوم</button>
-        <button class="btn btn-outline" id="crmTabBtnRecord" style="flex:1;" onclick="switchCrmTab('record')">تسجيل مخالفة</button>
-        <button class="btn btn-outline" id="crmTabBtnStudents" style="flex:1;" onclick="switchCrmTab('students')">الطلاب</button>
+        <button class="btn btn-primary crm-tab-btn" id="crmTabBtnToday" onclick="switchCrmTab('today')">اليوم</button>
+        <button class="btn btn-outline crm-tab-btn" id="crmTabBtnFollowups" onclick="switchCrmTab('followups')">المتابعات</button>
+        <button class="btn btn-outline crm-tab-btn" id="crmTabBtnRecord" onclick="switchCrmTab('record')">المخالفات</button>
+        <button class="btn btn-outline crm-tab-btn" id="crmTabBtnStudents" onclick="switchCrmTab('students')">الطلاب</button>
       </div>
 
       <!-- ============ تبويب: اليوم ============ -->
       <div id="crmTabToday" style="display:none;">
         <div class="section" id="crmTodayBody"></div>
+      </div>
+
+      <!-- ============ تبويب: المتابعات (يحتاج انتباهي + المتابعات) ============ -->
+      <div id="crmTabFollowups" style="display:none;">
+        <div class="section" id="crmFollowupsBody"></div>
       </div>
 
       <!-- ============ ورقة رصد الحصة (تحل محل التبويبات أثناء الرصد) ============ -->
@@ -1437,6 +1422,7 @@
 <script src="app/app-13-tasks.js"></script>
 <script src="app/app-14-classroom-today.js"></script>
 <script src="app/app-15-student-profile.js"></script>
+<script src="app/app-16-attention-followups.js"></script>
 
 </body>
 </html>
