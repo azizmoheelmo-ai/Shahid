@@ -1176,6 +1176,38 @@ $body$;
 revoke execute on function public.save_lesson_attendance(uuid, date, smallint, jsonb) from public, anon;
 grant execute on function public.save_lesson_attendance(uuid, date, smallint, jsonb) to authenticated;
 
+-- ⭐ ملاحظة إيجابية (نص اختياري، بلا تصنيفات)
+create table if not exists public.classroom_positive_notes (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  student_id uuid not null,
+  section_id uuid,
+  note_date date not null default current_date,
+  note_text text check (note_text is null or char_length(note_text) <= 300),
+  created_at timestamptz not null default now(),
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade,
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id)
+);
+create index if not exists classroom_positive_notes_student_idx on public.classroom_positive_notes(student_id);
+alter table public.classroom_positive_notes enable row level security;
+drop policy if exists "المعلم يدير ملاحظاته الإيجابية فقط" on public.classroom_positive_notes;
+create policy "المعلم يدير ملاحظاته الإيجابية فقط" on public.classroom_positive_notes for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- ملاحظة المعلم الخاصة: لا يراها المسؤول (لا سياسة له إطلاقًا) ولا موصل الذكاء الاصطناعي
+create table if not exists public.classroom_private_notes (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  student_id uuid not null,
+  body text not null check (char_length(body) between 1 and 2000),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_private_notes_student_idx on public.classroom_private_notes(student_id);
+alter table public.classroom_private_notes enable row level security;
+drop policy if exists "المعلم وحده يرى ملاحظاته الخاصة" on public.classroom_private_notes;
+create policy "المعلم وحده يرى ملاحظاته الخاصة" on public.classroom_private_notes for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
   next_number int not null default 1,
@@ -1460,7 +1492,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1557,6 +1589,8 @@ async function exportFullBackup(){
       '     21. classroom_timetable_slots.csv (لازم بعد classroom_sections)',
       '     22. classroom_lessons.csv (لازم بعد classroom_sections)',
       '     23. classroom_attendance.csv (لازم بعد classroom_lessons وclassroom_students)',
+      '     24. classroom_positive_notes.csv (لازم بعد classroom_students وclassroom_sections)',
+      '     25. classroom_private_notes.csv (لازم بعد classroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

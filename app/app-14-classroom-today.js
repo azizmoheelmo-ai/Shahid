@@ -473,14 +473,7 @@ async function openCrmLessonSheet(sectionId, dateIso, period){
 }
 
 function showCrmLessonSheetPane(show){
-  document.getElementById('crmLessonSheet').style.display = show ? 'block' : 'none';
-  document.getElementById('crmTabsBar').style.display = show ? 'none' : 'flex';
-  ['crmTabToday', 'crmTabRecord', 'crmTabStudents'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el && show) el.style.display = 'none';
-  });
-  const banner = document.getElementById('crmLinkBanner');
-  if(banner && show) banner.style.display = 'none';
+  showCrmOverlayPane(show ? 'sheet' : null);
 }
 
 function renderCrmLessonSheet(students, draftRestored){
@@ -506,10 +499,13 @@ function renderCrmLessonSheet(students, draftRestored){
     <div class="crm-sheet-head">${header}</div>
     ${notes.map(n => `<div class="crm-sheet-note">${n}</div>`).join('')}
     <div id="crmSheetCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">الكل حاضر افتراضيًا — اضغط على الطالب لتبديل حالته: غائب ← متأخر ← مستأذن ← حاضر.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">الكل حاضر افتراضيًا — اضغط على الطالب لتبديل حالته: غائب ← متأخر ← مستأذن ← حاضر. و⋯ لموقف رسمي أو ⭐ أو ملف الطالب.</p>
     <div class="crm-att-grid">
-      ${students.map(st => `<button type="button" class="crm-att-btn" id="crmAtt_${st.id}" onclick="cycleCrmAttendance('${st.id}')">
-        <span class="crm-att-name">${escapeHtml(st.full_name)}</span><span class="crm-att-state"></span></button>`).join('')}
+      ${students.map(st => `<div class="crm-att-cell">
+        <button type="button" class="crm-att-btn" id="crmAtt_${st.id}" onclick="cycleCrmAttendance('${st.id}')">
+          <span class="crm-att-name">${escapeHtml(st.full_name)}</span><span class="crm-att-state"></span></button>
+        <button type="button" class="crm-att-more" aria-label="خيارات ${escapeHtml(st.full_name)}" onclick="openCrmStudentActions('${st.id}')">⋯</button>
+      </div>`).join('')}
     </div>
     <div class="crm-sheet-bar">
       <button class="btn btn-primary" id="crmSheetSaveBtn" style="flex:1;" onclick="saveCrmLessonSheet()">${s.lessonId ? 'حفظ التعديل' : 'حفظ الرصد'}</button>

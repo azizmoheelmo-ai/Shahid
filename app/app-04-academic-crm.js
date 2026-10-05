@@ -937,6 +937,13 @@ function switchCrmTab(tab){
   if(sheet && sheet.style.display !== 'none' && typeof closeCrmLessonSheet === 'function' && tab !== 'today'){
     closeCrmLessonSheet();
   }
+  /* وملف طالب مفتوح يُغلق أيضًا — لا تبقى لوحتان ظاهرتين معًا */
+  const profile = document.getElementById('crmStudentProfile');
+  if(profile && profile.style.display !== 'none' && typeof resetCrmStudentProfile === 'function'){
+    resetCrmStudentProfile();
+  }
+  if(typeof showCrmOverlayPane === 'function') showCrmOverlayPane(null);
+  if(typeof renderCrmLinkBanner === 'function') renderCrmLinkBanner();
   Object.keys(tabs).forEach(k => {
     const [btnId, paneId] = tabs[k];
     document.getElementById(btnId).className = 'btn ' + (k === tab ? 'btn-primary' : 'btn-outline');
@@ -963,6 +970,7 @@ async function showClassroomManagement(){
   document.getElementById('crmYearInput').value = localStorage.getItem('crm_year_part') || '1448-1449';
   pruneLessonDrafts();
   resetCrmLessonSheet();
+  resetCrmStudentProfile();
   showCrmLessonSheetPane(false);
   collapseAllCrmSections();
 
@@ -1078,11 +1086,10 @@ function renderCrmStudentsList(){
       groups[g][sec].forEach(s => {
         html += `
           <div style="border-bottom:1px solid var(--line);">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 4px;cursor:pointer;" onclick="toggleCrmStudentHistory('${s.id}')">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 4px;cursor:pointer;" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">
               <span style="font-size:12.5px;">${escapeHtml(s.full_name)}${s.student_number ? ' <span style="color:var(--muted);font-size:11px;">#' + escapeHtml(s.student_number) + '</span>' : ''}</span>
               <button style="border:none;background:none;color:var(--muted);font-size:13px;padding:0;" onclick="event.stopPropagation();deleteCrmStudent('${s.id}')" title="حذف الطالب">🗑</button>
             </div>
-            <div id="crmStudentHist_${s.id}" style="display:none;padding:6px 10px 10px;background:#FAF9F6;font-size:11.5px;"></div>
           </div>`;
       });
       html += `</div>`;
@@ -1091,37 +1098,6 @@ function renderCrmStudentsList(){
     html += `</div></div>`;
   });
   box.innerHTML = html;
-}
-
-async function toggleCrmStudentHistory(studentId){
-  const panel = document.getElementById('crmStudentHist_' + studentId);
-  if(!panel) return;
-  const isOpen = panel.style.display !== 'none';
-  if(isOpen){ panel.style.display = 'none'; return; }
-  panel.style.display = 'block';
-  panel.innerHTML = '<div style="color:var(--muted);">جارٍ التحميل...</div>';
-
-  const { data, error } = await sb.from('classroom_incidents')
-    .select('id, incident_date, occurrence_number, current_stage, incident_type_id, referral_letter_generated, referral_receipt_photo_url')
-    .eq('student_id', studentId)
-    .order('incident_date', { ascending: false });
-
-  if(error){ panel.innerHTML = '<div style="color:#8A2C2C;">تعذّر التحميل</div>'; return; }
-  if(!data || !data.length){ panel.innerHTML = '<div style="color:var(--muted);">لا توجد مخالفات مسجّلة لهذا الطالب.</div>'; return; }
-
-  const stageLabel = { warning_1: 'تنبيه أول', warning_2: 'تنبيه ثانٍ', referred: 'محال' };
-  panel.innerHTML = data.map(inc => {
-    const type = crmIncidentTypes.find(t => t.id === inc.incident_type_id);
-    const needsConfirm = inc.current_stage === 'referred' && !inc.referral_letter_generated;
-    const confirmed = inc.current_stage === 'referred' && inc.referral_letter_generated;
-    let statusExtra = '';
-    if(needsConfirm) statusExtra = ' ⚠';
-    else if(confirmed) statusExtra = inc.referral_receipt_photo_url ? ' ✅📷' : ' ✅⚠غير موثّق';
-    return `<div style="padding:5px 0;border-bottom:1px dashed var(--line);">
-      <div>${type ? escapeHtml(type.problem_name) : '—'}</div>
-      <div style="color:var(--muted);">${inc.incident_date} • المرة ${inc.occurrence_number} • ${stageLabel[inc.current_stage] || inc.current_stage}${statusExtra}</div>
-    </div>`;
-  }).join('');
 }
 
 /* ============ ربط الطالب بشعبته بالمعرّف (section_id) ============ */
@@ -1548,21 +1524,27 @@ async function deleteCrmStudent(id){
      المرتبطة، وليس فقط "فك الربط بالاسم". نلتقط الكل هنا قبل الحذف حتى
      يكون التراجع كاملاً وليس جزئيًا. */
   const student = crmStudents.find(s => String(s.id) === String(id));
-  const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية وسجل حضوره. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
+  const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية وسجل حضوره وملاحظاته. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
   if(!ok) return;
 
   let relatedIncidents = [];
   let relatedCases = [];
   let relatedAttendance = [];
+  let relatedPositives = [];
+  let relatedPrivate = [];
   try{
-    const [incRes, caseRes, attRes] = await Promise.all([
+    const [incRes, caseRes, attRes, posRes, privRes] = await Promise.all([
       sb.from('classroom_incidents').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('academic_cases').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
+      sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('classroom_positive_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('classroom_private_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
     ]);
     relatedIncidents = incRes.data || [];
     relatedCases = caseRes.data || [];
     relatedAttendance = attRes.data || [];
+    relatedPositives = posRes.data || [];
+    relatedPrivate = privRes.data || [];
   } catch(e){ /* لو تعذّر الالتقاط، يبقى التراجع ممكنًا لبيانات الطالب نفسه فقط */ }
 
   const { error } = await sb.from('classroom_students').delete().eq('id', id);
@@ -1571,7 +1553,7 @@ async function deleteCrmStudent(id){
   renderCrmStudentsList();
 
   if(!student) return; /* لم نلتقط نسخة محلية من الطالب — لا نعرض تراجعًا وهميًا */
-  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length) ? ' وسجلاته المرتبطة' : '';
+  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length || relatedPositives.length || relatedPrivate.length) ? ' وسجلاته المرتبطة' : '';
   const shouldFinalize = await showUndoToast('تم حذف الطالب' + extraNote, 5);
   if(!shouldFinalize){
     try{
@@ -1589,6 +1571,14 @@ async function deleteCrmStudent(id){
       if(relatedAttendance.length){
         const { error: aErr } = await sb.from('classroom_attendance').insert(relatedAttendance);
         if(aErr) throw aErr;
+      }
+      if(relatedPositives.length){
+        const { error: pErr } = await sb.from('classroom_positive_notes').insert(relatedPositives);
+        if(pErr) throw pErr;
+      }
+      if(relatedPrivate.length){
+        const { error: nErr } = await sb.from('classroom_private_notes').insert(relatedPrivate);
+        if(nErr) throw nErr;
       }
       await loadCrmStudents();
       renderCrmStudentsList();
@@ -1733,6 +1723,59 @@ function renderCrmIncidentTypeSelect(){
   sel.innerHTML = html;
 }
 
+/* دالة صرفة: مرحلة المخالفة والإجراء من نوعها ورقم تكرارها بالفصل —
+   اللائحة هي المرجع (الدرجة والتسلسل من نوع المخالفة)، لا رأي المعلم */
+function incidentStageFor(type, occurrence){
+  if(!type) return { stage: 'warning_1', actionText: '' };
+  if(type.action_sequence === 'immediate_referral'){
+    return { stage: 'referred', actionText: 'تحويل فوري لوكيل شؤون الطلاب (من أول حادثة حسب ' + type.regulation_article + ')' };
+  }
+  if(occurrence === 1) return { stage: 'warning_1', actionText: type.stage_1_label };
+  if(occurrence === 2) return { stage: 'warning_2', actionText: type.stage_2_label };
+  return { stage: 'referred', actionText: 'تحويل لوكيل شؤون الطلاب — هذه المرة رقم ' + occurrence + ' لنفس المخالفة' };
+}
+
+/* رقم تكرار نفس المخالفة لنفس الطالب بهذا الفصل (التالية) */
+async function computeIncidentOccurrence(studentId, typeId, semester){
+  const { data, error } = await sb.from('classroom_incidents')
+    .select('id')
+    .eq('teacher_id', currentUser.id)
+    .eq('student_id', studentId)
+    .eq('incident_type_id', typeId)
+    .eq('semester_label', semester);
+  if(error) throw error;
+  return (data ? data.length : 0) + 1;
+}
+
+/* تسجيل مخالفة رسمية — مسار واحد لكل الشاشات (تبويب "تسجيل مخالفة" وورقة
+   الحصة وملف الطالب). رقم التكرار يُعاد حسابه لحظة الحفظ لا وقت المعاينة:
+   لو سُجّلت مخالفة أخرى بينهما (تبويب/جهاز آخر) لا نحفظ مرحلة قديمة. */
+async function insertClassroomIncident({ studentId, typeId, notes, incidentDate }){
+  const semester = getCrmSemesterLabel();
+  const occurrence = await computeIncidentOccurrence(studentId, typeId, semester);
+  const type = crmIncidentTypes.find(t => t.id === typeId);
+  const { stage } = incidentStageFor(type, occurrence);
+  /* الشعبة وقت الحدث (لا شعبة الطالب الحالية لاحقًا): لو نُقل الطالب بعد
+     ذلك، تبقى المخالفة منسوبة للشعبة التي وقعت فيها فعلًا */
+  const student = crmStudents.find(s => s.id === studentId);
+  const row = {
+    teacher_id: currentUser.id,
+    student_id: studentId,
+    section_id: (student && student.section_id) || null,
+    incident_type_id: typeId,
+    semester_label: semester,
+    occurrence_number: occurrence,
+    current_stage: stage,
+    notes: notes || null,
+    referral_letter_generated: false
+  };
+  if(incidentDate) row.incident_date = incidentDate;
+  const { error } = await sb.from('classroom_incidents').insert(row);
+  if(error) throw error;
+  crmIncidentTypeUsage = null; /* "الأكثر استخدامًا" تُعاد قراءتها */
+  return { stage, occurrence };
+}
+
 async function refreshOccurrencePreview(){
   const studentId = document.getElementById('crmIncidentStudentId').value;
   const typeId = document.getElementById('crmIncidentType').value;
@@ -1740,26 +1783,11 @@ async function refreshOccurrencePreview(){
   if(!studentId || !typeId){ box.style.display = 'none'; return; }
   const semester = getCrmSemesterLabel();
 
-  const { data, error } = await sb.from('classroom_incidents')
-    .select('id')
-    .eq('student_id', studentId)
-    .eq('incident_type_id', typeId)
-    .eq('semester_label', semester);
-  if(error){ showToast('خطأ في الحساب: ' + error.message, 'error'); return; }
-
-  const occurrence = (data ? data.length : 0) + 1;
+  let occurrence;
+  try{ occurrence = await computeIncidentOccurrence(studentId, typeId, semester); }
+  catch(error){ showToast('خطأ في الحساب: ' + error.message, 'error'); return; }
   const type = crmIncidentTypes.find(t => t.id === typeId);
-  let stage, actionText;
-  if(type.action_sequence === 'immediate_referral'){
-    stage = 'referred';
-    actionText = 'تحويل فوري لوكيل شؤون الطلاب (من أول حادثة حسب ' + type.regulation_article + ')';
-  } else if(occurrence === 1){
-    stage = 'warning_1'; actionText = type.stage_1_label;
-  } else if(occurrence === 2){
-    stage = 'warning_2'; actionText = type.stage_2_label;
-  } else {
-    stage = 'referred'; actionText = 'تحويل لوكيل شؤون الطلاب — هذه المرة رقم ' + occurrence + ' لنفس المخالفة';
-  }
+  const { stage, actionText } = incidentStageFor(type, occurrence);
 
   box.style.display = 'block';
   box.dataset.occurrence = occurrence;
@@ -1773,33 +1801,27 @@ async function refreshOccurrencePreview(){
   `;
 }
 
+let crmIncidentSaving = false;
+
 async function saveClassroomIncident(){
   const studentId = document.getElementById('crmIncidentStudentId').value;
   const typeId = document.getElementById('crmIncidentType').value;
-  const semester = getCrmSemesterLabel();
   const notes = document.getElementById('crmIncidentNotes').value.trim();
   const box = document.getElementById('crmOccurrencePreview');
   if(!studentId || !typeId){ showToast('أكمل اختيار الطالب ونوع المخالفة', 'error'); return; }
-  if(box.style.display === 'none'){ await refreshOccurrencePreview(); }
-  const occurrence = parseInt(box.dataset.occurrence, 10);
-  const stage = box.dataset.stage;
-
-  /* الشعبة وقت الحدث (لا شعبة الطالب الحالية لاحقًا): لو نُقل الطالب بعد
-     ذلك، تبقى المخالفة منسوبة للشعبة التي وقعت فيها فعلًا */
-  const incidentStudent = crmStudents.find(s => s.id === studentId);
-  const { error } = await sb.from('classroom_incidents').insert({
-    teacher_id: currentUser.id,
-    student_id: studentId,
-    section_id: (incidentStudent && incidentStudent.section_id) || null,
-    incident_type_id: typeId,
-    semester_label: semester,
-    occurrence_number: occurrence,
-    current_stage: stage,
-    notes: notes || null,
-    referral_letter_generated: false
-  });
-  if(error){ showToast('تعذّر الحفظ: ' + error.message, 'error'); return; }
-  showToast(stage === 'referred' ? 'تم الحفظ — الحالة تتطلب تحويل' : 'تم حفظ التنبيه', 'ok');
+  /* نقرة مزدوجة كانت تُسجّل نفس المخالفة مرتين (وترفع رقم التكرار خطأً) */
+  if(crmIncidentSaving) return;
+  crmIncidentSaving = true;
+  let result;
+  try{
+    result = await insertClassroomIncident({ studentId, typeId, notes });
+  } catch(error){
+    showToast('تعذّر الحفظ: ' + error.message, 'error');
+    return;
+  } finally {
+    crmIncidentSaving = false;
+  }
+  showToast(result.stage === 'referred' ? 'تم الحفظ — الحالة تتطلب تحويل' : 'تم حفظ التنبيه', 'ok');
   document.getElementById('crmIncidentNotes').value = '';
   box.style.display = 'none';
   document.getElementById('crmIncidentStudentId').value = '';
