@@ -953,6 +953,8 @@ drop policy if exists "المعلم يدير مراحله فقط - إضافة" o
 create policy "المعلم يدير مراحله فقط - إضافة" on public.classroom_grade_levels for insert with check (auth.uid() = teacher_id);
 drop policy if exists "المعلم يدير مراحله فقط - حذف" on public.classroom_grade_levels;
 create policy "المعلم يدير مراحله فقط - حذف" on public.classroom_grade_levels for delete using (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير مراحله فقط - تعديل" on public.classroom_grade_levels;
+create policy "المعلم يدير مراحله فقط - تعديل" on public.classroom_grade_levels for update using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
 create table if not exists public.classroom_sections (
   id uuid primary key default gen_random_uuid(),
@@ -969,6 +971,28 @@ drop policy if exists "المعلم يدير شعبه فقط - إضافة" on pu
 create policy "المعلم يدير شعبه فقط - إضافة" on public.classroom_sections for insert with check (auth.uid() = teacher_id);
 drop policy if exists "المعلم يدير شعبه فقط - حذف" on public.classroom_sections;
 create policy "المعلم يدير شعبه فقط - حذف" on public.classroom_sections for delete using (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير شعبه فقط - تعديل" on public.classroom_sections;
+create policy "المعلم يدير شعبه فقط - تعديل" on public.classroom_sections for update using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- ربط الطالب بشعبته بالمعرّف (section_id) — المرجع الفعلي للشعبة؛ نصّا
+-- grade_level/section_number يبقيان نسخة مكتوبة بالاسم الرسمي للكود القديم.
+-- المفتاح المركّب (section_id, teacher_id) يمنع ربط طالب بشعبة معلم آخر.
+-- يجب أن يأتي بعد إنشاء classroom_sections (مرجع FK) لا داخل تعريف
+-- classroom_students أعلاه. حذف الشعبة يفكّ الربط فقط (set null) ولا يحذف طلابها.
+-- (فحص وجود القيد بدل drop/add: القيد الفريد تعتمد عليه مفاتيح خارجية، فحذفه
+-- عند إعادة تشغيل الملف يفشل)
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_sections_id_teacher_key' and conrelid = 'public.classroom_sections'::regclass) then
+    alter table public.classroom_sections add constraint classroom_sections_id_teacher_key unique (id, teacher_id);
+  end if;
+end $$;
+alter table public.classroom_students add column if not exists section_id uuid;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_students_section_fk' and conrelid = 'public.classroom_students'::regclass) then
+    alter table public.classroom_students add constraint classroom_students_section_fk foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id);
+  end if;
+end $$;
+create index if not exists classroom_students_section_id_idx on public.classroom_students(section_id);
 
 -- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:
 -- عدّ الطلبة التلقائي وتحذير تعارض الجدولة بين برامج مختلفة بنفس الشعبة
@@ -1047,6 +1071,14 @@ drop policy if exists "المعلم يحذف حوادثه فقط" on public.clas
 create policy "المعلم يحذف حوادثه فقط" on public.classroom_incidents for delete using (auth.uid() = teacher_id);
 drop policy if exists "المسؤول يشوف كل الحوادث" on public.classroom_incidents;
 create policy "المسؤول يشوف كل الحوادث" on public.classroom_incidents for select using (public.is_admin(auth.uid()));
+-- الشعبة وقت وقوع المخالفة (لا شعبة الطالب الحالية لو نُقل لاحقًا)
+alter table public.classroom_incidents add column if not exists section_id uuid;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_incidents_section_fk' and conrelid = 'public.classroom_incidents'::regclass) then
+    alter table public.classroom_incidents add constraint classroom_incidents_section_fk foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id);
+  end if;
+end $$;
+create index if not exists classroom_incidents_section_id_idx on public.classroom_incidents(section_id);
 
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
@@ -1417,8 +1449,8 @@ async function exportFullBackup(){
       '     9. plan_header.csv',
       '     10. self_assessment.csv',
       '     11. classroom_incident_types.csv (أو أدخلها يدويًا — راجع الملاحظة أعلى 01-schema.sql)',
-      '     12. classroom_students.csv',
-      '     13. classroom_incidents.csv',
+      '     12. classroom_students.csv (لازم بعد classroom_sections — الطالب يُشير لشعبته)',
+      '     13. classroom_incidents.csv (لازم بعد classroom_students وclassroom_sections)',
       '     14. classroom_letter_counters.csv',
       '     15. academic_cases.csv',
       '     16. support_messages.csv',

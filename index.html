@@ -650,6 +650,11 @@
         </div>
       </div>
 
+      <!-- طلاب لم يُربطوا بشعبة بالمعرّف بعد (مرة واحدة لكل طالب) -->
+      <div id="crmLinkBanner" style="display:none;background:#EDF1F7;border:1px solid #B9C7DC;color:#2C4A72;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 12px;text-align:center;cursor:pointer;" onclick="openCrmLinkReview()">
+        🔗 طلاب بلا شعبة مربوطة: <span id="crmLinkCount">0</span> — اضغط لمراجعة الربط
+      </div>
+
       <!-- تبويبان فرعيان -->
       <div style="display:flex;gap:8px;padding:0 32px;margin-bottom:14px;">
         <button class="btn btn-outline" id="crmTabBtnStudents" style="flex:1;" onclick="switchCrmTab('students')">الطلاب</button>
@@ -705,6 +710,8 @@
       <!-- ============ تبويب: الطلاب ============ -->
       <div id="crmTabStudents" style="display:none;">
 
+        <div class="section" id="crmLinkReviewBox" style="display:none;"></div>
+
         <!-- ============ 1) المراحل الدراسية ============ -->
         <div class="section">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
@@ -723,36 +730,33 @@
             <h2 style="margin:0;">3. الطلاب</h2>
             <div style="display:flex;gap:6px;">
               <button class="btn btn-outline" onclick="toggleAddStudentForm()">+ إضافة طالب</button>
-              <span style="position:relative;display:inline-flex;">
-                <button class="btn btn-outline" onclick="document.getElementById('crmExcelInput').click()">استيراد Excel</button>
-                <span onclick="toggleCrmExcelHelp()" style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--navy);color:#fff;font-size:11px;font-weight:800;cursor:pointer;margin-right:6px;align-self:center;">؟</span>
-              </span>
+              <button class="btn btn-outline" onclick="toggleCrmImportBox()">استيراد Excel</button>
               <input type="file" id="crmExcelInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importStudentsExcel(event)">
             </div>
           </div>
 
-          <div id="crmExcelHelpBox" style="display:none;background:#F7F5F0;border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;font-size:11.5px;line-height:1.9;">
-            <p style="margin:0 0 8px;">يجب أن يحتوي ملف Excel على عمود <b>"الاسم"</b> (إلزامي)، وأعمدة اختيارية: <b>"المرحلة"</b>، <b>"الشعبة"</b>، <b>"رقم الطالب"</b>. ترتيب الأعمدة لا يهم — يتم التعرّف عليها بالعنوان.</p>
-            <table style="width:100%;border-collapse:collapse;font-size:11px;">
-              <tr style="background:#EDE9DE;">
-                <td style="border:1px solid var(--line);padding:4px 6px;font-weight:700;">الاسم</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;font-weight:700;">المرحلة</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;font-weight:700;">الشعبة</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;font-weight:700;">رقم الطالب</td>
-              </tr>
-              <tr>
-                <td style="border:1px solid var(--line);padding:4px 6px;">عبدالله محمد القحطاني</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;">أول ثانوي</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;">6</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;">12</td>
-              </tr>
-              <tr>
-                <td style="border:1px solid var(--line);padding:4px 6px;">سلطان فهد العتيبي</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;">أول ثانوي</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;">6</td>
-                <td style="border:1px solid var(--line);padding:4px 6px;"></td>
-              </tr>
-            </table>
+          <div id="crmImportBox" style="display:none;background:#F7F5F0;border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;">
+            <select class="goal-input" id="crmImportSectionSelect" style="margin-bottom:8px;">
+              <option value="">اختر الشعبة التي تستورد إليها</option>
+            </select>
+            <button class="btn btn-primary" onclick="startCrmImport()">اختيار ملف Excel</button>
+            <div style="font-size:11.5px;line-height:1.9;margin-top:10px;">
+              <p style="margin:0 0 8px;">ملف لكل شعبة: يكفي عمود <b>"الاسم"</b> (إلزامي)، وعمود <b>"رقم الطالب"</b> اختياري. الشعبة تُحدَّد من القائمة أعلاه، وأي عمود "مرحلة/شعبة" داخل الملف يُتجاهل. الأسماء الموجودة أصلًا بنفس الشعبة تُتخطّى تلقائيًا.</p>
+              <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                <tr style="background:#EDE9DE;">
+                  <td style="border:1px solid var(--line);padding:4px 6px;font-weight:700;">الاسم</td>
+                  <td style="border:1px solid var(--line);padding:4px 6px;font-weight:700;">رقم الطالب</td>
+                </tr>
+                <tr>
+                  <td style="border:1px solid var(--line);padding:4px 6px;">عبدالله محمد القحطاني</td>
+                  <td style="border:1px solid var(--line);padding:4px 6px;">12</td>
+                </tr>
+                <tr>
+                  <td style="border:1px solid var(--line);padding:4px 6px;">سلطان فهد العتيبي</td>
+                  <td style="border:1px solid var(--line);padding:4px 6px;"></td>
+                </tr>
+              </table>
+            </div>
           </div>
 
           <div id="addStudentBox" style="display:none;background:#F7F5F0;border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;">

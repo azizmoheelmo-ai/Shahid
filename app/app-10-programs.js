@@ -184,13 +184,15 @@ async function toggleProgramSection(sectionId, checked){
   await recomputeProgramStudentCountFromSections();
 }
 
-/* دالة صرفة: مطابقة نصية (grade_level/section_number) لا بمعرّف — نفس
-   طريقة ربط الطالب بشعبته المستخدمة أصلًا بكل شاشات "إدارة الصف"
-   (classroom_students لا يحمل عمود section_id، فقط نصًا حرًا يُملأ من
-   اسم الشعبة وقت إضافة الطالب). */
+/* دالة صرفة: الطالب المربوط بشعبته بالمعرّف (section_id) يُعدّ بالمعرّف
+   فقط — لا بالنص، لأن النص المكتوب له قد يختلف عن اسم الشعبة بالقائمة
+   ("ثاني"/"3" مقابل "ثاني ثانوي"/"٣") فلا يُعدّ إطلاقًا. المطابقة النصية
+   تبقى احتياطًا لطالب قديم لم يُربط بعد (شاشة "ربط الطلاب بشعبهم"). */
 function countActiveStudentsInSections(students, selectedSections){
   return (students || []).filter(s => s.is_active && (selectedSections || []).some(sel =>
-    (s.grade_level || '') === sel.grade_level_name && (s.section_number || '') === sel.section_name
+    s.section_id
+      ? s.section_id === sel.id
+      : (s.grade_level || '') === sel.grade_level_name && (s.section_number || '') === sel.section_name
   )).length;
 }
 
@@ -203,9 +205,9 @@ async function recomputeProgramStudentCountFromSections(){
   const selectedSections = selectionAtCallTime.map(id => {
     const sec = pgCrmSections.find(s => s.id === id);
     const grade = sec ? pgCrmGradeLevels.find(g => g.id === sec.grade_level_id) : null;
-    return { grade_level_name: grade ? grade.name : '', section_name: sec ? sec.name : '' };
+    return { id, grade_level_name: grade ? grade.name : '', section_name: sec ? sec.name : '' };
   });
-  const { data: students, error } = await sb.from('classroom_students').select('grade_level, section_number, is_active').eq('teacher_id', currentUser.id);
+  const { data: students, error } = await sb.from('classroom_students').select('section_id, grade_level, section_number, is_active').eq('teacher_id', currentUser.id);
   if(error) return; /* فشل صامت — لا نمنع المتابعة، المعلم يقدر يُدخل الرقم يدويًا */
   if(pgSelectedSectionIds !== selectionAtCallTime) return; /* تغيّر الاختيار أثناء الانتظار — نداء أحدث سيتولى التحديث الصحيح */
   input.value = countActiveStudentsInSections(students || [], selectedSections);
