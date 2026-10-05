@@ -327,7 +327,7 @@ async function onLoggedIn(user){
    خطته/تقييمه الذاتي كما هي (بعناصره الخاصة، تُحسب عبر DB_ELEMENTS كالمعتاد). */
 function applyStaffRoleVisibility(){
   const isStandaloneRole = STANDALONE_ROLES.includes(dutyType);
-  ['classroomNavTab', 'academicNavTab', 'classroomHomeBtn', 'academicHomeBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'].forEach(id => {
+  ['classroomNavTab', 'classroomHomeBtn', 'workSubnavProgramsBtnTasks', 'workSubnavProgramsBtnPrograms'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.display = isStandaloneRole ? 'none' : '';
   });
@@ -400,12 +400,11 @@ async function checkAdminStatus(){
   }
   document.getElementById('adminNavBtn').style.display = isAdmin ? 'inline-block' : 'none';
   if(isAdmin) refreshSupportMessagesBadge();
-  refreshCrmPendingBadges();
-  buildAdminRisks();
-  buildAcademicRisks();
+  /* شارة "إدارة الصف" = بطاقات الانتباه العاجلة والمهمة (app-16) — مصدر
+     واحد لتنبيهات الطلاب بدل تكرارها هنا وفي مركز التنبيهات */
+  refreshAttention();
   buildPerformanceRisks();
   buildDataRisks();
-  refreshAcBadges();
 }
 
 async function handleLogout(){
@@ -937,7 +936,7 @@ async function showRiskCenter(){
   hideAllMainViews();
   setActiveBottomTab('risk');
   document.getElementById('riskView').style.display = 'block';
-  await Promise.all([buildAdminRisks(), buildAcademicRisks(), buildPerformanceRisks(), buildDataRisks()]);
+  await Promise.all([buildPerformanceRisks(), buildDataRisks()]);
 }
 
 function daysSince(dateStr){
@@ -974,102 +973,6 @@ function riskRow(level, text, actionLabel, actionFn){
     <span style="font-size:12.5px;color:${c};flex:1;">${escapeHtml(text)}</span>
     ${actionFn ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:11px;flex-shrink:0;" onclick="window._${btnId}()">${actionLabel || 'اذهب'}</button>` : ''}
   </div>`;
-}
-
-async function buildAdminRisks(){
-  const box = document.getElementById('riskAdminBody');
-  /* فلترة صريحة بمعرّف المعلم الحالي ضرورية: classroom_students/incidents
-     لهما صلاحية "المسؤول يشوف الكل"، فبدونها تعرض لوحة تنبيهات إدارة
-     الصف الخاصة بحساب المسؤول حوادث كل المعلمين مجتمعة بدل حوادثه هو فقط. */
-  const { ok, results } = await runQueriesWithRetry([
-    () => sb.from('classroom_students').select('id, full_name').eq('teacher_id', currentUser.id),
-    () => sb.from('classroom_incident_types').select('id, problem_name, problem_degree'),
-    () => sb.from('classroom_incidents').select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', currentUser.id).eq('current_stage', 'referred')
-  ]);
-  if(!ok) return; /* فشل الفحص مرتين — نُبقي ما هو معروض حاليًا كما هو */
-
-  try{
-    const [{ data: students }, { data: types }, { data: incidents }] = results;
-
-    const rows = [];
-    (incidents || []).forEach(inc => {
-      const student = (students || []).find(s => s.id === inc.student_id);
-      const type = (types || []).find(t => t.id === inc.incident_type_id);
-      const name = student ? student.full_name : 'طالب';
-
-      if(!inc.referral_letter_generated){
-        const urgent = type && type.problem_degree >= 4 && daysSince(inc.created_at) > 1;
-        rows.push({
-          level: urgent ? 'high' : 'medium',
-          text: `${name} — مخالفة "${type ? type.problem_name : '—'}" لم يُصدَر لها خطاب تحويل بعد${urgent ? ' — درجة عالية ومرّ عليها أكثر من يوم' : ''}`,
-          action: () => { showClassroomManagement(); setTimeout(() => jumpToCrmFilter('pending'), 250); }
-        });
-      } else if(!inc.referral_receipt_photo_url){
-        const overdue = daysSince(inc.created_at) > 3;
-        rows.push({
-          level: overdue ? 'medium' : 'low',
-          text: `${name} — خطاب تحويل صادر بدون توثيق صورة التسليم${overdue ? ' منذ أكثر من 3 أيام' : ''}`,
-          action: () => { showClassroomManagement(); setTimeout(() => jumpToCrmFilter('undocumented'), 250); }
-        });
-      }
-    });
-
-    rows.sort((a, b) => (a.level === 'high' ? -1 : 1) - (b.level === 'high' ? -1 : 1));
-
-    const badgeCount = rows.filter(r => r.level === 'high').length + rows.filter(r => r.level === 'medium').length;
-    updateRiskBadges();
-
-    box.innerHTML = rows.length
-      ? rows.map(r => riskRow(r.level, r.text, 'اذهب', r.action)).join('')
-      : '<div class="empty-state">لا تنبيهات إدارية حاليًا ✓</div>';
-  } catch(e){
-    box.innerHTML = '<div class="empty-state">تعذّر فحص إدارة الصف</div>';
-  }
-}
-
-async function buildAcademicRisks(){
-  const box = document.getElementById('riskAcademicBody');
-  /* نفس سبب الفلترة في buildAdminRisks أعلاه — classroom_students/
-     academic_cases لهما صلاحية "المسؤول يشوف الكل" أيضًا. */
-  const { ok, results } = await runQueriesWithRetry([
-    () => sb.from('classroom_students').select('id, full_name').eq('teacher_id', currentUser.id),
-    () => sb.from('academic_cases').select('id, student_id, subject, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', currentUser.id).eq('status', 'referred')
-  ]);
-  if(!ok) return; /* فشل الفحص مرتين — نُبقي ما هو معروض حاليًا كما هو */
-
-  try{
-    const [{ data: students }, { data: cases }] = results;
-
-    const rows = [];
-    (cases || []).forEach(c => {
-      const student = (students || []).find(s => s.id === c.student_id);
-      const name = student ? student.full_name : 'طالب';
-
-      if(!c.referral_letter_generated){
-        rows.push({
-          level: daysSince(c.created_at) > 3 ? 'high' : 'medium',
-          text: `${name} — إحالة أكاديمية (${c.subject}) لم يُصدَر لها خطاب بعد${daysSince(c.created_at) > 3 ? ' — مرّ أكثر من 3 أيام' : ''}`,
-          action: () => { showAcademicTracking(); setTimeout(() => jumpToAcFilter('pending'), 250); }
-        });
-      } else if(!c.referral_receipt_photo_url){
-        const overdue = daysSince(c.created_at) > 3;
-        rows.push({
-          level: overdue ? 'medium' : 'low',
-          text: `${name} — خطاب إحالة أكاديمية صادر بدون توثيق تسليم${overdue ? ' منذ أكثر من 3 أيام' : ''}`,
-          action: () => { showAcademicTracking(); setTimeout(() => jumpToAcFilter('undocumented'), 250); }
-        });
-      }
-    });
-
-    rows.sort((a, b) => (a.level === 'high' ? -1 : 1) - (b.level === 'high' ? -1 : 1));
-    updateRiskBadges();
-
-    box.innerHTML = rows.length
-      ? rows.map(r => riskRow(r.level, r.text, 'اذهب', r.action)).join('')
-      : '<div class="empty-state">لا تنبيهات أكاديمية حاليًا ✓</div>';
-  } catch(e){
-    box.innerHTML = '<div class="empty-state">تعذّر فحص المتابعة الأكاديمية</div>';
-  }
 }
 
 async function buildPerformanceRisks(){
@@ -1146,7 +1049,7 @@ let _riskBadgeDebounce = null;
 function updateRiskBadges(){
   if(_riskBadgeDebounce) clearTimeout(_riskBadgeDebounce);
   _riskBadgeDebounce = setTimeout(() => {
-    const boxes = ['riskAdminBody', 'riskAcademicBody', 'riskPerfBody', 'riskDataBody'];
+    const boxes = ['riskPerfBody', 'riskDataBody'];
     let count = 0;
     boxes.forEach(id => {
       const el = document.getElementById(id);

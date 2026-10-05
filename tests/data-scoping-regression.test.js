@@ -7,8 +7,8 @@
    tests/plan-user-scoping.test.js لتفاصيل آلية الفلترة والسبب الجذري):
 
    1) loadMyShawahid()  (app-09): شاشة "شواهدي المحفوظة" الخاصة بالمستخدم.
-   2) buildAdminRisks()  (app-03): تنبيهات "إدارة الصف" في الرئيسية.
-   3) buildAcademicRisks() (app-03): تنبيهات "المتابعة الأكاديمية" بالرئيسية.
+   2) loadAttentionData() (app-16): بطاقات "يحتاج انتباهي" بإدارة الصف (حلّت محل
+      buildAdminRisks/buildAcademicRisks اللتين كانتا بمركز التنبيهات).
 
    (exportBackup/exportPortfolio في app-08 أُصلحا بنفس المنطق أيضًا، لكن
    لا يمكن اختبارهما هنا لأنهما يحمّلان مكتبات PDF/Excel من CDN خارجي عبر
@@ -26,13 +26,16 @@ const { loadApp } = require('./load-app.js');
 function makeScopedClient(seedByTable){
   function chain(table){
     const filters = [];
-    const rowsFor = () => (seedByTable[table] || []).filter(r => filters.every(([c, v]) => r[c] === v));
+    const rowsFor = () => (seedByTable[table] || []).filter(r => filters.every(([c, v]) => (v && v.in) ? v.in.includes(r[c]) : r[c] === v));
     const api = {
       select(){ return api; },
       eq(col, val){ filters.push([col, val]); return api; },
       order(){ return api; },
       limit(){ return api; },
       range(){ return api; },
+      gte(){ return api; },
+      lte(){ return api; },
+      in(col, vals){ filters.push([col, { in: vals }]); return api; },
       maybeSingle: async () => {
         const rows = rowsFor();
         return { data: rows[0] || null, error: null };
@@ -92,35 +95,20 @@ describe('عزل بيانات المستخدم في شاشاته الشخصية 
     assert.equal(captured[0].id, 's-u1');
   });
 
-  test('buildAdminRisks(): تنبيهات إدارة الصف تخص حوادث المعلم الحالي فقط', async () => {
+  /* حلّ محرك الانتباه (app-16) محل buildAdminRisks/buildAcademicRisks
+     بمركز التنبيهات — نفس الخطر بالضبط: academic_cases وclassroom_incidents
+     لهما سياسة "المسؤول يشوف الكل"، فبدون فلترة صريحة بمعرّف المعلم يرى
+     حساب المسؤول بطاقات طلاب كل المعلمين في إدارة صفه الشخصية. */
+  test('loadAttentionData()/computeAttentionItems(): بطاقات الانتباه تخص طلاب المعلم الحالي فقط', async () => {
     const seed = {
       classroom_students: [
-        { id: 'st-u1', teacher_id: 'u1', full_name: 'طالب المعلم الأول' },
-        { id: 'st-u2', teacher_id: 'u2', full_name: 'طالب المعلم الثاني' },
+        { id: 'st-u1', teacher_id: 'u1', full_name: 'طالب المعلم الأول', section_id: null, is_active: true },
+        { id: 'st-u2', teacher_id: 'u2', full_name: 'طالب المعلم الثاني', section_id: null, is_active: true },
       ],
-      classroom_incident_types: [
-        { id: 't1', problem_name: 'مخالفة تجريبية', problem_degree: 5 },
-      ],
+      classroom_incident_types: [{ id: 't1', problem_name: 'مخالفة تجريبية', problem_degree: 5 }],
       classroom_incidents: [
         { id: 'i-u1', teacher_id: 'u1', student_id: 'st-u1', incident_type_id: 't1', current_stage: 'referred', referral_letter_generated: false, referral_receipt_photo_url: null, created_at: '2026-01-01' },
         { id: 'i-u2', teacher_id: 'u2', student_id: 'st-u2', incident_type_id: 't1', current_stage: 'referred', referral_letter_generated: false, referral_receipt_photo_url: null, created_at: '2026-01-01' },
-      ],
-    };
-    const app = loadApp({ supabaseClient: makeScopedClient(seed), currentUser: { id: 'u1' } });
-    installLiveDom(app);
-
-    await app.buildAdminRisks();
-
-    const html = app.document.getElementById('riskAdminBody').innerHTML;
-    assert.match(html, /طالب المعلم الأول/, 'يجب أن تظهر مخالفة طالب المعلم الحالي (u1)');
-    assert.doesNotMatch(html, /طالب المعلم الثاني/, 'لا يجب أن تظهر مخالفة طالب معلم آخر (u2)');
-  });
-
-  test('buildAcademicRisks(): تنبيهات المتابعة الأكاديمية تخص حالات المعلم الحالي فقط', async () => {
-    const seed = {
-      classroom_students: [
-        { id: 'st-u1', teacher_id: 'u1', full_name: 'طالب المعلم الأول' },
-        { id: 'st-u2', teacher_id: 'u2', full_name: 'طالب المعلم الثاني' },
       ],
       academic_cases: [
         { id: 'c-u1', teacher_id: 'u1', student_id: 'st-u1', subject: 'رياضيات', status: 'referred', referral_letter_generated: false, referral_receipt_photo_url: null, created_at: '2026-01-01' },
@@ -130,11 +118,15 @@ describe('عزل بيانات المستخدم في شاشاته الشخصية 
     const app = loadApp({ supabaseClient: makeScopedClient(seed), currentUser: { id: 'u1' } });
     installLiveDom(app);
 
-    await app.buildAcademicRisks();
-
-    const html = app.document.getElementById('riskAcademicBody').innerHTML;
-    assert.match(html, /طالب المعلم الأول/, 'يجب أن تظهر حالة طالب المعلم الحالي (u1)');
-    assert.doesNotMatch(html, /طالب المعلم الثاني/, 'لا يجب أن تظهر حالة طالب معلم آخر (u2)');
+    const data = await app.loadAttentionData();
+    assert.ok(data, 'التحميل يجب أن ينجح');
+    /* كل استعلام مُقيَّد بنفسه — لا اعتماد على أن المحرك يتجاهل طلابًا غير معروفين */
+    assert.deepEqual([...data.students].map(r => r.id), ['st-u1']);
+    assert.deepEqual([...data.incidents].map(r => r.id), ['i-u1']);
+    assert.deepEqual([...data.academicCases].map(r => r.id), ['c-u1']);
+    const cards = app.computeAttentionItems(data);
+    assert.deepEqual([...cards].map(c => c.studentId), ['st-u1'], 'بطاقة طالب المعلم الحالي فقط');
+    assert.equal(cards[0].reasons.length, 2, 'مخالفته وحالته الأكاديمية — لا حالات طالب المعلم الآخر');
   });
 });
 

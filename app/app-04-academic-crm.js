@@ -6,7 +6,7 @@ let acCurrentCase = null;
 
 async function showAcademicTracking(){
   hideAllMainViews();
-  setActiveBottomTab('academic');
+  setActiveBottomTab('classroom'); /* لا تبويب سفلي خاص بها بعد الآن — تُفتح من إدارة الصف ← المتابعات */
   document.getElementById('academicView').style.display = 'block';
   document.getElementById('acYearInput').value = localStorage.getItem('ac_year_part') || '1448-1449';
   switchAcTab('cases');
@@ -288,7 +288,7 @@ async function refreshTransferBadges(cfg){
   const { pending, undocumented } = counts;
   const total = pending + undocumented;
 
-  const navBadge = document.getElementById(cfg.navBadgeId);
+  const navBadge = cfg.navBadgeId ? document.getElementById(cfg.navBadgeId) : null;
   if(navBadge){
     if(total > 0){ navBadge.style.display = 'block'; navBadge.textContent = total > 9 ? '9+' : String(total); }
     else { navBadge.style.display = 'none'; }
@@ -308,12 +308,14 @@ async function refreshTransferBadges(cfg){
     if(undocumented > 0){ docBanner.style.display = 'block'; document.getElementById(cfg.undocumentedCountId).textContent = undocumented; }
     else { docBanner.style.display = 'none'; }
   }
+  /* أي تغيير بالخطابات يغيّر بطاقات الانتباه وشارة إدارة الصف */
+  if(typeof refreshAttention === 'function') refreshAttention();
 }
 
 const AC_TRANSFER_CFG = {
   table: 'academic_cases',
   stageColumn: 'status',
-  navBadgeId: 'academicNavBadge',
+  navBadgeId: null, /* لا تبويب سفلي للمتابعة الأكاديمية بعد الآن — شارة إدارة الصف من محرك الانتباه */
   homeBadgeId: 'academicHomeBadge',
   pendingBannerId: 'acPendingBanner',
   pendingCountId: 'acPendingCount',
@@ -324,7 +326,7 @@ const AC_TRANSFER_CFG = {
 const CRM_TRANSFER_CFG = {
   table: 'classroom_incidents',
   stageColumn: 'current_stage',
-  navBadgeId: 'classroomNavBadge',
+  navBadgeId: null, /* شارة تبويب إدارة الصف يحدّدها محرك الانتباه (app-16) لا عدد الخطابات وحده */
   homeBadgeId: 'classroomHomeBadge',
   pendingBannerId: 'crmPendingReferralBanner',
   pendingCountId: 'crmPendingReferralCount',
@@ -930,7 +932,7 @@ function hideAllMainViews(){
   document.getElementById('tasksView').style.display = 'none';
 }
 function switchCrmTab(tab){
-  const tabs = { today: ['crmTabBtnToday', 'crmTabToday'], record: ['crmTabBtnRecord', 'crmTabRecord'], students: ['crmTabBtnStudents', 'crmTabStudents'] };
+  const tabs = { today: ['crmTabBtnToday', 'crmTabToday'], followups: ['crmTabBtnFollowups', 'crmTabFollowups'], record: ['crmTabBtnRecord', 'crmTabRecord'], students: ['crmTabBtnStudents', 'crmTabStudents'] };
   if(!tabs[tab]) tab = 'today';
   /* ورقة رصد مفتوحة تُغلق عند الانتقال لأي تبويب (المسودة تبقى محفوظة) */
   const sheet = document.getElementById('crmLessonSheet');
@@ -946,10 +948,11 @@ function switchCrmTab(tab){
   if(typeof renderCrmLinkBanner === 'function') renderCrmLinkBanner();
   Object.keys(tabs).forEach(k => {
     const [btnId, paneId] = tabs[k];
-    document.getElementById(btnId).className = 'btn ' + (k === tab ? 'btn-primary' : 'btn-outline');
+    document.getElementById(btnId).className = 'btn crm-tab-btn ' + (k === tab ? 'btn-primary' : 'btn-outline');
     document.getElementById(paneId).style.display = k === tab ? 'block' : 'none';
   });
   if(tab === 'today') renderCrmToday();
+  if(tab === 'followups') renderCrmFollowups();
 }
 
 function collapseAllCrmSections(){
@@ -1532,28 +1535,38 @@ async function deleteCrmStudent(id){
   let relatedAttendance = [];
   let relatedPositives = [];
   let relatedPrivate = [];
+  let relatedFollowups = [];
+  let relatedFuActions = [];
   try{
-    const [incRes, caseRes, attRes, posRes, privRes] = await Promise.all([
+    const [incRes, caseRes, attRes, posRes, privRes, fuRes] = await Promise.all([
       sb.from('classroom_incidents').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('academic_cases').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_positive_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_private_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
+      sb.from('classroom_private_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('classroom_followups').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
     ]);
     relatedIncidents = incRes.data || [];
     relatedCases = caseRes.data || [];
     relatedAttendance = attRes.data || [];
     relatedPositives = posRes.data || [];
     relatedPrivate = privRes.data || [];
+    relatedFollowups = fuRes.data || [];
+    if(relatedFollowups.length){
+      const { data: acts } = await sb.from('classroom_followup_actions').select('*')
+        .eq('teacher_id', currentUser.id).in('followup_id', relatedFollowups.map(f => f.id));
+      relatedFuActions = acts || [];
+    }
   } catch(e){ /* لو تعذّر الالتقاط، يبقى التراجع ممكنًا لبيانات الطالب نفسه فقط */ }
 
-  const { error } = await sb.from('classroom_students').delete().eq('id', id);
+  const { error } = await sb.from('classroom_students').delete().eq('id', id).eq('teacher_id', currentUser.id);
   if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
   await loadCrmStudents();
   renderCrmStudentsList();
+  if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
 
   if(!student) return; /* لم نلتقط نسخة محلية من الطالب — لا نعرض تراجعًا وهميًا */
-  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length || relatedPositives.length || relatedPrivate.length) ? ' وسجلاته المرتبطة' : '';
+  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length || relatedPositives.length || relatedPrivate.length || relatedFollowups.length) ? ' وسجلاته المرتبطة' : '';
   const shouldFinalize = await showUndoToast('تم حذف الطالب' + extraNote, 5);
   if(!shouldFinalize){
     try{
@@ -1579,6 +1592,14 @@ async function deleteCrmStudent(id){
       if(relatedPrivate.length){
         const { error: nErr } = await sb.from('classroom_private_notes').insert(relatedPrivate);
         if(nErr) throw nErr;
+      }
+      if(relatedFollowups.length){
+        const { error: fErr } = await sb.from('classroom_followups').insert(relatedFollowups);
+        if(fErr) throw fErr;
+      }
+      if(relatedFuActions.length){
+        const { error: faErr } = await sb.from('classroom_followup_actions').insert(relatedFuActions);
+        if(faErr) throw faErr;
       }
       await loadCrmStudents();
       renderCrmStudentsList();
@@ -1773,6 +1794,7 @@ async function insertClassroomIncident({ studentId, typeId, notes, incidentDate 
   const { error } = await sb.from('classroom_incidents').insert(row);
   if(error) throw error;
   crmIncidentTypeUsage = null; /* "الأكثر استخدامًا" تُعاد قراءتها */
+  if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
   return { stage, occurrence };
 }
 
@@ -2341,8 +2363,14 @@ function stillOnHome(){
 }
 
 async function loadAndRenderHomeDashboardExtras(){
-  const [tasksOk, programsOk] = await Promise.all([loadMyTasks(), loadActivityPrograms()]);
+  const hasClassroom = !(typeof STANDALONE_ROLES !== 'undefined' && STANDALONE_ROLES.includes(dutyType));
+  const [tasksOk, programsOk, attention] = await Promise.all([
+    loadMyTasks(), loadActivityPrograms(),
+    hasClassroom && typeof getAttentionFresh === 'function' ? getAttentionFresh() : Promise.resolve(undefined)
+  ]);
   if(!stillOnHome()) return;
+  /* معلم بلا فصل (دور مستقل) = لا شيء من إدارة الصف (0)؛ فشل الفحص = null */
+  const classroomUrgent = !hasClassroom ? 0 : (attention ? attentionUrgentCount(attention.cards) : null);
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const cutoffIso = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
@@ -2369,7 +2397,7 @@ async function loadAndRenderHomeDashboardExtras(){
   }
   if(!stillOnHome()) return;
 
-  renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek, sessionsStatus, tasksOk && programsOk);
+  renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek, sessionsStatus, tasksOk && programsOk, classroomUrgent);
   if(tasksOk && programsOk) renderWorkHomeSummary();
 }
 
@@ -2378,8 +2406,16 @@ async function loadAndRenderHomeDashboardExtras(){
    لا تُرجَع 'clear' إلا بعد فحص مكتمل فعلًا — رسالة "كل شيء تمام" مبنية
    على فحص فاشل أخطر من غيابها (نفس المبدأ المتّبع بمركز التنبيهات/
    runQueriesWithRetry). */
-function homeActionCardState(tasksCount, sessionsCount, sessionsStatus, loadedOk){
+/* classroomUrgent: عدد بطاقات الانتباه "العاجلة" فقط بإدارة الصف (مهم/للمراجعة
+   لا يصل للرئيسية عمدًا — ضجيج)؛ null = فشل فحصها، فلا نقول "لا إجراء عاجل" */
+function homeActionCardState(tasksCount, sessionsCount, sessionsStatus, loadedOk, classroomUrgent){
   const items = [];
+  if(classroomUrgent){
+    items.push({ kind: 'classroom', text: arabicCountPhrase(classroomUrgent, {
+      one: 'إدارة الصف: طالب يحتاج إجراءً عاجلًا', two: 'إدارة الصف: طالبان يحتاجان إجراءً عاجلًا',
+      few: 'إدارة الصف: {n} طلاب يحتاجون إجراءً عاجلًا', many: 'إدارة الصف: {n} طالبًا يحتاجون إجراءً عاجلًا',
+    }) });
+  }
   if(tasksCount){
     items.push({ kind: 'tasks', text: arabicCountPhrase(tasksCount, {
       one: 'مهمة مستحقة هذا الأسبوع', two: 'مهمتان مستحقتان هذا الأسبوع',
@@ -2396,17 +2432,17 @@ function homeActionCardState(tasksCount, sessionsCount, sessionsStatus, loadedOk
     items.push({ kind: 'region', text: 'حدّد نطاقك الجغرافي لمتابعة حصص برامجك' });
   }
   if(items.length) return { mode: 'items', items };
-  if(!loadedOk || sessionsStatus !== 'ok') return { mode: 'hidden', items };
+  if(!loadedOk || sessionsStatus !== 'ok' || classroomUrgent === null) return { mode: 'hidden', items };
   return { mode: 'clear', items };
 }
 
-const HOME_ACTION_HANDLERS = { tasks: 'showTasks()', sessions: 'showPrograms()', region: "showSettings('profile')" };
+const HOME_ACTION_HANDLERS = { tasks: 'showTasks()', sessions: 'showPrograms()', region: "showSettings('profile')", classroom: 'showClassroomFollowups()' };
 
-function renderHomeActionCard(tasksCount, sessionsCount, sessionsStatus, loadedOk){
+function renderHomeActionCard(tasksCount, sessionsCount, sessionsStatus, loadedOk, classroomUrgent){
   const card = document.getElementById('homeActionCard');
   if(!card) return;
 
-  const state = homeActionCardState(tasksCount, sessionsCount, sessionsStatus, loadedOk);
+  const state = homeActionCardState(tasksCount, sessionsCount, sessionsStatus, loadedOk, classroomUrgent);
   if(state.mode === 'hidden'){ card.style.display = 'none'; return; }
   if(state.mode === 'clear'){
     card.innerHTML = '<div class="home-action-none">✓ لا إجراء عاجل</div>';

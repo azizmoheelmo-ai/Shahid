@@ -576,7 +576,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -594,7 +594,9 @@ async function exportBackup(evt){
       fetchAllRows((from, to) => sb.from('classroom_lessons').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
       fetchAllRows((from, to) => sb.from('classroom_attendance').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
       fetchAllRows((from, to) => sb.from('classroom_positive_notes').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
-      fetchAllRows((from, to) => sb.from('classroom_private_notes').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
+      fetchAllRows((from, to) => sb.from('classroom_private_notes').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('classroom_followups').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('classroom_followup_actions').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
     ]);
 
     const shawahid = shRes.data || [];
@@ -876,7 +878,9 @@ async function exportBackup(evt){
       classroom_lessons: lessonsRes.data || [],
       classroom_attendance: attendanceRes.data || [],
       classroom_positive_notes: positivesRes.data || [],
-      classroom_private_notes: privateNotesRes.data || []
+      classroom_private_notes: privateNotesRes.data || [],
+      classroom_followups: followupsRes.data || [],
+      classroom_followup_actions: followupActionsRes.data || []
     };
     zip.file('بيانات-كاملة.json', JSON.stringify(fullData, null, 2));
 

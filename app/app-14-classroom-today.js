@@ -224,11 +224,12 @@ async function renderCrmToday(){
   box.innerHTML = '<div class="loading-state">جارٍ التحميل...</div>';
 
   const since = addDaysIso(todayIso, -7);
-  const [ttOk, lessonsRes, holidayCheck] = await Promise.all([
+  const [ttOk, lessonsRes, holidayCheck, attention] = await Promise.all([
     loadCrmTimetable(),
     sb.from('classroom_lessons').select('id, section_id, lesson_date, period, updated_at')
       .eq('teacher_id', currentUser.id).gte('lesson_date', since).lte('lesson_date', todayIso),
-    crmHolidayChecker()
+    crmHolidayChecker(),
+    getAttentionFresh()
   ]);
   if(token !== crmTodayRenderToken) return; /* طُلب رسم أحدث أثناء الانتظار (تغيّر الفصل/السنة) */
   if(!ttOk || lessonsRes.error){
@@ -284,6 +285,9 @@ async function renderCrmToday(){
   html += `<div style="margin-top:8px;"><a href="#" style="font-size:11.5px;" onclick="event.preventDefault();toggleCrmExtraLesson()">+ رصد حصة خارج الجدول</a></div>
     <div id="crmExtraLessonBox" style="display:none;margin-top:6px;">${crmSectionButtonsHtml(todayIso)}</div>`;
   html += '</div>';
+
+  /* ---- يحتاج انتباهي (أعلى 5) ---- */
+  html += attentionTodaySectionHtml(attention);
 
   /* ---- غير المرصود ---- */
   const unrecorded = findUnrecordedLessons(crmTimetableSlots, lessons, todayIso, 7, d => !!holidayCheck.nameFor(d));
@@ -568,6 +572,8 @@ async function saveCrmLessonSheet(){
     if(error) throw error;
     clearLessonDraft(sheet.sectionId, sheet.dateIso, sheet.period);
     sheet.dirty = false;
+    invalidateAttention();
+    refreshAttention();
     showToast('تم رصد الحصة ✓', 'ok');
     if(crmSheet === sheet) closeCrmLessonSheet();
   } catch(e){
@@ -593,6 +599,8 @@ async function deleteCrmLesson(){
   if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
   clearLessonDraft(sheet.sectionId, sheet.dateIso, sheet.period);
   sheet.dirty = false;
+  invalidateAttention();
+  refreshAttention();
   showToast('حُذف رصد الحصة', 'ok');
   if(crmSheet === sheet) closeCrmLessonSheet();
 }
