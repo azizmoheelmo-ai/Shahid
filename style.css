@@ -1305,7 +1305,13 @@
 .crm-tl-meta{font-size:11px;color:var(--muted);white-space:nowrap;display:inline-flex;align-items:center;gap:4px;}
 .crm-icon-btn{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 4px;color:var(--muted);}
 .crm-private-note{background:#FAF9F6;border:1px dashed var(--line);padding:8px 10px;margin-bottom:8px;font-size:12px;line-height:1.7;}
-.crm-tab-btn{flex:1;padding-left:4px;padding-right:4px;font-size:12.5px;justify-content:center;}
+/* تبويبات إدارة الصف: شبكة تنقسم صفّين تلقائيًا عند ضيق الشاشة أو تكبير خط
+   الجوال، بدل صف واحد يخرج عن حافة الشاشة ويُزيح الصفحة كلها جانبيًا */
+#crmTabsBar{display:grid;grid-template-columns:repeat(auto-fit, minmax(76px, 1fr));gap:6px;padding:0 32px;margin-bottom:14px;}
+.crm-tab-btn{min-width:0;padding-left:4px;padding-right:4px;font-size:12.5px;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+@media (max-width:640px){
+  #crmTabsBar{padding:0 16px;}
+}
 .crm-attention-card{border:1px solid var(--line);border-right-width:4px;padding:8px 10px;margin-bottom:8px;background:#fff;}
 .crm-attention-card.prio-urgent{border-right-color:#C0392B;}
 .crm-attention-card.prio-important{border-right-color:#D08A2B;}
