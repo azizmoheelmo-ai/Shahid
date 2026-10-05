@@ -953,6 +953,8 @@ drop policy if exists "المعلم يدير مراحله فقط - إضافة" o
 create policy "المعلم يدير مراحله فقط - إضافة" on public.classroom_grade_levels for insert with check (auth.uid() = teacher_id);
 drop policy if exists "المعلم يدير مراحله فقط - حذف" on public.classroom_grade_levels;
 create policy "المعلم يدير مراحله فقط - حذف" on public.classroom_grade_levels for delete using (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير مراحله فقط - تعديل" on public.classroom_grade_levels;
+create policy "المعلم يدير مراحله فقط - تعديل" on public.classroom_grade_levels for update using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
 create table if not exists public.classroom_sections (
   id uuid primary key default gen_random_uuid(),
@@ -969,6 +971,28 @@ drop policy if exists "المعلم يدير شعبه فقط - إضافة" on pu
 create policy "المعلم يدير شعبه فقط - إضافة" on public.classroom_sections for insert with check (auth.uid() = teacher_id);
 drop policy if exists "المعلم يدير شعبه فقط - حذف" on public.classroom_sections;
 create policy "المعلم يدير شعبه فقط - حذف" on public.classroom_sections for delete using (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير شعبه فقط - تعديل" on public.classroom_sections;
+create policy "المعلم يدير شعبه فقط - تعديل" on public.classroom_sections for update using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- ربط الطالب بشعبته بالمعرّف (section_id) — المرجع الفعلي للشعبة؛ نصّا
+-- grade_level/section_number يبقيان نسخة مكتوبة بالاسم الرسمي للكود القديم.
+-- المفتاح المركّب (section_id, teacher_id) يمنع ربط طالب بشعبة معلم آخر.
+-- يجب أن يأتي بعد إنشاء classroom_sections (مرجع FK) لا داخل تعريف
+-- classroom_students أعلاه. حذف الشعبة يفكّ الربط فقط (set null) ولا يحذف طلابها.
+-- (فحص وجود القيد بدل drop/add: القيد الفريد تعتمد عليه مفاتيح خارجية، فحذفه
+-- عند إعادة تشغيل الملف يفشل)
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_sections_id_teacher_key' and conrelid = 'public.classroom_sections'::regclass) then
+    alter table public.classroom_sections add constraint classroom_sections_id_teacher_key unique (id, teacher_id);
+  end if;
+end $$;
+alter table public.classroom_students add column if not exists section_id uuid;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_students_section_fk' and conrelid = 'public.classroom_students'::regclass) then
+    alter table public.classroom_students add constraint classroom_students_section_fk foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id);
+  end if;
+end $$;
+create index if not exists classroom_students_section_id_idx on public.classroom_students(section_id);
 
 -- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:
 -- عدّ الطلبة التلقائي وتحذير تعارض الجدولة بين برامج مختلفة بنفس الشعبة
@@ -1047,6 +1071,142 @@ drop policy if exists "المعلم يحذف حوادثه فقط" on public.clas
 create policy "المعلم يحذف حوادثه فقط" on public.classroom_incidents for delete using (auth.uid() = teacher_id);
 drop policy if exists "المسؤول يشوف كل الحوادث" on public.classroom_incidents;
 create policy "المسؤول يشوف كل الحوادث" on public.classroom_incidents for select using (public.is_admin(auth.uid()));
+-- الشعبة وقت وقوع المخالفة (لا شعبة الطالب الحالية لو نُقل لاحقًا)
+alter table public.classroom_incidents add column if not exists section_id uuid;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_incidents_section_fk' and conrelid = 'public.classroom_incidents'::regclass) then
+    alter table public.classroom_incidents add constraint classroom_incidents_section_fk foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id);
+  end if;
+end $$;
+create index if not exists classroom_incidents_section_id_idx on public.classroom_incidents(section_id);
+
+-- ============ إدارة الصف: الجدول الأسبوعي والحصص المرصودة والحضور ============
+-- بلا أي سياسة للمسؤول (قرار صريح: لا صلاحية حتى تُبنى شاشة تحتاجها).
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_students_id_teacher_key' and conrelid = 'public.classroom_students'::regclass) then
+    alter table public.classroom_students add constraint classroom_students_id_teacher_key unique (id, teacher_id);
+  end if;
+end $$;
+
+-- يوم + رقم حصة ← شعبة (بلا أوقات عمدًا)
+create table if not exists public.classroom_timetable_slots (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  academic_year text not null,
+  semester smallint not null check (semester in (1, 2)),
+  weekday smallint not null check (weekday between 0 and 6),
+  period smallint not null check (period between 1 and 12),
+  created_at timestamptz not null default now(),
+  unique (teacher_id, academic_year, semester, weekday, period),
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete cascade
+);
+
+-- الحصة المرصودة (وجودها = رُصدت). حذف شعبة لها حصص مرصودة يُمنع.
+create table if not exists public.classroom_lessons (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  lesson_date date not null,
+  period smallint check (period between 1 and 12),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade
+);
+create unique index if not exists classroom_lessons_unique_period on public.classroom_lessons(section_id, lesson_date, period) where period is not null;
+create unique index if not exists classroom_lessons_unique_no_period on public.classroom_lessons(section_id, lesson_date) where period is null;
+create index if not exists classroom_lessons_teacher_date_idx on public.classroom_lessons(teacher_id, lesson_date);
+
+-- الاستثناءات فقط: الطالب بلا صف هنا في حصة مرصودة = حاضر
+create table if not exists public.classroom_attendance (
+  id uuid primary key default gen_random_uuid(),
+  lesson_id uuid not null,
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  student_id uuid not null,
+  status text not null check (status in ('absent', 'late', 'permitted_exit')),
+  created_at timestamptz not null default now(),
+  unique (lesson_id, student_id),
+  foreign key (lesson_id, teacher_id) references public.classroom_lessons(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_attendance_student_idx on public.classroom_attendance(student_id);
+
+alter table public.classroom_timetable_slots enable row level security;
+alter table public.classroom_lessons enable row level security;
+alter table public.classroom_attendance enable row level security;
+drop policy if exists "المعلم يدير جدوله فقط" on public.classroom_timetable_slots;
+create policy "المعلم يدير جدوله فقط" on public.classroom_timetable_slots for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير حصصه المرصودة فقط" on public.classroom_lessons;
+create policy "المعلم يدير حصصه المرصودة فقط" on public.classroom_lessons for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير حضور طلابه فقط" on public.classroom_attendance;
+create policy "المعلم يدير حضور طلابه فقط" on public.classroom_attendance for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- حفظ رصد حصة كعملية واحدة (الحصة + استثناءاتها) — security invoker: RLS تنطبق
+create or replace function public.save_lesson_attendance(
+  p_section_id uuid, p_lesson_date date, p_period smallint, p_exceptions jsonb
+) returns uuid
+language plpgsql security invoker set search_path = ''
+as $body$
+declare v_uid uuid := auth.uid(); v_id uuid;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  select id into v_id from public.classroom_lessons
+    where teacher_id = v_uid and section_id = p_section_id and lesson_date = p_lesson_date
+      and period is not distinct from p_period;
+  if v_id is null then
+    begin
+      insert into public.classroom_lessons (teacher_id, section_id, lesson_date, period)
+        values (v_uid, p_section_id, p_lesson_date, p_period) returning id into v_id;
+    exception when unique_violation then
+      select id into v_id from public.classroom_lessons
+        where teacher_id = v_uid and section_id = p_section_id and lesson_date = p_lesson_date
+          and period is not distinct from p_period;
+    end;
+  else
+    update public.classroom_lessons set updated_at = now() where id = v_id;
+  end if;
+  delete from public.classroom_attendance where lesson_id = v_id and teacher_id = v_uid;
+  insert into public.classroom_attendance (lesson_id, teacher_id, student_id, status)
+    select v_id, v_uid, (e->>'student_id')::uuid, e->>'status'
+    from jsonb_array_elements(coalesce(p_exceptions, '[]'::jsonb)) e;
+  return v_id;
+end
+$body$;
+revoke execute on function public.save_lesson_attendance(uuid, date, smallint, jsonb) from public, anon;
+grant execute on function public.save_lesson_attendance(uuid, date, smallint, jsonb) to authenticated;
+
+-- ⭐ ملاحظة إيجابية (نص اختياري، بلا تصنيفات)
+create table if not exists public.classroom_positive_notes (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  student_id uuid not null,
+  section_id uuid,
+  note_date date not null default current_date,
+  note_text text check (note_text is null or char_length(note_text) <= 300),
+  created_at timestamptz not null default now(),
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade,
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id)
+);
+create index if not exists classroom_positive_notes_student_idx on public.classroom_positive_notes(student_id);
+alter table public.classroom_positive_notes enable row level security;
+drop policy if exists "المعلم يدير ملاحظاته الإيجابية فقط" on public.classroom_positive_notes;
+create policy "المعلم يدير ملاحظاته الإيجابية فقط" on public.classroom_positive_notes for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- ملاحظة المعلم الخاصة: لا يراها المسؤول (لا سياسة له إطلاقًا) ولا موصل الذكاء الاصطناعي
+create table if not exists public.classroom_private_notes (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  student_id uuid not null,
+  body text not null check (char_length(body) between 1 and 2000),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_private_notes_student_idx on public.classroom_private_notes(student_id);
+alter table public.classroom_private_notes enable row level security;
+drop policy if exists "المعلم وحده يرى ملاحظاته الخاصة" on public.classroom_private_notes;
+create policy "المعلم وحده يرى ملاحظاته الخاصة" on public.classroom_private_notes for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
@@ -1332,7 +1492,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1417,8 +1577,8 @@ async function exportFullBackup(){
       '     9. plan_header.csv',
       '     10. self_assessment.csv',
       '     11. classroom_incident_types.csv (أو أدخلها يدويًا — راجع الملاحظة أعلى 01-schema.sql)',
-      '     12. classroom_students.csv',
-      '     13. classroom_incidents.csv',
+      '     12. classroom_students.csv (لازم بعد classroom_sections — الطالب يُشير لشعبته)',
+      '     13. classroom_incidents.csv (لازم بعد classroom_students وclassroom_sections)',
       '     14. classroom_letter_counters.csv',
       '     15. academic_cases.csv',
       '     16. support_messages.csv',
@@ -1426,6 +1586,11 @@ async function exportFullBackup(){
       '     18. academic_calendar_holidays.csv',
       '     19. tasks.csv (لازم بعد activity_programs وperformance_goals لأنها تُشير إليهما)',
       '     20. program_sections.csv (لازم بعد activity_programs وclassroom_sections)',
+      '     21. classroom_timetable_slots.csv (لازم بعد classroom_sections)',
+      '     22. classroom_lessons.csv (لازم بعد classroom_sections)',
+      '     23. classroom_attendance.csv (لازم بعد classroom_lessons وclassroom_students)',
+      '     24. classroom_positive_notes.csv (لازم بعد classroom_students وclassroom_sections)',
+      '     25. classroom_private_notes.csv (لازم بعد classroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

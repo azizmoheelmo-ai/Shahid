@@ -93,6 +93,27 @@ test('countActiveStudentsInSections', async (t) => {
     const app = loadApp();
     assert.equal(app.countActiveStudentsInSections(students, []), 0);
   });
+
+  /* انحدار حقيقي: طلاب مستوردون بنص "ثاني"/"3" وشعبتهم بالقائمة "ثاني
+     ثانوي"/"٣" — المطابقة النصية وحدها كانت تعدّهم صفرًا. المربوط بالمعرّف
+     يُعدّ بالمعرّف مهما اختلف نصه. */
+  await t.test('الطالب المربوط بالمعرّف يُعدّ بشعبته رغم اختلاف النص المكتوب له', () => {
+    const app = loadApp();
+    const linked = [
+      { full_name: 'أ', grade_level: 'ثاني', section_number: '3', section_id: 'sec-3', is_active: true },
+      { full_name: 'ب', grade_level: 'ثاني', section_number: '3', section_id: 'sec-3', is_active: true },
+      { full_name: 'ج', grade_level: 'ثاني', section_number: '3', section_id: 'sec-4', is_active: true },
+    ];
+    const count = app.countActiveStudentsInSections(linked, [{ id: 'sec-3', grade_level_name: 'ثاني ثانوي', section_name: '٣' }]);
+    assert.equal(count, 2);
+  });
+
+  await t.test('الطالب المربوط بشعبة أخرى لا يُعدّ حتى لو تطابق نصه مع الشعبة المختارة', () => {
+    const app = loadApp();
+    const linked = [{ full_name: 'أ', grade_level: 'أول ثانوي', section_number: '1', section_id: 'sec-other', is_active: true }];
+    const count = app.countActiveStudentsInSections(linked, [{ id: 'sec-1', grade_level_name: 'أول ثانوي', section_name: '1' }]);
+    assert.equal(count, 0);
+  });
 });
 
 test('findSectionWeekConflicts', async (t) => {
