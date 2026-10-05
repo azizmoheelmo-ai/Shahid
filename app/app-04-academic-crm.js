@@ -930,21 +930,23 @@ function hideAllMainViews(){
   document.getElementById('tasksView').style.display = 'none';
 }
 function switchCrmTab(tab){
-  const recordBtn = document.getElementById('crmTabBtnRecord');
-  const studentsBtn = document.getElementById('crmTabBtnStudents');
-  const recordPane = document.getElementById('crmTabRecord');
-  const studentsPane = document.getElementById('crmTabStudents');
-  if(tab === 'record'){
-    recordPane.style.display = 'block'; studentsPane.style.display = 'none';
-    recordBtn.className = 'btn btn-primary'; studentsBtn.className = 'btn btn-outline';
-  } else {
-    recordPane.style.display = 'none'; studentsPane.style.display = 'block';
-    recordBtn.className = 'btn btn-outline'; studentsBtn.className = 'btn btn-primary';
+  const tabs = { today: ['crmTabBtnToday', 'crmTabToday'], record: ['crmTabBtnRecord', 'crmTabRecord'], students: ['crmTabBtnStudents', 'crmTabStudents'] };
+  if(!tabs[tab]) tab = 'today';
+  /* ورقة رصد مفتوحة تُغلق عند الانتقال لأي تبويب (المسودة تبقى محفوظة) */
+  const sheet = document.getElementById('crmLessonSheet');
+  if(sheet && sheet.style.display !== 'none' && typeof closeCrmLessonSheet === 'function' && tab !== 'today'){
+    closeCrmLessonSheet();
   }
+  Object.keys(tabs).forEach(k => {
+    const [btnId, paneId] = tabs[k];
+    document.getElementById(btnId).className = 'btn ' + (k === tab ? 'btn-primary' : 'btn-outline');
+    document.getElementById(paneId).style.display = k === tab ? 'block' : 'none';
+  });
+  if(tab === 'today') renderCrmToday();
 }
 
 function collapseAllCrmSections(){
-  const pairs = ['crmRegisterBody', 'crmIncidentsListBody'];
+  const pairs = ['crmRegisterBody', 'crmIncidentsListBody', 'crmTimetableBody'];
   pairs.forEach(id => {
     const body = document.getElementById(id);
     const arrow = document.getElementById(id + '_arrow');
@@ -959,7 +961,9 @@ async function showClassroomManagement(){
   document.getElementById('classroomView').style.display = 'block';
   document.getElementById('crmSemesterSelect').value = localStorage.getItem('crm_semester_part') || 'الفصل الأول';
   document.getElementById('crmYearInput').value = localStorage.getItem('crm_year_part') || '1448-1449';
-  switchCrmTab('record');
+  pruneLessonDrafts();
+  resetCrmLessonSheet();
+  showCrmLessonSheetPane(false);
   collapseAllCrmSections();
 
   await Promise.all([
@@ -977,11 +981,21 @@ async function showClassroomManagement(){
   renderCrmIncidentTypeSelect();
   setCrmIncidentFilter('all');
   refreshCrmPendingBadges();
+  /* "اليوم" هو نقطة البداية — بعد تحميل الشعب والطلاب (يعتمد عليهما) */
+  switchCrmTab('today');
+  renderCrmTimetableEditor();
 }
 
 function saveCrmSemester(){
   localStorage.setItem('crm_semester_part', document.getElementById('crmSemesterSelect').value);
   localStorage.setItem('crm_year_part', document.getElementById('crmYearInput').value);
+}
+
+/* تغيير الفصل الدراسي يغيّر الجدول المعروض (لكل فصل جدوله) */
+function onCrmSemesterChange(){
+  saveCrmSemester();
+  renderCrmTimetableEditor();
+  if(document.getElementById('crmTabToday').style.display !== 'none') renderCrmToday();
 }
 
 async function onCrmYearChange(){
@@ -991,6 +1005,8 @@ async function onCrmYearChange(){
   document.getElementById('crmOccurrencePreview').style.display = 'none';
   document.getElementById('crmLinkReviewBox').style.display = 'none';
   await refreshCrmStructureAndStudents();
+  renderCrmTimetableEditor();
+  if(document.getElementById('crmTabToday').style.display !== 'none') renderCrmToday();
   await renderCrmRecentIncidents();
 }
 
@@ -1400,8 +1416,8 @@ async function deleteCrmGradeLevel(id){
     ? ' ' + arabicCountPhrase(linkedCount, CRM_STUDENT_COUNT_FORMS) + ' مربوطون بشعبها سيصبحون "غير مربوطين بشعبة" (لن يُحذفوا، ويمكن ربطهم من جديد).'
     : ''));
   if(!ok) return;
-  const { error } = await sb.from('classroom_grade_levels').delete().eq('id', id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+  const { error } = await sb.from('classroom_grade_levels').delete().eq('id', id).eq('teacher_id', currentUser.id);
+  if(error){ showToast(crmDeleteErrorMessage(error), 'error'); return; }
   showToast('تم الحذف', 'ok');
   await refreshCrmStructureAndStudents();
 }
@@ -1416,6 +1432,13 @@ async function addCrmSection(gradeLevelId){
   if(error){ showToast('تعذّر الإضافة: ' + error.message, 'error'); return; }
   showToast('تمت إضافة الشعبة', 'ok');
   await refreshCrmStructureAndStudents();
+}
+
+/* شعبة لها حصص مرصودة لا تُحذف (قيد بالقاعدة): حذفها كان سيمسح سجل حضور
+   فصل كامل بنقرة خاطئة واحدة */
+function crmDeleteErrorMessage(error){
+  if(error && error.code === '23503') return 'لا يمكن الحذف: توجد حصص مرصودة لهذه الشعبة (أو لإحدى شعب المرحلة). احذف رصد حصصها أولًا إن كنت متأكدًا.';
+  return 'تعذّر الحذف: ' + ((error && error.message) || '');
 }
 
 /* بعد أي تغيير بالمراحل/الشعب: حذف شعبة يفكّ ربط طلابها بقاعدة البيانات
@@ -1436,8 +1459,8 @@ async function deleteCrmSection(id){
     ? ' ' + arabicCountPhrase(linkedCount, CRM_STUDENT_COUNT_FORMS) + ' مربوطون بها سيصبحون "غير مربوطين بشعبة" (لن يُحذفوا، ويمكن ربطهم من جديد).'
     : ''));
   if(!ok) return;
-  const { error } = await sb.from('classroom_sections').delete().eq('id', id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+  const { error } = await sb.from('classroom_sections').delete().eq('id', id).eq('teacher_id', currentUser.id);
+  if(error){ showToast(crmDeleteErrorMessage(error), 'error'); return; }
   showToast('تم الحذف', 'ok');
   await refreshCrmStructureAndStudents();
 }
@@ -1525,18 +1548,21 @@ async function deleteCrmStudent(id){
      المرتبطة، وليس فقط "فك الربط بالاسم". نلتقط الكل هنا قبل الحذف حتى
      يكون التراجع كاملاً وليس جزئيًا. */
   const student = crmStudents.find(s => String(s.id) === String(id));
-  const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية المسجّلة. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
+  const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية وسجل حضوره. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
   if(!ok) return;
 
   let relatedIncidents = [];
   let relatedCases = [];
+  let relatedAttendance = [];
   try{
-    const [incRes, caseRes] = await Promise.all([
-      sb.from('classroom_incidents').select('*').eq('student_id', id),
-      sb.from('academic_cases').select('*').eq('student_id', id)
+    const [incRes, caseRes, attRes] = await Promise.all([
+      sb.from('classroom_incidents').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('academic_cases').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
     ]);
     relatedIncidents = incRes.data || [];
     relatedCases = caseRes.data || [];
+    relatedAttendance = attRes.data || [];
   } catch(e){ /* لو تعذّر الالتقاط، يبقى التراجع ممكنًا لبيانات الطالب نفسه فقط */ }
 
   const { error } = await sb.from('classroom_students').delete().eq('id', id);
@@ -1545,7 +1571,7 @@ async function deleteCrmStudent(id){
   renderCrmStudentsList();
 
   if(!student) return; /* لم نلتقط نسخة محلية من الطالب — لا نعرض تراجعًا وهميًا */
-  const extraNote = (relatedIncidents.length || relatedCases.length) ? ' وسجلاته المرتبطة' : '';
+  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length) ? ' وسجلاته المرتبطة' : '';
   const shouldFinalize = await showUndoToast('تم حذف الطالب' + extraNote, 5);
   if(!shouldFinalize){
     try{
@@ -1559,6 +1585,10 @@ async function deleteCrmStudent(id){
       if(relatedCases.length){
         const { error: cErr } = await sb.from('academic_cases').insert(relatedCases);
         if(cErr) throw cErr;
+      }
+      if(relatedAttendance.length){
+        const { error: aErr } = await sb.from('classroom_attendance').insert(relatedAttendance);
+        if(aErr) throw aErr;
       }
       await loadCrmStudents();
       renderCrmStudentsList();

@@ -1269,3 +1269,30 @@
   .cal-week-day-row{display:flex;justify-content:space-between;padding:4px 8px;font-size:11.5px;border-bottom:1px dashed var(--line);}
   .cal-week-day-row.is-holiday{color:#8A2C2C;}
   .cal-week-day-row.is-today{background:#FFF7E6;font-weight:800;}
+
+/* ============ إدارة الصف: اليوم وورقة رصد الحصة ============ */
+.crm-today-card{border:1px solid var(--line);background:#fff;padding:10px 12px;margin-bottom:12px;}
+.crm-today-warn{background:#FFF7E6;border-color:#E8D19A;}
+.crm-today-title{font-size:13px;font-weight:800;color:var(--navy);margin-bottom:6px;}
+.crm-today-empty{font-size:12px;color:var(--muted);line-height:1.8;}
+.crm-lesson-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:12.5px;}
+.crm-lesson-row:last-child{border-bottom:none;}
+.crm-lesson-row.is-next{background:#EDF1F7;margin:0 -12px;padding:8px 12px;}
+.crm-lesson-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.crm-lesson-done{font-size:11.5px;color:#215C34;font-weight:700;}
+.crm-mini-btn{padding:6px 12px;font-size:12px;min-height:36px;}
+.crm-sheet-head{font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px;}
+.crm-sheet-note{font-size:11.5px;background:#EDF1F7;border:1px solid #B9C7DC;color:#2C4A72;padding:6px 10px;margin-bottom:8px;line-height:1.7;}
+.crm-sheet-counts{font-size:12.5px;font-weight:700;margin-bottom:6px;}
+.crm-att-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.crm-att-btn{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:52px;padding:8px 10px;border:1px solid var(--line);background:#fff;font-family:inherit;font-size:12.5px;text-align:right;cursor:pointer;color:var(--ink);}
+.crm-att-name{font-weight:600;line-height:1.4;}
+.crm-att-state{font-size:11px;font-weight:800;}
+.crm-att-btn.state-absent{background:#FBEAEA;border-color:#C98B8B;}
+.crm-att-btn.state-absent .crm-att-state{color:#8A2C2C;}
+.crm-att-btn.state-late{background:#FBF3E6;border-color:#D8BC7E;}
+.crm-att-btn.state-late .crm-att-state{color:#6B5420;}
+.crm-att-btn.state-permitted_exit{background:#EDF1F7;border-color:#9DB0CC;}
+.crm-att-btn.state-permitted_exit .crm-att-state{color:#2C4A72;}
+.crm-sheet-bar{position:sticky;bottom:calc(66px + env(safe-area-inset-bottom, 0px));display:flex;gap:8px;background:#fff;border-top:1px solid var(--line);padding:10px 0;margin-top:12px;z-index:5;}
+

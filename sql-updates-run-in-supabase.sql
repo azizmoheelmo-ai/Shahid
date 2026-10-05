@@ -76,3 +76,74 @@ create policy "المعلم يحذف ملفاته فقط"
     bucket_id = 'shawahid-photos'
     and auth.uid()::text = (storage.foldername(name))[1]
   );
+
+-- 3) إدارة الصف — حفظ رصد الحصة كعملية واحدة (الحصة + الغياب/التأخر/الاستئذان
+--    معًا): لو فشل جزء لا تبقى حصة "مرصودة" بلا غيابها الحقيقي. security
+--    invoker: صلاحيات RLS للمعلم نفسه تنطبق. الجداول نفسها (classroom_lessons/
+--    classroom_attendance) أُنشئت مسبقًا بترحيل classroom_timetable_lessons_attendance.
+--    مكرر لـpublic (الإنتاج) وstaging (البيئة التجريبية).
+create or replace function public.save_lesson_attendance(
+  p_section_id uuid, p_lesson_date date, p_period smallint, p_exceptions jsonb
+) returns uuid
+language plpgsql security invoker set search_path = ''
+as $body$
+declare v_uid uuid := auth.uid(); v_id uuid;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  select id into v_id from public.classroom_lessons
+    where teacher_id = v_uid and section_id = p_section_id and lesson_date = p_lesson_date
+      and period is not distinct from p_period;
+  if v_id is null then
+    begin
+      insert into public.classroom_lessons (teacher_id, section_id, lesson_date, period)
+        values (v_uid, p_section_id, p_lesson_date, p_period) returning id into v_id;
+    exception when unique_violation then
+      select id into v_id from public.classroom_lessons
+        where teacher_id = v_uid and section_id = p_section_id and lesson_date = p_lesson_date
+          and period is not distinct from p_period;
+    end;
+  else
+    update public.classroom_lessons set updated_at = now() where id = v_id;
+  end if;
+  delete from public.classroom_attendance where lesson_id = v_id and teacher_id = v_uid;
+  insert into public.classroom_attendance (lesson_id, teacher_id, student_id, status)
+    select v_id, v_uid, (e->>'student_id')::uuid, e->>'status'
+    from jsonb_array_elements(coalesce(p_exceptions, '[]'::jsonb)) e;
+  return v_id;
+end
+$body$;
+revoke execute on function public.save_lesson_attendance(uuid, date, smallint, jsonb) from public, anon;
+grant execute on function public.save_lesson_attendance(uuid, date, smallint, jsonb) to authenticated;
+
+create or replace function staging.save_lesson_attendance(
+  p_section_id uuid, p_lesson_date date, p_period smallint, p_exceptions jsonb
+) returns uuid
+language plpgsql security invoker set search_path = ''
+as $body$
+declare v_uid uuid := auth.uid(); v_id uuid;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  select id into v_id from staging.classroom_lessons
+    where teacher_id = v_uid and section_id = p_section_id and lesson_date = p_lesson_date
+      and period is not distinct from p_period;
+  if v_id is null then
+    begin
+      insert into staging.classroom_lessons (teacher_id, section_id, lesson_date, period)
+        values (v_uid, p_section_id, p_lesson_date, p_period) returning id into v_id;
+    exception when unique_violation then
+      select id into v_id from staging.classroom_lessons
+        where teacher_id = v_uid and section_id = p_section_id and lesson_date = p_lesson_date
+          and period is not distinct from p_period;
+    end;
+  else
+    update staging.classroom_lessons set updated_at = now() where id = v_id;
+  end if;
+  delete from staging.classroom_attendance where lesson_id = v_id and teacher_id = v_uid;
+  insert into staging.classroom_attendance (lesson_id, teacher_id, student_id, status)
+    select v_id, v_uid, (e->>'student_id')::uuid, e->>'status'
+    from jsonb_array_elements(coalesce(p_exceptions, '[]'::jsonb)) e;
+  return v_id;
+end
+$body$;
+revoke execute on function staging.save_lesson_attendance(uuid, date, smallint, jsonb) from public, anon;
+grant execute on function staging.save_lesson_attendance(uuid, date, smallint, jsonb) to authenticated;
