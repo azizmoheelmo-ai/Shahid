@@ -82,6 +82,24 @@ test('planDayLessons', async (t) => {
     ];
     assert.equal(app.planDayLessons(slots, '2026-10-04', lessons).nextIndex, -1);
   });
+  await t.test('"لم أحضر": الحصة تُعلَّم ولا تكون "التالية"', () => {
+    const skips = [{ id: 'K1', section_id: 'A', lesson_date: '2026-10-04', period: 1, note: 'مناسبة' }];
+    const plan = app.planDayLessons(slots, '2026-10-04', [], skips);
+    assert.equal(plan.rows[0].skip.id, 'K1');
+    assert.equal(plan.rows[1].skip, null);
+    assert.equal(plan.nextIndex, 1);
+  });
+  await t.test('رصدها بعد "لم أحضر" = الرصد يغلب', () => {
+    const skips = [{ id: 'K1', section_id: 'A', lesson_date: '2026-10-04', period: 1 }];
+    const lessons = [{ id: 'L1', section_id: 'A', lesson_date: '2026-10-04', period: 1 }];
+    const plan = app.planDayLessons(slots, '2026-10-04', lessons, skips);
+    assert.equal(plan.rows[0].recorded, true);
+    assert.equal(plan.rows[0].skip, null);
+  });
+  await t.test('"لم أحضر" بيوم آخر لا يمسّ اليوم', () => {
+    const skips = [{ id: 'K1', section_id: 'A', lesson_date: '2026-10-11', period: 1 }];
+    assert.equal(app.planDayLessons(slots, '2026-10-04', [], skips).rows[0].skip, null);
+  });
 });
 
 test('findUnrecordedLessons', async (t) => {
@@ -106,6 +124,12 @@ test('findUnrecordedLessons', async (t) => {
     const slots = [slot(0, 2, 'A', '2026-09-01T08:00:00Z')];
     const out = app.findUnrecordedLessons(slots, [], '2026-10-08', 7, d => d === '2026-10-04');
     assert.equal(out.length, 0);
+  });
+  await t.test('"لم أحضر" لا تظهر في "لم تُرصد"', () => {
+    const slots = [slot(0, 2, 'A', '2026-09-01T08:00:00Z'), slot(0, 3, 'B', '2026-09-01T08:00:00Z')];
+    const skips = [{ section_id: 'A', lesson_date: '2026-10-04', period: 2 }];
+    const out = app.findUnrecordedLessons(slots, [], '2026-10-08', 7, null, skips);
+    assert.deepEqual([...out].map(u => u.section_id + u.period), ['B3']);
   });
 });
 
@@ -142,4 +166,31 @@ test('sanitizeLessonDraft', async (t) => {
     assert.equal(app.sanitizeLessonDraft({ states: {} }, ['a'], now), null);
     assert.equal(app.sanitizeLessonDraft(null, ['a'], now), null);
   });
+});
+
+test('saveCrmLessonSkip — نقرة مزدوجة لا تحفظ مرتين، وباسم المعلم الحالي', async () => {
+  const calls = [];
+  const client = {
+    from(table){
+      const chain = {
+        select(){ return chain; }, eq(){ return chain; }, gte(){ return chain; }, lte(){ return chain; }, order(){ return chain; }, in(){ return chain; },
+        upsert(rows, opts){
+          calls.push({ table, rows, opts });
+          return { then(res){ setTimeout(() => res({ data: null, error: null }), 20); } };
+        },
+        then(res){ res({ data: [], error: null }); }
+      };
+      return chain;
+    },
+    rpc(){ return Promise.resolve({ data: null, error: null }); },
+    auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) },
+    storage: { from: () => ({}) },
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  app.renderCrmToday = () => {};
+  app.openCrmSkipModal('A', '2026-10-06', 4);
+  await Promise.all([app.saveCrmLessonSkip(), app.saveCrmLessonSkip()]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].table, 'classroom_lesson_skips');
+  assert.deepEqual({ ...calls[0].rows[0] }, { teacher_id: 'u1', section_id: 'A', lesson_date: '2026-10-06', period: 4, note: null });
 });
