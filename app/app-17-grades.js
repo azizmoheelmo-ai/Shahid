@@ -168,15 +168,18 @@ async function renderCrmGrades(){
     return;
   }
   const sectionId = crmGradesSectionId();
-  box.innerHTML = crmGradesSectionPickerHtml(sectionId) + '<div class="loading-state">جارٍ التحميل...</div>';
+  const head = crmGradesSectionPickerHtml(sectionId) + crmGradesViewSwitchHtml();
+  if(crmGradesView() === 'summary'){ renderCrmSectionSummary(sectionId, head); return; }
+  crmSummaryToken++; /* ملخص قيد التحميل لا يكتب فوق الكشف */
+  box.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const res = await loadCrmGradeSheet(sectionId);
   if(token !== crmGradesToken) return; /* تغيّرت الشعبة أو الفصل أثناء التحميل */
   if(res.error){
-    box.innerHTML = crmGradesSectionPickerHtml(sectionId) + `<div class="empty-state">تعذّر تحميل الكشف. <button class="btn btn-outline crm-mini-btn" onclick="renderCrmGrades()">إعادة المحاولة</button></div>`;
+    box.innerHTML = head + `<div class="empty-state">تعذّر تحميل الكشف. <button class="btn btn-outline crm-mini-btn" onclick="renderCrmGrades()">إعادة المحاولة</button></div>`;
     return;
   }
   crmGrades = res;
-  box.innerHTML = crmGradesSectionPickerHtml(sectionId) + crmGradeSheetHtml(res);
+  box.innerHTML = head + crmGradeSheetHtml(res);
 }
 
 function crmGradesSectionPickerHtml(sectionId){
