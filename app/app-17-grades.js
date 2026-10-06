@@ -120,6 +120,11 @@ function gradeDbErrorMessage(error){
   return msg;
 }
 
+/* أي تعديل على الدرجات يغيّر بطاقات الانتباه (القاعدتان 8 و9) */
+function afterCrmGradesChanged(){
+  if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
+}
+
 /* ============ الحالة والتحميل ============ */
 let crmGradesToken = 0;
 let crmGrades = null;      /* { sectionId, year, semester, columns, scores } */
@@ -335,6 +340,7 @@ async function saveCrmGradeColumn(){
   }
   closeCrmModal();
   crmGradeColumnDraft = null;
+  afterCrmGradesChanged();
   renderCrmGrades();
 }
 
@@ -350,6 +356,7 @@ async function deleteCrmGradeColumn(columnId){
   crmGradeBusy = false;
   if(error){ showToast('تعذّر الحذف: ' + gradeDbErrorMessage(error), 'error'); return; }
   showToast('حُذف العمود', 'ok');
+  afterCrmGradesChanged();
   renderCrmGrades();
 }
 
@@ -436,6 +443,7 @@ async function saveCrmGradeEntry(){
     return;
   }
   showToast('حُفظت درجات ' + c.name, 'ok');
+  afterCrmGradesChanged();
   if(crmGradeEntry === entry) renderCrmGrades(); /* لم ينتقل لشاشة أخرى أثناء الحفظ */
 }
 

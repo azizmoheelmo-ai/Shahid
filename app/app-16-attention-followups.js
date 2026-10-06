@@ -40,7 +40,12 @@ const ATTENTION_RULES = {
   overdueUrgentDays: 7,   /* متابعة متأخرة أكثر من 7 أيام = عاجل */
   dismissDays: 14,        /* التجاهل يُخفي 14 يومًا */
   reviewDays: 14,         /* موعد المراجعة الافتراضي */
-  minLessonsForResult: 4  /* أقل من 4 حصص بعد الفتح = "لا بيانات كافية بعد" */
+  minLessonsForResult: 4, /* أقل من 4 حصص بعد الفتح = "لا بيانات كافية بعد" */
+  gradeLowPct: 50,        /* تحت النصف مما رُصد في فئة درجات */
+  gradeGroupShare: 0.3,   /* بطاقة الشعبة "جماعية" (مهم) إذا كانوا 30% فأكثر ممن رُصدت درجاتهم... */
+  gradeGroupMin: 3,       /* ...وبحد أدنى 3 طلاب، وإلا "للمراجعة" */
+  declinePoints: 20,      /* تراجع: آخر عمودين أقل من معدله السابق بـ20 نقطة مئوية */
+  declineMinColumns: 4    /* ...بشرط 4 أعمدة مرصودة له على الأقل */
 };
 
 const PRIORITY_RANK = { urgent: 0, important: 1, review: 2 };
@@ -183,20 +188,122 @@ function computeAttentionItems(input){
     });
   });
 
+  /* القاعدة 9: تراجع فردي (للمراجعة) */
+  const gradeColumns = input.gradeColumns || [];
+  const gradeScores = input.gradeScores || [];
+  const colById = new Map(gradeColumns.map(c => [c.id, c]));
+  if(gradeColumns.length){
+    const byStu = new Map();
+    gradeScores.forEach(g => {
+      if(!colById.has(g.column_id)) return;
+      if(!byStu.has(g.student_id)) byStu.set(g.student_id, []);
+      byStu.get(g.student_id).push(g);
+    });
+    byStu.forEach((rows, sid) => {
+      const st = studentMap.get(sid);
+      if(!st || st.is_active === false) return;
+      if(openReasons.has(sid) && openReasons.get(sid).has('grades')) return;
+      if(isDismissed(dismissals, 'grades_decline', sid, nowMs)) return;
+      const d = gradeDeclineSignal(rows, colById);
+      if(!d) return;
+      add(sid, {
+        rule: 'grades_decline', priority: 'review', dismissable: true,
+        text: `كان ${d.before}% ← آخر عمودين ${d.after}% (${d.names.join('، ')})`,
+        action: { kind: 'open_followup', reasonType: 'grades' }
+      });
+    });
+  }
+
   const cards = [];
   byStudent.forEach((reasons, studentId) => {
     reasons.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]);
-    cards.push({ studentId, priority: reasons[0].priority, reasons });
+    cards.push({ key: studentId, studentId, priority: reasons[0].priority, reasons });
   });
-  const nameOf = id => (studentMap.get(id) || {}).full_name || '';
+
+  /* القاعدة 8: تحت النصف — بطاقة لكل شعبة وفئة، لا لكل طالب (أول رصد
+     للدرجات كان سيُنتج عشرات البطاقات الفردية فيتجاهلها المعلم كلها) */
+  gradeLowGroups(gradeColumns, gradeScores, students, openReasons).forEach(gr => {
+    const subject = 'section:' + gr.sectionId + ':' + gr.category;
+    if(isDismissed(dismissals, 'grades_low', subject, nowMs)) return;
+    const group = gr.low.length >= ATTENTION_RULES.gradeGroupMin && gr.low.length / gr.recorded >= ATTENTION_RULES.gradeGroupShare;
+    const priority = group ? 'important' : 'review';
+    cards.push({
+      key: subject, kind: 'section', sectionId: gr.sectionId, category: gr.category, priority, lowStudents: gr.low,
+      reasons: [{
+        rule: 'grades_low', priority, dismissable: true, subjectKey: subject,
+        text: `${gr.low.length} من ${gr.recorded} تحت النصف في ${GRADE_CATEGORY_LABELS[gr.category]}` +
+          (group ? ' (جماعي)' : '') + (gr.weakest ? ` · أضعف عمود: ${gr.weakest.name} (متوسط ${gr.weakest.pct}%)` : ''),
+        action: { kind: 'show_low', sectionId: gr.sectionId, category: gr.category }
+      }]
+    });
+  });
+  const nameOf = id => (studentMap.get(id) || {}).full_name || '';  /* بطاقة الشعبة: studentId غير معرّف = اسم فارغ */
   return cards.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || nameOf(a.studentId).localeCompare(nameOf(b.studentId), 'ar'));
+}
+
+/* القاعدة 9: نسبة آخر عمودين مقابل ما قبلهما (بترتيب وقت الرصد). null = لا تراجع أو بيانات قليلة */
+function gradeDeclineSignal(rows, colById){
+  if(!rows || rows.length < ATTENTION_RULES.declineMinColumns) return null;
+  const sorted = rows.slice().sort((a, b) => String(a.updated_at || '').localeCompare(String(b.updated_at || '')));
+  const pct = list => {
+    const max = list.reduce((s, r) => s + Number(colById.get(r.column_id).max_score), 0);
+    return max ? Math.round(100 * list.reduce((s, r) => s + Number(r.score), 0) / max) : null;
+  };
+  const last = sorted.slice(-2), prev = sorted.slice(0, -2);
+  const before = pct(prev), after = pct(last);
+  if(before === null || after === null || before - after < ATTENTION_RULES.declinePoints) return null;
+  return { before, after, names: last.map(r => colById.get(r.column_id).name) };
+}
+
+/* القاعدة 8: لكل شعبة وفئة — من تحت النصف مما رُصد (بلا متابعة تحصيل مفتوحة) */
+function gradeLowGroups(columns, scores, students, openReasons){
+  const out = [];
+  if(!(columns || []).length) return out;
+  const colById = new Map(columns.map(c => [c.id, c]));
+  const active = new Map((students || []).filter(s => s.is_active !== false && s.section_id).map(s => [s.id, s]));
+  const keyOf = (sec, cat) => sec + '|' + cat;
+  const acc = new Map(); /* key → Map(studentId → {sum,max}) */
+  const colAcc = new Map(); /* columnId → {sum,max} لأضعف عمود */
+  (scores || []).forEach(g => {
+    const c = colById.get(g.column_id);
+    const st = active.get(g.student_id);
+    if(!c || !st || st.section_id !== c.section_id) return;
+    const k = keyOf(c.section_id, c.category);
+    if(!acc.has(k)) acc.set(k, new Map());
+    const m = acc.get(k);
+    const cur = m.get(st.id) || { sum: 0, max: 0 };
+    cur.sum += Number(g.score); cur.max += Number(c.max_score);
+    m.set(st.id, cur);
+    const ca = colAcc.get(c.id) || { sum: 0, max: 0 };
+    ca.sum += Number(g.score); ca.max += Number(c.max_score);
+    colAcc.set(c.id, ca);
+  });
+  acc.forEach((m, k) => {
+    const [sectionId, category] = k.split('|');
+    const low = [];
+    m.forEach((v, sid) => {
+      const p = Math.round(100 * v.sum / v.max);
+      if(p >= ATTENTION_RULES.gradeLowPct) return;
+      if(openReasons && openReasons.has(sid) && openReasons.get(sid).has('grades')) return;
+      low.push({ id: sid, pct: p });
+    });
+    if(!low.length) return;
+    let weakest = null;
+    columns.filter(c => c.section_id === sectionId && c.category === category && colAcc.has(c.id)).forEach(c => {
+      const a = colAcc.get(c.id);
+      const p = Math.round(100 * a.sum / a.max);
+      if(!weakest || p < weakest.pct) weakest = { name: c.name, pct: p };
+    });
+    out.push({ sectionId, category, recorded: m.size, low: low.sort((a, b) => a.pct - b.pct), weakest });
+  });
+  return out;
 }
 
 /* علامات ورقة الرصد: ما يحتاجه الطالب منك "داخل الفصل" فقط — الغياب/التأخر/
    الاستئذان المتكرر والمتابعات. الخطابات والتوثيق أعمال مكتبية فلا علامة لها
    هنا (تبقى في "يحتاج انتباهي" العامة). متابعة مفتوحة لم يحن موعدها = علامة
    رمادية للتذكير فقط. يُرجع Map(studentId → { priority, reasons }). */
-const SHEET_MARK_RULES = new Set(['absence', 'lateness', 'exits', 'followup_due']);
+const SHEET_MARK_RULES = new Set(['absence', 'lateness', 'exits', 'followup_due', 'grades_decline']);
 const SHEET_MARK_RANK = { urgent: 0, important: 1, review: 2, info: 3 };
 
 function sheetMarkersFor(cache, studentIds, todayIso){
@@ -211,6 +318,15 @@ function sheetMarkersFor(cache, studentIds, todayIso){
     if(SHEET_MARK_RANK[reason.priority] < SHEET_MARK_RANK[m.priority]) m.priority = reason.priority;
   };
   (cache.cards || []).forEach(card => {
+    if(card.kind === 'section'){
+      /* بطاقة الشعبة "تحت النصف" تصير علامة زرقاء لكل طالب فيها */
+      (card.lowStudents || []).forEach(x => add(x.id, {
+        rule: 'grades_low', priority: 'review',
+        text: `${GRADE_CATEGORY_SHORT[card.category]} ${x.pct}% مما رُصد (تحت النصف)`,
+        action: { kind: 'open_followup', reasonType: 'grades' }
+      }));
+      return;
+    }
     card.reasons.forEach(r => { if(SHEET_MARK_RULES.has(r.rule)) add(card.studentId, r); });
   });
   ((cache.data && cache.data.followups) || []).forEach(f => {
@@ -288,6 +404,18 @@ async function loadAttentionData(){
   ]);
   if(!ok) return null;
   const [students, sections, lessons, incidents, academicCases, followups, dismissals] = results.map(r => r.data || []);
+  /* كشف الدرجات للفصل الحالي (كل الشعب) — للقاعدتين 8 و9 */
+  const term = crmAttentionTerm();
+  const { data: gradeColumns, error: gcErr } = await sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score')
+    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester);
+  if(gcErr) return null;
+  let gradeScores = [];
+  for(const ids of chunkArray((gradeColumns || []).map(c => c.id), 100)){
+    const { data, error } = await sb.from('classroom_grade_scores').select('column_id, student_id, score, updated_at')
+      .eq('teacher_id', uid).in('column_id', ids);
+    if(error) return null;
+    gradeScores = gradeScores.concat(data || []);
+  }
   let attendance = [];
   const lessonIds = lessons.map(l => l.id);
   for(const ids of chunkArray(lessonIds, 100)){
@@ -301,7 +429,20 @@ async function loadAttentionData(){
     const t = crmIncidentTypes.find(x => x.id === i.incident_type_id);
     i.typeName = t ? t.problem_name : 'مخالفة';
   });
-  return { todayIso, students, sections, lessons, attendance, incidents, academicCases, followups, dismissals };
+  return { todayIso, students, sections, lessons, attendance, incidents, academicCases, followups, dismissals, gradeColumns: gradeColumns || [], gradeScores };
+}
+
+/* الفصل الحالي من التخزين المحلي (مصدر الحقيقة نفسه الذي تضبطه شاشة
+   إدارة الصف) — فالمحرك يعمل صحيحًا من الرئيسية قبل فتح الشاشة */
+function crmAttentionTerm(){
+  let year = null, part = null;
+  try{ year = localStorage.getItem('crm_year_part'); part = localStorage.getItem('crm_semester_part'); } catch(e){}
+  const yEl = document.getElementById('crmYearInput');
+  const pEl = document.getElementById('crmSemesterSelect');
+  return {
+    year: year || (yEl && yEl.value) || '1448-1449',
+    semester: crmSemesterNumber(part || (pEl && pEl.value) || 'الفصل الأول')
+  };
 }
 
 /* يحسب البطاقات ويحدّث الشارة. null عند الفشل — المستدعي لا يعرض "لا شيء ✓"
@@ -363,6 +504,19 @@ function attentionStudentName(id){
 
 function attentionCardHtml(card){
   const dot = { urgent: '🔴', important: '🟠', review: '🔵' }[card.priority];
+  if(card.kind === 'section'){
+    const r = card.reasons[0];
+    return `<div class="crm-attention-card prio-${card.priority}">
+      <div class="crm-attention-head">${dot} ${escapeHtml(crmSectionLabel(card.sectionId))}<span style="color:var(--muted);font-weight:400;"> · الدرجات</span></div>
+      <div class="crm-att-reason">
+        <div>${escapeHtml(r.text)}</div>
+        <div class="crm-att-reason-actions">
+          <button class="btn btn-outline crm-mini-btn" onclick="runAttentionAction('${card.key}', 0)">عرضهم</button>
+          <a href="#" class="crm-dismiss-link" onclick="event.preventDefault();dismissAttention('grades_low','${card.key}')">تجاهل 14 يومًا</a>
+        </div>
+      </div>
+    </div>`;
+  }
   const s = (crmAttentionCache && crmAttentionCache.data.students.find(x => x.id === card.studentId)) || {};
   const secLabel = s.section_id && crmSectionById(s.section_id) ? ' · ' + escapeHtml(crmSectionLabel(s.section_id)) : '';
   const reasons = card.reasons.map((r, i) => `
@@ -392,15 +546,16 @@ function crmActiveTab(){
   return 'today';
 }
 
-function findAttentionReason(studentId, index){
-  const card = crmAttentionCache && crmAttentionCache.cards.find(c => c.studentId === studentId);
+function findAttentionReason(key, index){
+  const card = crmAttentionCache && crmAttentionCache.cards.find(c => c.key === key);
   return card ? card.reasons[index] : null;
 }
 
-function runAttentionAction(studentId, index){
-  const r = findAttentionReason(studentId, index);
+function runAttentionAction(key, index){
+  const r = findAttentionReason(key, index);
   if(!r) return;
   const a = r.action;
+  const studentId = key;
   if(a.kind === 'crm_pending' || a.kind === 'crm_undocumented'){
     switchCrmTab('record');
     jumpToCrmFilter(a.kind === 'crm_pending' ? 'pending' : 'undocumented');
@@ -411,7 +566,25 @@ function runAttentionAction(studentId, index){
     openCrmReviewModal(a.followupId);
   } else if(a.kind === 'open_followup'){
     openCrmFollowupModal(studentId, { reasonType: a.reasonType, reasonText: r.text, baseline: r.baseline });
+  } else if(a.kind === 'show_low'){
+    openCrmGradeLowModal(key);
   }
+}
+
+/* "عرضهم": طلاب بطاقة الشعبة تحت النصف — لكلٍّ ملفه وفتح متابعة تحصيل */
+function openCrmGradeLowModal(key){
+  const card = crmAttentionCache && crmAttentionCache.cards.find(c => c.key === key);
+  if(!card) return;
+  const label = GRADE_CATEGORY_LABELS[card.category];
+  showInfoModal(`
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">تحت النصف في ${escapeHtml(label)}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(crmSectionLabel(card.sectionId))} · النسبة مما رُصد لكل طالب</div>
+      ${card.lowStudents.map(x => `<div class="crm-lesson-row">
+        <span><a href="#" onclick="event.preventDefault();closeCrmModal();openCrmStudentProfile('${x.id}', { type: 'tab', tab: crmActiveTab() })">${escapeHtml(attentionStudentName(x.id))}</a> · ${x.pct}%</span>
+        <button class="btn btn-outline crm-mini-btn" onclick="closeCrmModal();openCrmFollowupModal('${x.id}', { reasonType: 'grades', reasonText: '${GRADE_CATEGORY_SHORT[card.category]} ${x.pct}% مما رُصد (تحت النصف)' })">فتح متابعة</button>
+      </div>`).join('')}
+    </div>`, '440px');
 }
 
 let crmDismissing = false;

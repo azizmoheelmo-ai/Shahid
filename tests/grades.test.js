@@ -299,3 +299,21 @@ test('moveStudentGrades — يُنشئ الكشف الناقص ثم ينقل، �
   assert.ok(upd.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'), 'نقل الدرجة مقيّد بالمعلم الحالي');
   assert.equal(seed.classroom_grade_scores[0].column_id, 'new0');
 });
+
+test('loadAttentionData — أعمدة ودرجات المعلم الحالي فقط (للقاعدتين 8 و9)', async () => {
+  const seed = {
+    classroom_grade_columns: [
+      { id: 'c1', teacher_id: 'u1', section_id: 'S', academic_year: '1448-1449', semester: 1, category: 'performance', name: 'م', max_score: 10 },
+      { id: 'c2', teacher_id: 'u2', section_id: 'S', academic_year: '1448-1449', semester: 1, category: 'performance', name: 'آخر', max_score: 10 },
+    ],
+    classroom_grade_scores: [
+      { teacher_id: 'u1', column_id: 'c1', student_id: 'a', score: 9 },
+      { teacher_id: 'u2', column_id: 'c1', student_id: 'x', score: 1 },
+    ],
+  };
+  const app = loadApp({ supabaseClient: scopedClient(seed), currentUser: { id: 'u1' } });
+  const data = await app.loadAttentionData();
+  assert.ok(data);
+  assert.deepEqual([...data.gradeColumns].map(c => c.id), ['c1']);
+  assert.deepEqual([...data.gradeScores].map(s => s.student_id), ['a']);
+});
