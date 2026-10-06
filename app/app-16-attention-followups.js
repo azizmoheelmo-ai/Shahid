@@ -191,6 +191,39 @@ function computeAttentionItems(input){
   return cards.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || nameOf(a.studentId).localeCompare(nameOf(b.studentId), 'ar'));
 }
 
+/* علامات ورقة الرصد: ما يحتاجه الطالب منك "داخل الفصل" فقط — الغياب/التأخر/
+   الاستئذان المتكرر والمتابعات. الخطابات والتوثيق أعمال مكتبية فلا علامة لها
+   هنا (تبقى في "يحتاج انتباهي" العامة). متابعة مفتوحة لم يحن موعدها = علامة
+   رمادية للتذكير فقط. يُرجع Map(studentId → { priority, reasons }). */
+const SHEET_MARK_RULES = new Set(['absence', 'lateness', 'exits', 'followup_due']);
+const SHEET_MARK_RANK = { urgent: 0, important: 1, review: 2, info: 3 };
+
+function sheetMarkersFor(cache, studentIds, todayIso){
+  const out = new Map();
+  if(!cache) return out;
+  const wanted = new Set(studentIds || []);
+  const add = (id, reason) => {
+    if(!wanted.has(id)) return;
+    if(!out.has(id)) out.set(id, { priority: reason.priority, reasons: [] });
+    const m = out.get(id);
+    m.reasons.push(reason);
+    if(SHEET_MARK_RANK[reason.priority] < SHEET_MARK_RANK[m.priority]) m.priority = reason.priority;
+  };
+  (cache.cards || []).forEach(card => {
+    card.reasons.forEach(r => { if(SHEET_MARK_RULES.has(r.rule)) add(card.studentId, r); });
+  });
+  ((cache.data && cache.data.followups) || []).forEach(f => {
+    if(f.status !== 'open' || f.review_date <= todayIso) return; /* المستحقة جاءت أعلاه من البطاقات */
+    add(f.student_id, {
+      rule: 'followup_open', priority: 'info',
+      text: `متابعة مفتوحة: ${f.reason_text} — المراجعة ${shortDateAr(f.review_date)}`,
+      action: { kind: 'review', followupId: f.id }
+    });
+  });
+  out.forEach(m => m.reasons.sort((a, b) => SHEET_MARK_RANK[a.priority] - SHEET_MARK_RANK[b.priority]));
+  return out;
+}
+
 function attentionBadgeCount(cards){
   return (cards || []).filter(c => c.priority === 'urgent' || c.priority === 'important').length;
 }
@@ -395,9 +428,18 @@ async function dismissAttention(ruleKey, studentId){
 
 /* يحدّث كل ما يعرض الانتباه (شارة + تبويب اليوم + تبويب المتابعات) */
 async function refreshAttentionViews(){
-  await refreshAttention();
-  const tab = crmActiveTab();
+  const cache = await refreshAttention();
   if(document.getElementById('classroomView').style.display === 'none') return;
+  /* ورقة رصد مفتوحة: تتحدّث علاماتها فورًا (فتح متابعة من داخلها يحوّل علامة
+     الغياب البرتقالية إلى رمادية) دون فقد ما رُصد ولم يُحفظ */
+  if(typeof crmSheet !== 'undefined' && crmSheet && document.getElementById('crmLessonSheet').style.display !== 'none'){
+    const students = crmStudentsOfSection(crmSheet.sectionId);
+    crmSheet.markers = sheetMarkersFor(cache, students.map(st => st.id), localIsoDate());
+    crmSheet.markersLoaded = !!cache;
+    renderCrmLessonSheet(students, false);
+    return;
+  }
+  const tab = crmActiveTab();
   if(tab === 'today') renderCrmToday();
   if(tab === 'followups') renderCrmFollowups();
 }

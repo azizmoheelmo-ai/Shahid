@@ -450,15 +450,35 @@ function openCrmStudentActions(studentId){
   const student = crmStudents.find(s => s.id === studentId);
   if(!student || !crmSheet) return;
   const s = crmSheet;
+  const mark = s.markers && s.markers.get(studentId);
+  const actionLabels = { review: 'سجّل النتيجة', open_followup: 'فتح متابعة' };
+  const why = mark ? `<div class="crm-why">
+      <div class="crm-field-label">لماذا العلامة؟</div>
+      ${mark.reasons.map((r, i) => `<div class="crm-why-row"><span class="crm-mark mark-${r.priority}" aria-hidden="true"></span>
+        <span style="flex:1;">${escapeHtml(r.text)}</span>
+        ${actionLabels[r.action && r.action.kind] ? `<button class="btn btn-outline crm-mini-btn" onclick="closeCrmModal();runCrmSheetMarkAction('${studentId}', ${i})">${actionLabels[r.action.kind]}</button>` : ''}
+      </div>`).join('')}
+    </div>` : '';
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">${escapeHtml(student.full_name)}</h3>
+      ${why}
       <div style="display:flex;flex-direction:column;gap:8px;">
         <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmIncidentModal('${studentId}','${s.dateIso}')">موقف رسمي</button>
         <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmPositiveModal('${studentId}','${s.dateIso}')">⭐ ملاحظة إيجابية</button>
         <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmStudentProfileFromSheet('${studentId}')">ملف الطالب</button>
       </div>
     </div>`, '360px');
+}
+
+/* إجراء سبب العلامة من داخل ورقة الرصد: فتح متابعة أو تسجيل نتيجتها — دون
+   مغادرة الورقة (نافذة فوقها؛ حالات الرصد غير المحفوظة باقية) */
+function runCrmSheetMarkAction(studentId, index){
+  const mark = crmSheet && crmSheet.markers && crmSheet.markers.get(studentId);
+  const r = mark && mark.reasons[index];
+  if(!r || !r.action) return;
+  if(r.action.kind === 'review') openCrmReviewModal(r.action.followupId);
+  else if(r.action.kind === 'open_followup') openCrmFollowupModal(studentId, { reasonType: r.action.reasonType, reasonText: r.text, baseline: r.baseline });
 }
 
 /* من الورقة إلى الملف ثم العودة لنفس الحصة: الحالات غير المحفوظة باقية

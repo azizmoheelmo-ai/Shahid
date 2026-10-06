@@ -225,3 +225,50 @@ test('homeActionCardState — سطر إدارة الصف العاجل', async (t
     assert.equal(app.homeActionCardState(0, 0, 'ok', true, 0).mode, 'clear');
   });
 });
+
+test('sheetMarkersFor — علامات ورقة الرصد', async (t) => {
+  const app = loadApp();
+  const cache = {
+    cards: [
+      { studentId: 'a', priority: 'urgent', reasons: [
+        { rule: 'referral_no_letter', priority: 'urgent', text: 'بلغت الإحالة', action: { kind: 'crm_pending' } },
+        { rule: 'absence', priority: 'important', text: 'غاب 3 من آخر 8', action: { kind: 'open_followup', reasonType: 'absence' } },
+      ] },
+      { studentId: 'b', priority: 'urgent', reasons: [
+        { rule: 'referral_no_letter', priority: 'urgent', text: 'بلغت الإحالة', action: { kind: 'crm_pending' } },
+      ] },
+      { studentId: 'c', priority: 'urgent', reasons: [
+        { rule: 'followup_due', priority: 'urgent', text: 'متابعة متأخرة', action: { kind: 'review', followupId: 'F1' } },
+      ] },
+      { studentId: 'other-section', priority: 'important', reasons: [
+        { rule: 'absence', priority: 'important', text: 'غاب', action: { kind: 'open_followup' } },
+      ] },
+    ],
+    data: { followups: [
+      { id: 'F2', student_id: 'd', status: 'open', reason_text: 'الواجبات', review_date: '2026-10-20' },
+      { id: 'F1', student_id: 'c', status: 'open', reason_text: 'س', review_date: '2026-09-20' },
+    ] },
+  };
+  const m = app.sheetMarkersFor(cache, ['a', 'b', 'c', 'd', 'e'], '2026-10-08');
+
+  await t.test('الخطابات (عمل مكتبي) لا تصنع علامة — ولا ترفع أولوية علامة الطالب', () => {
+    assert.equal(m.has('b'), false);
+    assert.equal(m.get('a').priority, 'important');
+    assert.deepEqual([...m.get('a').reasons].map(r => r.rule), ['absence']);
+  });
+  await t.test('متابعة متأخرة تبقى بأولويتها (عاجل)', () => {
+    assert.equal(m.get('c').priority, 'urgent');
+    assert.equal(m.get('c').reasons.length, 1, 'لا تكرار بين بطاقة الاستحقاق والمتابعة المفتوحة');
+  });
+  await t.test('متابعة لم يحن موعدها = علامة رمادية للتذكير', () => {
+    assert.equal(m.get('d').priority, 'info');
+    assert.match(m.get('d').reasons[0].text, /متابعة مفتوحة: الواجبات/);
+  });
+  await t.test('طلاب الشعبة فقط، ومن لا شيء له بلا علامة', () => {
+    assert.equal(m.has('other-section'), false);
+    assert.equal(m.has('e'), false);
+  });
+  await t.test('فشل تحميل الانتباه = لا علامات (لا خطأ)', () => {
+    assert.equal(app.sheetMarkersFor(null, ['a'], '2026-10-08').size, 0);
+  });
+});
