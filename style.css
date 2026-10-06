@@ -1362,3 +1362,7 @@
 .crm-grade-input{width:76px !important;flex-shrink:0;text-align:center;margin:0 !important;padding:6px !important;}
 .crm-grade-input.is-invalid{border-color:#C0392B !important;background:#FBEAEA;}
 .crm-grade-entry-bar{position:sticky;bottom:calc(66px + env(safe-area-inset-bottom, 0px));display:flex;gap:8px;justify-content:space-between;background:#fff;padding:10px 0;border-top:1px solid var(--line);margin-top:10px;z-index:5;}
+.crm-import-map-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;}
+.crm-import-map-row > span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.crm-import-map-row select{width:55% !important;margin:0 !important;}
+.crm-import-sum{font-size:12.5px;line-height:1.9;}

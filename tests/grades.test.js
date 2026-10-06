@@ -299,3 +299,96 @@ test('moveStudentGrades — يُنشئ الكشف الناقص ثم ينقل، �
   assert.ok(upd.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'), 'نقل الدرجة مقيّد بالمعلم الحالي');
   assert.equal(seed.classroom_grade_scores[0].column_id, 'new0');
 });
+
+test('loadAttentionData — أعمدة ودرجات المعلم الحالي فقط (للقاعدتين 8 و9)', async () => {
+  const seed = {
+    classroom_grade_columns: [
+      { id: 'c1', teacher_id: 'u1', section_id: 'S', academic_year: '1448-1449', semester: 1, category: 'performance', name: 'م', max_score: 10 },
+      { id: 'c2', teacher_id: 'u2', section_id: 'S', academic_year: '1448-1449', semester: 1, category: 'performance', name: 'آخر', max_score: 10 },
+    ],
+    classroom_grade_scores: [
+      { teacher_id: 'u1', column_id: 'c1', student_id: 'a', score: 9 },
+      { teacher_id: 'u2', column_id: 'c1', student_id: 'x', score: 1 },
+    ],
+  };
+  const app = loadApp({ supabaseClient: scopedClient(seed), currentUser: { id: 'u1' } });
+  const data = await app.loadAttentionData();
+  assert.ok(data);
+  assert.deepEqual([...data.gradeColumns].map(c => c.id), ['c1']);
+  assert.deepEqual([...data.gradeScores].map(s => s.student_id), ['a']);
+});
+
+/* ============ استيراد الدرجات من Excel ============ */
+test('matchImportStudent — مطابقة الاسم داخل الشعبة', async (t) => {
+  const app = loadApp();
+  const students = [
+    { id: 'a', full_name: 'محمد أحمد علي الزهراني' },
+    { id: 'b', full_name: 'فيصل سعد القحطاني' },
+    { id: 'c', full_name: 'عبدالله محمد الغامدي' },
+    { id: 'd', full_name: 'عبدالله سعيد الغامدي' },
+  ];
+  await t.test('تطابق تام بعد توحيد الهمزات والتاء المربوطة والمسافات', () => {
+    assert.deepEqual({ ...app.matchImportStudent('محمد  احمد علي الزهراني', students) }, { id: 'a', how: 'exact' });
+  });
+  await t.test('الاسم الأول والأخير فريدان = مطابقة جزئية', () => {
+    assert.deepEqual({ ...app.matchImportStudent('فيصل القحطاني', students) }, { id: 'b', how: 'partial' });
+  });
+  await t.test('غامض (اسمان بنفس الأول والأخير) = لا مطابقة — المعلم يختار', () => {
+    assert.equal(app.matchImportStudent('عبدالله الغامدي', students), null);
+  });
+  await t.test('غير موجود = لا مطابقة (ولا يُنشأ طالب)', () => {
+    assert.equal(app.matchImportStudent('سالم ناصر', students), null);
+  });
+});
+
+test('autoMapGradeHeaders — ربط أعمدة الملف بأعمدة الكشف بالاسم', async () => {
+  const app = loadApp();
+  const cols = [{ id: 'm', name: 'مشاركة' }, { id: 'h', name: 'واجبات' }, { id: 't1', name: 'الفترة الأولى' }];
+  const map = app.autoMapGradeHeaders(['الاسم', 'المشاركة', 'واجبات ', 'الفترة الاولى', 'ملاحظات'], cols, 'الاسم');
+  assert.equal(map['واجبات '], 'h');
+  assert.equal(map['الفترة الاولى'], 't1', 'الهمزة لا تمنع المطابقة');
+  assert.equal(map['المشاركة'], 'm', '"ال" التعريف لا تمنع المطابقة');
+  assert.equal(map['ملاحظات'], '', 'غير المعروف = تجاهل، لا يُنشأ عمود');
+  assert.equal('الاسم' in map, false);
+});
+
+test('planGradeImport — ما يُرصد وما يُستبدل وما يُتجاهل', async () => {
+  const app = loadApp();
+  const students = [{ id: 'a', full_name: 'محمد علي' }, { id: 'b', full_name: 'فيصل سعد' }];
+  const columns = [{ id: 'm', name: 'مشاركة', max_score: 10 }, { id: 'h', name: 'واجبات', max_score: 10 }];
+  const rows = [
+    { 'الاسم': 'محمد علي', 'مشاركة': '٨', 'واجبات': '' },
+    { 'الاسم': 'فيصل سعد', 'مشاركة': 12, 'واجبات': 7 },
+    { 'الاسم': 'سالم', 'مشاركة': 5, 'واجبات': 5 },
+  ];
+  const existing = [{ column_id: 'h', student_id: 'b', score: 9 }, { column_id: 'm', student_id: 'a', score: 8 }];
+  const plan = app.planGradeImport(rows, 'الاسم', { 'مشاركة': 'm', 'واجبات': 'h' }, students, columns, existing, {});
+  assert.deepEqual([...plan.upserts].map(u => u.student_id + u.column_id + ':' + u.score), ['bh:7'], 'a/m مطابقة للموجود فلا تُعاد');
+  assert.equal(plan.unchanged, 1);
+  assert.equal(plan.overwrite, 1, 'b/h كانت 9 وستصير 7');
+  assert.equal(plan.invalid.length, 1, '12 أكبر من 10');
+  assert.match(plan.invalid[0].reason, /أكبر/);
+  assert.deepEqual([...plan.unmatched].map(u => u.name), ['سالم']);
+  // الخانة الفارغة لا تمسح درجة موجودة
+  assert.equal(plan.upserts.some(u => u.student_id === 'a' && u.column_id === 'h'), false);
+  // اختيار المعلم يدويًا لصف غير مطابق
+  const plan2 = app.planGradeImport(rows, 'الاسم', { 'مشاركة': 'm', 'واجبات': 'h' }, students, columns, existing, { 2: 'a' });
+  assert.equal(plan2.unmatched.length, 0);
+});
+
+test('saveCrmGradeImport — نقرة مزدوجة لا تستورد مرتين، وباسم المعلم الحالي', async () => {
+  const calls = [];
+  const app = loadApp({ supabaseClient: scopedClient({}, calls), currentUser: { id: 'u1' } });
+  const { runInAppContext } = require('./load-app');
+  runInAppContext(app, `
+    crmStudents = [{ id: 'a', full_name: 'محمد علي', section_id: 'S' }];
+    crmGrades = { sectionId: 'S', year: '1448-1449', semester: 1, columns: [{ id: 'm', category: 'performance', name: 'مشاركة', max_score: 10 }], scores: [] };
+    crmGradeImport = { sectionId: 'S', fileName: 'f.xlsx', headers: ['الاسم', 'مشاركة'], rows: [{ 'الاسم': 'محمد علي', 'مشاركة': 7 }],
+      nameKey: 'الاسم', mapping: { 'مشاركة': 'm' }, manual: {}, saving: false };
+    renderCrmGrades = () => {};
+  `);
+  await Promise.all([app.saveCrmGradeImport(), app.saveCrmGradeImport()]);
+  const ups = calls.filter(c => c.table === 'classroom_grade_scores' && c.rows);
+  assert.equal(ups.length, 1);
+  assert.deepEqual({ ...ups[0].rows[0] }, { teacher_id: 'u1', column_id: 'm', student_id: 'a', score: 7 });
+});

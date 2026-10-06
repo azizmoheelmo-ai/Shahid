@@ -285,3 +285,94 @@ test('computeAttentionItems — المنقول خارج المدرسة لا يُ
      لطالب لم يعد عندك — وإلا ظلّت البطاقة الحمراء تلاحقك بلا نهاية */
   assert.equal(cards.length, 0);
 });
+
+/* ============ قواعد الدرجات (الإصدار الثاني) ============ */
+function gradeFixture(pcts){
+  /* pcts: { studentId: [score من 10 لكل عمود بالترتيب الزمني] } — عمود أدائي لكل خانة */
+  const ids = Object.keys(pcts);
+  const n = Math.max(...ids.map(id => pcts[id].length));
+  const gradeColumns = Array.from({ length: n }, (_, i) => ({ id: 'c' + i, section_id: 'S', category: 'performance', name: 'عمود ' + (i + 1), max_score: 10 }));
+  const gradeScores = [];
+  ids.forEach(id => pcts[id].forEach((v, i) => {
+    if(v !== null) gradeScores.push({ column_id: 'c' + i, student_id: id, score: v, updated_at: '2026-10-0' + (i + 1) + 'T08:00:00Z' });
+  }));
+  return { gradeColumns, gradeScores };
+}
+const tenStudents = () => Array.from({ length: 10 }, (_, i) => ({ id: 'st' + i, full_name: 'طالب ' + i, section_id: 'S', is_active: true }));
+
+test('القاعدة 8 — تحت النصف: بطاقة على مستوى الشعبة لا لكل طالب', async (t) => {
+  const app = loadApp();
+  await t.test('3 من 10 (30%) = جماعي مهم، ببطاقة واحدة', () => {
+    const g = gradeFixture({ st0: [3], st1: [4], st2: [2], st3: [8], st4: [9], st5: [7], st6: [6], st7: [10], st8: [5], st9: [8] });
+    const cards = app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents() }, g)));
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].kind, 'section');
+    assert.equal(cards[0].priority, 'important');
+    assert.match(cards[0].reasons[0].text, /3 من 10 تحت النصف في الأعمال الأدائية/);
+    assert.deepEqual([...cards[0].lowStudents].map(x => x.id).sort(), ['st0', 'st1', 'st2']);
+  });
+  await t.test('طالبان فقط = للمراجعة (لا تدخل الشارة)', () => {
+    const g = gradeFixture({ st0: [3], st1: [4], st2: [8], st3: [8] });
+    const cards = app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents() }, g)));
+    assert.equal(cards[0].priority, 'review');
+    assert.equal(app.attentionBadgeCount(cards), 0);
+  });
+  await t.test('الفارغ ليس صفرًا: من لم تُرصد له درجة لا يُعدّ', () => {
+    const g = gradeFixture({ st0: [8], st1: [9] });
+    assert.equal(app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents() }, g))).length, 0);
+  });
+  await t.test('متابعة تحصيل مفتوحة تُخرج الطالب من العدّ', () => {
+    const g = gradeFixture({ st0: [3], st1: [4], st2: [2], st3: [8] });
+    const followups = ['st0', 'st1', 'st2'].map(id => ({ id: 'F' + id, student_id: id, status: 'open', reason_type: 'grades', reason_text: 'تحصيل', review_date: '2026-10-20' }));
+    assert.equal(app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents(), followups }, g))).length, 0);
+  });
+  await t.test('التجاهل على مستوى الشعبة والفئة', () => {
+    const g = gradeFixture({ st0: [3], st1: [4], st2: [2] });
+    const dismissals = [{ rule_key: 'grades_low', subject_key: 'section:S:performance', dismissed_at: new Date(NOW - 86400000).toISOString() }];
+    assert.equal(app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents(), dismissals }, g))).length, 0);
+  });
+  await t.test('المنقول خارج المدرسة لا يُعدّ', () => {
+    const students = tenStudents(); students[0].is_active = false;
+    const g = gradeFixture({ st0: [3], st1: [9] });
+    assert.equal(app.computeAttentionItems(baseInput(Object.assign({ students }, g))).length, 0);
+  });
+});
+
+test('القاعدة 9 — التراجع: آخر عمودين أقل من معدله السابق بـ20 نقطة', async (t) => {
+  const app = loadApp();
+  await t.test('كان 80% ← آخر عمودين 55% = للمراجعة، فردية', () => {
+    const g = gradeFixture({ st0: [8, 8, 6, 5], st1: [8, 8, 8, 8] });
+    const cards = app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents() }, g)));
+    const c = cards.find(x => x.studentId === 'st0');
+    assert.ok(c);
+    assert.equal(c.priority, 'review');
+    assert.match(c.reasons[0].text, /كان 80% ← آخر عمودين 55%/);
+    assert.equal(c.reasons[0].action.reasonType, 'grades');
+  });
+  await t.test('أقل من 4 أعمدة مرصودة = لا حكم', () => {
+    const g = gradeFixture({ st0: [9, 5, 4] });
+    assert.equal(app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents() }, g))).filter(c => c.studentId === 'st0').length, 0);
+  });
+  await t.test('تراجع أقل من 20 نقطة = لا بطاقة', () => {
+    const g = gradeFixture({ st0: [8, 8, 7, 7] });
+    assert.equal(app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents() }, g))).length, 0);
+  });
+  await t.test('متابعة تحصيل مفتوحة تُسكت التراجع', () => {
+    const g = gradeFixture({ st0: [8, 8, 6, 5] });
+    const followups = [{ id: 'F1', student_id: 'st0', status: 'open', reason_type: 'grades', reason_text: 'تحصيل', review_date: '2026-10-20' }];
+    assert.equal(app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents(), followups }, g))).length, 0);
+  });
+});
+
+test('علامات ورقة الرصد — الدرجات علامة زرقاء للمراجعة', async () => {
+  const app = loadApp();
+  const g = gradeFixture({ st0: [3], st1: [4], st2: [2], st3: [8], st4: [8, 8, 6, 5] });
+  const data = baseInput(Object.assign({ students: tenStudents() }, g));
+  const cache = { cards: app.computeAttentionItems(data), data };
+  const m = app.sheetMarkersFor(cache, ['st0', 'st4', 'st3'], TODAY);
+  assert.equal(m.get('st0').priority, 'review');
+  assert.match(m.get('st0').reasons[0].text, /تحت النصف/);
+  assert.equal(m.get('st0').reasons[0].action.reasonType, 'grades');
+  assert.ok(m.get('st4'), 'التراجع علامة أيضًا');
+  assert.equal(m.has('st3'), false);
+});
