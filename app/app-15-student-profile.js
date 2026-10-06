@@ -578,17 +578,45 @@ function openCrmTransferModal(studentId){
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">نقل الطالب</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(student.full_name)} · حاليًا في ${escapeHtml(label.grade)} — الشعبة ${escapeHtml(label.section)}</div>
       <label class="crm-field-label">إلى شعبة أخرى</label>
-      <select class="goal-input" id="crmTransferTarget" style="margin-bottom:6px;">
+      <select class="goal-input" id="crmTransferTarget" style="margin-bottom:6px;" onchange="previewCrmTransferGrades()">
         <option value="">اختر الشعبة</option>
         ${targets.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join('')}
       </select>
       <button class="btn btn-primary" id="crmTransferBtn" style="width:100%;justify-content:center;margin-bottom:6px;" onclick="transferCrmStudent()">نقل إلى الشعبة</button>
-      <p style="font-size:11px;color:var(--muted);margin:0 0 12px;line-height:1.7;">يبقى غيابه ومخالفاته وملاحظاته السابقة مسجلة في شعبته القديمة حيث وقعت، وتنتقل معه متابعاته المفتوحة.</p>
+      <div id="crmTransferGradesNote" style="display:none;font-size:11.5px;line-height:1.7;margin:0 0 6px;"></div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 12px;line-height:1.7;">يبقى غيابه ومخالفاته وملاحظاته السابقة مسجلة في شعبته القديمة حيث وقعت، وتنتقل معه متابعاته المفتوحة ودرجاته.</p>
       <div style="border-top:1px solid var(--line);padding-top:10px;">
         <button class="btn btn-outline" id="crmArchiveBtn" style="width:100%;justify-content:center;" onclick="archiveCrmStudent()">نُقل خارج المدرسة</button>
         <p style="font-size:11px;color:var(--muted);margin:6px 0 0;line-height:1.7;">يختفي من القوائم وأوراق الرصد، ويبقى سجله كاملًا. تستطيع إعادته من "نُقلوا خارج المدرسة" أسفل قائمة الطلاب.</p>
       </div>
     </div>`, '430px');
+}
+
+/* معاينة قبل التأكيد: كم درجة تنتقل معه، وما يبقى في القديمة ولماذا */
+let crmTransferPreviewToken = 0;
+async function previewCrmTransferGrades(){
+  const tr = crmTransfer;
+  const box = document.getElementById('crmTransferGradesNote');
+  const targetId = document.getElementById('crmTransferTarget').value;
+  const token = ++crmTransferPreviewToken;
+  if(!tr || !box) return;
+  if(!targetId){ box.style.display = 'none'; return; }
+  let html;
+  try{
+    const d = await loadGradeTransferData(tr.studentId, targetId);
+    if(token !== crmTransferPreviewToken || crmTransfer !== tr) return; /* اختار شعبة أخرى أثناء التحميل */
+    const plan = planGradeTransfer(d.scores, d.allColumns, targetId, d.targetColumns);
+    const n = plan.moves.length + plan.pendingCount;
+    html = n ? `<b style="color:#215C34;">تنتقل معه ${n} ${n === 1 ? 'درجة' : n === 2 ? 'درجتان' : n <= 10 ? 'درجات' : 'درجة'}</b>` : (plan.stay.length ? '' : '<span style="color:var(--muted);">لا درجات مرصودة له.</span>');
+    if(plan.stay.length){
+      html += `<div style="color:#8A6D1F;">تبقى في شعبته القديمة (لا تُحذف): ${plan.stay.map(x => escapeHtml(x.name) + ' — ' + escapeHtml(x.reason)).join('؛ ')}</div>`;
+    }
+  } catch(e){
+    if(token !== crmTransferPreviewToken) return;
+    html = '<span style="color:var(--muted);">تعذّر حساب الدرجات الآن — ستُنقل عند التأكيد.</span>';
+  }
+  box.innerHTML = html;
+  box.style.display = html ? 'block' : 'none';
 }
 
 async function afterCrmStudentMoved(){
@@ -610,11 +638,21 @@ async function transferCrmStudent(){
   if(!target) return;
   tr.saving = true;
   document.getElementById('crmTransferBtn').disabled = true;
+  /* الدرجات أولًا: لو فشل نقلها لا يُنقل الطالب، وإعادة النقل تكمل ما بقي
+     (ما نُقل لا يُنقل مرتين) — فلا يصير طالب في شعبة ودرجاته في أخرى بصمت */
+  let gradesRes;
+  try{ gradesRes = await moveStudentGrades(student.id, target.id); }
+  catch(e){
+    showToast('تعذّر نقل درجاته، فلم يُنقل الطالب. أعد المحاولة: ' + gradeDbErrorMessage(e), 'error');
+    tr.saving = false;
+    document.getElementById('crmTransferBtn').disabled = false;
+    return;
+  }
   const { error } = await sb.from('classroom_students')
     .update({ section_id: target.id, grade_level: target.gradeName, section_number: target.sectionName })
     .eq('teacher_id', currentUser.id).eq('id', student.id);
   if(error){
-    showToast('تعذّر النقل: ' + error.message, 'error');
+    showToast('تعذّر نقل الطالب — أعد المحاولة لإكمال النقل: ' + error.message, 'error');
     tr.saving = false;
     document.getElementById('crmTransferBtn').disabled = false;
     return;
@@ -623,7 +661,13 @@ async function transferCrmStudent(){
   const { error: fErr } = await sb.from('classroom_followups').update({ section_id: target.id })
     .eq('teacher_id', currentUser.id).eq('student_id', student.id).eq('status', 'open');
   closeCrmModal();
-  showToast(fErr ? 'نُقل الطالب، لكن تعذّر تحديث متابعاته المفتوحة' : 'نُقل ' + student.full_name + ' إلى ' + target.label, fErr ? 'error' : 'ok');
+  const gradesNote = gradesRes.moved ? ' مع ' + gradesRes.moved + ' ' + (gradesRes.moved === 1 ? 'درجة' : 'درجات') : '';
+  showToast(fErr ? 'نُقل الطالب، لكن تعذّر تحديث متابعاته المفتوحة' : 'نُقل ' + student.full_name + ' إلى ' + target.label + gradesNote, fErr ? 'error' : 'ok');
+  if(gradesRes.stay.length){
+    showInfoModal(`<div style="text-align:right;"><h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">درجات بقيت في شعبته القديمة</h3>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px;line-height:1.7;">لم تُحذف. أضف في الشعبة الجديدة عمودًا بنفس الاسم (أو عدّل حدّه) ثم أدخلها، أو اتركها.</p>
+      ${gradesRes.stay.map(x => `<div class="crm-tl-row"><span>${escapeHtml(x.name)}</span><span class="crm-tl-meta">${escapeHtml(x.reason)}</span></div>`).join('')}</div>`, '420px');
+  }
   await afterCrmStudentMoved();
 }
 

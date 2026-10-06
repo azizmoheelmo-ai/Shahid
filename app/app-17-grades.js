@@ -438,3 +438,98 @@ async function saveCrmGradeEntry(){
   showToast('حُفظت درجات ' + c.name, 'ok');
   if(crmGradeEntry === entry) renderCrmGrades(); /* لم ينتقل لشاشة أخرى أثناء الحفظ */
 }
+
+/* ============================================================
+   نقل درجات الطالب مع نقله لشعبة أخرى
+   ------------------------------------------------------------
+   الدرجات تراكمية للفصل (بخلاف الغياب والمخالفات التي تبقى حيث وقعت)،
+   فتنتقل كل درجة لعمود الاسم والفئة والفصل نفسه في الشعبة الجديدة. ما لا
+   يطابق يبقى في القديمة (لا يُحذف) ويُبلَّغ المعلم بسببه. فصل بلا كشف في
+   الجديدة يُنشأ بهيكل القديمة. العملية قابلة للإعادة: ما نُقل لا يُنقل مرتين.
+   ============================================================ */
+function normalizeGradeColumnName(name){
+  return String(name || '').replace(/ـ/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function planGradeTransfer(studentScores, allColumns, targetSectionId, targetColumns){
+  const colById = new Map((allColumns || []).map(c => [c.id, c]));
+  const termKey = c => c.academic_year + '|' + c.semester;
+  const targetTerms = new Set();
+  const targetByKey = new Map();
+  (targetColumns || []).forEach(c => {
+    targetTerms.add(termKey(c));
+    targetByKey.set(termKey(c) + '|' + c.category + '|' + normalizeGradeColumnName(c.name), c);
+  });
+  const taken = new Set((studentScores || []).filter(s => {
+    const c = colById.get(s.column_id);
+    return c && c.section_id === targetSectionId;
+  }).map(s => s.column_id));
+  const moves = [], stay = [], missing = new Map();
+  let pendingCount = 0;
+  (studentScores || []).forEach(s => {
+    const c = colById.get(s.column_id);
+    if(!c || c.section_id === targetSectionId) return;
+    const tk = termKey(c);
+    if(!targetTerms.has(tk)){
+      if(!missing.has(tk)) missing.set(tk, { year: c.academic_year, semester: c.semester, sourceSectionId: c.section_id });
+      pendingCount++;
+      return;
+    }
+    const t = targetByKey.get(tk + '|' + c.category + '|' + normalizeGradeColumnName(c.name));
+    if(!t){ stay.push({ scoreId: s.id, name: c.name, reason: 'لا عمود بنفس الاسم في الشعبة الجديدة' }); return; }
+    if(taken.has(t.id)){ stay.push({ scoreId: s.id, name: c.name, reason: 'له درجة في هذا العمود بالشعبة الجديدة' }); return; }
+    if(Number(s.score) > Number(t.max_score)){
+      stay.push({ scoreId: s.id, name: c.name, reason: `درجته ${formatScore(s.score)} أعلى من حد العمود في الشعبة الجديدة (${formatScore(t.max_score)})` });
+      return;
+    }
+    taken.add(t.id);
+    moves.push({ scoreId: s.id, toColumnId: t.id });
+  });
+  return { moves, stay, missingTerms: [...missing.values()], pendingCount };
+}
+
+async function loadGradeTransferData(studentId, targetSectionId){
+  const uid = currentUser.id;
+  const [{ data: scores, error: e1 }, { data: target, error: e2 }] = await Promise.all([
+    sb.from('classroom_grade_scores').select('id, column_id, score').eq('teacher_id', uid).eq('student_id', studentId),
+    sb.from('classroom_grade_columns').select('id, section_id, academic_year, semester, category, name, max_score').eq('teacher_id', uid).eq('section_id', targetSectionId)
+  ]);
+  if(e1 || e2) throw (e1 || e2);
+  let columns = [];
+  const ids = [...new Set((scores || []).map(s => s.column_id))];
+  if(ids.length){
+    const { data, error } = await sb.from('classroom_grade_columns').select('id, section_id, academic_year, semester, category, name, max_score')
+      .eq('teacher_id', uid).in('id', ids);
+    if(error) throw error;
+    columns = data || [];
+  }
+  return { scores: scores || [], allColumns: columns.concat(target || []), targetColumns: target || [] };
+}
+
+/* يرمي خطأ عند الفشل — المستدعي لا يكمل نقل الطالب، وإعادة المحاولة آمنة */
+async function moveStudentGrades(studentId, targetSectionId){
+  const uid = currentUser.id;
+  let d = await loadGradeTransferData(studentId, targetSectionId);
+  let plan = planGradeTransfer(d.scores, d.allColumns, targetSectionId, d.targetColumns);
+  if(plan.missingTerms.length){
+    for(const m of plan.missingTerms){
+      const { data: exists } = await sb.from('classroom_grade_columns').select('id')
+        .eq('teacher_id', uid).eq('section_id', targetSectionId).eq('academic_year', m.year).eq('semester', m.semester).limit(1);
+      if((exists || []).length) continue; /* أُنشئ من جهاز آخر للتو */
+      const { data: src, error: sErr } = await sb.from('classroom_grade_columns').select('category, name, max_score, measures, position')
+        .eq('teacher_id', uid).eq('section_id', m.sourceSectionId).eq('academic_year', m.year).eq('semester', m.semester);
+      if(sErr) throw sErr;
+      const rows = gradeSheetSeed(src || []).map(c => Object.assign({ teacher_id: uid, section_id: targetSectionId, academic_year: m.year, semester: m.semester }, c));
+      const { error } = await sb.from('classroom_grade_columns').insert(rows);
+      if(error) throw error;
+    }
+    d = await loadGradeTransferData(studentId, targetSectionId);
+    plan = planGradeTransfer(d.scores, d.allColumns, targetSectionId, d.targetColumns);
+  }
+  for(const mv of plan.moves){
+    const { error } = await sb.from('classroom_grade_scores').update({ column_id: mv.toColumnId })
+      .eq('teacher_id', uid).eq('id', mv.scoreId);
+    if(error) throw error;
+  }
+  return { moved: plan.moves.length, stay: plan.stay };
+}

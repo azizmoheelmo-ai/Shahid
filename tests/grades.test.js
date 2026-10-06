@@ -212,3 +212,90 @@ test('deleteCrmStudent — التراجع يعيد درجات الطالب أي�
   assert.ok(restored, 'درجات الطالب يجب أن تُعاد مع التراجع');
   assert.equal(restored.rows[0].id, 'g1');
 });
+
+test('planGradeTransfer — درجات المنقول تنتقل لعمود الاسم نفسه في الشعبة الجديدة', async (t) => {
+  const app = loadApp();
+  const term = { academic_year: '1448-1449', semester: 1 };
+  const oldCols = [
+    Object.assign({ id: 'o1', section_id: 'OLD', category: 'performance', name: 'مشاركة', max_score: 10 }, term),
+    Object.assign({ id: 'o2', section_id: 'OLD', category: 'performance', name: 'مهام  أدائية', max_score: 20 }, term),
+    Object.assign({ id: 'o3', section_id: 'OLD', category: 'tests', name: 'اختبار قصير', max_score: 5 }, term),
+    Object.assign({ id: 'o4', section_id: 'OLD', category: 'tests', name: 'الفترة الأولى', max_score: 10 }, term),
+    { id: 'p1', section_id: 'OLD', category: 'performance', name: 'مشاركة', max_score: 10, academic_year: '1447-1448', semester: 2 },
+  ];
+  const targetCols = [
+    Object.assign({ id: 'n1', section_id: 'NEW', category: 'performance', name: 'مشاركة', max_score: 10 }, term),
+    Object.assign({ id: 'n2', section_id: 'NEW', category: 'performance', name: 'مهام أدائية', max_score: 20 }, term),
+    Object.assign({ id: 'n4', section_id: 'NEW', category: 'tests', name: 'الفترة الأولى', max_score: 8 }, term),
+    Object.assign({ id: 'n5', section_id: 'NEW', category: 'performance', name: 'واجبات', max_score: 10 }, term),
+  ];
+  const scores = [
+    { id: 's1', column_id: 'o1', score: 9 },
+    { id: 's2', column_id: 'o2', score: 15 },
+    { id: 's3', column_id: 'o3', score: 4 },   // لا عمود بنفس الاسم
+    { id: 's4', column_id: 'o4', score: 9 },   // أعلى من حد العمود الجديد (8)
+    { id: 's5', column_id: 'p1', score: 7 },   // فصل لا كشف له في الشعبة الجديدة
+    { id: 's6', column_id: 'n5', score: 5 },   // موجودة أصلًا في الجديدة — لا تُمس
+  ];
+  const plan = app.planGradeTransfer(scores, oldCols.concat(targetCols), 'NEW', targetCols);
+
+  await t.test('المطابقة بالاسم والفئة والفصل (والمسافات الزائدة لا تهم)', () => {
+    assert.deepEqual([...plan.moves].map(m => m.scoreId + '→' + m.toColumnId), ['s1→n1', 's2→n2']);
+  });
+  await t.test('ما لا يطابق يبقى في القديمة مع السبب — لا حذف', () => {
+    assert.deepEqual([...plan.stay].map(s => s.scoreId), ['s3', 's4']);
+    assert.match(plan.stay[0].reason, /لا عمود/);
+    assert.match(plan.stay[1].reason, /أعلى/);
+  });
+  await t.test('فصل بلا كشف في الجديدة: يُنشأ بهيكل القديمة ثم تُنقل', () => {
+    assert.deepEqual([...plan.missingTerms].map(m => m.year + '/' + m.semester + '/' + m.sourceSectionId), ['1447-1448/2/OLD']);
+    assert.equal(plan.pendingCount, 1);
+  });
+  await t.test('عمود فيه درجة للطالب أصلًا في الجديدة = لا كتابة فوقها', () => {
+    const p2 = app.planGradeTransfer([{ id: 'x', column_id: 'o1', score: 9 }, { id: 'y', column_id: 'n1', score: 5 }],
+      oldCols.concat(targetCols), 'NEW', targetCols);
+    assert.equal(p2.moves.length, 0);
+    assert.match(p2.stay[0].reason, /درجة/);
+  });
+});
+
+test('moveStudentGrades — يُنشئ الكشف الناقص ثم ينقل، وكل كتابة باسم المعلم الحالي', async () => {
+  const term = { academic_year: '1448-1449', semester: 1, teacher_id: 'u1' };
+  const seed = {
+    classroom_grade_scores: [{ id: 's1', teacher_id: 'u1', column_id: 'o1', student_id: 'a', score: 9 }],
+    classroom_grade_columns: [Object.assign({ id: 'o1', section_id: 'OLD', category: 'performance', name: 'مشاركة', max_score: 10, position: 0 }, term)],
+  };
+  const writes = [];
+  const client = scopedClient(seed);
+  const baseFrom = client.from;
+  client.from = (table) => {
+    const api = baseFrom(table);
+    const filters = [];
+    const baseEq = api.eq;
+    api.insert = (rows) => {
+      writes.push({ table, op: 'insert', rows });
+      rows.forEach((r, i) => seed[table].push(Object.assign({ id: 'new' + i }, r)));
+      return Promise.resolve({ data: null, error: null });
+    };
+    api.update = (vals) => {
+      const u = { table, op: 'update', vals, filters };
+      writes.push(u);
+      const chain = { eq(c, v){ filters.push([c, v]); return chain; }, then(res){
+        seed[table].filter(r => filters.every(([c, v]) => r[c] === v)).forEach(r => Object.assign(r, vals));
+        res({ data: null, error: null });
+      } };
+      return chain;
+    };
+    api.eq = baseEq;
+    return api;
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  const res = await app.moveStudentGrades('a', 'NEW');
+  assert.equal(res.moved, 1);
+  const ins = writes.find(w => w.op === 'insert');
+  assert.equal(ins.rows[0].teacher_id, 'u1');
+  assert.equal(ins.rows[0].section_id, 'NEW');
+  const upd = writes.find(w => w.op === 'update');
+  assert.ok(upd.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'), 'نقل الدرجة مقيّد بالمعلم الحالي');
+  assert.equal(seed.classroom_grade_scores[0].column_id, 'new0');
+});
