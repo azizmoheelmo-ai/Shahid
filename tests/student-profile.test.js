@@ -91,6 +91,25 @@ test('buildStudentStatusLines', async (t) => {
     const lines = app.buildStudentStatusLines({ recordedLessons: 0, attendance: [], incidents: [], positives: [] }, '2026-10-05');
     assert.equal(lines.attendanceLine, 'لا حصص مرصودة لشعبته بعد');
   });
+  await t.test('بعد النقل: غياب الشعبة السابقة منفصل لا يُقسم على حصص الجديدة', () => {
+    const lines = app.buildStudentStatusLines({
+      currentSectionId: 'new', recordedLessons: 3,
+      attendance: [
+        { status: 'absent', lesson: { section_id: 'old' } }, { status: 'absent', lesson: { section_id: 'old' } },
+        { status: 'late', lesson: { section_id: 'old' } }, { status: 'absent', lesson: { section_id: 'new' } },
+      ],
+      incidents: [], positives: [],
+    }, '2026-10-05');
+    assert.equal(lines.attendanceLine, 'غاب 1 · تأخر 0 · مستأذن 0 — من 3 حصة مرصودة · وفي شعبة سابقة: غاب 2 · تأخر 1');
+  });
+  await t.test('نُقل لشعبة لم تُرصد لها حصص بعد: لا يختفي سجله السابق', () => {
+    const lines = app.buildStudentStatusLines({
+      currentSectionId: 'new', recordedLessons: 0,
+      attendance: [{ status: 'absent', lesson: { section_id: 'old' } }],
+      incidents: [], positives: [],
+    }, '2026-10-05');
+    assert.equal(lines.attendanceLine, 'لا حصص مرصودة لشعبته بعد · وفي شعبة سابقة: غاب 1');
+  });
   await t.test('آخر موقف ومنذ كم يوم، والإيجابي بجانبه', () => {
     const lines = app.buildStudentStatusLines({
       recordedLessons: 0, attendance: [],
@@ -115,4 +134,21 @@ test('buildBehaviorTimeline', async () => {
   assert.deepEqual([...items].map(i => i.date + ':' + i.kind), [
     '2026-10-01:positive', '2026-10-01:incident', '2026-09-20:positive', '2026-09-14:incident',
   ]);
+});
+
+test('transferTargetSections — شعب النقل', async () => {
+  const app = loadApp();
+  const grades = [{ id: 'g2', name: 'ثاني ثانوي' }, { id: 'g3', name: 'ثالث ثانوي' }];
+  const sections = [
+    { id: 's7', grade_level_id: 'g2', name: '٧' },
+    { id: 's6', grade_level_id: 'g2', name: '٦' },
+    { id: 's1', grade_level_id: 'g2', name: '١' },
+    { id: 's3', grade_level_id: 'g3', name: '٣' },
+  ];
+  const t = app.transferTargetSections(sections, grades, 's6');
+  // كل الشعب عدا شعبته الحالية، مرتبة، ومعها الاسم الرسمي للكتابة المزدوجة
+  assert.deepEqual([...t].map(x => x.id), ['s3', 's1', 's7']);
+  assert.equal(t.find(x => x.id === 's7').gradeName, 'ثاني ثانوي');
+  assert.equal(t.find(x => x.id === 's7').sectionName, '٧');
+  assert.equal(app.transferTargetSections(sections, grades, null).length, 4, 'طالب بلا شعبة يرى كل الشعب');
 });
