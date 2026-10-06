@@ -162,6 +162,7 @@ async function renderCrmGrades(){
   if(!box) return;
   const token = ++crmGradesToken;
   crmGradeEntry = null;
+  crmGradeImport = null;
   if(!crmSections.length){
     box.innerHTML = '<div class="empty-state">أضف شعبك أولًا من تبويب "الطلاب".</div>';
     return;
@@ -210,6 +211,7 @@ function crmGradeSheetHtml(g){
     html += `<div class="crm-grade-cap"><span><b>${GRADE_CATEGORY_LABELS[cat]}</b> · موزّع ${formatScore(used)} من ${GRADE_CAPS[cat]}</span>
       ${full ? '' : `<button class="crm-skip-btn" onclick="openCrmGradeColumnEditor('${cat}', null)">+ عمود</button>`}</div>`;
   });
+  html += `<label class="crm-skip-btn" style="display:inline-block;margin-bottom:10px;">📥 استيراد من Excel<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="startCrmGradeImport(event)"></label>`;
   html += '</div>';
 
   if(!students.length){
@@ -540,4 +542,232 @@ async function moveStudentGrades(studentId, targetSectionId){
     if(error) throw error;
   }
   return { moved: plan.moves.length, stay: plan.stay };
+}
+
+/* ============================================================
+   استيراد الدرجات من Excel
+   ------------------------------------------------------------
+   - المطابقة بالاسم داخل الشعبة: تام بعد التوحيد، أو الأول والأخير إذا
+     كانا فريدين. الغامض وغير الموجود يُعرض على المعلم ليختار — لا يُنشأ
+     طالب تلقائيًا.
+   - أعمدة الملف تُربط بأعمدة الكشف بالاسم، والمجهول "تجاهل" — لا يُنشأ عمود.
+   - الخانة الفارغة لا تمسح درجة موجودة؛ غير الصالح (نص، أكبر من الحد)
+     يُعرض ويُتجاهل؛ المعلم يرى قبل التأكيد كم درجة ستُستبدل.
+   ============================================================ */
+function normalizeGradeHeader(h){
+  return normalizeStudentName(normalizeGradeColumnName(h)).split(' ')
+    .map(w => (w.length > 3 && w.startsWith('ال')) ? w.slice(2) : w).join(' ');
+}
+
+function matchImportStudent(name, students){
+  const k = normalizeStudentName(name);
+  if(!k) return null;
+  const exact = (students || []).filter(s => normalizeStudentName(s.full_name) === k);
+  if(exact.length === 1) return { id: exact[0].id, how: 'exact' };
+  if(exact.length > 1) return null;
+  const t = k.split(' ');
+  if(t.length < 2) return null;
+  const cands = (students || []).filter(s => {
+    const st = normalizeStudentName(s.full_name).split(' ');
+    return st.length >= 2 && st[0] === t[0] && st[st.length - 1] === t[t.length - 1];
+  });
+  return cands.length === 1 ? { id: cands[0].id, how: 'partial' } : null;
+}
+
+function autoMapGradeHeaders(headers, columns, nameKey){
+  const map = {};
+  const used = new Set();
+  (headers || []).forEach(h => {
+    if(h === nameKey) return;
+    const k = normalizeGradeHeader(h);
+    const c = (columns || []).find(col => !used.has(col.id) && normalizeGradeHeader(col.name) === k);
+    map[h] = c ? c.id : '';
+    if(c) used.add(c.id);
+  });
+  return map;
+}
+
+/* manual: { rowIndex: studentId | '' } — اختيار المعلم لصف (فارغ = تجاهل) */
+function planGradeImport(rows, nameKey, mapping, students, columns, existing, manual){
+  const colById = new Map((columns || []).map(c => [c.id, c]));
+  const had = new Map((existing || []).map(e => [e.column_id + '|' + e.student_id, Number(e.score)]));
+  const upserts = [], invalid = [], unmatched = [], duplicates = [], partial = [];
+  const seen = new Set();
+  let unchanged = 0, overwrite = 0;
+  (rows || []).forEach((r, i) => {
+    const name = String(r[nameKey] == null ? '' : r[nameKey]).replace(/\s+/g, ' ').trim();
+    if(!name) return;
+    let sid;
+    if(manual && Object.prototype.hasOwnProperty.call(manual, i)){
+      sid = manual[i];
+      if(!sid) return;
+    } else {
+      const m = matchImportStudent(name, students);
+      if(!m){ unmatched.push({ row: i, name }); return; }
+      if(m.how === 'partial') partial.push({ row: i, name, studentId: m.id });
+      sid = m.id;
+    }
+    if(seen.has(sid)){ duplicates.push({ row: i, name }); return; }
+    seen.add(sid);
+    Object.keys(mapping || {}).forEach(h => {
+      const c = colById.get(mapping[h]);
+      if(!c) return;
+      const raw = r[h];
+      const parsed = parseScoreInput(raw == null ? '' : String(raw), c.max_score);
+      if(!parsed.ok){ invalid.push({ row: i, name, header: h, text: String(raw), reason: parsed.error }); return; }
+      if(parsed.value === null) return;
+      const k = c.id + '|' + sid;
+      if(had.has(k)){
+        if(had.get(k) === parsed.value){ unchanged++; return; }
+        overwrite++;
+      }
+      upserts.push({ student_id: sid, column_id: c.id, score: parsed.value });
+    });
+  });
+  return { upserts, invalid, unmatched, duplicates, partial, unchanged, overwrite };
+}
+
+/* ============ شاشة الاستيراد ============ */
+let crmGradeImport = null; /* { sectionId, fileName, headers, rows, nameKey, mapping, manual, saving } */
+let crmGradeImportReading = false;
+
+async function startCrmGradeImport(event){
+  const input = event.target;
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file || crmGradeImportReading || !crmGrades || !crmGrades.columns.length) return;
+  crmGradeImportReading = true;
+  const g = crmGrades;
+  try{
+    showToast('جارٍ قراءة الملف...', 'ok');
+    await ensureXlsxLib();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const headerRow = (XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })[0] || []).map(h => String(h).trim()).filter(Boolean);
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    if(crmGrades !== g) return; /* انتقل لشعبة أخرى أثناء القراءة */
+    if(!rows.length || !headerRow.length){ showToast('الملف فارغ', 'error'); return; }
+    const nameKey = headerRow.find(h => /اسم|name/i.test(h)) || headerRow[0];
+    crmGradeImport = {
+      sectionId: g.sectionId, fileName: file.name, headers: headerRow, rows, nameKey,
+      mapping: autoMapGradeHeaders(headerRow, g.columns, nameKey), manual: {}, saving: false
+    };
+    renderCrmGradeImport();
+  } catch(e){
+    showToast('تعذّر قراءة الملف: ' + (e.message || ''), 'error');
+  } finally {
+    crmGradeImportReading = false;
+  }
+}
+
+function crmGradeImportPlan(){
+  const im = crmGradeImport;
+  const mapping = {};
+  Object.keys(im.mapping).forEach(h => { if(h !== im.nameKey && im.mapping[h]) mapping[h] = im.mapping[h]; });
+  return planGradeImport(im.rows, im.nameKey, mapping, crmStudentsOfSection(im.sectionId), crmGrades.columns, crmGrades.scores, im.manual);
+}
+
+function renderCrmGradeImport(){
+  const im = crmGradeImport;
+  const box = document.getElementById('crmGradesBody');
+  if(!im || !box || !crmGrades || crmGrades.sectionId !== im.sectionId) return;
+  const plan = crmGradeImportPlan();
+  const students = crmStudentsOfSection(im.sectionId);
+  const colOpts = sel => '<option value="">تجاهل</option>' + crmGrades.columns.map(c =>
+    `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`).join('');
+  const stuOpts = sel => '<option value="">تجاهل هذا الصف</option>' + students.map(s =>
+    `<option value="${s.id}"${s.id === sel ? ' selected' : ''}>${escapeHtml(s.full_name)}</option>`).join('');
+  let html = `<div class="crm-sheet-head">استيراد درجات</div>
+    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(im.fileName)} · ${escapeHtml(crmSectionLabel(im.sectionId))} · ${im.rows.length} صفًا</div>
+    <div class="crm-today-card">
+      <div class="crm-today-title">ربط أعمدة الملف</div>
+      <label class="crm-field-label">عمود أسماء الطلاب</label>
+      <select class="goal-input" style="margin-bottom:10px;" onchange="onCrmImportNameKey(this.value)">
+        ${im.headers.map((h, i) => `<option value="${i}"${h === im.nameKey ? ' selected' : ''}>${escapeHtml(h)}</option>`).join('')}
+      </select>
+      ${im.headers.map((h, i) => h === im.nameKey ? '' : `<div class="crm-import-map-row"><span>${escapeHtml(h)}</span>
+        <select class="goal-input" onchange="onCrmImportMap(${i}, this.value)">${colOpts(im.mapping[h])}</select></div>`).join('')}
+    </div>`;
+
+  html += `<div class="crm-today-card"><div class="crm-today-title">قبل الاستيراد</div>
+    <div class="crm-import-sum"><b>سيُرصد ${plan.upserts.length} ${plan.upserts.length === 1 ? 'درجة' : 'درجات'}</b>
+      ${plan.overwrite ? `<div style="color:#8A6D1F;">منها ${plan.overwrite} تستبدل درجات مرصودة سابقًا بقيمة مختلفة</div>` : ''}
+      ${plan.unchanged ? `<div style="color:var(--muted);">${plan.unchanged} مطابقة لما هو مرصود (لا تتغير)</div>` : ''}
+      <div style="color:var(--muted);">الخانات الفارغة في الملف لا تمسح أي درجة موجودة.</div>
+    </div>`;
+  if(plan.unmatched.length){
+    html += `<div class="crm-field-label" style="margin-top:10px;">أسماء لم تُطابَق (${plan.unmatched.length}) — اختر الطالب أو تجاهل:</div>` +
+      plan.unmatched.map(u => `<div class="crm-import-map-row"><span>${escapeHtml(u.name)}</span>
+        <select class="goal-input" onchange="onCrmImportManual(${u.row}, this.value)">${stuOpts('')}</select></div>`).join('');
+  }
+  if(plan.partial.length){
+    html += `<div class="crm-field-label" style="margin-top:10px;">مطابقة تقريبية (${plan.partial.length}) — تحقق منها:</div>` +
+      plan.partial.map(p => `<div class="crm-import-map-row"><span>${escapeHtml(p.name)}</span>
+        <select class="goal-input" onchange="onCrmImportManual(${p.row}, this.value)">${stuOpts(p.studentId)}</select></div>`).join('');
+  }
+  if(plan.invalid.length){
+    html += `<div class="crm-field-label" style="margin-top:10px;color:#8A2C2C;">خانات غير صالحة تُتجاهل (${plan.invalid.length}):</div>
+      <div style="font-size:11.5px;color:#8A2C2C;line-height:1.8;">${plan.invalid.slice(0, 15).map(x => `${escapeHtml(x.name)} · ${escapeHtml(x.header)}: "${escapeHtml(x.text)}" — ${escapeHtml(x.reason)}`).join('<br>')}${plan.invalid.length > 15 ? '<br>…' : ''}</div>`;
+  }
+  if(plan.duplicates.length){
+    html += `<div style="font-size:11.5px;color:#8A6D1F;margin-top:8px;">صفوف مكررة لنفس الطالب تُتجاهل (يُعتمد أول صف): ${plan.duplicates.map(d => escapeHtml(d.name)).join('، ')}</div>`;
+  }
+  html += `</div>
+    <div class="crm-grade-entry-bar">
+      <button class="btn btn-outline" onclick="crmGradeImport = null; renderCrmGrades()">إلغاء</button>
+      <button class="btn btn-primary" id="crmGradeImportBtn" onclick="saveCrmGradeImport()"${plan.upserts.length ? '' : ' disabled'}>استيراد ${plan.upserts.length} ${plan.upserts.length === 1 ? 'درجة' : 'درجات'}</button>
+    </div>`;
+  box.innerHTML = html;
+}
+
+function onCrmImportNameKey(index){
+  const im = crmGradeImport;
+  if(!im) return;
+  im.nameKey = im.headers[Number(index)];
+  im.manual = {};
+  im.mapping = autoMapGradeHeaders(im.headers, crmGrades.columns, im.nameKey);
+  renderCrmGradeImport();
+}
+
+function onCrmImportMap(index, columnId){
+  const im = crmGradeImport;
+  if(!im) return;
+  const h = im.headers[Number(index)];
+  /* عمود الكشف الواحد لا يُربط بعمودين من الملف */
+  Object.keys(im.mapping).forEach(k => { if(columnId && k !== h && im.mapping[k] === columnId) im.mapping[k] = ''; });
+  im.mapping[h] = columnId;
+  renderCrmGradeImport();
+}
+
+function onCrmImportManual(row, studentId){
+  const im = crmGradeImport;
+  if(!im) return;
+  im.manual[row] = studentId;
+  renderCrmGradeImport();
+}
+
+async function saveCrmGradeImport(){
+  const im = crmGradeImport;
+  if(!im || im.saving || !crmGrades || crmGrades.sectionId !== im.sectionId) return;
+  const plan = crmGradeImportPlan();
+  if(!plan.upserts.length) return;
+  im.saving = true;
+  const btn = document.getElementById('crmGradeImportBtn');
+  if(btn) btn.disabled = true;
+  for(const part of chunkArray(plan.upserts, 500)){
+    const { error } = await sb.from('classroom_grade_scores').upsert(
+      part.map(u => ({ teacher_id: currentUser.id, column_id: u.column_id, student_id: u.student_id, score: u.score })),
+      { onConflict: 'column_id,student_id' });
+    if(error){
+      /* ما حُفظ قبل الخطأ يبقى؛ إعادة الاستيراد آمنة (المطابق للموجود لا يُعاد) */
+      showToast('تعذّر إكمال الاستيراد: ' + gradeDbErrorMessage(error), 'error');
+      im.saving = false;
+      if(btn) btn.disabled = false;
+      afterCrmGradesChanged();
+      return;
+    }
+  }
+  showToast(`استُوردت ${plan.upserts.length} ${plan.upserts.length === 1 ? 'درجة' : 'درجات'}`, 'ok');
+  afterCrmGradesChanged();
+  if(crmGradeImport === im){ crmGradeImport = null; renderCrmGrades(); }
 }
