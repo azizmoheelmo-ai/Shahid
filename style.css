@@ -1380,3 +1380,19 @@
 .crm-cmp-cell.is-me{color:var(--navy);font-weight:700;}
 .crm-group-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px;}
 .crm-group-row select{width:42% !important;margin:0 !important;}
+.crm-attention-card.prio-info{border-right-color:#3E8E5A;}
+/* ============ تقرير الطالب (طباعة) ============ */
+#printArea .srep{font-family:'Cairo',sans-serif;direction:rtl;color:#1B2B3A;font-size:12px;line-height:1.7;}
+#printArea .srep-title{font-size:18px;font-weight:800;text-align:center;margin-bottom:8px;}
+#printArea .srep-meta{width:100%;border-collapse:collapse;margin-bottom:8px;}
+#printArea .srep-meta td{border:1px solid #CFC8B8;padding:4px 8px;}
+#printArea .srep-sec{margin-top:8px;page-break-inside:avoid;}
+#printArea .srep-h{font-weight:800;font-size:13px;border-bottom:2px solid #1B2B3A;margin-bottom:4px;}
+#printArea .srep-t{width:100%;border-collapse:collapse;margin-top:4px;}
+#printArea .srep-t td{border-bottom:1px solid #E2DCCF;padding:3px 6px;vertical-align:top;}
+#printArea .srep-sub{font-size:11px;color:#555;}
+#printArea .srep-ul{margin:4px 0;padding-right:18px;}
+#printArea .srep-empty{color:#777;}
+#printArea .srep-lines div{border-bottom:1px dotted #999;height:22px;}
+#printArea .srep-sign{width:100%;margin-top:14px;text-align:center;}
+#printArea .srep-note{font-size:10px;color:#777;margin-top:10px;}

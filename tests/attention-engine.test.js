@@ -458,3 +458,69 @@ test('collapseFollowupGroups — أعضاء الجماعية صف واحد', asy
   assert.equal(out[0].members.length, 2);
   assert.equal(out[1].id, '2');
 });
+
+/* ============ مسودة الشاهد من متابعة انتهت بتحسّن ============ */
+test('buildFollowupShahidDraft — مسودة بلا اسم الطالب افتراضيًا', async (t) => {
+  const app = loadApp();
+  const f = { id: 'F1', student_id: 's', reason_type: 'absence', reason_text: 'غاب 3 من آخر 8 حصص', outcome: 'improved',
+    baseline: { count: 3, of: 8 }, result: { sufficient: true, count: 1, of: 7 }, created_at: '2026-09-17T08:00:00Z', closed_at: '2026-10-05T08:00:00Z' };
+  const actions = [{ action_type: 'individual_session', note: 'حوار عن أسباب الغياب', action_date: '2026-09-17' }];
+  const base = { members: [{ followup: f, studentName: 'خالد سعد' }], actions, sectionLabel: 'ثاني ثانوي — الشعبة ٦' };
+  await t.test('الاسم مخفي: "طالب في الشعبة"', () => {
+    const d = app.buildFollowupShahidDraft(base);
+    assert.equal(d.elementKey, 'الإدارة الصفية');
+    assert.match(d.description, /طالب في ثاني ثانوي — الشعبة ٦/);
+    assert.doesNotMatch(JSON.stringify(d), /خالد/);
+    assert.match(d.quant, /قبل: غاب 3 من 8 حصص · بعد: غاب 1 من 7 حصص/);
+    assert.deepEqual([...d.steps], ['جلسة فردية — حوار عن أسباب الغياب (2026-09-17)']);
+    assert.match(d.reflection, /لا تثبت أنه سببه/);
+    assert.equal(d.date, '2026-10-05');
+  });
+  await t.test('إظهار الاسم باختيار المعلم فقط', () => {
+    const d = app.buildFollowupShahidDraft(Object.assign({ showNames: true }, base));
+    assert.match(d.description, /خالد سعد/);
+  });
+  await t.test('التحصيل = عنصر "تحسين نتائج المتعلمين"', () => {
+    const g = Object.assign({}, f, { reason_type: 'grades', reason_text: 'تحت النصف', baseline: { category: 'performance', pct: 30 }, result: { sufficient: true, pct: 80, of: 1 } });
+    const d = app.buildFollowupShahidDraft({ members: [{ followup: g, studentName: 'خالد' }], actions, sectionLabel: '2/6' });
+    assert.equal(d.elementKey, 'تحسين نتائج المتعلمين');
+    assert.match(d.quant, /قبل: أدائي 30% · بعد: 80%/);
+  });
+  await t.test('جماعية: العدد والنتيجة لكل طالب بلا أسماء', () => {
+    const mk = (id, out, b, a) => ({ followup: Object.assign({}, f, { id, student_id: id, reason_type: 'grades', group_id: 'G', reason_text: 'تحت النصف في الأعمال الأدائية', outcome: out, baseline: { category: 'performance', pct: b }, result: { sufficient: true, pct: a, of: 1 } }), studentName: 'اسم ' + id });
+    const d = app.buildFollowupShahidDraft({ members: [mk('a', 'improved', 30, 70), mk('b', 'partial', 20, 40), mk('c', 'improved', 40, 60)], actions, sectionLabel: '2/6' });
+    assert.match(d.description, /3 طلاب في 2\/6/);
+    assert.match(d.quant, /2 من 3 تحسّنوا · 1 جزئي/);
+    assert.match(d.quant, /طالب 1: 30% ← 70%/);
+    assert.doesNotMatch(JSON.stringify(d), /اسم a/);
+  });
+});
+
+test('بطاقة "تحسّن بعد التدخل" — معلومات لا تدخل الشارة', async (t) => {
+  const app = loadApp();
+  const closedAt = new Date(NOW - 2 * 86400000).toISOString();
+  const imp = (extra) => Object.assign({ id: 'F1', student_id: 'st0', status: 'closed', outcome: 'improved', reason_type: 'absence', reason_text: 'غياب', closed_at: closedAt, shahid_id: null }, extra || {});
+  await t.test('تظهر كمعلومة مع إجراء "إضافتها كشاهد"', () => {
+    const cards = app.computeAttentionItems(baseInput({ students: tenStudents(), improvedFollowups: [imp()] }));
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].priority, 'info');
+    assert.equal(cards[0].reasons[0].action.kind, 'make_shahid');
+    assert.equal(app.attentionBadgeCount(cards), 0);
+  });
+  await t.test('أُضيفت كشاهد أو مضى 14 يومًا = تختفي', () => {
+    assert.equal(app.computeAttentionItems(baseInput({ students: tenStudents(), improvedFollowups: [imp({ shahid_id: 'S1' })] })).length, 0);
+    const old = new Date(NOW - 15 * 86400000).toISOString();
+    assert.equal(app.computeAttentionItems(baseInput({ students: tenStudents(), improvedFollowups: [imp({ closed_at: old })] })).length, 0);
+  });
+  await t.test('الجماعية = بطاقة واحدة', () => {
+    const list = ['st0', 'st1'].map((id, i) => imp({ id: 'F' + i, student_id: id, group_id: 'G' }));
+    const cards = app.computeAttentionItems(baseInput({ students: tenStudents(), improvedFollowups: list }));
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].key, 'improved:G');
+  });
+  await t.test('تُرتَّب بعد كل ما سواها', () => {
+    const g = { followups: [{ id: 'X', student_id: 'st5', status: 'open', reason_type: 'other', reason_text: 'س', review_date: TODAY }] };
+    const cards = app.computeAttentionItems(baseInput(Object.assign({ students: tenStudents(), improvedFollowups: [imp()] }, g)));
+    assert.equal(cards[cards.length - 1].priority, 'info');
+  });
+});

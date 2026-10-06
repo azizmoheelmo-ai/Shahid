@@ -940,6 +940,11 @@ async function saveShahid(){
       showSaveMsg('تم حفظ الشاهد بنجاح ✓' + refText, 'ok');
       showToast('تم حفظ الشاهد بنجاح' + refText, 'ok');
       loadPlan();
+      if(followupShahidContext){
+        const fctx = followupShahidContext;
+        followupShahidContext = null;
+        await linkFollowupsToShahid(fctx.followupIds, inserted.id);
+      }
       if(programSessionContext){
         const ctx = programSessionContext;
         programSessionContext = null;
@@ -1059,6 +1064,7 @@ function editRecord(id){
      يجب إلغاؤه هنا — وإلا سيُنسب هذا الشاهد المختلف تمامًا لتلك الحصة عن
      طريق الخطأ عند الحفظ (انظر saveShahid). */
   programSessionContext = null;
+  followupShahidContext = null; /* نفس السبب: لا يُربط شاهد آخر بمتابعة بالخطأ */
   document.getElementById('saveBtn').textContent = 'تحديث الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'inline-block';
 
@@ -1106,6 +1112,7 @@ function duplicateRecord(id){
   /* شاهد جديد تمامًا — لا نرث المعرّف ولا الصور ولا التاريخ */
   editingId = null;
   programSessionContext = null; /* نفس سبب إلغائه في editRecord أعلاه */
+  followupShahidContext = null;
   formDirty = true;
   document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'none';
@@ -1193,6 +1200,7 @@ function startNewShahid(){
   editingId = null;
   formDirty = false;
   programSessionContext = null;
+  followupShahidContext = null;
   clearDraft();
   document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'none';

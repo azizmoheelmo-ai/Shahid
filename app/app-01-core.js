@@ -188,6 +188,7 @@ let currentUser = null;
 let editingId = null;
 let formDirty = false;  // هل يوجد تعديلات غير محفوظة في نموذج الشاهد؟
 let programSessionContext = null; // { programId, sessionNo } لو الشاهد الحالي يوثّق حصة من برنامج نشاط طلابي
+let followupShahidContext = null; // { followupIds } لو الشاهد الحالي مسودة من متابعة انتهت بتحسّن (إدارة الصف)
 
 /* ============ حالة "جاري تصدير/طباعة" موحّدة لكل أزرار الطباعة والتصدير ============ */
 /* عدّاد لا قيمة منطقية — نظريًا قد تكون أكثر من عملية شغّالة معًا. تُستخدم

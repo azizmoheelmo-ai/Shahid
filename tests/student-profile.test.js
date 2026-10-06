@@ -187,3 +187,38 @@ test('crmActiveTab — يعرف تبويب الدرجات', async () => {
   app.document.getElementById = (id) => (reg[id] = reg[id] || { style: { display: id === 'crmTabGrades' ? 'block' : 'none' } });
   assert.equal(app.crmActiveTab(), 'grades');
 });
+
+test('buildStudentReportHtml — تقرير صفحة واحدة للاجتماع', async (t) => {
+  const app = loadApp();
+  const data = {
+    studentId: 's', recordedLessons: 18, currentSectionId: 'S',
+    attendance: [{ status: 'absent', lesson: { lesson_date: '2026-10-01', period: 3, section_id: 'S' } }],
+    incidents: [{ incident_date: '2026-09-14', typeName: 'إعاقة سير الحصة', current_stage: 'warning_1', notes: null }],
+    positives: [{ note_date: '2026-10-02', note_text: 'شارك بحل مسألة' }],
+    privateNotes: [{ body: 'سرّي لا يُطبع' }],
+    followups: [{ reason_type: 'absence', reason_text: 'غياب', status: 'closed', outcome: 'improved', created_at: '2026-09-17T08:00:00Z', closed_at: '2026-10-05T08:00:00Z', baseline: { count: 3, of: 8 }, result: { sufficient: true, count: 1, of: 7 } }],
+    grades: { columns: [{ id: 'm', category: 'performance', name: 'مشاركة', max_score: 10 }], scores: [{ column_id: 'm', student_id: 's', score: 7 }, { column_id: 'm', student_id: 'o', score: 5 }] },
+  };
+  const ctx = { studentName: 'خالد <b>سعد</b>', sectionLabel: '2/6', termLabel: 'الفصل الأول 1448-1449', teacher: 'أحمد', school: 'ثانوية', subject: 'إنجليزي', todayIso: '2026-10-06', sectionStudentIds: ['s', 'o'] };
+  const html = app.buildStudentReportHtml(data, ctx);
+  await t.test('ملاحظات المعلم الخاصة لا تظهر أبدًا', () => {
+    assert.doesNotMatch(html, /سرّي/);
+  });
+  await t.test('النص مُهرَّب (XSS)', () => {
+    assert.doesNotMatch(html, /<b>سعد<\/b>/);
+    assert.match(html, /خالد &lt;b&gt;سعد&lt;\/b&gt;/);
+  });
+  await t.test('الأقسام: الحضور، الدرجات مع متوسط الشعبة، المواقف، الإيجابية، المتابعات', () => {
+    assert.match(html, /غاب 1 · تأخر 0 · مستأذن 0 — من 18 حصة مرصودة/);
+    assert.match(html, /مشاركة/);
+    assert.match(html, /7 من 10/);
+    assert.match(html, /متوسط الشعبة 6/);
+    assert.match(html, /إعاقة سير الحصة/);
+    assert.match(html, /شارك بحل مسألة/);
+    assert.match(html, /قبل: غاب 3 من 8 حصص · بعد: غاب 1 من 7 حصص/);
+  });
+  await t.test('مساحة "الخطوة التالية المتفق عليها" والتوقيعات', () => {
+    assert.match(html, /الخطوة التالية المتفق عليها/);
+    assert.match(html, /الموجه الطلابي/);
+  });
+});

@@ -446,3 +446,33 @@ test('saveCrmGroupFollowup — نقرة مزدوجة لا تفتح المتاب�
   assert.equal(acts[0].rows.length, 2, 'إجراء لكل عضو');
   assert.ok(acts[0].rows.every(r => r.teacher_id === 'u1'));
 });
+
+test('linkFollowupsToShahid — الربط مقيّد بالمعلم الحالي', async () => {
+  const updates = [];
+  const client = scopedClient({});
+  const baseFrom = client.from;
+  client.from = (table) => {
+    const api = baseFrom(table);
+    api.update = (vals) => {
+      const filters = [];
+      const chain = { eq(c, v){ filters.push([c, v]); return chain; }, in(c, v){ filters.push([c, v]); return chain; },
+        then(res){ updates.push({ table, vals, filters }); res({ data: null, error: null }); } };
+      return chain;
+    };
+    return api;
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  await app.linkFollowupsToShahid(['F1', 'F2'], 'S9');
+  const u = updates.find(x => x.table === 'classroom_followups');
+  assert.equal(u.vals.shahid_id, 'S9');
+  assert.ok(u.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'));
+  assert.ok(u.filters.some(([c, v]) => c === 'id' && Array.isArray(v) && v.length === 2));
+});
+
+test('startNewShahid — يلغي ربط مسودة متابعة سابقة (لا يُربط شاهد آخر بها بالخطأ)', async () => {
+  const app = loadApp({ currentUser: { id: 'u1', user_metadata: {} } });
+  const { runInAppContext } = require('./load-app');
+  runInAppContext(app, `followupShahidContext = { followupIds: ['F1'] }; showForm = () => {};`);
+  try{ app.startNewShahid(); } catch(e){ /* DOM وهمي — يكفي أن يصل للسطر الأول */ }
+  assert.equal(runInAppContext(app, 'followupShahidContext'), null);
+});
