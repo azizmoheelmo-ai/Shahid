@@ -229,14 +229,15 @@ async function renderCrmToday(){
   box.innerHTML = '<div class="loading-state">جارٍ التحميل...</div>';
 
   const since = addDaysIso(todayIso, -7);
-  const [ttOk, lessonsRes, holidayCheck, attention, skipsRes] = await Promise.all([
+  const [ttOk, lessonsRes, holidayCheck, attention, skipsRes, plans] = await Promise.all([
     loadCrmTimetable(),
     sb.from('classroom_lessons').select('id, section_id, lesson_date, period, updated_at')
       .eq('teacher_id', currentUser.id).gte('lesson_date', since).lte('lesson_date', todayIso),
     crmHolidayChecker(),
     getAttentionFresh(),
     sb.from('classroom_lesson_skips').select('id, section_id, lesson_date, period, note')
-      .eq('teacher_id', currentUser.id).gte('lesson_date', since).lte('lesson_date', todayIso)
+      .eq('teacher_id', currentUser.id).gte('lesson_date', since).lte('lesson_date', todayIso),
+    loadLessonPlans().catch(() => null)
   ]);
   if(token !== crmTodayRenderToken) return; /* طُلب رسم أحدث أثناء الانتظار (تغيّر الفصل/السنة) */
   if(!ttOk || lessonsRes.error){
@@ -289,7 +290,7 @@ async function renderCrmToday(){
             : `<button class="crm-skip-btn" onclick="openCrmSkipModal('${r.section_id}','${todayIso}',${r.period})">لم أحضر</button><button class="btn ${isNext ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">رصد</button>`;
         const skipText = r.skip ? `<div class="crm-skip-note">لم تحضرها${r.skip.note ? ' — ' + escapeHtml(r.skip.note) : ''}</div>` : '';
         return `<div class="crm-lesson-row${isNext ? ' is-next' : ''}${r.skip ? ' is-skipped' : ''}">
-          <span><b>الحصة ${r.period}</b> · ${label}${skipText}</span>
+          <span><b>الحصة ${r.period}</b> · ${label}${skipText}${planBadgeForLesson(plans, todayIso, r.section_id, r.period)}</span>
           <span class="crm-lesson-actions">${action}</span>
         </div>`;
       }).join('');
@@ -298,6 +299,9 @@ async function renderCrmToday(){
   html += `<div style="margin-top:8px;"><a href="#" style="font-size:11.5px;" onclick="event.preventDefault();toggleCrmExtraLesson()">+ رصد حصة خارج الجدول</a></div>
     <div id="crmExtraLessonBox" style="display:none;margin-top:6px;">${crmSectionButtonsHtml(todayIso)}</div>`;
   html += '</div>';
+
+  /* ---- خططي (أخطط ← أنفّذ ← أوثّق) ---- */
+  html += lessonPlansTodayHtml(plans, todayIso);
 
   /* ---- يحتاج انتباهي (أعلى 5) ---- */
   html += attentionTodaySectionHtml(attention);

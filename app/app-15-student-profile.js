@@ -408,6 +408,7 @@ function closeCrmModal(){
   crmQuickPositive = null;
   crmTransfer = null;
   crmLessonSkip = null;
+  if(typeof crmPlanDraft !== 'undefined') crmPlanDraft = null;
   if(typeof crmGradeColumnDraft !== 'undefined') crmGradeColumnDraft = null;
   const cancelBtn = document.getElementById('confirmCancelBtn');
   if(cancelBtn) cancelBtn.click();
