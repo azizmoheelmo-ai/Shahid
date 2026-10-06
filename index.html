@@ -638,6 +638,7 @@
       <div id="crmTabsBar">
         <button class="btn btn-primary crm-tab-btn" id="crmTabBtnToday" onclick="switchCrmTab('today')">اليوم</button>
         <button class="btn btn-outline crm-tab-btn" id="crmTabBtnFollowups" onclick="switchCrmTab('followups')">المتابعات</button>
+        <button class="btn btn-outline crm-tab-btn" id="crmTabBtnGrades" onclick="switchCrmTab('grades')">الدرجات</button>
         <button class="btn btn-outline crm-tab-btn" id="crmTabBtnRecord" onclick="switchCrmTab('record')">المخالفات</button>
         <button class="btn btn-outline crm-tab-btn" id="crmTabBtnStudents" onclick="switchCrmTab('students')">الطلاب</button>
       </div>
@@ -650,6 +651,11 @@
       <!-- ============ تبويب: المتابعات (يحتاج انتباهي + المتابعات) ============ -->
       <div id="crmTabFollowups" style="display:none;">
         <div class="section" id="crmFollowupsBody"></div>
+      </div>
+
+      <!-- ============ تبويب: الدرجات (كشف كل شعبة لكل فصل) ============ -->
+      <div id="crmTabGrades" style="display:none;">
+        <div class="section" id="crmGradesBody"></div>
       </div>
 
       <!-- ============ ورقة رصد الحصة (تحل محل التبويبات أثناء الرصد) ============ -->
@@ -1423,6 +1429,7 @@
 <script src="app/app-14-classroom-today.js"></script>
 <script src="app/app-15-student-profile.js"></script>
 <script src="app/app-16-attention-followups.js"></script>
+<script src="app/app-17-grades.js"></script>
 
 </body>
 </html>

@@ -1310,10 +1310,11 @@
 .crm-private-note{background:#FAF9F6;border:1px dashed var(--line);padding:8px 10px;margin-bottom:8px;font-size:12px;line-height:1.7;}
 /* تبويبات إدارة الصف: شبكة تنقسم صفّين تلقائيًا عند ضيق الشاشة أو تكبير خط
    الجوال، بدل صف واحد يخرج عن حافة الشاشة ويُزيح الصفحة كلها جانبيًا */
-#crmTabsBar{display:grid;grid-template-columns:repeat(auto-fit, minmax(76px, 1fr));gap:6px;padding:0 32px;margin-bottom:14px;}
+#crmTabsBar{display:grid;grid-template-columns:repeat(auto-fit, minmax(58px, 1fr));gap:4px;padding:0 32px;margin-bottom:14px;}
 .crm-tab-btn{min-width:0;padding-left:4px;padding-right:4px;font-size:12.5px;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 @media (max-width:640px){
   #crmTabsBar{padding:0 16px;}
+  .crm-tab-btn{font-size:12px;}
 }
 .crm-attention-card{border:1px solid var(--line);border-right-width:4px;padding:8px 10px;margin-bottom:8px;background:#fff;}
 .crm-attention-card.prio-urgent{border-right-color:#C0392B;}
@@ -1338,3 +1339,26 @@
 .crm-why-row{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.7;padding:4px 0;}
 .crm-transfer-btn{border:1px solid var(--line);background:#fff;color:var(--navy);font-family:inherit;font-size:11.5px;font-weight:700;padding:4px 10px;cursor:pointer;white-space:nowrap;}
 
+/* ============ كشف الدرجات ============ */
+.crm-grade-caps{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;}
+.crm-grade-cap{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);}
+.crm-grade-cap b{color:var(--navy);}
+/* الجدول يتمرر أفقيًا داخل إطاره فقط — لا تتحرك الصفحة جانبيًا */
+.crm-grade-wrap{overflow-x:auto;border:1px solid var(--line);-webkit-overflow-scrolling:touch;}
+.crm-grade-table{border-collapse:collapse;font-size:12px;min-width:100%;}
+.crm-grade-table th,.crm-grade-table td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:center;white-space:nowrap;}
+.crm-grade-table thead th{background:#F5F3EE;font-weight:700;color:var(--navy);vertical-align:top;}
+.crm-grade-table .crm-grade-name{position:sticky;right:0;background:#fff;text-align:right;max-width:150px;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-left:1px solid var(--line);z-index:1;}
+.crm-grade-table thead .crm-grade-name{background:#F5F3EE;cursor:default;}
+.crm-grade-col{cursor:pointer;}
+.crm-grade-col.cat-tests{background:#EEF2F8 !important;}
+.crm-grade-max{display:block;font-size:10.5px;font-weight:400;color:var(--muted);}
+.crm-grade-missing{display:block;font-size:10px;font-weight:400;color:#8A6D1F;}
+.crm-grade-empty{color:#C9C4B8;}
+.crm-grade-table .crm-grade-total{font-weight:700;background:#FAF9F6;}
+.crm-grade-entry{border:1px solid var(--line);}
+.crm-grade-entry-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 10px;border-bottom:1px solid var(--line);font-size:12.5px;}
+.crm-grade-entry-row:last-child{border-bottom:none;}
+.crm-grade-input{width:76px !important;flex-shrink:0;text-align:center;margin:0 !important;padding:6px !important;}
+.crm-grade-input.is-invalid{border-color:#C0392B !important;background:#FBEAEA;}
+.crm-grade-entry-bar{position:sticky;bottom:calc(66px + env(safe-area-inset-bottom, 0px));display:flex;gap:8px;justify-content:space-between;background:#fff;padding:10px 0;border-top:1px solid var(--line);margin-top:10px;z-index:5;}

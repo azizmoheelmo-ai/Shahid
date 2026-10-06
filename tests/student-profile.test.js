@@ -110,6 +110,22 @@ test('buildStudentStatusLines', async (t) => {
     }, '2026-10-05');
     assert.equal(lines.attendanceLine, 'لا حصص مرصودة لشعبته بعد · وفي شعبة سابقة: غاب 1');
   });
+  await t.test('الدرجات: النسبة مما رُصد لكل فئة', () => {
+    const columns = [
+      { id: 'm', category: 'performance', max_score: 10 }, { id: 'p', category: 'performance', max_score: 20 },
+      { id: 't1', category: 'tests', max_score: 10 },
+    ];
+    const lines = app.buildStudentStatusLines({
+      studentId: 's', recordedLessons: 0, attendance: [], incidents: [], positives: [],
+      grades: { columns, scores: [{ column_id: 'm', student_id: 's', score: 7 }, { column_id: 'p', student_id: 's', score: 15 }] },
+    }, '2026-10-05');
+    assert.equal(lines.gradesLine, 'أدائي 73% مما رُصد · اختبارات لم تُرصد');
+  });
+  await t.test('الدرجات: بلا كشف / بلا درجات له', () => {
+    const base = { studentId: 's', recordedLessons: 0, attendance: [], incidents: [], positives: [] };
+    assert.equal(app.buildStudentStatusLines(Object.assign({ grades: { columns: [], scores: [] } }, base), '2026-10-05').gradesLine, 'لا كشف درجات لشعبته هذا الفصل');
+    assert.equal(app.buildStudentStatusLines(Object.assign({ grades: { columns: [{ id: 'm', category: 'performance', max_score: 10 }], scores: [] } }, base), '2026-10-05').gradesLine, 'لا درجات مرصودة له بعد');
+  });
   await t.test('آخر موقف ومنذ كم يوم، والإيجابي بجانبه', () => {
     const lines = app.buildStudentStatusLines({
       recordedLessons: 0, attendance: [],
@@ -151,4 +167,23 @@ test('transferTargetSections — شعب النقل', async () => {
   assert.equal(t.find(x => x.id === 's7').gradeName, 'ثاني ثانوي');
   assert.equal(t.find(x => x.id === 's7').sectionName, '٧');
   assert.equal(app.transferTargetSections(sections, grades, null).length, 4, 'طالب بلا شعبة يرى كل الشعب');
+});
+
+test('showCrmOverlayPane — الملف يخفي كل التبويبات (لا لوحتان ظاهرتان معًا)', async () => {
+  /* خلل حقيقي: قائمة التبويبات المخفية كانت ثابتة ونسيت "المتابعات" ثم
+     "الدرجات" — فتح ملف طالب منهما أظهر الملف تحت التبويب المفتوح */
+  const app = loadApp();
+  const reg = {};
+  app.document.getElementById = (id) => (reg[id] = reg[id] || { style: { display: 'block' } });
+  const panes = ['crmTabToday', 'crmTabFollowups', 'crmTabGrades', 'crmTabRecord', 'crmTabStudents'];
+  app.showCrmOverlayPane('profile');
+  panes.forEach(id => assert.equal(reg[id].style.display, 'none', id + ' يجب أن يُخفى'));
+  assert.equal(reg.crmStudentProfile.style.display, 'block');
+});
+
+test('crmActiveTab — يعرف تبويب الدرجات', async () => {
+  const app = loadApp();
+  const reg = {};
+  app.document.getElementById = (id) => (reg[id] = reg[id] || { style: { display: id === 'crmTabGrades' ? 'block' : 'none' } });
+  assert.equal(app.crmActiveTab(), 'grades');
 });

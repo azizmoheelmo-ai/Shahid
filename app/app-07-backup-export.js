@@ -1280,6 +1280,82 @@ alter table public.classroom_lesson_skips enable row level security;
 drop policy if exists "المعلم يدير حصصه غير المحضورة فقط" on public.classroom_lesson_skips;
 create policy "المعلم يدير حصصه غير المحضورة فقط" on public.classroom_lesson_skips for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
+-- كشف الدرجات: أعمدة لكل شعبة وفصل (أدائي 40 / اختبارات 20) ودرجات الطلاب.
+-- الحذف المقيَّد للشعبة: لا تُحذف شعبة عليها كشف درجات (يحمي الدرجات من حذف عرضي)
+create table if not exists public.classroom_grade_columns (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  academic_year text not null,
+  semester smallint not null check (semester in (1, 2)),
+  category text not null check (category in ('performance', 'tests')),
+  name text not null check (char_length(btrim(name)) between 1 and 60),
+  max_score numeric(5,2) not null check (max_score > 0 and max_score <= 40),
+  measures text check (measures is null or char_length(measures) <= 120),
+  position smallint not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade
+);
+create index if not exists classroom_grade_columns_term_idx on public.classroom_grade_columns(teacher_id, section_id, academic_year, semester);
+create table if not exists public.classroom_grade_scores (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  column_id uuid not null,
+  student_id uuid not null,
+  score numeric(5,2) not null check (score >= 0),
+  updated_at timestamptz not null default now(),
+  unique (column_id, student_id),
+  foreign key (column_id, teacher_id) references public.classroom_grade_columns(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_grade_scores_student_idx on public.classroom_grade_scores(student_id);
+
+-- حماية مكررة بالقاعدة: سقف الفئة، والدرجة لا تتجاوز القصوى، ولا تُخفض القصوى تحت درجة مرصودة
+create or replace function public.check_grade_column() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_sum numeric; v_cap numeric; v_over int;
+begin
+  v_cap := case new.category when 'performance' then 40 else 20 end;
+  select coalesce(sum(max_score), 0) into v_sum from public.classroom_grade_columns
+    where teacher_id = new.teacher_id and section_id = new.section_id
+      and academic_year = new.academic_year and semester = new.semester
+      and category = new.category and id <> new.id;
+  if v_sum + new.max_score > v_cap then
+    raise exception 'grade_cap_exceeded' using errcode = 'P0001', hint = v_cap::text;
+  end if;
+  if tg_op = 'UPDATE' and new.max_score < old.max_score then
+    select count(*) into v_over from public.classroom_grade_scores where column_id = new.id and score > new.max_score;
+    if v_over > 0 then
+      raise exception 'grade_max_below_scores' using errcode = 'P0001', hint = v_over::text;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace function public.check_grade_score() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_max numeric;
+begin
+  select max_score into v_max from public.classroom_grade_columns where id = new.column_id;
+  if v_max is not null and new.score > v_max then
+    raise exception 'grade_score_above_max' using errcode = 'P0001', hint = v_max::text;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+drop trigger if exists trg_check_grade_column on public.classroom_grade_columns;
+create trigger trg_check_grade_column before insert or update on public.classroom_grade_columns for each row execute function public.check_grade_column();
+drop trigger if exists trg_check_grade_score on public.classroom_grade_scores;
+create trigger trg_check_grade_score before insert or update on public.classroom_grade_scores for each row execute function public.check_grade_score();
+alter table public.classroom_grade_columns enable row level security;
+alter table public.classroom_grade_scores enable row level security;
+drop policy if exists "المعلم يدير أعمدة درجاته فقط" on public.classroom_grade_columns;
+create policy "المعلم يدير أعمدة درجاته فقط" on public.classroom_grade_columns for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير درجات طلابه فقط" on public.classroom_grade_scores;
+create policy "المعلم يدير درجات طلابه فقط" on public.classroom_grade_scores for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
   next_number int not null default 1,
@@ -1564,7 +1640,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1667,6 +1743,8 @@ async function exportFullBackup(){
       '     27. classroom_followup_actions.csv (لازم بعد classroom_followups)',
       '     28. classroom_attention_dismissals.csv',
       '     29. classroom_lesson_skips.csv (لازم بعد classroom_sections)',
+      '     30. classroom_grade_columns.csv (لازم بعد classroom_sections)',
+      '     31. classroom_grade_scores.csv (لازم بعد classroom_grade_columns وclassroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',
