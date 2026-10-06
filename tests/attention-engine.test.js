@@ -376,3 +376,85 @@ test('علامات ورقة الرصد — الدرجات علامة زرقاء 
   assert.ok(m.get('st4'), 'التراجع علامة أيضًا');
   assert.equal(m.has('st3'), false);
 });
+
+/* ============ متابعة التحصيل والمتابعة الجماعية ============ */
+test('gradeFollowupBaseline — خط أساس التحصيل يُجمَّد وقت الفتح', async (t) => {
+  const app = loadApp();
+  const cols = [
+    { id: 'p1', category: 'performance', max_score: 10 }, { id: 'p2', category: 'performance', max_score: 10 },
+    { id: 't1', category: 'tests', max_score: 10 },
+  ];
+  const scores = [
+    { column_id: 'p1', student_id: 's', score: 3 }, { column_id: 'p2', student_id: 's', score: 4 },
+    { column_id: 't1', student_id: 's', score: 6 },
+  ];
+  await t.test('الفئة المحددة', () => {
+    assert.deepEqual({ ...app.gradeFollowupBaseline(cols, scores, 's', 'tests') }, { category: 'tests', pct: 60, sum: 6, max: 10 });
+  });
+  await t.test('بلا فئة = الأضعف بين المرصود', () => {
+    assert.equal(app.gradeFollowupBaseline(cols, scores, 's').category, 'performance');
+    assert.equal(app.gradeFollowupBaseline(cols, scores, 's').pct, 35);
+  });
+  await t.test('بلا درجات = null (لا خط أساس مخترع)', () => {
+    assert.equal(app.gradeFollowupBaseline(cols, [], 's'), null);
+  });
+});
+
+test('computeGradeFollowupResult — "بعد" = ما رُصد بعد الفتح فقط', async (t) => {
+  const app = loadApp();
+  const cols = [{ id: 'p1', category: 'performance', max_score: 10 }, { id: 'p2', category: 'performance', max_score: 10 }, { id: 't1', category: 'tests', max_score: 10 }];
+  const f = { student_id: 's', reason_type: 'grades', created_at: '2026-10-01T08:00:00Z', baseline: { category: 'performance', pct: 35 } };
+  await t.test('لا درجة جديدة بعد الفتح = لا بيانات كافية', () => {
+    const r = app.computeGradeFollowupResult(f, cols, [{ column_id: 'p1', student_id: 's', score: 3, updated_at: '2026-09-20T08:00:00Z' }]);
+    assert.equal(r.sufficient, false);
+  });
+  await t.test('درجات الفئة نفسها بعد الفتح', () => {
+    const r = app.computeGradeFollowupResult(f, cols, [
+      { column_id: 'p1', student_id: 's', score: 3, updated_at: '2026-09-20T08:00:00Z' },
+      { column_id: 'p2', student_id: 's', score: 7, updated_at: '2026-10-05T08:00:00Z' },
+      { column_id: 't1', student_id: 's', score: 1, updated_at: '2026-10-05T08:00:00Z' },
+      { column_id: 'p2', student_id: 'x', score: 1, updated_at: '2026-10-05T08:00:00Z' },
+    ]);
+    assert.deepEqual({ ...r }, { sufficient: true, pct: 70, of: 1 });
+    assert.equal(app.suggestFollowupOutcome(f, r), 'improved');
+  });
+  await t.test('اقتراح: أعلى من قبل لكن تحت النصف = جزئي؛ لم يرتفع = لم يتحسّن', () => {
+    assert.equal(app.suggestFollowupOutcome(f, { sufficient: true, pct: 45, of: 1 }), 'partial');
+    assert.equal(app.suggestFollowupOutcome(f, { sufficient: true, pct: 30, of: 1 }), 'not_improved');
+  });
+});
+
+test('المتابعة الجماعية — بطاقة واحدة عند حلول موعدها لا بطاقة لكل طالب', async () => {
+  const app = loadApp();
+  const followups = ['st0', 'st1', 'st2'].map(id => ({ id: 'F' + id, student_id: id, group_id: 'G1', status: 'open', reason_type: 'grades', reason_text: 'تحت النصف', review_date: '2026-10-08' }));
+  const data = baseInput({ students: tenStudents(), followups });
+  const cards = app.computeAttentionItems(data);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].kind, 'group');
+  assert.equal(cards[0].key, 'group:G1');
+  assert.match(cards[0].reasons[0].text, /متابعة جماعية "تحت النصف" \(3 طلاب\)/);
+  assert.deepEqual([...cards[0].memberIds].sort(), ['st0', 'st1', 'st2']);
+  // علامة "حان موعدها" لكل عضو في ورقة الرصد
+  const m = app.sheetMarkersFor({ cards, data }, ['st0', 'st5'], TODAY);
+  assert.equal(m.get('st0').reasons[0].rule, 'followup_due');
+  assert.equal(m.has('st5'), false);
+});
+
+test('groupOutcomeSummary — "X من Y تحسّنوا"', async () => {
+  const app = loadApp();
+  const s = app.groupOutcomeSummary([{ outcome: 'improved' }, { outcome: 'improved' }, { outcome: 'partial' }, { outcome: 'not_improved' }]);
+  assert.equal(s, '2 من 4 تحسّنوا · 1 جزئي · 1 لم يتحسّن');
+});
+
+test('collapseFollowupGroups — أعضاء الجماعية صف واحد', async () => {
+  const app = loadApp();
+  const rows = [
+    { id: '1', student_id: 'a', group_id: 'G', reason_text: 'تحت النصف' },
+    { id: '2', student_id: 'x', group_id: null, reason_text: 'غياب' },
+    { id: '3', student_id: 'b', group_id: 'G', reason_text: 'تحت النصف' },
+  ];
+  const out = app.collapseFollowupGroups(rows);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].members.length, 2);
+  assert.equal(out[1].id, '2');
+});

@@ -1231,6 +1231,9 @@ create table if not exists public.classroom_followups (
 );
 create index if not exists classroom_followups_student_idx on public.classroom_followups(student_id);
 create index if not exists classroom_followups_open_idx on public.classroom_followups(teacher_id, status, review_date);
+-- المتابعة الجماعية: أعضاؤها متابعات عادية بمعرّف مجموعة مشترك (النتيجة لكل طالب)
+alter table public.classroom_followups add column if not exists group_id uuid;
+create index if not exists classroom_followups_group_idx on public.classroom_followups(teacher_id, group_id) where group_id is not null;
 
 create table if not exists public.classroom_followup_actions (
   id uuid primary key default gen_random_uuid(),

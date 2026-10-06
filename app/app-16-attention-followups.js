@@ -136,10 +136,19 @@ function computeAttentionItems(input){
   });
 
   const openReasons = new Map(); /* studentId → Set(reason_type) */
+  const dueGroups = new Map(); /* group_id → { followups } — متابعة جماعية = بطاقة واحدة */
   (followups || []).forEach(f => {
     if(f.status !== 'open') return;
     if(!openReasons.has(f.student_id)) openReasons.set(f.student_id, new Set());
     openReasons.get(f.student_id).add(f.reason_type);
+    if(f.group_id){
+      const st = studentMap.get(f.student_id);
+      if(f.review_date <= todayIso && st && st.is_active !== false){
+        if(!dueGroups.has(f.group_id)) dueGroups.set(f.group_id, []);
+        dueGroups.get(f.group_id).push(f);
+      }
+      return;
+    }
     if(f.review_date <= todayIso){
       const late = daysBetweenIso(f.review_date, todayIso);
       add(f.student_id, {
@@ -218,6 +227,18 @@ function computeAttentionItems(input){
   byStudent.forEach((reasons, studentId) => {
     reasons.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]);
     cards.push({ key: studentId, studentId, priority: reasons[0].priority, reasons });
+  });
+
+  dueGroups.forEach((members, gid) => {
+    const reviewDate = members.map(f => f.review_date).sort()[0];
+    const late = daysBetweenIso(reviewDate, todayIso);
+    const priority = late > ATTENTION_RULES.overdueUrgentDays ? 'urgent' : 'important';
+    const text = `متابعة جماعية "${members[0].reason_text}" (${arabicCountPhrase(members.length, CRM_STUDENT_COUNT_FORMS)}): ${late === 0 ? 'موعد مراجعتها اليوم' : 'موعد مراجعتها كان ' + shortDateAr(reviewDate)}`;
+    cards.push({
+      key: 'group:' + gid, kind: 'group', groupId: gid, sectionId: (studentMap.get(members[0].student_id) || {}).section_id,
+      priority, memberIds: members.map(f => f.student_id),
+      reasons: [{ rule: 'followup_due', priority, text, action: { kind: 'review_group', groupId: gid } }]
+    });
   });
 
   /* القاعدة 8: تحت النصف — بطاقة لكل شعبة وفئة، لا لكل طالب (أول رصد
@@ -318,6 +339,10 @@ function sheetMarkersFor(cache, studentIds, todayIso){
     if(SHEET_MARK_RANK[reason.priority] < SHEET_MARK_RANK[m.priority]) m.priority = reason.priority;
   };
   (cache.cards || []).forEach(card => {
+    if(card.kind === 'group'){
+      (card.memberIds || []).forEach(id => add(id, card.reasons[0]));
+      return;
+    }
     if(card.kind === 'section'){
       /* بطاقة الشعبة "تحت النصف" تصير علامة زرقاء لكل طالب فيها */
       (card.lowStudents || []).forEach(x => add(x.id, {
@@ -369,9 +394,46 @@ function computeFollowupResult(followup, sectionLessons, attendanceRows, inciden
   return { sufficient: false };
 }
 
+/* التحصيل: خط الأساس = نسبته مما رُصد في الفئة المحددة (أو الأضعف) وقت الفتح */
+function gradeFollowupBaseline(columns, scores, studentId, category){
+  const sum = studentGradeSummary(columns, scores, studentId);
+  const cats = category ? [category] : ['performance', 'tests'].filter(c => sum[c].pct !== null).sort((a, b) => sum[a].pct - sum[b].pct);
+  const c = cats.find(k => sum[k] && sum[k].pct !== null);
+  if(!c) return null;
+  return { category: c, pct: sum[c].pct, sum: sum[c].sum, max: sum[c].recordedMax };
+}
+
+/* التحصيل: "بعد" = درجات الفئة نفسها المرصودة بعد الفتح فقط. لا درجة جديدة = لا بيانات كافية */
+function computeGradeFollowupResult(followup, columns, scores){
+  const cat = followup.baseline && followup.baseline.category;
+  if(!cat) return { sufficient: false };
+  const colById = new Map((columns || []).filter(c => c.category === cat).map(c => [c.id, c]));
+  const opened = new Date(followup.created_at).getTime();
+  const after = (scores || []).filter(g => g.student_id === followup.student_id && colById.has(g.column_id) &&
+    new Date(g.updated_at).getTime() > opened);
+  if(!after.length) return { sufficient: false, of: 0 };
+  const max = after.reduce((s, g) => s + Number(colById.get(g.column_id).max_score), 0);
+  return { sufficient: true, pct: Math.round(100 * after.reduce((s, g) => s + Number(g.score), 0) / max), of: after.length };
+}
+
+function groupOutcomeSummary(members){
+  const n = (members || []).length;
+  const count = k => members.filter(m => m.outcome === k).length;
+  let t = `${count('improved')} من ${n} تحسّنوا`;
+  if(count('partial')) t += ` · ${count('partial')} جزئي`;
+  if(count('not_improved')) t += ` · ${count('not_improved')} لم يتحسّن`;
+  return t;
+}
+
 /* اقتراح نتيجة (المعلم يقرر دائمًا) */
 function suggestFollowupOutcome(followup, result){
   if(!result || !result.sufficient) return null;
+  if(followup.reason_type === 'grades'){
+    const before = followup.baseline && followup.baseline.pct;
+    if(result.pct >= ATTENTION_RULES.gradeLowPct) return 'improved';
+    if(before !== null && before !== undefined && result.pct > before) return 'partial';
+    return 'not_improved';
+  }
   if(followup.reason_type === 'behavior') return result.recurred ? 'not_improved' : 'improved';
   const base = followup.baseline || {};
   const beforeRate = base.of ? base.count / base.of : null;
@@ -504,6 +566,15 @@ function attentionStudentName(id){
 
 function attentionCardHtml(card){
   const dot = { urgent: '🔴', important: '🟠', review: '🔵' }[card.priority];
+  if(card.kind === 'group'){
+    const r = card.reasons[0];
+    return `<div class="crm-attention-card prio-${card.priority}">
+      <div class="crm-attention-head">${dot} 👥 ${card.sectionId ? escapeHtml(crmSectionLabel(card.sectionId)) : 'متابعة جماعية'}</div>
+      <div class="crm-att-reason"><div>${escapeHtml(r.text)}</div>
+        <div class="crm-att-reason-actions"><button class="btn btn-outline crm-mini-btn" onclick="runAttentionAction('${card.key}', 0)">سجّل النتيجة</button></div>
+      </div>
+    </div>`;
+  }
   if(card.kind === 'section'){
     const r = card.reasons[0];
     return `<div class="crm-attention-card prio-${card.priority}">
@@ -535,7 +606,7 @@ function attentionCardHtml(card){
 
 function attentionActionLabel(action){
   return { crm_pending: 'إعداد خطاب التحويل', crm_undocumented: 'توثيق التسليم', ac_pending: 'إعداد الخطاب', ac_undocumented: 'توثيق التسليم',
-    review: 'سجّل النتيجة', open_followup: 'فتح متابعة' }[action.kind] || 'فتح';
+    review: 'سجّل النتيجة', review_group: 'سجّل النتيجة', open_followup: 'فتح متابعة' }[action.kind] || 'فتح';
 }
 
 function crmActiveTab(){
@@ -568,6 +639,8 @@ function runAttentionAction(key, index){
     openCrmFollowupModal(studentId, { reasonType: a.reasonType, reasonText: r.text, baseline: r.baseline });
   } else if(a.kind === 'show_low'){
     openCrmGradeLowModal(key);
+  } else if(a.kind === 'review_group'){
+    openCrmGroupReviewModal(a.groupId);
   }
 }
 
@@ -580,6 +653,8 @@ function openCrmGradeLowModal(key){
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">تحت النصف في ${escapeHtml(label)}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(crmSectionLabel(card.sectionId))} · النسبة مما رُصد لكل طالب</div>
+      ${card.lowStudents.length > 1 ? `<button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="closeCrmModal();openCrmGroupFollowupModal('${card.key}')">👥 متابعة جماعية لهم (${card.lowStudents.length})</button>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">إجراء واحد ومراجعة واحدة، والنتيجة تُقاس لكل طالب. أو افتح متابعة فردية:</div>` : ''}
       ${card.lowStudents.map(x => `<div class="crm-lesson-row">
         <span><a href="#" onclick="event.preventDefault();closeCrmModal();openCrmStudentProfile('${x.id}', { type: 'tab', tab: crmActiveTab() })">${escapeHtml(attentionStudentName(x.id))}</a> · ${x.pct}%</span>
         <button class="btn btn-outline crm-mini-btn" onclick="closeCrmModal();openCrmFollowupModal('${x.id}', { reasonType: 'grades', reasonText: '${GRADE_CATEGORY_SHORT[card.category]} ${x.pct}% مما رُصد (تحت النصف)' })">فتح متابعة</button>
@@ -640,8 +715,8 @@ async function renderCrmFollowups(){
   box.innerHTML = '<div class="loading-state">جارٍ التحميل...</div>';
   const [cache, openRes, closedRes] = await Promise.all([
     getAttentionFresh(),
-    sb.from('classroom_followups').select('id, student_id, reason_type, reason_text, review_date, created_at').eq('teacher_id', currentUser.id).eq('status', 'open').order('review_date', { ascending: true }),
-    sb.from('classroom_followups').select('id, student_id, reason_text, outcome, next_step, closed_at').eq('teacher_id', currentUser.id).eq('status', 'closed').order('closed_at', { ascending: false }).limit(20)
+    sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, review_date, created_at').eq('teacher_id', currentUser.id).eq('status', 'open').order('review_date', { ascending: true }),
+    sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_text, outcome, next_step, closed_at').eq('teacher_id', currentUser.id).eq('status', 'closed').order('closed_at', { ascending: false }).limit(60)
   ]);
   if(token !== crmFollowupsToken) return;
   const todayIso = localIsoDate();
@@ -656,8 +731,15 @@ async function renderCrmFollowups(){
   html += '<div class="crm-today-card"><div class="crm-today-title">متابعات مفتوحة</div>';
   if(openRes.error) html += '<div class="crm-today-empty">تعذّر التحميل.</div>';
   else if(!(openRes.data || []).length) html += '<div class="crm-today-empty">لا متابعات مفتوحة. افتحها من بطاقة انتباه أو من ملف الطالب.</div>';
-  else html += openRes.data.map(f => {
+  else html += collapseFollowupGroups(openRes.data).map(f => {
     const due = f.review_date <= todayIso;
+    if(f.members){
+      return `<div class="crm-lesson-row">
+        <span>👥 ${escapeHtml(f.reason_text)} · ${arabicCountPhrase(f.members.length, CRM_STUDENT_COUNT_FORMS)}${f.section_id ? ' · ' + escapeHtml(crmSectionLabel(f.section_id)) : ''}
+          <span style="font-size:11px;color:${due ? '#8A2C2C' : 'var(--muted)'};"> — المراجعة ${shortDateAr(f.review_date)}</span></span>
+        <button class="btn ${due ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmGroupReviewModal('${f.group_id}')">مراجعة</button>
+      </div>`;
+    }
     const st = cache && cache.data.students.find(x => x.id === f.student_id);
     const gone = st && st.is_active === false ? ' <span style="font-size:11px;color:var(--muted);">(نُقل خارج المدرسة)</span>' : '';
     return `<div class="crm-lesson-row">
@@ -670,7 +752,10 @@ async function renderCrmFollowups(){
 
   html += '<div class="crm-today-card"><div class="crm-today-title">مغلقة (آخر 20)</div>';
   if(!(closedRes.data || []).length) html += '<div class="crm-today-empty">لا متابعات مغلقة بعد.</div>';
-  else html += closedRes.data.map(f => `<div class="crm-lesson-row">
+  else html += collapseFollowupGroups(closedRes.data).slice(0, 20).map(f => f.members ? `<div class="crm-lesson-row">
+      <span>👥 ${escapeHtml(f.reason_text)} · ${arabicCountPhrase(f.members.length, CRM_STUDENT_COUNT_FORMS)}</span>
+      <span class="crm-tl-meta">${escapeHtml(groupOutcomeSummary(f.members))}</span>
+    </div>` : `<div class="crm-lesson-row">
       <span>${escapeHtml(attentionStudentName(f.student_id))} · ${escapeHtml(f.reason_text)}</span>
       <span class="crm-tl-meta">${FOLLOWUP_OUTCOMES[f.outcome] || ''}${f.next_step ? ' ← ' + FOLLOWUP_NEXT_STEPS[f.next_step] : ''}</span>
     </div>`).join('');
@@ -686,6 +771,10 @@ async function renderCrmFollowups(){
 let crmFollowupDraft = null;
 
 async function computeOpeningBaseline(studentId, reasonType){
+  if(reasonType === 'grades'){
+    const gd = (crmAttentionCache && crmAttentionCache.data) || await loadAttentionData();
+    return gd ? gradeFollowupBaseline(gd.gradeColumns || [], gd.gradeScores || [], studentId) : null;
+  }
   const status = { absence: 'absent', lateness: 'late', exits: 'permitted_exit' }[reasonType];
   if(!status) return null;
   const data = (crmAttentionCache && crmAttentionCache.data) || await loadAttentionData();
@@ -774,6 +863,8 @@ async function behaviorBaseline(studentId){
 function closeFollowupModal(){
   crmFollowupDraft = null;
   crmReview = null;
+  crmGroupDraft = null;
+  crmGroupReview = null;
   const cancelBtn = document.getElementById('confirmCancelBtn');
   if(cancelBtn) cancelBtn.click();
 }
@@ -804,6 +895,9 @@ async function openCrmReviewModal(followupId){
     } else if(f.reason_type === 'behavior'){
       const { data: inc } = await sb.from('classroom_incidents').select('incident_type_id, incident_date').eq('teacher_id', uid).eq('student_id', f.student_id);
       result = computeFollowupResult(f, [], [], inc || []);
+    } else if(f.reason_type === 'grades'){
+      const g = await loadStudentsGradeData([f.student_id]);
+      result = computeGradeFollowupResult(f, g.columns, g.scores);
     }
   } catch(e){ result = { sufficient: false }; }
 
@@ -817,6 +911,9 @@ async function openCrmReviewModal(followupId){
       <div class="crm-ba-row"><span>بعد الفتح</span><b>${result.sufficient ? `${verb} ${result.count} من ${result.of} حصص` : `لا بيانات كافية بعد (${result.of || 0} من ${ATTENTION_RULES.minLessonsForResult} حصص مرصودة على الأقل)`}</b></div>`;
   } else if(f.reason_type === 'behavior'){
     beforeAfter = `<div class="crm-ba-row"><span>بعد الفتح</span><b>${result.recurred ? `تكررت المخالفة ${result.recurred} مرة` : 'لم تتكرر المخالفة'}</b></div>`;
+  } else if(f.reason_type === 'grades' && base.category){
+    beforeAfter = `<div class="crm-ba-row"><span>قبل (وقت الفتح)</span><b>${GRADE_CATEGORY_SHORT[base.category]} ${base.pct}% مما رُصد</b></div>
+      <div class="crm-ba-row"><span>بعد الفتح</span><b>${gradeAfterText(result)}</b></div>`;
   } else {
     beforeAfter = '<div class="crm-ba-row"><span>القياس</span><b>بحكمك (لا مؤشر رقمي لهذا السبب)</b></div>';
   }
@@ -894,6 +991,234 @@ async function extendCrmFollowup(){
   showToast('حُفظ الإجراء ومُدّد الموعد', 'ok');
   await refreshAttentionViews();
   if(crmProfile && crmProfile.studentId === f.student_id) renderCrmStudentProfile();
+}
+
+function gradeAfterText(result){
+  if(!result || !result.sufficient) return 'لا بيانات كافية بعد (لا درجة جديدة في الفئة منذ الفتح)';
+  return `${result.pct}% (من ${result.of === 1 ? 'عمود واحد' : result.of === 2 ? 'عمودين' : result.of + ' أعمدة'} رُصد بعد الفتح)`;
+}
+
+/* درجات طلاب محددين بكل الفصول (لقياس متابعة قد تمتد بين فصلين) */
+async function loadStudentsGradeData(studentIds){
+  const uid = currentUser.id;
+  let scores = [];
+  for(const ids of chunkArray(studentIds, 100)){
+    const { data, error } = await sb.from('classroom_grade_scores').select('column_id, student_id, score, updated_at')
+      .eq('teacher_id', uid).in('student_id', ids);
+    if(error) throw error;
+    scores = scores.concat(data || []);
+  }
+  let columns = [];
+  for(const ids of chunkArray([...new Set(scores.map(g => g.column_id))], 100)){
+    const { data, error } = await sb.from('classroom_grade_columns').select('id, category, name, max_score')
+      .eq('teacher_id', uid).in('id', ids);
+    if(error) throw error;
+    columns = columns.concat(data || []);
+  }
+  return { columns, scores };
+}
+
+/* أعضاء المتابعة الجماعية يُعرضون صفًّا واحدًا (بموضع أول عضو في الترتيب) */
+function collapseFollowupGroups(rows){
+  const out = [];
+  const groups = new Map();
+  (rows || []).forEach(f => {
+    if(!f.group_id){ out.push(f); return; }
+    if(!groups.has(f.group_id)){
+      const g = Object.assign({}, f, { members: [] });
+      groups.set(f.group_id, g);
+      out.push(g);
+    }
+    groups.get(f.group_id).members.push(f);
+  });
+  return out;
+}
+
+function newUuid(){
+  if(typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(b) : b.forEach((_, i) => { b[i] = Math.floor(Math.random() * 256); });
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/* ============================================================
+   المتابعة الجماعية: قائمة طلاب، إجراء واحد، مراجعة واحدة — وخط الأساس
+   والنتيجة لكل طالب على حدة ("4 من 7 تحسّنوا"). كل عضو متابعة عادية
+   مربوطة بـgroup_id، فتعمل معها القواعد وملف الطالب كما هي.
+   ============================================================ */
+let crmGroupDraft = null;
+
+function openCrmGroupFollowupModal(key){
+  const card = crmAttentionCache && crmAttentionCache.cards.find(c => c.key === key);
+  if(!card || card.kind !== 'section') return;
+  crmGroupDraft = { key, category: card.category, sectionId: card.sectionId, saving: false };
+  const actionOptions = Object.keys(FOLLOWUP_ACTIONS).map(k => `<option value="${k}"${k === 'reteach' ? ' selected' : ''}>${FOLLOWUP_ACTIONS[k]}</option>`).join('');
+  showInfoModal(`
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">👥 متابعة جماعية</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(crmSectionLabel(card.sectionId))} · تحصيل</div>
+      <div class="crm-field-label">الطلاب</div>
+      ${card.lowStudents.map(x => `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0;">
+        <input type="checkbox" class="crm-group-member" value="${x.id}" checked> ${escapeHtml(attentionStudentName(x.id))} · ${x.pct}%</label>`).join('')}
+      <label class="crm-field-label" style="margin-top:8px;">السبب</label>
+      <input class="goal-input" id="crmGrpText" maxlength="500" value="تحت النصف في ${escapeHtml(GRADE_CATEGORY_LABELS[card.category])}" style="margin-bottom:8px;">
+      <label class="crm-field-label">الإجراء</label>
+      <select class="goal-input" id="crmGrpAction" style="margin-bottom:6px;">${actionOptions}</select>
+      <input class="goal-input" id="crmGrpNote" maxlength="500" placeholder="ملاحظة على الإجراء (اختياري)" style="margin-bottom:8px;">
+      <label class="crm-field-label">موعد المراجعة</label>
+      <input type="date" class="goal-input" id="crmGrpReview" value="${defaultReviewDate(localIsoDate())}" min="${localIsoDate()}" style="margin-bottom:10px;">
+      <button class="btn btn-primary" id="crmGrpSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmGroupFollowup()">فتح المتابعة الجماعية</button>
+    </div>`, '440px');
+}
+
+async function saveCrmGroupFollowup(){
+  const d = crmGroupDraft;
+  if(!d || d.saving) return;
+  const ids = [...document.querySelectorAll('.crm-group-member')].filter(c => c.checked).map(c => c.value);
+  if(ids.length < 2){ showToast('اختر طالبين على الأقل (أو افتح متابعة فردية)', 'error'); return; }
+  const reasonText = document.getElementById('crmGrpText').value.trim() || 'تحصيل';
+  const actionType = document.getElementById('crmGrpAction').value;
+  const note = document.getElementById('crmGrpNote').value.trim() || null;
+  const reviewDate = document.getElementById('crmGrpReview').value;
+  if(!reviewDate || reviewDate < localIsoDate()){ showToast('موعد المراجعة لا يكون تاريخًا مضى', 'error'); return; }
+  d.saving = true;
+  const btn = document.getElementById('crmGrpSaveBtn');
+  if(btn) btn.disabled = true;
+  try{
+    const data = (crmAttentionCache && crmAttentionCache.data) || await loadAttentionData();
+    const groupId = newUuid();
+    /* خط الأساس يُجمَّد لكل طالب على حدة */
+    const rows = ids.map(sid => ({
+      teacher_id: currentUser.id, student_id: sid, section_id: d.sectionId, group_id: groupId,
+      reason_type: 'grades', reason_text: reasonText, review_date: reviewDate,
+      baseline: data ? gradeFollowupBaseline(data.gradeColumns || [], data.gradeScores || [], sid, d.category) : null
+    }));
+    const { data: created, error } = await sb.from('classroom_followups').insert(rows).select('id');
+    if(error) throw error;
+    const { error: aErr } = await sb.from('classroom_followup_actions').insert((created || []).map(f => ({
+      followup_id: f.id, teacher_id: currentUser.id, action_type: actionType, note, action_date: localIsoDate()
+    })));
+    crmGroupDraft = null;
+    closeFollowupModal();
+    showToast(aErr ? 'فُتحت المتابعة الجماعية، لكن تعذّر حفظ الإجراء' : `فُتحت متابعة جماعية لـ${arabicCountPhrase(ids.length, CRM_STUDENT_COUNT_FORMS)} ✓`, aErr ? 'error' : 'ok');
+    await refreshAttentionViews();
+  } catch(e){
+    showToast('تعذّر فتح المتابعة الجماعية: ' + (e.message || ''), 'error');
+    d.saving = false;
+    if(btn) btn.disabled = false;
+  }
+}
+
+let crmGroupReview = null;
+
+async function openCrmGroupReviewModal(groupId){
+  const uid = currentUser.id;
+  const { data: members, error } = await sb.from('classroom_followups').select('*')
+    .eq('teacher_id', uid).eq('group_id', groupId).eq('status', 'open');
+  if(error){ showToast('تعذّر تحميل المتابعة', 'error'); return; }
+  if(!(members || []).length){ showToast('لا أعضاء مفتوحون في هذه المتابعة', 'ok'); await refreshAttentionViews(); return; }
+  const { data: actions } = await sb.from('classroom_followup_actions').select('action_type, note, action_date')
+    .eq('teacher_id', uid).eq('followup_id', members[0].id).order('action_date', { ascending: true });
+  let g = { columns: [], scores: [] };
+  try{ g = await loadStudentsGradeData(members.map(m => m.student_id)); } catch(e){}
+  const rows = members.map(f => {
+    const result = f.reason_type === 'grades' ? computeGradeFollowupResult(f, g.columns, g.scores) : { sufficient: false };
+    return { followup: f, result, suggested: suggestFollowupOutcome(f, result) };
+  }).sort((a, b) => attentionStudentName(a.followup.student_id).localeCompare(attentionStudentName(b.followup.student_id), 'ar'));
+  crmGroupReview = { groupId, rows, saving: false };
+  const f0 = members[0];
+  const suggestedAll = rows.filter(r => r.suggested);
+  const outcomeOpts = sel => '<option value="">اختر</option>' + Object.keys(FOLLOWUP_OUTCOMES).map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${FOLLOWUP_OUTCOMES[k]}${k === sel ? ' (مقترحة)' : ''}</option>`).join('');
+  const nextOptions = '<option value="">اختر</option>' + Object.keys(FOLLOWUP_NEXT_STEPS).map(k => `<option value="${k}">${FOLLOWUP_NEXT_STEPS[k]}</option>`).join('');
+  const actionOptions = Object.keys(FOLLOWUP_ACTIONS).map(k => `<option value="${k}">${FOLLOWUP_ACTIONS[k]}</option>`).join('');
+  showInfoModal(`
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">👥 مراجعة متابعة جماعية</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${escapeHtml(f0.reason_text)} · ${arabicCountPhrase(rows.length, CRM_STUDENT_COUNT_FORMS)} · فُتحت ${localIsoDate(new Date(f0.created_at))}</div>
+      ${suggestedAll.length ? `<div class="crm-ba-box" style="margin-bottom:8px;"><b>مقترح من البيانات: ${escapeHtml(groupOutcomeSummary(suggestedAll.map(r => ({ outcome: r.suggested }))))}</b>${suggestedAll.length < rows.length ? `<div style="font-size:11px;color:var(--muted);">${rows.length - suggestedAll.length} بلا بيانات كافية بعد — قرارهم لك</div>` : ''}
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">الأرقام تُظهر ما تغيّر بعد التدخل، لا أنه سبب التغيّر.</div></div>` : ''}
+      ${rows.map((r, i) => {
+        const base = r.followup.baseline || {};
+        return `<div class="crm-group-row">
+          <div><b>${escapeHtml(attentionStudentName(r.followup.student_id))}</b>
+            <div class="crm-tl-meta">قبل ${base.pct !== undefined ? base.pct + '%' : '—'} ← بعد ${r.result.sufficient ? r.result.pct + '%' : 'لا بيانات كافية'}</div></div>
+          <select class="goal-input crm-group-outcome" data-index="${i}" onchange="onCrmGroupOutcomeChange()">${outcomeOpts(r.suggested)}</select>
+        </div>`;
+      }).join('')}
+      <div class="crm-field-label" style="margin-top:8px;">الإجراء</div>
+      ${(actions || []).map(a => `<div class="crm-tl-row"><span>${FOLLOWUP_ACTIONS[a.action_type] || ''}${a.note ? ' — ' + escapeHtml(a.note) : ''}</span><span class="crm-tl-meta">${a.action_date}</span></div>`).join('') || '<div class="crm-today-empty">لا إجراءات مسجلة.</div>'}
+      <div id="crmGroupNextBox" style="display:none;margin-top:8px;">
+        <label class="crm-field-label">لمن لم يتحسّن — ما القرار التالي؟</label>
+        <select class="goal-input" id="crmGroupNext">${nextOptions}</select>
+      </div>
+      <button class="btn btn-primary" id="crmGroupCloseBtn" style="width:100%;justify-content:center;margin-top:10px;" onclick="closeCrmGroupFollowup()">إغلاق المتابعة الجماعية</button>
+      <details style="margin-top:8px;"><summary style="font-size:12px;cursor:pointer;">إضافة إجراء أو تمديد الموعد للجميع</summary>
+        <select class="goal-input" id="crmGrpRvAction" style="margin:8px 0 6px;">${actionOptions}</select>
+        <input class="goal-input" id="crmGrpRvNote" maxlength="500" placeholder="ملاحظة (اختياري)" style="margin-bottom:6px;">
+        <label class="crm-field-label">موعد المراجعة الجديد</label>
+        <input type="date" class="goal-input" id="crmGrpRvDate" value="${defaultReviewDate(localIsoDate())}" min="${localIsoDate()}" style="margin-bottom:6px;">
+        <button class="btn btn-outline crm-mini-btn" style="width:100%;justify-content:center;" onclick="extendCrmGroupFollowup()">حفظ الإجراء والتمديد</button>
+      </details>
+    </div>`, '480px');
+  onCrmGroupOutcomeChange();
+}
+
+function onCrmGroupOutcomeChange(){
+  const any = [...document.querySelectorAll('.crm-group-outcome')].some(s => s.value === 'not_improved');
+  const box = document.getElementById('crmGroupNextBox');
+  if(box) box.style.display = any ? 'block' : 'none';
+}
+
+async function closeCrmGroupFollowup(){
+  const rv = crmGroupReview;
+  if(!rv || rv.saving) return;
+  const outcomes = [...document.querySelectorAll('.crm-group-outcome')].map(s => s.value);
+  if(outcomes.some(o => !o)){ showToast('اختر نتيجة كل طالب', 'error'); return; }
+  const next = document.getElementById('crmGroupNext').value;
+  if(outcomes.includes('not_improved') && !next){ showToast('اختر القرار التالي لمن لم يتحسّن', 'error'); return; }
+  rv.saving = true;
+  const btn = document.getElementById('crmGroupCloseBtn');
+  if(btn) btn.disabled = true;
+  const closedAt = new Date().toISOString();
+  let failed = 0;
+  for(let i = 0; i < rv.rows.length; i++){
+    const r = rv.rows[i];
+    const { error } = await sb.from('classroom_followups').update({
+      status: 'closed', outcome: outcomes[i], next_step: outcomes[i] === 'not_improved' ? next : null,
+      result: r.result || null, closed_at: closedAt
+    }).eq('teacher_id', currentUser.id).eq('id', r.followup.id).eq('status', 'open');
+    if(error) failed++;
+  }
+  crmGroupReview = null;
+  closeFollowupModal();
+  /* فشل جزئي: المغلق يبقى مغلقًا، وإعادة المراجعة تعرض المتبقين فقط */
+  showToast(failed ? `تعذّر إغلاق ${failed} — أعد المراجعة لإكمالهم` : 'أُغلقت المتابعة الجماعية: ' + groupOutcomeSummary(outcomes.map(o => ({ outcome: o }))), failed ? 'error' : 'ok');
+  await refreshAttentionViews();
+  if(next === 'escalate') showToast('للتصعيد: سجّل موقفًا رسميًا أو إحالة من ملف كل طالب', 'ok');
+}
+
+async function extendCrmGroupFollowup(){
+  const rv = crmGroupReview;
+  if(!rv || rv.saving) return;
+  const reviewDate = document.getElementById('crmGrpRvDate').value;
+  if(!reviewDate || reviewDate < localIsoDate()){ showToast('الموعد الجديد لا يكون تاريخًا مضى', 'error'); return; }
+  rv.saving = true;
+  const actionType = document.getElementById('crmGrpRvAction').value;
+  const note = document.getElementById('crmGrpRvNote').value.trim() || null;
+  const [{ error: aErr }, { error: uErr }] = await Promise.all([
+    sb.from('classroom_followup_actions').insert(rv.rows.map(r => ({
+      followup_id: r.followup.id, teacher_id: currentUser.id, action_type: actionType, note, action_date: localIsoDate()
+    }))),
+    sb.from('classroom_followups').update({ review_date: reviewDate })
+      .eq('teacher_id', currentUser.id).eq('group_id', rv.groupId).eq('status', 'open')
+  ]);
+  if(aErr || uErr){ showToast('تعذّر الحفظ: ' + ((aErr || uErr).message || ''), 'error'); rv.saving = false; return; }
+  crmGroupReview = null;
+  closeFollowupModal();
+  showToast('حُفظ الإجراء ومُدّد الموعد للجميع', 'ok');
+  await refreshAttentionViews();
 }
 
 /* من الرئيسية: "إجراء عاجل" ← تبويب المتابعات مباشرة */

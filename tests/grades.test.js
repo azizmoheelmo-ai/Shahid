@@ -392,3 +392,57 @@ test('saveCrmGradeImport — نقرة مزدوجة لا تستورد مرتين�
   assert.equal(ups.length, 1);
   assert.deepEqual({ ...ups[0].rows[0] }, { teacher_id: 'u1', column_id: 'm', student_id: 'a', score: 7 });
 });
+
+test('loadStudentsGradeData — درجات وأعمدة المعلم الحالي فقط', async () => {
+  const seed = {
+    classroom_grade_scores: [
+      { teacher_id: 'u1', column_id: 'c1', student_id: 'a', score: 5 },
+      { teacher_id: 'u2', column_id: 'c2', student_id: 'a', score: 9 },
+    ],
+    classroom_grade_columns: [
+      { id: 'c1', teacher_id: 'u1', category: 'performance', name: 'م', max_score: 10 },
+      { id: 'c2', teacher_id: 'u2', category: 'performance', name: 'آخر', max_score: 10 },
+    ],
+  };
+  const app = loadApp({ supabaseClient: scopedClient(seed), currentUser: { id: 'u1' } });
+  const g = await app.loadStudentsGradeData(['a']);
+  assert.deepEqual([...g.scores].map(s => s.column_id), ['c1']);
+  assert.deepEqual([...g.columns].map(c => c.id), ['c1']);
+});
+
+test('saveCrmGroupFollowup — نقرة مزدوجة لا تفتح المتابعة مرتين، وباسم المعلم الحالي', async () => {
+  const inserts = [];
+  const client = scopedClient({});
+  const baseFrom = client.from;
+  client.from = (table) => {
+    const api = baseFrom(table);
+    api.insert = (rows) => {
+      inserts.push({ table, rows });
+      const res = { data: rows.map((r, i) => ({ id: table + i })), error: null };
+      return { select(){ return { then(r){ setTimeout(() => r(res), 20); } }; }, then(r){ setTimeout(() => r(res), 20); } };
+    };
+    return api;
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  const { runInAppContext } = require('./load-app');
+  runInAppContext(app, `
+    crmAttentionCache = { at: Date.now(), cards: [], data: { students: [], gradeColumns: [{ id: 'p', category: 'performance', max_score: 10 }],
+      gradeScores: [{ column_id: 'p', student_id: 'a', score: 3 }, { column_id: 'p', student_id: 'b', score: 4 }] } };
+    crmGroupDraft = { key: 'section:S:performance', category: 'performance', sectionId: 'S', saving: false };
+    refreshAttentionViews = async () => {};
+  `);
+  const boxes = [{ checked: true, value: 'a' }, { checked: true, value: 'b' }];
+  app.document.querySelectorAll = (sel) => sel === '.crm-group-member' ? boxes : [];
+  const vals = { crmGrpText: 'تحت النصف', crmGrpAction: 'reteach', crmGrpNote: '', crmGrpReview: '2099-01-01' };
+  const realGet = app.document.getElementById;
+  app.document.getElementById = (id) => (id in vals) ? { value: vals[id], disabled: false } : realGet(id);
+  await Promise.all([app.saveCrmGroupFollowup(), app.saveCrmGroupFollowup()]);
+  const fu = inserts.filter(i => i.table === 'classroom_followups');
+  assert.equal(fu.length, 1);
+  assert.equal(fu[0].rows.length, 2);
+  assert.ok(fu[0].rows.every(r => r.teacher_id === 'u1' && r.group_id && r.group_id === fu[0].rows[0].group_id));
+  assert.deepEqual({ ...fu[0].rows[0].baseline }, { category: 'performance', pct: 30, sum: 3, max: 10 });
+  const acts = inserts.filter(i => i.table === 'classroom_followup_actions');
+  assert.equal(acts[0].rows.length, 2, 'إجراء لكل عضو');
+  assert.ok(acts[0].rows.every(r => r.teacher_id === 'u1'));
+});

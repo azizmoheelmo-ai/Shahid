@@ -160,7 +160,7 @@ async function loadCrmStudentProfileData(student){
       .eq('teacher_id', uid).eq('student_id', student.id),
     sb.from('classroom_positive_notes').select('id, note_date, note_text').eq('teacher_id', uid).eq('student_id', student.id),
     sb.from('classroom_private_notes').select('id, body, created_at, updated_at').eq('teacher_id', uid).eq('student_id', student.id).order('created_at', { ascending: false }),
-    sb.from('classroom_followups').select('id, reason_type, reason_text, review_date, status, outcome, next_step, closed_at, created_at').eq('teacher_id', uid).eq('student_id', student.id),
+    sb.from('classroom_followups').select('id, group_id, reason_type, reason_text, review_date, status, outcome, next_step, closed_at, created_at').eq('teacher_id', uid).eq('student_id', student.id),
     student.section_id
       ? sb.from('classroom_lessons').select('id', { count: 'exact', head: true }).eq('teacher_id', uid).eq('section_id', student.section_id)
       : Promise.resolve({ count: 0, error: null })
@@ -268,7 +268,7 @@ async function renderCrmStudentProfile(){
 
   const outcomeLabels = { improved: 'تحسّن', partial: 'تحسّن جزئي', not_improved: 'لم يتحسّن' };
   const followupsHtml = data.followups.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(f => `
-    <div class="crm-tl-row"><span>${escapeHtml(f.reason_text)}</span>
+    <div class="crm-tl-row"><span>${f.group_id ? '👥 ' : ''}${escapeHtml(f.reason_text)}</span>
       <span class="crm-tl-meta">${f.status === 'open'
         ? `مفتوحة · المراجعة ${f.review_date} <button class="btn btn-outline crm-mini-btn" style="min-height:28px;padding:2px 8px;" onclick="openCrmReviewModal('${f.id}')">مراجعة</button>`
         : (outcomeLabels[f.outcome] || '')}</span></div>`).join('') || '<div class="crm-today-empty">لا متابعات لهذا الطالب.</div>';
@@ -505,7 +505,7 @@ function openCrmStudentActions(studentId){
   if(!student || !crmSheet) return;
   const s = crmSheet;
   const mark = s.markers && s.markers.get(studentId);
-  const actionLabels = { review: 'سجّل النتيجة', open_followup: 'فتح متابعة' };
+  const actionLabels = { review: 'سجّل النتيجة', review_group: 'سجّل النتيجة', open_followup: 'فتح متابعة' };
   const why = mark ? `<div class="crm-why">
       <div class="crm-field-label">لماذا العلامة؟</div>
       ${mark.reasons.map((r, i) => `<div class="crm-why-row"><span class="crm-mark mark-${r.priority}" aria-hidden="true"></span>
@@ -533,6 +533,7 @@ function runCrmSheetMarkAction(studentId, index){
   if(!r || !r.action) return;
   if(r.action.kind === 'review') openCrmReviewModal(r.action.followupId);
   else if(r.action.kind === 'open_followup') openCrmFollowupModal(studentId, { reasonType: r.action.reasonType, reasonText: r.text, baseline: r.baseline });
+  else if(r.action.kind === 'review_group') openCrmGroupReviewModal(r.action.groupId);
 }
 
 /* من الورقة إلى الملف ثم العودة لنفس الحصة: الحالات غير المحفوظة باقية
