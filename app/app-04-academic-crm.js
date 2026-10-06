@@ -931,8 +931,13 @@ function hideAllMainViews(){
   document.getElementById('calendarView').style.display = 'none';
   document.getElementById('tasksView').style.display = 'none';
 }
+/* المصدر الوحيد لتبويبات إدارة الصف: زر + لوحة. كل من يُخفي التبويبات أو
+   يكتشف المفتوح منها يقرأ من هنا — قوائم مكررة نسيت تبويبًا جديدًا فظهر
+   ملف الطالب تحت تبويب "المتابعات"/"الدرجات" المفتوح. */
+const CRM_TAB_PANES = { today: ['crmTabBtnToday', 'crmTabToday'], followups: ['crmTabBtnFollowups', 'crmTabFollowups'], grades: ['crmTabBtnGrades', 'crmTabGrades'], record: ['crmTabBtnRecord', 'crmTabRecord'], students: ['crmTabBtnStudents', 'crmTabStudents'] };
+
 function switchCrmTab(tab){
-  const tabs = { today: ['crmTabBtnToday', 'crmTabToday'], followups: ['crmTabBtnFollowups', 'crmTabFollowups'], record: ['crmTabBtnRecord', 'crmTabRecord'], students: ['crmTabBtnStudents', 'crmTabStudents'] };
+  const tabs = CRM_TAB_PANES;
   if(!tabs[tab]) tab = 'today';
   /* ورقة رصد مفتوحة تُغلق عند الانتقال لأي تبويب (المسودة تبقى محفوظة) */
   const sheet = document.getElementById('crmLessonSheet');
@@ -953,6 +958,7 @@ function switchCrmTab(tab){
   });
   if(tab === 'today') renderCrmToday();
   if(tab === 'followups') renderCrmFollowups();
+  if(tab === 'grades') renderCrmGrades();
 }
 
 function collapseAllCrmSections(){
@@ -1007,6 +1013,7 @@ function onCrmSemesterChange(){
   saveCrmSemester();
   renderCrmTimetableEditor();
   if(document.getElementById('crmTabToday').style.display !== 'none') renderCrmToday();
+  if(document.getElementById('crmTabGrades').style.display !== 'none') renderCrmGrades();
 }
 
 async function onCrmYearChange(){
@@ -1018,6 +1025,7 @@ async function onCrmYearChange(){
   await refreshCrmStructureAndStudents();
   renderCrmTimetableEditor();
   if(document.getElementById('crmTabToday').style.display !== 'none') renderCrmToday();
+  if(document.getElementById('crmTabGrades').style.display !== 'none') renderCrmGrades();
   await renderCrmRecentIncidents();
 }
 
@@ -1444,7 +1452,7 @@ async function addCrmSection(gradeLevelId){
 /* شعبة لها حصص مرصودة لا تُحذف (قيد بالقاعدة): حذفها كان سيمسح سجل حضور
    فصل كامل بنقرة خاطئة واحدة */
 function crmDeleteErrorMessage(error){
-  if(error && error.code === '23503') return 'لا يمكن الحذف: توجد حصص مرصودة لهذه الشعبة (أو لإحدى شعب المرحلة). احذف رصد حصصها أولًا إن كنت متأكدًا.';
+  if(error && error.code === '23503') return 'لا يمكن الحذف: توجد حصص مرصودة أو كشف درجات لهذه الشعبة (أو لإحدى شعب المرحلة). احذفها أولًا إن كنت متأكدًا.';
   return 'تعذّر الحذف: ' + ((error && error.message) || '');
 }
 
@@ -1555,7 +1563,7 @@ async function deleteCrmStudent(id){
      المرتبطة، وليس فقط "فك الربط بالاسم". نلتقط الكل هنا قبل الحذف حتى
      يكون التراجع كاملاً وليس جزئيًا. */
   const student = crmStudents.find(s => String(s.id) === String(id));
-  const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية وسجل حضوره وملاحظاته. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
+  const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية وسجل حضوره وملاحظاته ودرجاته. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
   if(!ok) return;
 
   let relatedIncidents = [];
@@ -1565,14 +1573,16 @@ async function deleteCrmStudent(id){
   let relatedPrivate = [];
   let relatedFollowups = [];
   let relatedFuActions = [];
+  let relatedGrades = [];
   try{
-    const [incRes, caseRes, attRes, posRes, privRes, fuRes] = await Promise.all([
+    const [incRes, caseRes, attRes, posRes, privRes, fuRes, grRes] = await Promise.all([
       sb.from('classroom_incidents').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('academic_cases').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_positive_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_private_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_followups').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
+      sb.from('classroom_followups').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('classroom_grade_scores').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
     ]);
     relatedIncidents = incRes.data || [];
     relatedCases = caseRes.data || [];
@@ -1580,6 +1590,7 @@ async function deleteCrmStudent(id){
     relatedPositives = posRes.data || [];
     relatedPrivate = privRes.data || [];
     relatedFollowups = fuRes.data || [];
+    relatedGrades = (grRes && grRes.data) || [];
     if(relatedFollowups.length){
       const { data: acts } = await sb.from('classroom_followup_actions').select('*')
         .eq('teacher_id', currentUser.id).in('followup_id', relatedFollowups.map(f => f.id));
@@ -1594,7 +1605,7 @@ async function deleteCrmStudent(id){
   if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
 
   if(!student) return; /* لم نلتقط نسخة محلية من الطالب — لا نعرض تراجعًا وهميًا */
-  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length || relatedPositives.length || relatedPrivate.length || relatedFollowups.length) ? ' وسجلاته المرتبطة' : '';
+  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length || relatedPositives.length || relatedPrivate.length || relatedFollowups.length || relatedGrades.length) ? ' وسجلاته المرتبطة' : '';
   const shouldFinalize = await showUndoToast('تم حذف الطالب' + extraNote, 5);
   if(!shouldFinalize){
     try{
@@ -1628,6 +1639,10 @@ async function deleteCrmStudent(id){
       if(relatedFuActions.length){
         const { error: faErr } = await sb.from('classroom_followup_actions').insert(relatedFuActions);
         if(faErr) throw faErr;
+      }
+      if(relatedGrades.length){
+        const { error: gErr } = await sb.from('classroom_grade_scores').insert(relatedGrades);
+        if(gErr) throw gErr;
       }
       await loadCrmStudents();
       renderCrmStudentsList();

@@ -385,7 +385,7 @@ function attentionActionLabel(action){
 }
 
 function crmActiveTab(){
-  for(const [tab, pane] of [['today', 'crmTabToday'], ['followups', 'crmTabFollowups'], ['record', 'crmTabRecord'], ['students', 'crmTabStudents']]){
+  for(const [tab, [, pane]] of Object.entries(CRM_TAB_PANES)){
     const el = document.getElementById(pane);
     if(el && el.style.display !== 'none') return tab;
   }
