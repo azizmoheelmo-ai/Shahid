@@ -48,7 +48,7 @@ const ATTENTION_RULES = {
   declineMinColumns: 4    /* ...بشرط 4 أعمدة مرصودة له على الأقل */
 };
 
-const PRIORITY_RANK = { urgent: 0, important: 1, review: 2 };
+const PRIORITY_RANK = { urgent: 0, important: 1, review: 2, info: 3 };
 const FOLLOWUP_REASONS = {
   absence: 'غياب', lateness: 'تأخر', exits: 'استئذان متكرر', behavior: 'سلوك', grades: 'تحصيل', other: 'أخرى'
 };
@@ -258,6 +258,32 @@ function computeAttentionItems(input){
       }]
     });
   });
+  /* معلومة (لا تدخل الشارة): متابعة أُغلقت بـ"تحسّن" ولم تُضف كشاهد بعد —
+     نجاح المتابعة دليل أداء للمعلم. تختفي بالإضافة أو بعد 14 يومًا. */
+  const improvedGroups = new Map();
+  (input.improvedFollowups || []).forEach(f => {
+    if(f.status !== 'closed' || f.outcome !== 'improved' || f.shahid_id || !f.closed_at) return;
+    if(nowMs - new Date(f.closed_at).getTime() > ATTENTION_RULES.dismissDays * 86400000) return;
+    const k = f.group_id || f.id;
+    if(!improvedGroups.has(k)) improvedGroups.set(k, []);
+    improvedGroups.get(k).push(f);
+  });
+  improvedGroups.forEach((list, k) => {
+    const key = 'improved:' + k;
+    if(isDismissed(dismissals, 'followup_shahid', key, nowMs)) return;
+    const f0 = list[0];
+    const group = !!f0.group_id;
+    if(!group && (!studentMap.has(f0.student_id) || studentMap.get(f0.student_id).is_active === false)) return;
+    cards.push({
+      key, kind: 'improved', priority: 'info', studentId: group ? undefined : f0.student_id, sectionId: f0.section_id,
+      reasons: [{
+        rule: 'followup_improved', priority: 'info', dismissable: true,
+        text: group ? `${arabicCountPhrase(list.length, CRM_STUDENT_COUNT_FORMS)} تحسّنوا بعد المتابعة الجماعية "${f0.reason_text}"` : `تحسّن بعد المتابعة: "${f0.reason_text}"`,
+        action: { kind: 'make_shahid', followupIds: list.map(x => x.id), groupId: f0.group_id || null }
+      }]
+    });
+  });
+
   const nameOf = id => (studentMap.get(id) || {}).full_name || '';  /* بطاقة الشعبة: studentId غير معرّف = اسم فارغ */
   return cards.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || nameOf(a.studentId).localeCompare(nameOf(b.studentId), 'ar'));
 }
@@ -462,10 +488,12 @@ async function loadAttentionData(){
     () => sb.from('classroom_incidents').select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', uid).eq('current_stage', 'referred'),
     () => sb.from('academic_cases').select('id, student_id, subject, status, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', uid).eq('status', 'referred'),
     () => sb.from('classroom_followups').select('id, student_id, section_id, reason_type, reason_text, review_date, status, baseline, created_at').eq('teacher_id', uid).eq('status', 'open'),
-    () => sb.from('classroom_attention_dismissals').select('rule_key, subject_key, dismissed_at').eq('teacher_id', uid)
+    () => sb.from('classroom_attention_dismissals').select('rule_key, subject_key, dismissed_at').eq('teacher_id', uid),
+    () => sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, status, outcome, closed_at, shahid_id')
+      .eq('teacher_id', uid).eq('status', 'closed').eq('outcome', 'improved').gte('closed_at', new Date(Date.now() - ATTENTION_RULES.dismissDays * 86400000).toISOString())
   ]);
   if(!ok) return null;
-  const [students, sections, lessons, incidents, academicCases, followups, dismissals] = results.map(r => r.data || []);
+  const [students, sections, lessons, incidents, academicCases, followups, dismissals, improvedFollowups] = results.map(r => r.data || []);
   /* كشف الدرجات للفصل الحالي (كل الشعب) — للقاعدتين 8 و9 */
   const term = crmAttentionTerm();
   const { data: gradeColumns, error: gcErr } = await sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score')
@@ -491,7 +519,7 @@ async function loadAttentionData(){
     const t = crmIncidentTypes.find(x => x.id === i.incident_type_id);
     i.typeName = t ? t.problem_name : 'مخالفة';
   });
-  return { todayIso, students, sections, lessons, attendance, incidents, academicCases, followups, dismissals, gradeColumns: gradeColumns || [], gradeScores };
+  return { todayIso, students, sections, lessons, attendance, incidents, academicCases, followups, dismissals, improvedFollowups, gradeColumns: gradeColumns || [], gradeScores };
 }
 
 /* الفصل الحالي من التخزين المحلي (مصدر الحقيقة نفسه الذي تضبطه شاشة
@@ -565,7 +593,22 @@ function attentionStudentName(id){
 }
 
 function attentionCardHtml(card){
-  const dot = { urgent: '🔴', important: '🟠', review: '🔵' }[card.priority];
+  const dot = { urgent: '🔴', important: '🟠', review: '🔵', info: '🟢' }[card.priority];
+  if(card.kind === 'improved'){
+    const r = card.reasons[0];
+    const head = card.studentId
+      ? `<a href="#" onclick="event.preventDefault();openCrmStudentProfile('${card.studentId}', { type: 'tab', tab: crmActiveTab() })">${escapeHtml(attentionStudentName(card.studentId))}</a>`
+      : '👥 ' + (card.sectionId ? escapeHtml(crmSectionLabel(card.sectionId)) : 'متابعة جماعية');
+    return `<div class="crm-attention-card prio-info">
+      <div class="crm-attention-head">${dot} ${head}</div>
+      <div class="crm-att-reason"><div>${escapeHtml(r.text)}</div>
+        <div class="crm-att-reason-actions">
+          <button class="btn btn-outline crm-mini-btn" onclick="runAttentionAction('${card.key}', 0)">إضافتها كشاهد</button>
+          <a href="#" class="crm-dismiss-link" onclick="event.preventDefault();dismissAttention('followup_shahid','${card.key}')">لاحقًا</a>
+        </div>
+      </div>
+    </div>`;
+  }
   if(card.kind === 'group'){
     const r = card.reasons[0];
     return `<div class="crm-attention-card prio-${card.priority}">
@@ -641,6 +684,8 @@ function runAttentionAction(key, index){
     openCrmGradeLowModal(key);
   } else if(a.kind === 'review_group'){
     openCrmGroupReviewModal(a.groupId);
+  } else if(a.kind === 'make_shahid'){
+    offerShahidFromFollowups(a.followupIds, a.groupId);
   }
 }
 
@@ -965,7 +1010,9 @@ async function closeCrmFollowup(outcome, confirmedNext){
   showToast('أُغلقت المتابعة: ' + FOLLOWUP_OUTCOMES[outcome], 'ok');
   await refreshAttentionViews();
   if(crmProfile && crmProfile.studentId === f.student_id) renderCrmStudentProfile();
-  if(nextStep === 'new_followup'){
+  if(outcome === 'improved'){
+    offerShahidFromFollowups([f.id], null);
+  } else if(nextStep === 'new_followup'){
     openCrmFollowupModal(f.student_id, { reasonType: f.reason_type, reasonText: f.reason_text });
   } else if(nextStep === 'escalate'){
     showToast('للتصعيد: سجّل موقفًا رسميًا أو إحالة من ملف الطالب', 'ok');
@@ -1196,7 +1243,8 @@ async function closeCrmGroupFollowup(){
   /* فشل جزئي: المغلق يبقى مغلقًا، وإعادة المراجعة تعرض المتبقين فقط */
   showToast(failed ? `تعذّر إغلاق ${failed} — أعد المراجعة لإكمالهم` : 'أُغلقت المتابعة الجماعية: ' + groupOutcomeSummary(outcomes.map(o => ({ outcome: o }))), failed ? 'error' : 'ok');
   await refreshAttentionViews();
-  if(next === 'escalate') showToast('للتصعيد: سجّل موقفًا رسميًا أو إحالة من ملف كل طالب', 'ok');
+  if(!failed && outcomes.includes('improved')) offerShahidFromFollowups(rv.rows.map(r => r.followup.id), rv.groupId);
+  else if(next === 'escalate') showToast('للتصعيد: سجّل موقفًا رسميًا أو إحالة من ملف كل طالب', 'ok');
 }
 
 async function extendCrmGroupFollowup(){
@@ -1225,4 +1273,145 @@ async function extendCrmGroupFollowup(){
 async function showClassroomFollowups(){
   await showClassroomManagement();
   switchCrmTab('followups');
+}
+
+/* ============================================================
+   مسودة شاهد من متابعة انتهت بـ"تحسّن"
+   ------------------------------------------------------------
+   معبّأة مسبقًا بالمشكلة والتدخل والأرقام قبل/بعد. اسم الطالب لا يُدرج
+   افتراضيًا ("طالب في 2/3") لأن الشاهد يطّلع عليه المقيّم والمسؤول —
+   يظهر فقط باختيار المعلم. المعلم يراجع ويحفظ بنفسه (لا حفظ تلقائي).
+   ============================================================ */
+const FOLLOWUP_SHAHID_GOALS = {
+  absence: 'تحسين انتظام الطالب في حضور الحصة', lateness: 'الحد من التأخر عن الحصة',
+  exits: 'الحد من الخروج المتكرر من الحصة', behavior: 'تعديل السلوك داخل الحصة',
+  grades: 'رفع مستوى التحصيل', other: 'متابعة الطالب وتحسين وضعه'
+};
+
+function followupBeforeAfter(f){
+  const base = f.baseline || {}, res = f.result || {};
+  if(['absence', 'lateness', 'exits'].includes(f.reason_type)){
+    const verb = { absence: 'غاب', lateness: 'تأخر', exits: 'استأذن' }[f.reason_type];
+    return {
+      before: base.of ? `${verb} ${base.count} من ${base.of} حصص` : null,
+      after: res.sufficient ? `${verb} ${res.count} من ${res.of} حصص` : null
+    };
+  }
+  if(f.reason_type === 'grades'){
+    return {
+      before: base.category ? `${GRADE_CATEGORY_SHORT[base.category]} ${base.pct}%` : null,
+      after: res.sufficient ? `${res.pct}%` : null
+    };
+  }
+  if(f.reason_type === 'behavior'){
+    return { before: base.incidents ? `${base.incidents} مواقف رسمية` : null, after: res.sufficient ? (res.recurred ? `تكررت ${res.recurred} مرة` : 'لم تتكرر المخالفة') : null };
+  }
+  return { before: null, after: null };
+}
+
+/* members: [{ followup, studentName }] — عضو واحد = فردية */
+function buildFollowupShahidDraft(opts){
+  const members = opts.members || [];
+  const f0 = members[0].followup;
+  const group = members.length > 1 || !!f0.group_id;
+  const section = opts.sectionLabel || 'الشعبة';
+  const opened = String(f0.created_at || '').slice(0, 10);
+  const closed = String(f0.closed_at || '').slice(0, 10) || opts.todayIso || '';
+  const who = group
+    ? `${arabicCountPhrase(members.length, CRM_STUDENT_COUNT_FORMS)} في ${section}${opts.showNames ? ' (' + members.map(m => m.studentName).join('، ') + ')' : ''}`
+    : (opts.showNames ? `${members[0].studentName} (${section})` : `طالب في ${section}`);
+
+  const seen = new Set();
+  const steps = (opts.actions || []).filter(a => {
+    const k = a.action_type + '|' + (a.note || '') + '|' + a.action_date;
+    if(seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).map(a => `${FOLLOWUP_ACTIONS[a.action_type] || 'إجراء'}${a.note ? ' — ' + a.note : ''} (${a.action_date})`);
+
+  let quant;
+  if(group){
+    const lines = members.map((m, i) => {
+      const ba = followupBeforeAfter(m.followup);
+      const label = opts.showNames ? m.studentName : 'طالب ' + (i + 1);
+      return `${label}: ${ba.before ? ba.before.replace(/^(أدائي|اختبارات) /, '') : '—'} ← ${ba.after || 'لا بيانات كافية'}`;
+    });
+    quant = groupOutcomeSummary(members.map(m => m.followup)) + '\n' + lines.join('\n');
+  } else {
+    const ba = followupBeforeAfter(f0);
+    quant = ba.before || ba.after ? `قبل: ${ba.before || '—'} · بعد: ${ba.after || 'لا بيانات كافية'}` : 'القياس بحكم المعلم (لا مؤشر رقمي لهذا السبب).';
+  }
+
+  const firstAction = steps.length ? FOLLOWUP_ACTIONS[(opts.actions || [])[0].action_type] : null;
+  return {
+    elementKey: f0.reason_type === 'grades' ? 'تحسين نتائج المتعلمين' : 'الإدارة الصفية',
+    title: (group ? 'متابعة جماعية: ' : 'متابعة طالب: ') + f0.reason_text,
+    classLabel: section,
+    date: closed,
+    description: `رصدتُ لدى ${who}: ${f0.reason_text}. فتحتُ متابعة في ${opened} وأغلقتها في ${closed}.`,
+    goal: (group ? 'لمجموعة من الطلاب: ' : '') + (FOLLOWUP_SHAHID_GOALS[f0.reason_type] || FOLLOWUP_SHAHID_GOALS.other),
+    steps,
+    quant,
+    qual: group ? 'النتيجة بحكم المعلم لكل طالب: ' + groupOutcomeSummary(members.map(m => m.followup)) : 'النتيجة بحكم المعلم: تحسّن.',
+    reflection: 'الأرقام تُظهر تغيّرًا بعد التدخل ولا تثبت أنه سببه وحده.' + (firstAction ? ` سأستمر في "${firstAction}" مع الحالات المشابهة وأتابع أثره.` : '')
+  };
+}
+
+/* نافذة العرض: إنشاء المسودة الآن أو لاحقًا، واختيار إظهار الاسم */
+function offerShahidFromFollowups(followupIds, groupId){
+  showInfoModal(`
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">🟢 تحسّن بعد المتابعة — دليل أداء لك</h3>
+      <p style="font-size:12px;color:var(--muted);line-height:1.8;margin:0 0 10px;">تُفتح مسودة شاهد معبّأة بالمشكلة والإجراء والأرقام قبل وبعد. تراجعها وتحفظها بنفسك.</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:12px;">
+        <input type="checkbox" id="crmShahidShowNames"> إظهار ${groupId ? 'أسماء الطلاب' : 'اسم الطالب'} في الشاهد (يطّلع عليه المقيّم والمسؤول)</label>
+      <button class="btn btn-primary" id="crmShahidDraftBtn" style="width:100%;justify-content:center;" onclick="openShahidDraftFromFollowups(${escapeHtml(JSON.stringify(followupIds))}, ${groupId ? `'${groupId}'` : 'null'})">فتح مسودة الشاهد</button>
+    </div>`, '420px');
+}
+
+let crmShahidDraftBusy = false;
+async function openShahidDraftFromFollowups(followupIds, groupId){
+  if(crmShahidDraftBusy) return;
+  crmShahidDraftBusy = true;
+  const showNames = !!(document.getElementById('crmShahidShowNames') || {}).checked;
+  const uid = currentUser.id;
+  try{
+    /* الجماعية: كل أعضائها المغلقين (لملخص "X من Y تحسّنوا")، لا المتحسّنين فقط */
+    const q = sb.from('classroom_followups').select('*').eq('teacher_id', uid).eq('status', 'closed');
+    const { data: fus, error } = groupId ? await q.eq('group_id', groupId) : await q.in('id', followupIds);
+    if(error || !(fus || []).length){ showToast('تعذّر تحميل المتابعة', 'error'); return; }
+    const { data: actions } = await sb.from('classroom_followup_actions').select('action_type, note, action_date')
+      .eq('teacher_id', uid).in('followup_id', fus.map(f => f.id)).order('action_date', { ascending: true });
+    const draft = buildFollowupShahidDraft({
+      members: fus.map(f => ({ followup: f, studentName: attentionStudentName(f.student_id) })),
+      actions: actions || [],
+      sectionLabel: fus[0].section_id ? crmSectionLabel(fus[0].section_id) : '',
+      showNames, todayIso: localIsoDate()
+    });
+    closeCrmModal();
+    startNewShahid();
+    followupShahidContext = { followupIds: fus.map(f => f.id) };
+    document.getElementById('mLesson').value = draft.title;
+    document.getElementById('mClass').value = draft.classLabel;
+    document.getElementById('mDate').value = draft.date;
+    elementSelect.value = draft.elementKey;
+    updateExample();
+    fillShahidFields({ description: draft.description, goal: draft.goal, steps: draft.steps, quant: draft.quant, qual: draft.qual, reflection: draft.reflection });
+    formDirty = true;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast('مسودة الشاهد جاهزة — راجعها ثم احفظ', 'ok');
+  } catch(e){
+    showToast('تعذّر إنشاء المسودة: ' + (e.message || ''), 'error');
+  } finally {
+    crmShahidDraftBusy = false;
+  }
+}
+
+/* بعد حفظ الشاهد (من saveShahid): تُربط المتابعات به فتختفي بطاقة "إضافتها كشاهد" */
+async function linkFollowupsToShahid(followupIds, shahidId){
+  const { error } = await sb.from('classroom_followups').update({ shahid_id: shahidId })
+    .eq('teacher_id', currentUser.id).in('id', followupIds);
+  if(error) showToast('حُفظ الشاهد، لكن تعذّر ربطه بالمتابعة', 'error');
+  invalidateAttention();
+  refreshAttention();
 }

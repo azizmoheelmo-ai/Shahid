@@ -1234,6 +1234,13 @@ create index if not exists classroom_followups_open_idx on public.classroom_foll
 -- المتابعة الجماعية: أعضاؤها متابعات عادية بمعرّف مجموعة مشترك (النتيجة لكل طالب)
 alter table public.classroom_followups add column if not exists group_id uuid;
 create index if not exists classroom_followups_group_idx on public.classroom_followups(teacher_id, group_id) where group_id is not null;
+-- الشاهد الذي أُنشئ من متابعة انتهت بتحسّن (يُخفي بطاقة "إضافتها كشاهد")
+alter table public.classroom_followups add column if not exists shahid_id uuid;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_followups_shahid_fk') then
+    alter table public.classroom_followups add constraint classroom_followups_shahid_fk foreign key (shahid_id) references public.shawahid(id) on delete set null;
+  end if;
+end $$;
 
 create table if not exists public.classroom_followup_actions (
   id uuid primary key default gen_random_uuid(),
@@ -1742,7 +1749,7 @@ async function exportFullBackup(){
       '     23. classroom_attendance.csv (لازم بعد classroom_lessons وclassroom_students)',
       '     24. classroom_positive_notes.csv (لازم بعد classroom_students وclassroom_sections)',
       '     25. classroom_private_notes.csv (لازم بعد classroom_students)',
-      '     26. classroom_followups.csv (لازم بعد classroom_students وclassroom_sections)',
+      '     26. classroom_followups.csv (لازم بعد classroom_students وclassroom_sections وshawahid)',
       '     27. classroom_followup_actions.csv (لازم بعد classroom_followups)',
       '     28. classroom_attention_dismissals.csv',
       '     29. classroom_lesson_skips.csv (لازم بعد classroom_sections)',

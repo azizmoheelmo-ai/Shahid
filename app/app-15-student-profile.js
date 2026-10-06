@@ -280,7 +280,10 @@ async function renderCrmStudentProfile(){
     </div>`).join('');
 
   body.innerHTML = `
-    <div class="crm-sheet-head">${escapeHtml(student.full_name)}</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+      <div class="crm-sheet-head">${escapeHtml(student.full_name)}</div>
+      <button class="btn btn-outline crm-mini-btn" onclick="printCrmStudentReport(event)" title="صفحة واحدة للاجتماع مع الموجه أو الوكيل">🖨 تقرير</button>
+    </div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(label.grade)} — الشعبة ${escapeHtml(label.section)}</div>
 
     <div class="crm-today-card">
@@ -704,3 +707,74 @@ async function restoreCrmStudent(studentId){
   await afterCrmStudentMoved();
 }
 
+
+/* ============================================================
+   تقرير الطالب — صفحة واحدة للاجتماع مع الموجه أو الوكيل (طباعة/PDF)
+   ------------------------------------------------------------
+   وقائع فقط بأرقام قابلة للتتبع، وفي آخره مساحة "الخطوة التالية المتفق
+   عليها" والتوقيعات. ملاحظات المعلم الخاصة لا تدخل التقرير أبدًا.
+   ============================================================ */
+function buildStudentReportHtml(data, ctx){
+  const e = escapeHtml;
+  const lines = buildStudentStatusLines(data, ctx.todayIso);
+  const stageLabel = { warning_1: 'إنذار أول', warning_2: 'إنذار ثانٍ', referred: 'تحويل' };
+  const outcomeLabels = { improved: 'تحسّن', partial: 'تحسّن جزئي', not_improved: 'لم يتحسّن' };
+  const sec = (title, body) => `<div class="srep-sec"><div class="srep-h">${title}</div>${body}</div>`;
+  const empty = t => `<div class="srep-empty">${t}</div>`;
+
+  const att = (data.attendance || []).filter(a => a.lesson)
+    .sort((a, b) => b.lesson.lesson_date.localeCompare(a.lesson.lesson_date)).slice(0, 20)
+    .map(a => `<tr><td>${a.lesson.lesson_date}${a.lesson.period ? ' · الحصة ' + a.lesson.period : ''}</td><td>${ATTENDANCE_LABELS[a.status] || ''}</td></tr>`).join('');
+
+  const g = data.grades || { columns: [], scores: [] };
+  const mine = new Map(g.scores.filter(x => x.student_id === data.studentId).map(x => [x.column_id, Number(x.score)]));
+  const gradeRows = g.columns.map(c => {
+    const st = gradeColumnStats(c.id, g.scores, ctx.sectionStudentIds || []);
+    return `<tr><td>${e(c.name)}</td><td>${mine.has(c.id) ? formatScore(mine.get(c.id)) + ' من ' + formatScore(c.max_score) : 'لم تُرصد'}</td><td>${st.avg !== null ? 'متوسط الشعبة ' + formatScore(st.avg) : ''}</td></tr>`;
+  }).join('');
+
+  const inc = (data.incidents || []).slice().sort((a, b) => b.incident_date.localeCompare(a.incident_date))
+    .map(i => `<tr><td>${i.incident_date}</td><td>${e(i.typeName || 'مخالفة')}${i.notes ? ' — ' + e(i.notes) : ''}</td><td>${stageLabel[i.current_stage] || ''}</td></tr>`).join('');
+  const pos = (data.positives || []).map(p => `<li>${p.note_date} — ${e(p.note_text || 'ملاحظة إيجابية')}</li>`).join('');
+  const fus = (data.followups || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(f => {
+    const ba = typeof followupBeforeAfter === 'function' ? followupBeforeAfter(f) : { before: null, after: null };
+    const nums = (ba.before || ba.after) ? `قبل: ${e(ba.before || '—')} · بعد: ${e(ba.after || 'لا بيانات كافية')}` : '';
+    return `<tr><td>${String(f.created_at || '').slice(0, 10)}</td><td>${e(f.reason_text)}${nums ? '<div class="srep-sub">' + nums + '</div>' : ''}</td><td>${f.status === 'open' ? 'مفتوحة · المراجعة ' + f.review_date : (outcomeLabels[f.outcome] || '')}</td></tr>`;
+  }).join('');
+
+  return `<div class="srep">
+    <div class="srep-title">تقرير الطالب</div>
+    <table class="srep-meta"><tr><td><b>الطالب:</b> ${e(ctx.studentName)}</td><td><b>الشعبة:</b> ${e(ctx.sectionLabel)}</td></tr>
+      <tr><td><b>المعلم:</b> ${e(ctx.teacher || '')}</td><td><b>المادة:</b> ${e(ctx.subject || '')}</td></tr>
+      <tr><td><b>المدرسة:</b> ${e(ctx.school || '')}</td><td><b>الفصل:</b> ${e(ctx.termLabel || '')} · <b>التاريخ:</b> ${ctx.todayIso}</td></tr></table>
+    ${sec('الحضور', `<div>${e(lines.attendanceLine)}</div>${att ? `<table class="srep-t">${att}</table>` : ''}`)}
+    ${sec('الدرجات', `<div>${e(lines.gradesLine || '')}</div>${gradeRows ? `<table class="srep-t">${gradeRows}</table>` : ''}`)}
+    ${sec('المواقف الرسمية', inc ? `<table class="srep-t">${inc}</table>` : empty('لا مواقف رسمية.'))}
+    ${sec('الملاحظات الإيجابية', pos ? `<ul class="srep-ul">${pos}</ul>` : empty('لا ملاحظات إيجابية.'))}
+    ${sec('المتابعات', fus ? `<table class="srep-t">${fus}</table>` : empty('لا متابعات.'))}
+    ${sec('الخطوة التالية المتفق عليها', '<div class="srep-lines"><div></div><div></div><div></div></div>')}
+    <table class="srep-sign"><tr><td>المعلم<br><br>..................</td><td>الموجه الطلابي<br><br>..................</td><td>وكيل شؤون الطلاب<br><br>..................</td></tr></table>
+    <div class="srep-note">الأرقام وقائع من الرصد داخل الحصة. التغيّر بعد أي متابعة لا يثبت أنها سببه وحده.</div>
+  </div>`;
+}
+
+async function printCrmStudentReport(evt){
+  if(!crmProfile) return;
+  const btn = evt ? evt.target.closest('button') : null;
+  const student = crmStudents.find(s => s.id === crmProfile.studentId) || crmArchivedStudents.find(s => s.id === crmProfile.studentId);
+  if(!student) return;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    const data = await loadCrmStudentProfileData(student);
+    const label = studentClassLabel(student, crmGradeLevels, crmSections);
+    const meta = (currentUser && currentUser.user_metadata) || {};
+    document.getElementById('printArea').innerHTML = buildStudentReportHtml(data, {
+      studentName: student.full_name, sectionLabel: label.grade + ' — الشعبة ' + label.section, termLabel: getCrmSemesterLabel(),
+      teacher: meta.full_name || '', school: getProfileSchool(), subject: getProfileSubject(), todayIso: localIsoDate(),
+      sectionStudentIds: student.section_id ? crmStudentsOfSection(student.section_id).map(s => s.id) : []
+    });
+    printNow();
+  } catch(e){
+    showToast('تعذّر تجهيز التقرير: ' + (e.message || ''), 'error');
+  } finally { endExportBusy(btn); }
+}
