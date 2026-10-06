@@ -1264,6 +1264,22 @@ create policy "المعلم يدير إجراءات متابعاته فقط" on 
 drop policy if exists "المعلم يدير تجاهلاته فقط" on public.classroom_attention_dismissals;
 create policy "المعلم يدير تجاهلاته فقط" on public.classroom_attention_dismissals for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
+-- "لم أحضر": حصة من الجدول غاب عنها المعلم — تُسكت "لم تُرصد" فقط ولا تدخل أي حساب
+create table if not exists public.classroom_lesson_skips (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  lesson_date date not null,
+  period smallint not null,
+  note text check (note is null or char_length(note) <= 300),
+  created_at timestamptz not null default now(),
+  unique (teacher_id, section_id, lesson_date, period),
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete cascade
+);
+alter table public.classroom_lesson_skips enable row level security;
+drop policy if exists "المعلم يدير حصصه غير المحضورة فقط" on public.classroom_lesson_skips;
+create policy "المعلم يدير حصصه غير المحضورة فقط" on public.classroom_lesson_skips for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
   next_number int not null default 1,
@@ -1548,7 +1564,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1650,6 +1666,7 @@ async function exportFullBackup(){
       '     26. classroom_followups.csv (لازم بعد classroom_students وclassroom_sections)',
       '     27. classroom_followup_actions.csv (لازم بعد classroom_followups)',
       '     28. classroom_attention_dismissals.csv',
+      '     29. classroom_lesson_skips.csv (لازم بعد classroom_sections)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

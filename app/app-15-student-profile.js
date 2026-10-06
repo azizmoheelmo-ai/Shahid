@@ -365,6 +365,7 @@ function closeCrmModal(){
   crmQuickIncident = null;
   crmQuickPositive = null;
   crmTransfer = null;
+  crmLessonSkip = null;
   const cancelBtn = document.getElementById('confirmCancelBtn');
   if(cancelBtn) cancelBtn.click();
 }
