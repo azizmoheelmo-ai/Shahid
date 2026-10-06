@@ -443,6 +443,9 @@ async function openCrmLessonSheet(sectionId, dateIso, period){
   body.innerHTML = '<div class="loading-state">جارٍ التحميل...</div>';
 
   const students = crmStudentsOfSection(sectionId);
+  /* علامات الانتباه تُجلب بالتوازي (نسخة المحرك المحمّلة غالبًا) — فشلها لا
+     يعطّل الرصد، فقط لا تظهر العلامات */
+  const attentionPromise = (typeof getAttentionFresh === 'function' ? getAttentionFresh() : Promise.resolve(null)).catch(() => null);
   let q = sb.from('classroom_lessons').select('id, updated_at')
     .eq('teacher_id', currentUser.id).eq('section_id', sectionId).eq('lesson_date', dateIso);
   q = period == null ? q.is('period', null) : q.eq('period', period);
@@ -472,7 +475,11 @@ async function openCrmLessonSheet(sectionId, dateIso, period){
     clearLessonDraft(sectionId, dateIso, period);
   }
 
-  crmSheet = { sectionId, dateIso, period, states, lessonId: lesson ? lesson.id : null, updatedAt: lesson ? lesson.updated_at : null, token, dirty: draftRestored };
+  const attention = await attentionPromise;
+  if(token !== crmSheetToken) return;
+  const markers = typeof sheetMarkersFor === 'function' ? sheetMarkersFor(attention, students.map(st => st.id), localIsoDate()) : new Map();
+
+  crmSheet = { sectionId, dateIso, period, states, lessonId: lesson ? lesson.id : null, updatedAt: lesson ? lesson.updated_at : null, token, dirty: draftRestored, markers, markersLoaded: !!attention };
   renderCrmLessonSheet(students, draftRestored);
 }
 
@@ -503,11 +510,12 @@ function renderCrmLessonSheet(students, draftRestored){
     <div class="crm-sheet-head">${header}</div>
     ${notes.map(n => `<div class="crm-sheet-note">${n}</div>`).join('')}
     <div id="crmSheetCounts" class="crm-sheet-counts"></div>
+    ${crmSheetMarkSummaryHtml(s)}
     <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">الكل حاضر افتراضيًا — اضغط على الطالب لتبديل حالته: غائب ← متأخر ← مستأذن ← حاضر. و⋯ لموقف رسمي أو ⭐ أو ملف الطالب.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmAtt_${st.id}" onclick="cycleCrmAttendance('${st.id}')">
-          <span class="crm-att-name">${escapeHtml(st.full_name)}</span><span class="crm-att-state"></span></button>
+          <span class="crm-att-name">${crmSheetMarkHtml(s, st.id)}${escapeHtml(st.full_name)}</span><span class="crm-att-state"></span></button>
         <button type="button" class="crm-att-more" aria-label="خيارات ${escapeHtml(st.full_name)}" onclick="openCrmStudentActions('${st.id}')">⋯</button>
       </div>`).join('')}
     </div>
@@ -519,6 +527,22 @@ function renderCrmLessonSheet(students, draftRestored){
     ${s.lessonId ? `<div style="margin-top:14px;text-align:center;"><a href="#" style="font-size:11.5px;color:#8A2C2C;" onclick="event.preventDefault();deleteCrmLesson()">حذف هذا الرصد (رُصد بالخطأ)</a></div>` : ''}`;
   students.forEach(st => paintCrmAttendance(st.id));
   paintCrmSheetCounts();
+}
+
+/* العلامة نقطة صغيرة بلا نص — السبب لا يظهر إلا عند الضغط على ⋯ (شاشة
+   الجوال قد يراها الطلاب) */
+function crmSheetMarkHtml(sheet, studentId){
+  const m = sheet.markers && sheet.markers.get(studentId);
+  return m ? `<span class="crm-mark mark-${m.priority}" aria-hidden="true"></span>` : '';
+}
+
+function crmSheetMarkSummaryHtml(sheet){
+  if(!sheet.markersLoaded || !sheet.markers) return '';
+  const n = [...sheet.markers.values()].filter(m => m.priority !== 'info').length;
+  if(!n) return '';
+  return `<div class="crm-mark-summary"><span class="crm-mark mark-important" aria-hidden="true"></span>${arabicCountPhrase(n, {
+    one: 'طالب يحتاج انتباهك', two: 'طالبان يحتاجان انتباهك', few: '{n} طلاب يحتاجون انتباهك', many: '{n} طالبًا يحتاجون انتباهك'
+  })} — اضغط ⋯ بجانبه لمعرفة السبب</div>`;
 }
 
 function paintCrmAttendance(studentId){

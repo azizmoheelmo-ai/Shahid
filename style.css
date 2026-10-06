@@ -1324,4 +1324,13 @@
 .crm-field-label{display:block;font-size:11.5px;font-weight:700;color:var(--navy);margin-bottom:4px;}
 .crm-ba-box{background:#F7F5F0;border:1px solid var(--line);padding:8px 10px;}
 .crm-ba-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0;}
+/* علامة الانتباه في ورقة الرصد: نقطة بلا نص، ولونها بحسب الأولوية */
+.crm-mark{display:inline-block;width:9px;height:9px;border-radius:50%;margin-left:6px;vertical-align:middle;flex-shrink:0;}
+.crm-mark.mark-urgent{background:#C0392B;}
+.crm-mark.mark-important{background:#D08A2B;}
+.crm-mark.mark-review{background:#5B7BA8;}
+.crm-mark.mark-info{background:#B5B0A6;}
+.crm-mark-summary{font-size:12px;color:var(--navy);font-weight:700;margin:-2px 0 8px;}
+.crm-why{background:#F7F5F0;border:1px solid var(--line);padding:8px 10px;margin-bottom:12px;}
+.crm-why-row{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.7;padding:4px 0;}
 
