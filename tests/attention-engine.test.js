@@ -272,3 +272,16 @@ test('sheetMarkersFor — علامات ورقة الرصد', async (t) => {
     assert.equal(app.sheetMarkersFor(null, ['a'], '2026-10-08').size, 0);
   });
 });
+
+test('computeAttentionItems — المنقول خارج المدرسة لا يُنتج بطاقات', () => {
+  const app = loadApp();
+  const students = [{ id: 'gone', full_name: 'منقول', section_id: 'S', is_active: false }];
+  const cards = app.computeAttentionItems(baseInput({
+    students,
+    incidents: [{ id: 'I1', student_id: 'gone', current_stage: 'referred', referral_letter_generated: false, created_at: '2026-10-01T08:00:00Z' }],
+    followups: [{ id: 'F1', student_id: 'gone', status: 'open', reason_type: 'absence', reason_text: 'غياب', review_date: '2026-09-20' }],
+  }));
+  /* متابعته المفتوحة وإحالته المعلّقة تبقيان بسجله، لكن لا تنبيه عاجل
+     لطالب لم يعد عندك — وإلا ظلّت البطاقة الحمراء تلاحقك بلا نهاية */
+  assert.equal(cards.length, 0);
+});

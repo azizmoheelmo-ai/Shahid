@@ -42,11 +42,18 @@ function daysBetweenIso(fromIso, toIso){
 /* بطاقة الحال: وقائع فقط، بلا تصنيف للطالب */
 function buildStudentStatusLines(data, todayIso){
   const att = data.attendance || [];
+  /* المنقول بين الشعب: عدد الحصص لشعبته الحالية فقط، فاستثناءات شعبته
+     السابقة تُعرض منفصلة — لا تُقسم على حصص لم يكن فيها */
+  const isPrev = a => data.currentSectionId && a.lesson && a.lesson.section_id && a.lesson.section_id !== data.currentSectionId;
   const counts = { absent: 0, late: 0, permitted_exit: 0 };
-  att.forEach(a => { if(counts[a.status] !== undefined) counts[a.status]++; });
-  const attendanceLine = data.recordedLessons
+  const prev = { absent: 0, late: 0, permitted_exit: 0 };
+  att.forEach(a => { const c = isPrev(a) ? prev : counts; if(c[a.status] !== undefined) c[a.status]++; });
+  let attendanceLine = data.recordedLessons
     ? `غاب ${counts.absent} · تأخر ${counts.late} · مستأذن ${counts.permitted_exit} — من ${data.recordedLessons} حصة مرصودة`
     : 'لا حصص مرصودة لشعبته بعد';
+  const prevParts = [['absent', 'غاب'], ['late', 'تأخر'], ['permitted_exit', 'مستأذن']]
+    .filter(([k]) => prev[k]).map(([k, w]) => `${w} ${prev[k]}`);
+  if(prevParts.length) attendanceLine += ' · وفي شعبة سابقة: ' + prevParts.join(' · ');
 
   const incidents = (data.incidents || []).slice().sort((a, b) => b.incident_date.localeCompare(a.incident_date));
   const positives = data.positives || [];
@@ -152,7 +159,7 @@ async function loadCrmStudentProfileData(student){
   const attendance = attRes.data || [];
   let lessonDates = new Map();
   if(attendance.length){
-    const { data: lessons, error } = await sb.from('classroom_lessons').select('id, lesson_date, period')
+    const { data: lessons, error } = await sb.from('classroom_lessons').select('id, section_id, lesson_date, period')
       .eq('teacher_id', uid).in('id', [...new Set(attendance.map(a => a.lesson_id))]);
     if(error) throw error;
     lessonDates = new Map((lessons || []).map(l => [l.id, l]));
@@ -164,6 +171,7 @@ async function loadCrmStudentProfileData(student){
   return {
     attendance: attendance.map(a => Object.assign({}, a, { lesson: lessonDates.get(a.lesson_id) || null })),
     recordedLessons: lessonsRes.count || 0,
+    currentSectionId: student.section_id || null,
     incidents,
     positives: posRes.data || [],
     privateNotes: privRes.data || [],
@@ -175,7 +183,8 @@ async function renderCrmStudentProfile(){
   if(!crmProfile) return;
   const { studentId, token } = crmProfile;
   const body = document.getElementById('crmStudentProfileBody');
-  const student = crmStudents.find(s => s.id === studentId);
+  /* المنقول خارج المدرسة: ملفه للاطلاع (سجله محفوظ) */
+  const student = crmStudents.find(s => s.id === studentId) || crmArchivedStudents.find(s => s.id === studentId);
   if(!student){
     body.innerHTML = '<div class="empty-state">الطالب غير موجود في السنة المعروضة.</div><button class="btn btn-outline" onclick="closeCrmStudentProfile()">رجوع</button>';
     return;
@@ -203,7 +212,7 @@ async function renderCrmStudentProfile(){
   const attendanceRows = data.attendance
     .filter(a => a.lesson)
     .sort((a, b) => b.lesson.lesson_date.localeCompare(a.lesson.lesson_date))
-    .map(a => `<div class="crm-tl-row"><span>${a.lesson.lesson_date}${a.lesson.period ? ' · الحصة ' + a.lesson.period : ''}</span><b>${ATTENDANCE_LABELS[a.status] || ''}</b></div>`)
+    .map(a => `<div class="crm-tl-row"><span>${a.lesson.lesson_date}${a.lesson.period ? ' · الحصة ' + a.lesson.period : ''}${student.section_id && a.lesson.section_id !== student.section_id ? ' <span class="crm-tl-meta">(شعبة سابقة)</span>' : ''}</span><b>${ATTENDANCE_LABELS[a.status] || ''}</b></div>`)
     .join('') || '<div class="crm-today-empty">لا غياب ولا تأخر ولا استئذان مسجّل.</div>';
 
   const timeline = buildBehaviorTimeline(data.incidents, data.positives).map(item => {
@@ -243,11 +252,14 @@ async function renderCrmStudentProfile(){
       <div class="crm-status-line"><span class="crm-status-key">المتابعة</span><span>${escapeHtml(lines.followupLine)}</span></div>
     </div>
 
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+    ${student.is_active === false ? `<div class="crm-today-card" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <span style="font-size:12px;color:var(--muted);">نُقل خارج المدرسة — سجله محفوظ للاطلاع</span>
+      <button class="crm-transfer-btn" onclick="restoreCrmStudent('${student.id}')">إعادة</button>
+    </div>` : `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmIncidentModal('${student.id}')">موقف رسمي</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmPositiveModal('${student.id}')">⭐ ملاحظة إيجابية</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmFollowupModal('${student.id}')">فتح متابعة</button>
-    </div>
+    </div>`}
 
     ${crmProfileSection('crmProfAtt', 'الحضور (الاستثناءات فقط)', attendanceRows)}
     ${crmProfileSection('crmProfBeh', 'المواقف', timeline)}
@@ -352,6 +364,7 @@ async function saveCrmQuickIncident(){
 function closeCrmModal(){
   crmQuickIncident = null;
   crmQuickPositive = null;
+  crmTransfer = null;
   const cancelBtn = document.getElementById('confirmCancelBtn');
   if(cancelBtn) cancelBtn.click();
 }
@@ -489,3 +502,119 @@ function openCrmStudentProfileFromSheet(studentId){
   resetCrmLessonSheet();
   openCrmStudentProfile(studentId, back);
 }
+
+/* ============================================================
+   نقل الطالب بسجله — بديل الحذف لمن انتقل
+   ------------------------------------------------------------
+   - إلى شعبة أخرى: يتغيّر section_id فقط. غيابه ومخالفاته وملاحظاته السابقة
+     تبقى مرتبطة بالشعبة التي وقعت فيها (كل حدث يحفظ شعبته وقت وقوعه)،
+     ومتابعاته المفتوحة تنتقل معه — وإلا قيست نتيجتها من حصص شعبة لم يعد فيها.
+   - خارج المدرسة: is_active = false — يختفي من القوائم وأوراق الرصد وقواعد
+     الحضور، وسجله كاملًا محفوظ، ويُعاد بنقرة من قائمة "نُقلوا خارج المدرسة".
+   ============================================================ */
+
+/* دالة صرفة: الشعب المتاحة للنقل (كلها عدا شعبته الحالية)، مرتبة بالاسم */
+function transferTargetSections(sections, gradeLevels, currentSectionId){
+  return (sections || [])
+    .filter(sec => sec.id !== currentSectionId)
+    .map(sec => {
+      const grade = (gradeLevels || []).find(g => g.id === sec.grade_level_id);
+      return { id: sec.id, label: (grade ? grade.name + ' — ' : '') + 'الشعبة ' + sec.name, gradeName: grade ? grade.name : '', sectionName: sec.name };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'ar', { numeric: true }));
+}
+
+let crmTransfer = null;
+
+function openCrmTransferModal(studentId){
+  const student = crmStudents.find(s => s.id === studentId);
+  if(!student) return;
+  const targets = transferTargetSections(crmSections, crmGradeLevels, student.section_id);
+  const label = studentClassLabel(student, crmGradeLevels, crmSections);
+  crmTransfer = { studentId, saving: false };
+  showInfoModal(`
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">نقل الطالب</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(student.full_name)} · حاليًا في ${escapeHtml(label.grade)} — الشعبة ${escapeHtml(label.section)}</div>
+      <label class="crm-field-label">إلى شعبة أخرى</label>
+      <select class="goal-input" id="crmTransferTarget" style="margin-bottom:6px;">
+        <option value="">اختر الشعبة</option>
+        ${targets.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary" id="crmTransferBtn" style="width:100%;justify-content:center;margin-bottom:6px;" onclick="transferCrmStudent()">نقل إلى الشعبة</button>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 12px;line-height:1.7;">يبقى غيابه ومخالفاته وملاحظاته السابقة مسجلة في شعبته القديمة حيث وقعت، وتنتقل معه متابعاته المفتوحة.</p>
+      <div style="border-top:1px solid var(--line);padding-top:10px;">
+        <button class="btn btn-outline" id="crmArchiveBtn" style="width:100%;justify-content:center;" onclick="archiveCrmStudent()">نُقل خارج المدرسة</button>
+        <p style="font-size:11px;color:var(--muted);margin:6px 0 0;line-height:1.7;">يختفي من القوائم وأوراق الرصد، ويبقى سجله كاملًا. تستطيع إعادته من "نُقلوا خارج المدرسة" أسفل قائمة الطلاب.</p>
+      </div>
+    </div>`, '430px');
+}
+
+async function afterCrmStudentMoved(){
+  await loadCrmStudents();
+  renderCrmStudentsList();
+  renderCrmLinkBanner();
+  if(crmProfile) renderCrmStudentProfile(); /* أُعيد من داخل ملفه */
+  if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
+}
+
+async function transferCrmStudent(){
+  const tr = crmTransfer;
+  if(!tr || tr.saving) return;
+  const targetId = document.getElementById('crmTransferTarget').value;
+  const student = crmStudents.find(s => s.id === tr.studentId);
+  if(!targetId){ showToast('اختر الشعبة', 'error'); return; }
+  if(!student) return;
+  const target = transferTargetSections(crmSections, crmGradeLevels, student.section_id).find(t => t.id === targetId);
+  if(!target) return;
+  tr.saving = true;
+  document.getElementById('crmTransferBtn').disabled = true;
+  const { error } = await sb.from('classroom_students')
+    .update({ section_id: target.id, grade_level: target.gradeName, section_number: target.sectionName })
+    .eq('teacher_id', currentUser.id).eq('id', student.id);
+  if(error){
+    showToast('تعذّر النقل: ' + error.message, 'error');
+    tr.saving = false;
+    document.getElementById('crmTransferBtn').disabled = false;
+    return;
+  }
+  /* المتابعات المفتوحة تتبعه: نتيجتها تُقاس من حصص شعبته الجديدة */
+  const { error: fErr } = await sb.from('classroom_followups').update({ section_id: target.id })
+    .eq('teacher_id', currentUser.id).eq('student_id', student.id).eq('status', 'open');
+  closeCrmModal();
+  showToast(fErr ? 'نُقل الطالب، لكن تعذّر تحديث متابعاته المفتوحة' : 'نُقل ' + student.full_name + ' إلى ' + target.label, fErr ? 'error' : 'ok');
+  await afterCrmStudentMoved();
+}
+
+async function archiveCrmStudent(){
+  const tr = crmTransfer;
+  if(!tr || tr.saving) return;
+  const student = crmStudents.find(s => s.id === tr.studentId);
+  if(!student) return;
+  tr.saving = true;
+  document.getElementById('crmArchiveBtn').disabled = true;
+  const { error } = await sb.from('classroom_students').update({ is_active: false })
+    .eq('teacher_id', currentUser.id).eq('id', student.id);
+  if(error){
+    showToast('تعذّر الحفظ: ' + error.message, 'error');
+    tr.saving = false;
+    document.getElementById('crmArchiveBtn').disabled = false;
+    return;
+  }
+  closeCrmModal();
+  showToast(student.full_name + ': نُقل خارج المدرسة — سجله محفوظ', 'ok');
+  await afterCrmStudentMoved();
+}
+
+let crmRestoring = false;
+async function restoreCrmStudent(studentId){
+  if(crmRestoring) return;
+  crmRestoring = true;
+  const { error } = await sb.from('classroom_students').update({ is_active: true })
+    .eq('teacher_id', currentUser.id).eq('id', studentId);
+  crmRestoring = false;
+  if(error){ showToast('تعذّر الإعادة: ' + error.message, 'error'); return; }
+  showToast('أُعيد الطالب لقائمة شعبته', 'ok');
+  await afterCrmStudentMoved();
+}
+

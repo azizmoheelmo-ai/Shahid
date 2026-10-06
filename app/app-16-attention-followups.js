@@ -106,7 +106,8 @@ function computeAttentionItems(input){
   const byStudent = new Map();
   const studentMap = new Map((students || []).map(s => [s.id, s]));
   const add = (studentId, reason) => {
-    if(!studentMap.has(studentId)) return;
+    /* المنقول خارج المدرسة: سجله محفوظ لكن لا تنبيهات عنه */
+    if(!studentMap.has(studentId) || studentMap.get(studentId).is_active === false) return;
     if(!byStudent.has(studentId)) byStudent.set(studentId, []);
     byStudent.get(studentId).push(reason);
   };
@@ -484,8 +485,10 @@ async function renderCrmFollowups(){
   else if(!(openRes.data || []).length) html += '<div class="crm-today-empty">لا متابعات مفتوحة. افتحها من بطاقة انتباه أو من ملف الطالب.</div>';
   else html += openRes.data.map(f => {
     const due = f.review_date <= todayIso;
+    const st = cache && cache.data.students.find(x => x.id === f.student_id);
+    const gone = st && st.is_active === false ? ' <span style="font-size:11px;color:var(--muted);">(نُقل خارج المدرسة)</span>' : '';
     return `<div class="crm-lesson-row">
-      <span><a href="#" onclick="event.preventDefault();openCrmStudentProfile('${f.student_id}', { type: 'tab', tab: 'followups' })">${escapeHtml(attentionStudentName(f.student_id))}</a> · ${escapeHtml(f.reason_text)}
+      <span><a href="#" onclick="event.preventDefault();openCrmStudentProfile('${f.student_id}', { type: 'tab', tab: 'followups' })">${escapeHtml(attentionStudentName(f.student_id))}</a>${gone} · ${escapeHtml(f.reason_text)}
         <span style="font-size:11px;color:${due ? '#8A2C2C' : 'var(--muted)'};"> — المراجعة ${shortDateAr(f.review_date)}</span></span>
       <button class="btn ${due ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmReviewModal('${f.id}')">مراجعة</button>
     </div>`;

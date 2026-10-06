@@ -1042,11 +1042,17 @@ async function loadCrmIncidentTypes(){
   crmIncidentTypes = data || [];
 }
 
+let crmArchivedStudents = []; /* نُقلوا خارج المدرسة: مخفيون من القوائم والرصد، وسجلهم محفوظ */
+
 async function loadCrmStudents(){
   const year = document.getElementById('crmYearInput').value;
-  const { data, error } = await sb.from('classroom_students').select('*').eq('teacher_id', currentUser.id).eq('is_active', true).eq('academic_year', year).order('grade_level').order('section_number').order('full_name');
+  const [{ data, error }, { data: archived }] = await Promise.all([
+    sb.from('classroom_students').select('*').eq('teacher_id', currentUser.id).eq('is_active', true).eq('academic_year', year).order('grade_level').order('section_number').order('full_name'),
+    sb.from('classroom_students').select('*').eq('teacher_id', currentUser.id).eq('is_active', false).eq('academic_year', year).order('full_name')
+  ]);
   if(error){ showToast('تعذّر تحميل الطلاب: ' + error.message, 'error'); return; }
   crmStudents = data || [];
+  crmArchivedStudents = archived || [];
 }
 
 function renderCrmStudentsList(){
@@ -1054,7 +1060,8 @@ function renderCrmStudentsList(){
   const query = (document.getElementById('crmStudentSearch').value || '').trim();
   let list = crmStudents;
   if(query){ list = list.filter(s => s.full_name.includes(query)); }
-  if(!list.length){ box.innerHTML = '<div class="empty-state">لا يوجد طلاب مطابقون.</div>'; return; }
+  const archived = query ? crmArchivedStudents.filter(s => s.full_name.includes(query)) : crmArchivedStudents;
+  if(!list.length){ box.innerHTML = '<div class="empty-state">لا يوجد طلاب مطابقون.</div>' + crmArchivedListHtml(archived, query); return; }
 
   const groups = {};
   list.forEach(s => {
@@ -1091,7 +1098,10 @@ function renderCrmStudentsList(){
           <div style="border-bottom:1px solid var(--line);">
             <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 4px;cursor:pointer;" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">
               <span style="font-size:12.5px;">${escapeHtml(s.full_name)}${s.student_number ? ' <span style="color:var(--muted);font-size:11px;">#' + escapeHtml(s.student_number) + '</span>' : ''}</span>
-              <button style="border:none;background:none;color:var(--muted);font-size:13px;padding:0;" onclick="event.stopPropagation();deleteCrmStudent('${s.id}')" title="حذف الطالب">🗑</button>
+              <span style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+                <button class="crm-transfer-btn" onclick="event.stopPropagation();openCrmTransferModal('${s.id}')" title="نقل الطالب بسجله">⇄ نقل</button>
+                <button style="border:none;background:none;color:var(--muted);font-size:13px;padding:0;" onclick="event.stopPropagation();deleteCrmStudent('${s.id}')" title="حذف الطالب">🗑</button>
+              </span>
             </div>
           </div>`;
       });
@@ -1100,7 +1110,25 @@ function renderCrmStudentsList(){
 
     html += `</div></div>`;
   });
-  box.innerHTML = html;
+  box.innerHTML = html + crmArchivedListHtml(archived, query);
+}
+
+/* الطلاب المنقولون خارج المدرسة: قائمة مطوية أسفل الطلاب، مع "إعادة" لمن عاد */
+function crmArchivedListHtml(archived, query){
+  if(!archived.length) return '';
+  const open = query ? 'block' : 'none';
+  return `<div style="border:1px dashed var(--line);margin-top:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;cursor:pointer;" onclick="toggleCrmGroup('crmArchivedBody')">
+      <span style="font-weight:700;font-size:12.5px;color:var(--muted);">نُقلوا خارج المدرسة (${archived.length}) — سجلهم محفوظ</span>
+      <span id="crmArchivedBody_arrow" style="font-size:11px;color:var(--muted);">${open === 'block' ? '▾' : '▸'}</span>
+    </div>
+    <div id="crmArchivedBody" style="display:${open};padding:0 10px 8px;">
+      ${archived.map(s => `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 4px;border-top:1px solid var(--line);">
+        <span style="font-size:12.5px;color:var(--muted);cursor:pointer;" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">${escapeHtml(s.full_name)} <span style="font-size:11px;">— كان في ${escapeHtml(studentClassLabel(s, crmGradeLevels, crmSections).grade)} / ${escapeHtml(studentClassLabel(s, crmGradeLevels, crmSections).section)}</span></span>
+        <button class="crm-transfer-btn" onclick="restoreCrmStudent('${s.id}')">إعادة</button>
+      </div>`).join('')}
+    </div>
+  </div>`;
 }
 
 /* ============ ربط الطالب بشعبته بالمعرّف (section_id) ============ */
