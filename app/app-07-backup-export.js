@@ -1366,6 +1366,30 @@ create policy "المعلم يدير أعمدة درجاته فقط" on public.c
 drop policy if exists "المعلم يدير درجات طلابه فقط" on public.classroom_grade_scores;
 create policy "المعلم يدير درجات طلابه فقط" on public.classroom_grade_scores for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
+-- خطط الحصص القادمة (أخطط ← أنفّذ ← أوثّق): جدول مستقل حتى لا تُحسب خطة لم تُنفّذ شاهدًا
+create table if not exists public.lesson_plans (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  element_key text not null,
+  template_name text,
+  title text not null check (char_length(btrim(title)) between 1 and 200),
+  description text check (description is null or char_length(description) <= 5000),
+  goal text check (goal is null or char_length(goal) <= 2000),
+  steps jsonb not null default '[]'::jsonb,
+  planned_date date not null,
+  section_id uuid,
+  period smallint check (period is null or period between 1 and 12),
+  status text not null default 'planned' check (status in ('planned', 'done', 'cancelled')),
+  shahid_id uuid references public.shawahid(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (section_id, user_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id)
+);
+create index if not exists lesson_plans_user_date_idx on public.lesson_plans(user_id, planned_date);
+alter table public.lesson_plans enable row level security;
+drop policy if exists "المعلم يدير خططه فقط" on public.lesson_plans;
+create policy "المعلم يدير خططه فقط" on public.lesson_plans for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
   next_number int not null default 1,
@@ -1650,7 +1674,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1755,6 +1779,7 @@ async function exportFullBackup(){
       '     29. classroom_lesson_skips.csv (لازم بعد classroom_sections)',
       '     30. classroom_grade_columns.csv (لازم بعد classroom_sections)',
       '     31. classroom_grade_scores.csv (لازم بعد classroom_grade_columns وclassroom_students)',
+      '     32. lesson_plans.csv (لازم بعد shawahid وclassroom_sections)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

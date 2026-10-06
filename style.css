@@ -1396,3 +1396,7 @@
 #printArea .srep-lines div{border-bottom:1px dotted #999;height:22px;}
 #printArea .srep-sign{width:100%;margin-top:14px;text-align:center;}
 #printArea .srep-note{font-size:10px;color:#777;margin-top:10px;}
+/* ============ خطط الحصص ============ */
+.plan-target{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;}
+.plan-text{font-size:12.5px;line-height:1.8;white-space:pre-wrap;margin-bottom:6px;}
+.plan-steps{margin:0 0 6px;padding-right:18px;font-size:12.5px;line-height:1.8;}

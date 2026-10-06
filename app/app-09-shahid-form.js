@@ -940,6 +940,11 @@ async function saveShahid(){
       showSaveMsg('تم حفظ الشاهد بنجاح ✓' + refText, 'ok');
       showToast('تم حفظ الشاهد بنجاح' + refText, 'ok');
       loadPlan();
+      if(planShahidContext){
+        const pctx = planShahidContext;
+        planShahidContext = null;
+        await markLessonPlanDone(pctx.planId, inserted.id);
+      }
       if(followupShahidContext){
         const fctx = followupShahidContext;
         followupShahidContext = null;
@@ -1065,6 +1070,8 @@ function editRecord(id){
      طريق الخطأ عند الحفظ (انظر saveShahid). */
   programSessionContext = null;
   followupShahidContext = null; /* نفس السبب: لا يُربط شاهد آخر بمتابعة بالخطأ */
+  planShahidContext = null;
+  document.getElementById('planBtn').style.display = 'none'; /* تعديل شاهد قائم لا يُحفظ كخطة */
   document.getElementById('saveBtn').textContent = 'تحديث الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'inline-block';
 
@@ -1113,6 +1120,8 @@ function duplicateRecord(id){
   editingId = null;
   programSessionContext = null; /* نفس سبب إلغائه في editRecord أعلاه */
   followupShahidContext = null;
+  planShahidContext = null;
+  document.getElementById('planBtn').style.display = '';
   formDirty = true;
   document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'none';
@@ -1201,7 +1210,9 @@ function startNewShahid(){
   formDirty = false;
   programSessionContext = null;
   followupShahidContext = null;
+  planShahidContext = null;
   clearDraft();
+  document.getElementById('planBtn').style.display = '';
   document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
   document.getElementById('cancelEditBtn').style.display = 'none';
 

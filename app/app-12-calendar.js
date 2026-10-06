@@ -217,10 +217,11 @@ async function loadUserCalendarMarkers(calendarData){
   const markers = {}; // isoDate -> { shahid: string[], program: string[], task: string[] }
   if(!currentUser) return markers;
 
-  const [{ data: shawahid }, { data: programs }, { data: tasks }] = await Promise.all([
+  const [{ data: shawahid }, { data: programs }, { data: tasks }, { data: plans }] = await Promise.all([
     sb.from('shawahid').select('lesson_title, lesson_date').eq('user_id', currentUser.id).not('lesson_date', 'is', null),
     sb.from('activity_programs').select('name, sessions').eq('user_id', currentUser.id),
     sb.from('tasks').select('title, due_date, done').eq('user_id', currentUser.id).not('due_date', 'is', null),
+    sb.from('lesson_plans').select('title, planned_date').eq('user_id', currentUser.id).eq('status', 'planned'),
   ]);
 
   (shawahid || []).forEach(s => {
@@ -240,6 +241,11 @@ async function loadUserCalendarMarkers(calendarData){
   (tasks || []).forEach(t => {
     if(!t.due_date || t.done) return; // لا نعلّم المهام المُنجَزة بالتقويم — لا تحتاج انتباهًا بعد
     (markers[t.due_date] = markers[t.due_date] || emptyMarkerBucket()).task.push(t.title || 'مهمة');
+  });
+
+  /* الخطط غير المنفّذة كعلامة "مهمة" بتاريخها — تختفي متى وُثّقت أو أُلغيت */
+  (plans || []).forEach(p => {
+    (markers[p.planned_date] = markers[p.planned_date] || emptyMarkerBucket()).task.push('📋 خطة: ' + (p.title || ''));
   });
 
   return markers;
