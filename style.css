@@ -1297,6 +1297,19 @@
 .crm-att-btn.state-late .crm-att-state{color:#6B5420;}
 .crm-att-btn.state-permitted_exit{background:#EDF1F7;border-color:#9DB0CC;}
 .crm-att-btn.state-permitted_exit .crm-att-state{color:#2C4A72;}
+/* وضعا المشاركة والواجب في ورقة الحصة */
+.crm-att-btn.is-absent{opacity:.45;}
+.crm-part-val{font-size:12px;font-weight:800;color:var(--navy);}
+.crm-part-val .crm-grade-max{display:inline;}
+.crm-part-today{display:inline-block;margin-right:6px;background:#E3F1E7;color:#215C34;padding:0 6px;font-size:11px;}
+.crm-att-btn.is-full .crm-part-val{color:#215C34;}
+.crm-att-btn.hw-missing .crm-att-state{color:var(--muted);font-weight:600;}
+.crm-att-btn.hw-submitted{background:#EAF5EE;border-color:#8FC0A0;}
+.crm-att-btn.hw-submitted .crm-att-state{color:#215C34;}
+.crm-att-btn.hw-partial{background:#FBF3E6;border-color:#D8BC7E;}
+.crm-att-btn.hw-partial .crm-att-state{color:#6B5420;}
+.crm-att-btn.hw-late{background:#EDF1F7;border-color:#9DB0CC;}
+.crm-att-btn.hw-late .crm-att-state{color:#2C4A72;}
 .crm-sheet-bar{position:sticky;bottom:calc(66px + env(safe-area-inset-bottom, 0px));display:flex;gap:8px;background:#fff;border-top:1px solid var(--line);padding:10px 0;margin-top:12px;z-index:5;}
 .crm-att-cell{display:flex;align-items:stretch;}
 .crm-att-cell .crm-att-btn{flex:1;min-width:0;}

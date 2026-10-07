@@ -409,6 +409,7 @@ function closeCrmModal(){
   crmTransfer = null;
   crmLessonSkip = null;
   if(typeof crmPlanDraft !== 'undefined') crmPlanDraft = null;
+  if(typeof crmHomeworkDraft !== 'undefined') crmHomeworkDraft = null;
   if(typeof crmGradeColumnDraft !== 'undefined') crmGradeColumnDraft = null;
   const cancelBtn = document.getElementById('confirmCancelBtn');
   if(cancelBtn) cancelBtn.click();

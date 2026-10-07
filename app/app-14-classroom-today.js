@@ -567,6 +567,9 @@ function showCrmLessonSheetPane(show){
 
 function renderCrmLessonSheet(students, draftRestored){
   const s = crmSheet;
+  /* وضعا المشاركة والواجب يرسمان نفسيهما (app-20) — تحديث علامات الانتباه
+     أثناءهما لا يعيد الورقة لوضع الحضور */
+  if(s.mode === 'participation' || s.mode === 'homework') return;
   const body = document.getElementById('crmLessonSheetBody');
   const dayName = CRM_WEEKDAY_NAMES[weekdayOfIso(s.dateIso)];
   const header = `${escapeHtml(crmSectionLabel(s.sectionId))} · ${dayName} ${s.dateIso.slice(5).replace('-', '/')}${s.period ? ' · الحصة ' + s.period : ''}`;
@@ -586,6 +589,7 @@ function renderCrmLessonSheet(students, draftRestored){
 
   body.innerHTML = `
     <div class="crm-sheet-head">${header}</div>
+    ${typeof crmSheetModeSwitchHtml === 'function' ? crmSheetModeSwitchHtml() : ''}
     ${notes.map(n => `<div class="crm-sheet-note">${n}</div>`).join('')}
     <div id="crmSheetCounts" class="crm-sheet-counts"></div>
     ${crmSheetMarkSummaryHtml(s)}

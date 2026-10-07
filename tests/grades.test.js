@@ -106,7 +106,7 @@ test('gradeSheetSeed', async (t) => {
   await t.test('من الفصل السابق: الأعمدة فقط (الاسم والدرجة وماذا يقيس)', () => {
     const prev = [col('x', 'tests', 20, { name: 'اختبار شامل', measures: 'الوحدات 1-3', position: 1, section_id: 'S', academic_year: '1447-1448' })];
     const seed = app.gradeSheetSeed(prev);
-    assert.deepEqual({ ...seed[0] }, { category: 'tests', name: 'اختبار شامل', max_score: 20, measures: 'الوحدات 1-3', position: 1 });
+    assert.deepEqual({ ...seed[0] }, { category: 'tests', name: 'اختبار شامل', max_score: 20, measures: 'الوحدات 1-3', position: 1, kind: 'manual' });
   });
 });
 
