@@ -205,6 +205,9 @@ function makeFakeStorage() {
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
     clear: () => store.clear(),
+    /* كواجهة المتصفح: تعداد المفاتيح (تستخدمه دوال التنظيف) */
+    get length(){ return store.size; },
+    key: (i) => [...store.keys()][i] ?? null,
   };
 }
 

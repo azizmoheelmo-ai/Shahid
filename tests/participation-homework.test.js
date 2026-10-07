@@ -197,3 +197,74 @@ test('deleteCrmStudent — التراجع يعيد تسليم واجباته أ�
   assert.ok(restored, 'تسليم الواجبات يُعاد مع التراجع');
   assert.equal(restored.rows[0].id, 'hs1');
 });
+
+/* ============ سجل التراجع يبقى بعد إغلاق الورقة ============ */
+function partSheet(scores){
+  return `crmSheet = { sectionId: 'S', dateIso: '2026-10-07', period: 1, states: {}, token: 1, mode: 'participation',
+    part: { column: { id: 'C', max_score: 10 }, scores: new Map(${JSON.stringify(scores)}), today: {}, undo: [], queue: new Map() } };`;
+}
+
+test('سجل التراجع يُحفظ ويعود عند فتح نفس الحصة', async () => {
+  const log = [];
+  const app = loadApp({ supabaseClient: fakeClient({}, log), currentUser: { id: 'u1' } });
+  runInAppContext(app, partSheet([['a', 5], ['b', 2]]));
+  app.tapCrmParticipation('a');
+  app.tapCrmParticipation('b');
+  app.tapCrmParticipation('a');
+  await runInAppContext(app, 'Promise.all([...crmSheet.part.queue.values()])');
+  /* إغلاق الورقة ثم فتح نفس الحصة: حالة جديدة تُقرأ من الجهاز */
+  const st = runInAppContext(app, 'readParticipationState({ sectionId: "S", dateIso: "2026-10-07", period: 1 })');
+  assert.deepEqual([...st.undo], ['a', 'b', 'a']);
+  assert.deepEqual({ ...st.counts }, { a: 2, b: 1 });
+  const other = runInAppContext(app, 'readParticipationState({ sectionId: "S", dateIso: "2026-10-07", period: 2 })');
+  assert.equal(other.undo.length, 0, 'لكل حصة سجلها');
+});
+
+test('سجل الصيغة القديمة (العدّاد فقط) يُقرأ بلا خطأ', async () => {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  const key = runInAppContext(app, 'participationTodayKey({ sectionId: "S", dateIso: "2026-10-07", period: 1 })');
+  app.localStorage.setItem(key, JSON.stringify({ a: 2 }));
+  const st = runInAppContext(app, 'readParticipationState({ sectionId: "S", dateIso: "2026-10-07", period: 1 })');
+  assert.deepEqual({ ...st.counts }, { a: 2 });
+  assert.equal(st.undo.length, 0);
+});
+
+test('انحدار: نقرة فشل حفظها لا تبقى في العرض ولا في سجل التراجع', async () => {
+  const log = [];
+  const client = fakeClient({}, log);
+  client.rpc = () => Promise.resolve({ data: null, error: { message: 'offline' } });
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, partSheet([['a', 5]]));
+  app.tapCrmParticipation('a');
+  await runInAppContext(app, 'crmSheet.part.queue.get("a")');
+  assert.equal(runInAppContext(app, 'crmSheet.part.scores.get("a")'), 5, 'الدرجة المعروضة تعود لما هو محفوظ فعلًا');
+  assert.equal(runInAppContext(app, 'crmSheet.part.undo.length'), 0, 'وإلا أنقص "تراجع" لاحقًا درجة حقيقية لم تُضف أصلًا');
+  const st = runInAppContext(app, 'readParticipationState({ sectionId: "S", dateIso: "2026-10-07", period: 1 })');
+  assert.equal(st.undo.length, 0);
+});
+
+test('انحدار: تراجع فشل حفظه يعيد النقرة للسجل والعرض', async () => {
+  const log = [];
+  const client = fakeClient({}, log);
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, partSheet([['a', 5]]));
+  app.tapCrmParticipation('a');
+  await runInAppContext(app, 'crmSheet.part.queue.get("a")');
+  client.rpc = () => Promise.resolve({ data: null, error: { message: 'offline' } });
+  app.undoCrmParticipation();
+  await runInAppContext(app, 'crmSheet.part.queue.get("a")');
+  assert.equal(runInAppContext(app, 'crmSheet.part.scores.get("a")'), 1, 'قيمة القاعدة الوهمية بعد النقرة الأولى (1) تبقى');
+  assert.deepEqual([...runInAppContext(app, 'crmSheet.part.undo')], ['a']);
+});
+
+test('pruneParticipationStates — تُحذف سجلات الحصص الأقدم من 14 يومًا', async () => {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  const k = (d) => runInAppContext(app, `participationTodayKey({ sectionId: "S", dateIso: "${d}", period: 1 })`);
+  app.localStorage.setItem(k('2026-09-01'), '{}');
+  app.localStorage.setItem(k('2026-10-05'), '{}');
+  app.localStorage.setItem('other_key', 'x');
+  runInAppContext(app, 'pruneParticipationStates("2026-10-07")');
+  assert.equal(app.localStorage.getItem(k('2026-09-01')), null);
+  assert.equal(app.localStorage.getItem(k('2026-10-05')), '{}');
+  assert.equal(app.localStorage.getItem('other_key'), 'x');
+});

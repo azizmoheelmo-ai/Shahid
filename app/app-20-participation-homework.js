@@ -147,12 +147,38 @@ function participationTodayKey(s){
   return 'crm_part:' + (currentUser && currentUser.id) + ':' + lessonKey(s.sectionId, s.dateIso, s.period);
 }
 
-function readParticipationToday(s){
-  try{ return JSON.parse(localStorage.getItem(participationTodayKey(s)) || '{}') || {}; } catch(e){ return {}; }
+/* حالة المشاركة لكل حصة على هذا الجهاز: عدّاد اليوم + سجل التراجع، فيبقى
+   التراجع بعد إغلاق الورقة أو تبديل الوضع ويعود عند فتح نفس الحصة.
+   (الصيغة القديمة كانت العدّاد وحده: { studentId: n }) */
+const PARTICIPATION_UNDO_MAX = 200;
+const PARTICIPATION_KEEP_DAYS = 14;
+
+function readParticipationState(s){
+  let raw = null;
+  try{ raw = JSON.parse(localStorage.getItem(participationTodayKey(s)) || 'null'); } catch(e){}
+  if(raw && typeof raw === 'object' && raw.counts && typeof raw.counts === 'object'){
+    return { counts: raw.counts, undo: Array.isArray(raw.undo) ? raw.undo.filter(x => typeof x === 'string') : [] };
+  }
+  return { counts: (raw && typeof raw === 'object') ? raw : {}, undo: [] };
 }
 
-function writeParticipationToday(s, counts){
-  try{ localStorage.setItem(participationTodayKey(s), JSON.stringify(counts)); } catch(e){}
+function writeParticipationState(s, p){
+  try{
+    localStorage.setItem(participationTodayKey(s), JSON.stringify({ counts: p.today, undo: p.undo.slice(-PARTICIPATION_UNDO_MAX) }));
+  } catch(e){}
+}
+
+/* تنظيف سجلات الحصص الأقدم من 14 يومًا (المفتاح ينتهي بـ شعبة|تاريخ|حصة) */
+function pruneParticipationStates(todayIso){
+  try{
+    const limit = addDaysIso(todayIso || localIsoDate(), -PARTICIPATION_KEEP_DAYS);
+    for(let i = localStorage.length - 1; i >= 0; i--){
+      const k = localStorage.key(i);
+      if(!k || k.indexOf('crm_part:') !== 0) continue;
+      const date = (k.split('|')[1] || '');
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < limit) localStorage.removeItem(k);
+    }
+  } catch(e){}
 }
 
 async function renderCrmParticipation(students){
@@ -181,7 +207,8 @@ async function renderCrmParticipation(students){
       <button class="btn btn-outline crm-mini-btn" onclick="closeCrmLessonSheet();switchCrmTab('grades')">فتح كشف الدرجات</button></div>`;
     return;
   }
-  s.part = { column, scores, today: readParticipationToday(s), undo: [], queue: new Map() };
+  const saved = readParticipationState(s);
+  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map() };
   body.innerHTML = head + `
     <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">نقرة = +1 في عمود "${escapeHtml(column.name)}" (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
@@ -225,12 +252,21 @@ function queueCrmParticipation(studentId, delta){
       paintCrmParticipation(studentId);
     }
   }).catch(e => {
-    showToast('لم تُحفظ النقرة: ' + (e.message || 'خطأ بالاتصال'), 'error');
-    if(crmSheet === s && s.part === p){
-      p.today[studentId] = Math.max(0, (p.today[studentId] || 0) - delta);
-      writeParticipationToday(s, p.today);
-      paintCrmParticipation(studentId);
+    showToast((delta > 0 ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + (e.message || 'خطأ بالاتصال'), 'error');
+    /* إرجاع كل أثر العرض المتفائل: الدرجة والعدّاد وسجل التراجع. لو بقيت نقرة
+       فاشلة في السجل، أنقص "تراجع" لاحقًا درجة حقيقية لم تُضف أصلًا */
+    const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
+    const back = cur - delta;
+    if(back <= 0 && delta > 0) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, back));
+    p.today[studentId] = Math.max(0, (p.today[studentId] || 0) - delta);
+    if(delta > 0){
+      const i = p.undo.lastIndexOf(studentId);
+      if(i !== -1) p.undo.splice(i, 1);
+    } else {
+      p.undo.push(studentId);
     }
+    writeParticipationState(s, p);
+    if(crmSheet === s && s.part === p) paintCrmParticipation(studentId);
   });
   p.queue.set(studentId, next);
   return next;
@@ -245,7 +281,7 @@ function tapCrmParticipation(studentId){
   p.scores.set(studentId, Math.min(Number(p.column.max_score), cur + 1)); /* عرض فوري */
   p.today[studentId] = (p.today[studentId] || 0) + 1;
   p.undo.push(studentId);
-  writeParticipationToday(s, p.today);
+  writeParticipationState(s, p);
   paintCrmParticipation(studentId);
   queueCrmParticipation(studentId, 1);
 }
@@ -258,7 +294,7 @@ function undoCrmParticipation(){
   const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
   if(cur - 1 <= 0) p.scores.delete(studentId); else p.scores.set(studentId, cur - 1);
   p.today[studentId] = Math.max(0, (p.today[studentId] || 0) - 1);
-  writeParticipationToday(s, p.today);
+  writeParticipationState(s, p);
   paintCrmParticipation(studentId);
   queueCrmParticipation(studentId, -1);
 }
