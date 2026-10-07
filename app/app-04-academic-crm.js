@@ -978,6 +978,7 @@ async function showClassroomManagement(){
   document.getElementById('crmSemesterSelect').value = localStorage.getItem('crm_semester_part') || 'الفصل الأول';
   document.getElementById('crmYearInput').value = localStorage.getItem('crm_year_part') || '1448-1449';
   pruneLessonDrafts();
+  if(typeof pruneParticipationStates === 'function') pruneParticipationStates();
   resetCrmLessonSheet();
   resetCrmStudentProfile();
   showCrmLessonSheetPane(false);
