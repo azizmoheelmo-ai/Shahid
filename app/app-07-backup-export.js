@@ -1390,6 +1390,68 @@ alter table public.lesson_plans enable row level security;
 drop policy if exists "المعلم يدير خططه فقط" on public.lesson_plans;
 create policy "المعلم يدير خططه فقط" on public.lesson_plans for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- نوع عمود الدرجات: يدوي / مشاركة (+1 من ورقة الحصة) / واجبات (محسوب) — عمود واحد لكل نوع غير اليدوي
+alter table public.classroom_grade_columns add column if not exists kind text not null default 'manual';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_grade_columns_kind_chk') then
+    alter table public.classroom_grade_columns add constraint classroom_grade_columns_kind_chk check (kind in ('manual', 'participation', 'homework'));
+  end if;
+end $$;
+create unique index if not exists classroom_grade_columns_kind_uq on public.classroom_grade_columns(teacher_id, section_id, academic_year, semester, kind) where kind <> 'manual';
+
+-- الواجبات وحالات تسليمها (لم يسلّم = لا صف)
+create table if not exists public.classroom_homework (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  academic_year text not null,
+  semester smallint not null check (semester in (1, 2)),
+  title text not null check (char_length(btrim(title)) between 1 and 200),
+  due_date date not null,
+  created_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade
+);
+create index if not exists classroom_homework_term_idx on public.classroom_homework(teacher_id, section_id, academic_year, semester);
+create table if not exists public.classroom_homework_status (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  homework_id uuid not null,
+  student_id uuid not null,
+  status text not null check (status in ('submitted', 'partial', 'late')),
+  updated_at timestamptz not null default now(),
+  unique (homework_id, student_id),
+  foreign key (homework_id, teacher_id) references public.classroom_homework(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_homework_status_student_idx on public.classroom_homework_status(student_id);
+alter table public.classroom_homework enable row level security;
+alter table public.classroom_homework_status enable row level security;
+drop policy if exists "المعلم يدير واجباته فقط" on public.classroom_homework;
+create policy "المعلم يدير واجباته فقط" on public.classroom_homework for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير تسليم واجبات طلابه فقط" on public.classroom_homework_status;
+create policy "المعلم يدير تسليم واجبات طلابه فقط" on public.classroom_homework_status for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- زيادة/إنقاص درجة ذرّيًا (نقرة المشاركة) — security invoker: صلاحيات المعلم نفسه
+create or replace function public.increment_grade_score(p_column_id uuid, p_student_id uuid, p_delta numeric)
+returns numeric language plpgsql security invoker set search_path = '' as $b$
+declare v_uid uuid := auth.uid(); v_max numeric; v_new numeric;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  select max_score into v_max from public.classroom_grade_columns where id = p_column_id and teacher_id = v_uid;
+  if v_max is null then raise exception 'column not found'; end if;
+  insert into public.classroom_grade_scores as g (teacher_id, column_id, student_id, score)
+    values (v_uid, p_column_id, p_student_id, greatest(0, least(v_max, p_delta)))
+    on conflict (column_id, student_id) do update set score = greatest(0, least(v_max, g.score + p_delta))
+    returning score into v_new;
+  if v_new = 0 and p_delta < 0 then
+    delete from public.classroom_grade_scores where column_id = p_column_id and student_id = p_student_id and teacher_id = v_uid;
+  end if;
+  return v_new;
+end $b$;
+revoke execute on function public.increment_grade_score(uuid, uuid, numeric) from public, anon;
+grant execute on function public.increment_grade_score(uuid, uuid, numeric) to authenticated;
+
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
   next_number int not null default 1,
@@ -1674,7 +1736,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1780,6 +1842,8 @@ async function exportFullBackup(){
       '     30. classroom_grade_columns.csv (لازم بعد classroom_sections)',
       '     31. classroom_grade_scores.csv (لازم بعد classroom_grade_columns وclassroom_students)',
       '     32. lesson_plans.csv (لازم بعد shawahid وclassroom_sections)',
+      '     33. classroom_homework.csv (لازم بعد classroom_sections)',
+      '     34. classroom_homework_status.csv (لازم بعد classroom_homework وclassroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

@@ -14,12 +14,14 @@ const GRADE_CAPS = { performance: 40, tests: 20 };
 const GRADE_CATEGORY_LABELS = { performance: 'الأعمال الأدائية', tests: 'الاختبارات والتقييمات' };
 const GRADE_CATEGORY_SHORT = { performance: 'أدائي', tests: 'اختبارات' };
 const DEFAULT_GRADE_COLUMNS = [
-  { category: 'performance', name: 'مشاركة', max_score: 10 },
-  { category: 'performance', name: 'واجبات', max_score: 10 },
-  { category: 'performance', name: 'مهام أدائية', max_score: 20 },
-  { category: 'tests', name: 'الفترة الأولى', max_score: 10 },
-  { category: 'tests', name: 'الفترة الثانية', max_score: 10 }
+  { category: 'performance', name: 'مشاركة', max_score: 10, kind: 'participation' },
+  { category: 'performance', name: 'واجبات', max_score: 10, kind: 'homework' },
+  { category: 'performance', name: 'مهام أدائية', max_score: 20, kind: 'manual' },
+  { category: 'tests', name: 'الفترة الأولى', max_score: 10, kind: 'manual' },
+  { category: 'tests', name: 'الفترة الثانية', max_score: 10, kind: 'manual' }
 ];
+/* نوع العمود: يدوي، أو مشاركة (نقرات ورقة الحصة +1)، أو واجبات (محسوب تلقائيًا ولا يُعدَّل يدويًا) */
+const GRADE_KIND_LABELS = { manual: 'يدوي', participation: 'مشاركة — +1 بنقرة من ورقة الحصة', homework: 'واجبات — يُحسب تلقائيًا من رصد التسليم' };
 
 /* ============ دوال صرفة ============ */
 
@@ -100,9 +102,9 @@ function previousGradeTerm(year, semester){
 /* أعمدة الكشف الجديد: هيكل الفصل السابق لنفس الشعبة (بلا درجات)، وإلا الافتراضي */
 function gradeSheetSeed(prevColumns){
   if(prevColumns && prevColumns.length){
-    return prevColumns.map(c => ({ category: c.category, name: c.name, max_score: Number(c.max_score), measures: c.measures || null, position: c.position || 0 }));
+    return prevColumns.map(c => ({ category: c.category, name: c.name, max_score: Number(c.max_score), measures: c.measures || null, position: c.position || 0, kind: c.kind || 'manual' }));
   }
-  return DEFAULT_GRADE_COLUMNS.map((c, i) => ({ category: c.category, name: c.name, max_score: c.max_score, measures: null, position: i }));
+  return DEFAULT_GRADE_COLUMNS.map((c, i) => ({ category: c.category, name: c.name, max_score: c.max_score, measures: null, position: i, kind: c.kind }));
 }
 
 function sortGradeColumns(columns){
@@ -146,6 +148,12 @@ async function loadCrmGradeSheet(sectionId){
   const { data: columns, error } = await sb.from('classroom_grade_columns').select('*')
     .eq('teacher_id', uid).eq('section_id', sectionId).eq('academic_year', year).eq('semester', semester);
   if(error) return { error };
+  /* عمود الواجبات المحسوب يُحدَّث قبل العرض (واجب انقضى موعده منذ آخر فتح
+     يُحسب الآن). فشل المزامنة لا يمنع عرض الكشف بآخر قيم محفوظة. */
+  const hwCol = (columns || []).find(c => c.kind === 'homework');
+  if(hwCol && typeof syncHomeworkColumn === 'function'){
+    try{ await syncHomeworkColumn(hwCol, sectionId, await loadSectionHomework(sectionId, { year, semester })); } catch(e){}
+  }
   let scores = [];
   if((columns || []).length){
     const { data, error: sErr } = await sb.from('classroom_grade_scores').select('id, column_id, student_id, score')
@@ -225,7 +233,7 @@ function crmGradeSheetHtml(g){
   g.columns.forEach(c => {
     const st = gradeColumnStats(c.id, g.scores, ids);
     html += `<th class="crm-grade-col cat-${c.category}" onclick="openCrmGradeColumnMenu('${c.id}')" title="${escapeHtml(c.measures || '')}">
-      ${escapeHtml(c.name)}<span class="crm-grade-max">من ${formatScore(c.max_score)}</span>${st.missing ? `<span class="crm-grade-missing">${st.missing} بلا درجة</span>` : ''}</th>`;
+      ${escapeHtml(c.name)}${c.kind === 'homework' ? ' <span title="محسوب من الواجبات">⚙</span>' : c.kind === 'participation' ? ' <span title="+1 من ورقة الحصة">👆</span>' : ''}<span class="crm-grade-max">من ${formatScore(c.max_score)}</span>${st.missing ? `<span class="crm-grade-missing">${st.missing} بلا درجة</span>` : ''}</th>`;
   });
   html += `<th class="crm-grade-total">${GRADE_CATEGORY_SHORT.performance}<span class="crm-grade-max">${formatScore(gradeCategoryTotal(g.columns, 'performance'))}</span></th>
     <th class="crm-grade-total">${GRADE_CATEGORY_SHORT.tests}<span class="crm-grade-max">${formatScore(gradeCategoryTotal(g.columns, 'tests'))}</span></th></tr></thead><tbody>`;
@@ -254,7 +262,7 @@ async function createCrmGradeSheet(){
     const prev = previousGradeTerm(year, semester);
     let prevColumns = [];
     if(prev){
-      const { data } = await sb.from('classroom_grade_columns').select('category, name, max_score, measures, position')
+      const { data } = await sb.from('classroom_grade_columns').select('category, name, max_score, measures, position, kind')
         .eq('teacher_id', currentUser.id).eq('section_id', sectionId).eq('academic_year', prev.year).eq('semester', prev.semester);
       prevColumns = data || [];
     }
@@ -282,7 +290,11 @@ function openCrmGradeColumnMenu(columnId){
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${escapeHtml(c.name)} · من ${formatScore(c.max_score)}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${GRADE_CATEGORY_LABELS[c.category]}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · مرصود ${recorded}</div>
-      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="closeCrmModal();openCrmGradeEntry('${c.id}')">رصد الدرجات</button>
+      ${c.kind === 'homework'
+        ? `<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">يُحسب تلقائيًا من رصد تسليم الواجبات (ورقة الحصة ← "واجب") — لا يُعدَّل يدويًا.</div>
+           <button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="closeCrmModal();openCrmHomeworkManager()">الواجبات</button>`
+        : `${c.kind === 'participation' ? '<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">يُرصد بنقرة من ورقة الحصة ← "مشاركة"، ويمكن تعديله هنا يدويًا.</div>' : ''}
+           <button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="closeCrmModal();openCrmGradeEntry('${c.id}')">رصد الدرجات</button>`}
       <div style="display:flex;gap:8px;">
         <button class="btn btn-outline" style="flex:1;justify-content:center;" onclick="closeCrmModal();openCrmGradeColumnEditor('${c.category}', '${c.id}')">تعديل</button>
         <button class="btn btn-outline" style="flex:1;justify-content:center;color:#8A2C2C;" onclick="closeCrmModal();deleteCrmGradeColumn('${c.id}')">حذف</button>
@@ -305,6 +317,8 @@ function openCrmGradeColumnEditor(category, columnId){
       <input class="goal-input" id="crmGradeColName" maxlength="60" value="${c ? escapeHtml(c.name) : ''}" placeholder="مثال: اختبار قصير 1" style="margin-bottom:8px;">
       <label class="crm-field-label">الدرجة القصوى</label>
       <input class="goal-input" id="crmGradeColMax" inputmode="decimal" value="${c ? formatScore(c.max_score) : (remaining > 0 ? formatScore(remaining) : '')}" style="margin-bottom:8px;">
+      ${category === 'performance' ? `<label class="crm-field-label">النوع</label>
+      <select class="goal-input" id="crmGradeColKind" style="margin-bottom:8px;">${Object.keys(GRADE_KIND_LABELS).map(k => `<option value="${k}"${(c ? (c.kind || 'manual') : 'manual') === k ? ' selected' : ''}>${GRADE_KIND_LABELS[k]}</option>`).join('')}</select>` : ''}
       <label class="crm-field-label">ماذا يقيس؟ (اختياري)</label>
       <input class="goal-input" id="crmGradeColMeasures" maxlength="120" value="${c && c.measures ? escapeHtml(c.measures) : ''}" placeholder="مثال: زمن الماضي البسيط" style="margin-bottom:10px;">
       <div id="crmGradeColError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:8px;line-height:1.7;"></div>
@@ -322,14 +336,25 @@ async function saveCrmGradeColumn(){
     max_score: toLatin(document.getElementById('crmGradeColMax').value),
     measures: document.getElementById('crmGradeColMeasures').value.trim().slice(0, 120) || null
   };
+  const kindEl = document.getElementById('crmGradeColKind');
+  const kind = kindEl ? kindEl.value : 'manual';
   const errBox = document.getElementById('crmGradeColError');
-  const err = validateGradeColumn(crmGrades.columns, draft, crmGrades.scores);
+  const dup = kind !== 'manual' && crmGrades.columns.find(c => c.kind === kind && c.id !== d.id);
+  if(dup){ errBox.textContent = `يوجد عمود من هذا النوع أصلًا ("${dup.name}") — عمود واحد لكل نوع.`; errBox.style.display = 'block'; return; }
+  const before = d.id ? crmGrades.columns.find(c => c.id === d.id) : null;
+  /* المحسوب يُعاد حسابه بعد الحفظ، فدرجاته القديمة لا تمنع خفض الحد */
+  const err = validateGradeColumn(crmGrades.columns, draft, kind === 'homework' ? [] : crmGrades.scores);
   if(err){ errBox.textContent = err; errBox.style.display = 'block'; return; }
   d.saving = true;
   const btn = document.getElementById('crmGradeColSaveBtn');
   if(btn) btn.disabled = true;
   const g = crmGrades;
-  const payload = { name: draft.name, max_score: Number(draft.max_score), measures: draft.measures };
+  const payload = { name: draft.name, max_score: Number(draft.max_score), measures: draft.measures, kind };
+  if(d.id && kind === 'homework' && before && (before.kind !== 'homework' || Number(before.max_score) !== payload.max_score)){
+    /* تُحذف الدرجات المحسوبة ثم تُعاد بعد الحفظ بالحد الجديد (وإلا منعت القاعدة خفض الحد) */
+    const { error: dErr } = await sb.from('classroom_grade_scores').delete().eq('teacher_id', currentUser.id).eq('column_id', d.id);
+    if(dErr){ errBox.textContent = 'تعذّر الحفظ: ' + dErr.message; errBox.style.display = 'block'; d.saving = false; if(btn) btn.disabled = false; return; }
+  }
   const { error } = d.id
     ? await sb.from('classroom_grade_columns').update(payload).eq('teacher_id', currentUser.id).eq('id', d.id)
     : await sb.from('classroom_grade_columns').insert(Object.assign({
@@ -370,6 +395,7 @@ function openCrmGradeEntry(columnId){
   const box = document.getElementById('crmGradesBody');
   const c = crmGrades && crmGrades.columns.find(x => x.id === columnId);
   if(!box || !c) return;
+  if(c.kind === 'homework'){ showToast('عمود الواجبات يُحسب تلقائيًا — ارصد التسليم من ورقة الحصة', 'error'); return; }
   crmGradeEntry = { columnId, saving: false };
   const students = crmStudentsOfSection(crmGrades.sectionId);
   const scoreOf = new Map(crmGrades.scores.filter(s => s.column_id === columnId).map(s => [s.student_id, Number(s.score)]));
@@ -583,7 +609,7 @@ function autoMapGradeHeaders(headers, columns, nameKey){
   (headers || []).forEach(h => {
     if(h === nameKey) return;
     const k = normalizeGradeHeader(h);
-    const c = (columns || []).find(col => !used.has(col.id) && normalizeGradeHeader(col.name) === k);
+    const c = (columns || []).find(col => col.kind !== 'homework' && !used.has(col.id) && normalizeGradeHeader(col.name) === k);
     map[h] = c ? c.id : '';
     if(c) used.add(c.id);
   });
@@ -676,7 +702,7 @@ function renderCrmGradeImport(){
   if(!im || !box || !crmGrades || crmGrades.sectionId !== im.sectionId) return;
   const plan = crmGradeImportPlan();
   const students = crmStudentsOfSection(im.sectionId);
-  const colOpts = sel => '<option value="">تجاهل</option>' + crmGrades.columns.map(c =>
+  const colOpts = sel => '<option value="">تجاهل</option>' + crmGrades.columns.filter(c => c.kind !== 'homework').map(c =>
     `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`).join('');
   const stuOpts = sel => '<option value="">تجاهل هذا الصف</option>' + students.map(s =>
     `<option value="${s.id}"${s.id === sel ? ' selected' : ''}>${escapeHtml(s.full_name)}</option>`).join('');

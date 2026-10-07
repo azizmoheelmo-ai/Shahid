@@ -1452,7 +1452,7 @@ async function addCrmSection(gradeLevelId){
 /* شعبة لها حصص مرصودة لا تُحذف (قيد بالقاعدة): حذفها كان سيمسح سجل حضور
    فصل كامل بنقرة خاطئة واحدة */
 function crmDeleteErrorMessage(error){
-  if(error && error.code === '23503') return 'لا يمكن الحذف: توجد حصص مرصودة أو كشف درجات لهذه الشعبة (أو لإحدى شعب المرحلة). احذفها أولًا إن كنت متأكدًا.';
+  if(error && error.code === '23503') return 'لا يمكن الحذف: توجد حصص مرصودة أو كشف درجات أو واجبات لهذه الشعبة (أو لإحدى شعب المرحلة). احذفها أولًا إن كنت متأكدًا.';
   return 'تعذّر الحذف: ' + ((error && error.message) || '');
 }
 
@@ -1574,15 +1574,17 @@ async function deleteCrmStudent(id){
   let relatedFollowups = [];
   let relatedFuActions = [];
   let relatedGrades = [];
+  let relatedHomework = [];
   try{
-    const [incRes, caseRes, attRes, posRes, privRes, fuRes, grRes] = await Promise.all([
+    const [incRes, caseRes, attRes, posRes, privRes, fuRes, grRes, hwRes] = await Promise.all([
       sb.from('classroom_incidents').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('academic_cases').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_positive_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_private_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_followups').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_grade_scores').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
+      sb.from('classroom_grade_scores').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('classroom_homework_status').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
     ]);
     relatedIncidents = incRes.data || [];
     relatedCases = caseRes.data || [];
@@ -1591,6 +1593,7 @@ async function deleteCrmStudent(id){
     relatedPrivate = privRes.data || [];
     relatedFollowups = fuRes.data || [];
     relatedGrades = (grRes && grRes.data) || [];
+    relatedHomework = (hwRes && hwRes.data) || [];
     if(relatedFollowups.length){
       const { data: acts } = await sb.from('classroom_followup_actions').select('*')
         .eq('teacher_id', currentUser.id).in('followup_id', relatedFollowups.map(f => f.id));
@@ -1643,6 +1646,10 @@ async function deleteCrmStudent(id){
       if(relatedGrades.length){
         const { error: gErr } = await sb.from('classroom_grade_scores').insert(relatedGrades);
         if(gErr) throw gErr;
+      }
+      if(relatedHomework.length){
+        const { error: hErr } = await sb.from('classroom_homework_status').insert(relatedHomework);
+        if(hErr) throw hErr;
       }
       await loadCrmStudents();
       renderCrmStudentsList();
