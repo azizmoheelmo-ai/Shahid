@@ -330,6 +330,7 @@ async function renderCrmHomework(students, selectId){
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
         ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}</option>`).join('')}
       </select>
+      <button class="btn btn-outline crm-mini-btn" title="تعديل أو حذف الواجب المختار" onclick="openCrmHomeworkEditor(crmSheet.hw && crmSheet.hw.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
@@ -423,24 +424,48 @@ async function markAllCrmHomeworkSubmitted(){
   }
 }
 
-/* ============ إضافة واجب ============ */
-let crmHomeworkDraft = null;
+/* ============ إضافة/تعديل واجب ============ */
+let crmHomeworkDraft = null; /* { sectionId, editId?, saving } */
+
+function crmHomeworkFormHtml(sectionId, h){
+  const edit = !!h;
+  return `
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${edit ? 'تعديل الواجب' : 'واجب جديد'}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(crmSectionLabel(sectionId))}</div>
+      <label class="crm-field-label">الواجب</label>
+      <input class="goal-input" id="crmHwTitle" maxlength="200" placeholder="مثال: تمارين الوحدة 2 صفحة 34" value="${edit ? escapeHtml(h.title) : ''}" style="margin-bottom:8px;">
+      <label class="crm-field-label">موعد التسليم</label>
+      <input type="date" class="goal-input" id="crmHwDue" value="${escapeHtml(h ? h.due_date : (crmSheet && crmSheet.sectionId === sectionId ? crmSheet.dateIso : localIsoDate()))}" style="margin-bottom:10px;">
+      <button class="btn btn-primary" id="crmHwSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmHomework()">${edit ? 'حفظ التعديل' : 'حفظ الواجب'}</button>
+      ${edit ? `<button class="btn btn-outline" id="crmHwDeleteBtn" style="width:100%;justify-content:center;margin-top:8px;color:#8A2C2C;" onclick="deleteCrmHomework('${h.id}', '${sectionId}')">حذف الواجب</button>` : ''}
+    </div>`;
+}
 
 function openCrmHomeworkModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  const date = (crmSheet && crmSheet.sectionId === sectionId) ? crmSheet.dateIso : localIsoDate();
   crmHomeworkDraft = { sectionId, saving: false };
-  showInfoModal(`
-    <div style="text-align:right;">
-      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">واجب جديد</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(crmSectionLabel(sectionId))}</div>
-      <label class="crm-field-label">الواجب</label>
-      <input class="goal-input" id="crmHwTitle" maxlength="200" placeholder="مثال: تمارين الوحدة 2 صفحة 34" style="margin-bottom:8px;">
-      <label class="crm-field-label">موعد التسليم</label>
-      <input type="date" class="goal-input" id="crmHwDue" value="${date}" style="margin-bottom:10px;">
-      <button class="btn btn-primary" id="crmHwSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmHomework()">حفظ الواجب</button>
-    </div>`, '420px');
+  showInfoModal(crmHomeworkFormHtml(sectionId, null), '420px');
+}
+
+/* يقرأ الواجب من القاعدة مباشرة (لا من نسخة محلية قد تكون قديمة) */
+let crmHwEditorOpening = false;
+async function openCrmHomeworkEditor(hwId){
+  if(!hwId || crmHwEditorOpening) return;
+  crmHwEditorOpening = true;
+  let res;
+  try{
+    res = await sb.from('classroom_homework').select('id, section_id, title, due_date')
+      .eq('teacher_id', currentUser.id).eq('id', hwId).maybeSingle();
+  } catch(e){ res = { error: e }; }
+  finally { crmHwEditorOpening = false; }
+  if(res.error){ showToast('تعذّر تحميل الواجب', 'error'); return; }
+  if(!res.data){ showToast('الواجب غير موجود — ربما حُذف من جهاز آخر', 'error'); return; }
+  const h = res.data;
+  closeCrmModal();
+  crmHomeworkDraft = { sectionId: h.section_id, editId: h.id, saving: false };
+  showInfoModal(crmHomeworkFormHtml(h.section_id, h), '420px');
 }
 
 async function saveCrmHomework(){
@@ -451,25 +476,49 @@ async function saveCrmHomework(){
   if(!title){ showToast('اكتب الواجب', 'error'); return; }
   if(!due){ showToast('اختر موعد التسليم', 'error'); return; }
   d.saving = true;
-  const btn = document.getElementById('crmHwSaveBtn');
-  if(btn) btn.disabled = true;
-  const term = crmCurrentTerm();
-  const { data, error } = await sb.from('classroom_homework').insert({
-    teacher_id: currentUser.id, section_id: d.sectionId, academic_year: term.year, semester: term.semester, title, due_date: due
-  }).select('id').single();
-  if(error){
-    showToast('تعذّر حفظ الواجب: ' + error.message, 'error');
+  const btns = ['crmHwSaveBtn', 'crmHwDeleteBtn'].map(id => document.getElementById(id)).filter(Boolean);
+  btns.forEach(b => { b.disabled = true; });
+  let res;
+  if(d.editId){
+    res = await sb.from('classroom_homework').update({ title, due_date: due })
+      .eq('teacher_id', currentUser.id).eq('id', d.editId).select('id');
+    if(!res.error && !(res.data || []).length) res = { error: { message: 'الواجب غير موجود — ربما حُذف' } };
+  } else {
+    const term = crmCurrentTerm();
+    res = await sb.from('classroom_homework').insert({
+      teacher_id: currentUser.id, section_id: d.sectionId, academic_year: term.year, semester: term.semester, title, due_date: due
+    }).select('id').single();
+  }
+  if(res.error){
+    showToast('تعذّر حفظ الواجب: ' + res.error.message, 'error');
     d.saving = false;
-    if(btn) btn.disabled = false;
+    btns.forEach(b => { b.disabled = false; });
     return;
   }
+  const id = d.editId || (res.data && res.data.id);
   crmHomeworkDraft = null;
   closeCrmModal();
-  showToast('أُضيف الواجب', 'ok');
-  if(crmSheet && crmSheet.sectionId === d.sectionId && crmSheet.mode === 'homework'){
-    renderCrmHomework(crmStudentsOfSection(d.sectionId), data && data.id);
+  showToast(d.editId ? 'عُدّل الواجب' : 'أُضيف الواجب', 'ok');
+  /* موعد التسليم يحدّد هل يُحسب الواجب — فيُعاد حساب العمود بعد أي تغيير */
+  await afterCrmHomeworkChanged(d.sectionId, id, !!d.editId || due < localIsoDate());
+}
+
+/* بعد إضافة/تعديل/حذف: إعادة حساب عمود الواجبات ثم تحديث الشاشة الظاهرة
+   فعلًا الآن (ورقة الحصة بنفس الشعبة، أو الكشف) — لا الشاشة التي بدأت منها
+   العملية، فالمعلم قد ينتقل أثناء الحفظ. */
+async function afterCrmHomeworkChanged(sectionId, selectId, resync){
+  if(resync){
+    try{
+      const term = crmCurrentTerm();
+      const column = await findKindColumn(sectionId, term, 'homework');
+      if(column) await syncHomeworkColumn(column, sectionId, await loadSectionHomework(sectionId, term));
+    } catch(e){ showToast('تعذّر إعادة حساب عمود الواجبات — يُحدَّث عند فتح الكشف', 'error'); }
+  }
+  if(crmSheet && crmSheet.sectionId === sectionId && crmSheet.mode === 'homework'){
+    renderCrmHomework(crmStudentsOfSection(sectionId), selectId);
   } else if(document.getElementById('crmTabGrades').style.display !== 'none'){
-    openCrmHomeworkManager();
+    await renderCrmGrades();
+    if(crmGrades && crmGrades.sectionId === sectionId) openCrmHomeworkManager();
   }
 }
 
@@ -491,30 +540,37 @@ async function openCrmHomeworkManager(){
         const c = homeworkCounts(idx.get(h.id) || new Map(), ids);
         return `<div class="crm-lesson-row"><span>${escapeHtml(h.title)} <span class="crm-tl-meta">· ${shortDateAr(h.due_date)}${counted.has(h.id) ? '' : ' · لم يُحسب بعد'}</span>
           <div class="crm-tl-meta">سلّم ${c.submitted} · ناقص ${c.partial} · متأخر ${c.late} · لم يسلّم ${c.missing}</div></span>
-          <button class="crm-icon-btn" title="حذف" onclick="deleteCrmHomework('${h.id}')">🗑</button></div>`;
+          <span style="display:flex;gap:4px;">
+            <button class="crm-icon-btn" title="تعديل" onclick="openCrmHomeworkEditor('${h.id}')">✎</button>
+            <button class="crm-icon-btn" title="حذف" onclick="deleteCrmHomework('${h.id}', '${sectionId}')">🗑</button>
+          </span></div>`;
       }).join('') : '<div class="crm-today-empty">لا واجبات بعد.</div>'}
       <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;" onclick="closeCrmModal();openCrmHomeworkModal('${sectionId}')">+ واجب جديد</button>
     </div>`, '460px');
 }
 
+/* يعمل من ورقة الحصة ومن الكشف — لا يعتمد على crmGrades */
 let crmHwDeleting = false;
-async function deleteCrmHomework(id){
-  if(crmHwDeleting || !crmGrades) return;
-  const g = crmGrades;
+async function deleteCrmHomework(id, sectionId){
+  if(crmHwDeleting || !id || !sectionId) return;
   closeCrmModal();
   const ok = await showConfirm('حذف هذا الواجب؟ يُحذف معه رصد تسليمه، وتُعاد حساب درجات الواجبات.');
   if(!ok) return;
+  if(crmHwDeleting) return;
   crmHwDeleting = true;
   try{
-    const { error } = await sb.from('classroom_homework').delete().eq('teacher_id', currentUser.id).eq('id', id);
+    /* نقرات تسليم معلّقة على هذا الواجب تنتهي أولًا، لا تصطدم بحذفه */
+    const s = crmSheet;
+    if(s && s.hw && s.hw.queue) await Promise.all([...s.hw.queue.values()]);
+    const { data, error } = await sb.from('classroom_homework').delete()
+      .eq('teacher_id', currentUser.id).eq('id', id).select('id');
     if(error) throw error;
-    const column = g.columns.find(c => c.kind === 'homework');
-    if(column) await syncHomeworkColumn(column, g.sectionId, await loadSectionHomework(g.sectionId, crmCurrentTerm()));
-    showToast('حُذف الواجب', 'ok');
+    showToast((data || []).length ? 'حُذف الواجب' : 'الواجب محذوف مسبقًا', 'ok');
   } catch(e){
     showToast('تعذّر الحذف: ' + (e.message || ''), 'error');
+    return;
   } finally {
     crmHwDeleting = false;
   }
-  renderCrmGrades();
+  await afterCrmHomeworkChanged(sectionId, null, true);
 }
