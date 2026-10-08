@@ -104,9 +104,23 @@ function fakeClient(seed, log){
         eq(c, v){ filters.push([c, v]); return api; }, in(c, v){ filters.push([c, v]); return api; },
         upsert(r, o){ log.push({ table, op: 'upsert', rows: Array.isArray(r) ? r : [r], opts: o }); return Promise.resolve({ data: null, error: null }); },
         insert(r){ log.push({ table, op: 'insert', rows: r }); return Promise.resolve({ data: null, error: null }); },
-        delete(){ const f = []; const ch = { eq(c, v){ f.push([c, v]); return ch; }, in(c, v){ f.push([c, v]); return ch; }, then(res){ log.push({ table, op: 'delete', filters: f }); res({ data: null, error: null }); } }; return ch; },
+        delete(){ return mutation('delete'); },
+        update(r){ return mutation('update', r); },
+        maybeSingle(){ return Promise.resolve({ data: rows()[0] || null, error: null }); },
         then(res){ res({ data: rows(), error: null }); },
       };
+      /* حذف/تعديل: يُسجَّل بفلاتره، ويُرجع الصفوف المطابقة (كـ .select() بعده) */
+      function mutation(op, values){
+        const f = [];
+        const ch = {
+          eq(c, v){ f.push([c, v]); return ch; }, in(c, v){ f.push([c, v]); return ch; }, select(){ return ch; },
+          then(res){
+            log.push({ table, op, filters: f, values });
+            res({ data: (seed[table] || []).filter(r => f.every(([c, v]) => Array.isArray(v) ? v.includes(r[c]) : r[c] === v)), error: null });
+          },
+        };
+        return ch;
+      }
       return api;
     },
     rpc(name, args){
@@ -267,4 +281,102 @@ test('pruneParticipationStates — تُحذف سجلات الحصص الأقدم
   assert.equal(app.localStorage.getItem(k('2026-09-01')), null);
   assert.equal(app.localStorage.getItem(k('2026-10-05')), '{}');
   assert.equal(app.localStorage.getItem('other_key'), 'x');
+});
+
+/* ============ تعديل الواجب وحذفه (من ورقة الحصة ومن الكشف) ============ */
+const HW_SEED = () => ({
+  classroom_homework: [
+    { id: 'H', teacher_id: 'u1', section_id: 'S', title: 'تمارين', due_date: '2026-10-05' },
+    { id: 'X', teacher_id: 'u2', section_id: 'S2', title: 'لمعلم آخر', due_date: '2026-10-05' },
+  ],
+  classroom_grade_columns: [], classroom_homework_status: [], classroom_grade_scores: [],
+});
+function hwApp(seed, log){
+  const app = loadApp({ supabaseClient: fakeClient(seed, log), currentUser: { id: 'u1' } });
+  runInAppContext(app, `
+    window.__toasts = []; window.__renders = [];
+    showToast = (m, k) => window.__toasts.push(k + ':' + m);
+    showConfirm = async () => true;
+    showInfoModal = () => {};
+    crmStudents = [{ id: 'a', full_name: 'أ', section_id: 'S' }];
+    renderCrmHomework = (st, sel) => window.__renders.push('sheet:' + sel);
+    renderCrmGrades = async () => window.__renders.push('grades');
+    window.__finds = [];
+    const __find = findKindColumn;
+    findKindColumn = (sec, term, kind) => { window.__finds.push(sec + ':' + kind); return __find(sec, term, kind); };
+  `);
+  return app;
+}
+const filtersOf = (e) => Object.fromEntries(e.filters);
+
+test('openCrmHomeworkEditor — يقرأ الواجب باسم المعلم الحالي، وواجب غيره "غير موجود"', async () => {
+  const log = [];
+  const app = hwApp(HW_SEED(), log);
+  await app.openCrmHomeworkEditor('H');
+  assert.equal(runInAppContext(app, 'crmHomeworkDraft && crmHomeworkDraft.editId'), 'H');
+  assert.equal(runInAppContext(app, 'crmHomeworkDraft.sectionId'), 'S');
+  runInAppContext(app, 'crmHomeworkDraft = null');
+  await app.openCrmHomeworkEditor('X');
+  assert.equal(runInAppContext(app, 'crmHomeworkDraft'), null, 'لا يفتح واجب معلم آخر');
+  assert.match(runInAppContext(app, 'window.__toasts.join("|")'), /غير موجود/);
+});
+
+test('saveCrmHomework (تعديل) — تحديث مفلتر بالمعلم، ونقرة مزدوجة = تحديث واحد، ثم إعادة الحساب والعرض', async () => {
+  const log = [];
+  const app = hwApp(HW_SEED(), log);
+  runInAppContext(app, `
+    crmSheet = { sectionId: 'S', dateIso: '2026-10-07', mode: 'homework', token: 1 };
+    crmHomeworkDraft = { sectionId: 'S', editId: 'H', saving: false };
+    document.getElementById('crmHwTitle').value = '  تمارين الوحدة 2 ';
+    document.getElementById('crmHwDue').value = '2026-10-09';
+  `);
+  await Promise.all([app.saveCrmHomework(), app.saveCrmHomework()]);
+  const ups = log.filter(l => l.table === 'classroom_homework' && l.op === 'update');
+  assert.equal(ups.length, 1, 'نقرة مزدوجة لا تحفظ مرتين');
+  assert.deepEqual(filtersOf(ups[0]), { teacher_id: 'u1', id: 'H' });
+  assert.deepEqual({ ...ups[0].values }, { title: 'تمارين الوحدة 2', due_date: '2026-10-09' });
+  assert.deepEqual([...runInAppContext(app, 'window.__finds')], ['S:homework'], 'تغيّر الموعد يعيد حساب عمود الواجبات');
+  assert.deepEqual([...runInAppContext(app, 'window.__renders')], ['sheet:H'], 'تعود ورقة الحصة على نفس الواجب');
+});
+
+test('saveCrmHomework (تعديل) — واجب حُذف من جهاز آخر: رسالة خطأ ولا يُغلق النموذج', async () => {
+  const log = [];
+  const seed = HW_SEED(); seed.classroom_homework = [];
+  const app = hwApp(seed, log);
+  runInAppContext(app, `
+    crmHomeworkDraft = { sectionId: 'S', editId: 'H', saving: false };
+    document.getElementById('crmHwTitle').value = 'أ';
+    document.getElementById('crmHwDue').value = '2026-10-09';
+  `);
+  await app.saveCrmHomework();
+  assert.match(runInAppContext(app, 'window.__toasts.join("|")'), /error:.*غير موجود/);
+  assert.equal(runInAppContext(app, 'crmHomeworkDraft.saving'), false, 'يمكن المحاولة مجددًا');
+});
+
+test('انحدار: حذف الواجب يعمل من ورقة الحصة (لا كشف درجات محمَّل)', async () => {
+  const log = [];
+  const app = hwApp(HW_SEED(), log);
+  runInAppContext(app, `
+    crmGrades = null;
+    crmSheet = { sectionId: 'S', dateIso: '2026-10-07', mode: 'homework', token: 1, hw: { queue: new Map() } };
+  `);
+  await app.deleteCrmHomework('H', 'S');
+  const del = log.find(l => l.table === 'classroom_homework' && l.op === 'delete');
+  assert.ok(del, 'نُفّذ الحذف');
+  assert.deepEqual(filtersOf(del), { teacher_id: 'u1', id: 'H' });
+  assert.deepEqual([...runInAppContext(app, 'window.__renders')], ['sheet:null'], 'تُحدَّث ورقة الحصة');
+});
+
+test('deleteCrmHomework — نقرة مزدوجة = حذف واحد، وينتظر نقرات التسليم المعلّقة', async () => {
+  const log = [];
+  const app = hwApp(HW_SEED(), log);
+  runInAppContext(app, `
+    window.__pendingDone = false;
+    crmSheet = { sectionId: 'S', dateIso: '2026-10-07', mode: 'homework', token: 1,
+      hw: { queue: new Map([['a', new Promise(r => setTimeout(() => { window.__pendingDone = true; r(); }, 20))]]) } };
+  `);
+  await Promise.all([app.deleteCrmHomework('H', 'S'), app.deleteCrmHomework('H', 'S')]);
+  const dels = log.filter(l => l.table === 'classroom_homework' && l.op === 'delete');
+  assert.equal(dels.length, 1);
+  assert.equal(runInAppContext(app, 'window.__pendingDone'), true);
 });
