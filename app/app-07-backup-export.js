@@ -1390,11 +1390,12 @@ alter table public.lesson_plans enable row level security;
 drop policy if exists "المعلم يدير خططه فقط" on public.lesson_plans;
 create policy "المعلم يدير خططه فقط" on public.lesson_plans for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- نوع عمود الدرجات: يدوي / مشاركة (+1 من ورقة الحصة) / واجبات (محسوب) — عمود واحد لكل نوع غير اليدوي
+-- نوع عمود الدرجات: يدوي / مشاركة (+1 من ورقة الحصة) / واجبات ومهام أدائية (محسوبان) — عمود واحد لكل نوع غير اليدوي
 alter table public.classroom_grade_columns add column if not exists kind text not null default 'manual';
 do $$ begin
-  if not exists (select 1 from pg_constraint where conname = 'classroom_grade_columns_kind_chk') then
-    alter table public.classroom_grade_columns add constraint classroom_grade_columns_kind_chk check (kind in ('manual', 'participation', 'homework'));
+  if not exists (select 1 from pg_constraint where conname = 'classroom_grade_columns_kind_v2_chk') then
+    alter table public.classroom_grade_columns add constraint classroom_grade_columns_kind_v2_chk check (kind in ('manual', 'participation', 'homework', 'task'));
+    alter table public.classroom_grade_columns drop constraint if exists classroom_grade_columns_kind_chk;
   end if;
 end $$;
 create unique index if not exists classroom_grade_columns_kind_uq on public.classroom_grade_columns(teacher_id, section_id, academic_year, semester, kind) where kind <> 'manual';
@@ -1431,6 +1432,70 @@ drop policy if exists "المعلم يدير واجباته فقط" on public.cl
 create policy "المعلم يدير واجباته فقط" on public.classroom_homework for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 drop policy if exists "المعلم يدير تسليم واجبات طلابه فقط" on public.classroom_homework_status;
 create policy "المعلم يدير تسليم واجبات طلابه فقط" on public.classroom_homework_status for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- المهام الأدائية: لطلاب يحددهم المعلم بالاسم؛ score فارغ = لم يُقيَّم (لا يُحسب)
+create table if not exists public.classroom_tasks (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  academic_year text not null,
+  semester smallint not null check (semester in (1, 2)),
+  title text not null check (char_length(btrim(title)) between 1 and 200),
+  description text check (description is null or char_length(description) <= 2000),
+  max_score numeric(5,2) not null check (max_score > 0 and max_score <= 100),
+  due_date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade
+);
+create index if not exists classroom_tasks_term_idx on public.classroom_tasks(teacher_id, academic_year, semester, section_id);
+create table if not exists public.classroom_task_students (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  task_id uuid not null,
+  student_id uuid not null,
+  score numeric(5,2) check (score is null or score >= 0),
+  updated_at timestamptz not null default now(),
+  unique (task_id, student_id),
+  foreign key (task_id, teacher_id) references public.classroom_tasks(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_task_students_student_idx on public.classroom_task_students(student_id);
+alter table public.classroom_tasks enable row level security;
+alter table public.classroom_task_students enable row level security;
+drop policy if exists "المعلم يدير مهامه فقط" on public.classroom_tasks;
+create policy "المعلم يدير مهامه فقط" on public.classroom_tasks for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير درجات مهام طلابه فقط" on public.classroom_task_students;
+create policy "المعلم يدير درجات مهام طلابه فقط" on public.classroom_task_students for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+create or replace function public.check_task_score() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_max numeric;
+begin
+  if new.score is not null then
+    select max_score into v_max from public.classroom_tasks where id = new.task_id;
+    if v_max is not null and new.score > v_max then
+      raise exception 'task_score_above_max' using errcode = 'P0001', hint = v_max::text;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace function public.check_task_max() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_over int;
+begin
+  if new.max_score < old.max_score then
+    select count(*) into v_over from public.classroom_task_students where task_id = new.id and score > new.max_score;
+    if v_over > 0 then
+      raise exception 'task_max_below_scores' using errcode = 'P0001', hint = v_over::text;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace trigger trg_check_task_score before insert or update on public.classroom_task_students for each row execute function public.check_task_score();
+create or replace trigger trg_check_task_max before update on public.classroom_tasks for each row execute function public.check_task_max();
 
 -- زيادة/إنقاص درجة ذرّيًا (نقرة المشاركة) — security invoker: صلاحيات المعلم نفسه
 create or replace function public.increment_grade_score(p_column_id uuid, p_student_id uuid, p_delta numeric)
@@ -1736,7 +1801,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1844,6 +1909,8 @@ async function exportFullBackup(){
       '     32. lesson_plans.csv (لازم بعد shawahid وclassroom_sections)',
       '     33. classroom_homework.csv (لازم بعد classroom_sections)',
       '     34. classroom_homework_status.csv (لازم بعد classroom_homework وclassroom_students)',
+      '     35. classroom_tasks.csv (لازم بعد classroom_sections)',
+      '     36. classroom_task_students.csv (لازم بعد classroom_tasks وclassroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

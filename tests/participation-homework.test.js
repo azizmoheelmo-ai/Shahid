@@ -87,7 +87,7 @@ test('homeworkCounts', async () => {
 test('gradeSheetSeed — الأعمدة الافتراضية بنوعها', async () => {
   const app = loadApp();
   const seed = app.gradeSheetSeed([]);
-  assert.deepEqual([...seed].map(c => c.name + ':' + c.kind), ['مشاركة:participation', 'واجبات:homework', 'مهام أدائية:manual', 'الفترة الأولى:manual', 'الفترة الثانية:manual']);
+  assert.deepEqual([...seed].map(c => c.name + ':' + c.kind), ['مشاركة:participation', 'واجبات:homework', 'مهام أدائية:task', 'الفترة الأولى:manual', 'الفترة الثانية:manual']);
   const copied = app.gradeSheetSeed([{ category: 'performance', name: 'مشاركة', max_score: 10, kind: 'participation', position: 0 }]);
   assert.equal(copied[0].kind, 'participation', 'النوع يُنسخ من الفصل السابق');
 });
