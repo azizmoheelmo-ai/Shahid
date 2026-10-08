@@ -1,5 +1,5 @@
 /* ============================================================
-   أوضاع ورقة الحصة: [حضور | مشاركة | واجب]
+   أوضاع ورقة الحصة: [حضور | مشاركة | واجب | مهمة] (المهمة في app-21)
    ------------------------------------------------------------
    - المشاركة: نقرة على الطالب = +1 مباشرة على عمود "مشاركة" في كشف
      الدرجات (حتى حده)، تُحفظ فورًا بدالة ذرّية في القاعدة (لا تضيع نقرة
@@ -46,15 +46,20 @@ function homeworkScoreFor(counted, statusIdx, studentId, max){
   return Math.round(100 * (sum / counted.length) * Number(max)) / 100;
 }
 
-function planHomeworkScoreSync(studentIds, counted, statusIdx, max, existing){
+/* ما يُكتب وما يُحذف في عمود محسوب (واجبات/مهام): wantFn(id) = الدرجة المطلوبة أو null */
+function planComputedScoreSync(studentIds, wantFn, existing){
   const upserts = [], deletes = [];
   (studentIds || []).forEach(id => {
-    const want = homeworkScoreFor(counted, statusIdx, id, max);
+    const want = wantFn(id);
     const has = existing.has(id) ? Number(existing.get(id)) : null;
     if(want === null){ if(has !== null) deletes.push(id); return; }
     if(has === null || Math.abs(has - want) > 0.001) upserts.push({ student_id: id, score: want });
   });
   return { upserts, deletes };
+}
+
+function planHomeworkScoreSync(studentIds, counted, statusIdx, max, existing){
+  return planComputedScoreSync(studentIds, id => homeworkScoreFor(counted, statusIdx, id, max), existing);
 }
 
 function defaultHomeworkId(homeworks, dateIso){
@@ -126,7 +131,7 @@ async function findKindColumn(sectionId, term, kind){
 function crmSheetModeSwitchHtml(){
   const m = (crmSheet && crmSheet.mode) || 'attendance';
   const b = (k, t) => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${t}</button>`;
-  return `<div class="crm-seg">${b('attendance', 'حضور')}${b('participation', 'مشاركة')}${b('homework', 'واجب')}</div>`;
+  return `<div class="crm-seg">${b('attendance', 'حضور')}${b('participation', 'مشاركة')}${b('homework', 'واجب')}${b('task', 'مهمة')}</div>`;
 }
 
 function setCrmSheetMode(mode){
@@ -135,6 +140,7 @@ function setCrmSheetMode(mode){
   const students = crmStudentsOfSection(crmSheet.sectionId);
   if(mode === 'participation') return renderCrmParticipation(students);
   if(mode === 'homework') return renderCrmHomework(students);
+  if(mode === 'task') return renderCrmTasks(students);
   renderCrmLessonSheet(students, false);
 }
 
