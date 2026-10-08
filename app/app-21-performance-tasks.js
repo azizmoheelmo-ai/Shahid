@@ -11,6 +11,9 @@
      عليه.
    - يُحسب الطالب على كل مهامه في الفصل الدراسي ولو في شعبة سابقة، فلا
      تضيع درجاته إن نُقل لشعبة أخرى.
+   - المهمة الجماعية: يقسّم المعلم المكلَّفين مجموعات (group_no)، ويرصد
+     درجة واحدة للمجموعة تُعطى لكل أعضائها، ثم يعدّل درجة أي فرد منفردًا.
+     الدرجة تبقى لكل طالب في صفه، فالعمود المحسوب لا يتغيّر منطقه.
    ============================================================ */
 
 const TASK_QUICK_FRACTIONS = [['كاملة', 1], ['¾', 0.75], ['½', 0.5], ['¼', 0.25], ['0', 0]];
@@ -76,6 +79,81 @@ function planTaskAssigneeChange(currentRows, selectedIds, sectionStudentIds){
   return { add, remove, removeScored };
 }
 
+/* ============ المجموعات (دوال صرفة) ============ */
+function taskGroupIndex(rows){
+  const idx = new Map();
+  (rows || []).forEach(r => {
+    if(!idx.has(r.task_id)) idx.set(r.task_id, new Map());
+    idx.get(r.task_id).set(r.student_id, r.group_no ? Number(r.group_no) : null);
+  });
+  return idx;
+}
+
+/* [{ no, members }] بترتيب أرقام المجموعات — لطلاب القائمة فقط وبترتيبها */
+function taskGroupsList(groupMap, studentIds){
+  const by = new Map();
+  (studentIds || []).forEach(id => {
+    const g = groupMap && groupMap.get(id);
+    if(!g) return;
+    if(!by.has(g)) by.set(g, []);
+    by.get(g).push(id);
+  });
+  return [...by.keys()].sort((a, b) => a - b).map(no => ({ no, members: by.get(no) }));
+}
+
+/* توزيع متوازن على count مجموعات: بالترتيب، أو عشوائي بتمرير rand */
+function distributeTaskGroups(studentIds, count, rand){
+  const ids = (studentIds || []).slice();
+  if(rand){
+    for(let i = ids.length - 1; i > 0; i--){ const j = Math.floor(rand() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+  }
+  const n = Math.max(1, Math.min(count || 1, ids.length || 1));
+  const map = new Map();
+  ids.forEach((id, i) => map.set(id, Math.floor(i * n / ids.length) + 1));
+  return map;
+}
+
+/* أصغر مجموعة (الأقل أعضاء، ثم الأصغر رقمًا) لإضافة طالب جديد */
+function smallestTaskGroup(groupMap, count){
+  const sizes = new Array(count + 1).fill(0);
+  groupMap.forEach(g => { if(g >= 1 && g <= count) sizes[g]++; });
+  let best = 1;
+  for(let g = 2; g <= count; g++) if(sizes[g] < sizes[best]) best = g;
+  return best;
+}
+
+/* أرقام متتالية 1..k (تُسقط المجموعات الفارغة)، للطلاب المختارين فقط */
+function normalizeTaskGroups(groupMap, selectedIds){
+  const sel = new Set(selectedIds || []);
+  const used = [...new Set([...groupMap.entries()].filter(([id, g]) => sel.has(id) && g).map(([, g]) => g))].sort((a, b) => a - b);
+  const renum = new Map(used.map((g, i) => [g, i + 1]));
+  const out = new Map();
+  groupMap.forEach((g, id) => { if(sel.has(id) && g) out.set(id, renum.get(g)); });
+  return out;
+}
+
+/* من تغيّرت مجموعته من المكلَّفين الباقين (groupMap = null: فردية → بلا مجموعة) */
+function planTaskRegroup(currentRows, keepIds, groupMap){
+  const keep = new Set(keepIds || []);
+  const out = [];
+  (currentRows || []).forEach(r => {
+    if(!keep.has(r.student_id)) return;
+    const want = groupMap ? (groupMap.get(r.student_id) || null) : null;
+    const has = r.group_no ? Number(r.group_no) : null;
+    if(want !== has) out.push({ student_id: r.student_id, group_no: want });
+  });
+  return out;
+}
+
+/* حالة درجة المجموعة: موحّدة (value)، أو مختلفة بين أعضائها (mixed) */
+function taskGroupScoreState(members, scores){
+  const vals = (members || []).map(id => scores.get(id));
+  const graded = vals.filter(v => v !== null && v !== undefined);
+  if(!graded.length) return { value: null, mixed: false, graded: 0 };
+  const same = graded.length === vals.length && graded.every(v => v === graded[0]);
+  return { value: same ? graded[0] : null, mixed: !same, graded: graded.length };
+}
+
 function taskGradeSummary(scoreMap, studentIds){
   let graded = 0, sum = 0;
   (studentIds || []).forEach(id => {
@@ -108,7 +186,7 @@ async function loadSectionTasks(sectionId, term){
   if(error) throw error;
   let rows = [];
   for(const ids of chunkArray((tasks || []).map(t => t.id), 100)){
-    const { data, error: rErr } = await sb.from('classroom_task_students').select('task_id, student_id, score')
+    const { data, error: rErr } = await sb.from('classroom_task_students').select('task_id, student_id, score, group_no')
       .eq('teacher_id', uid).in('task_id', ids);
     if(rErr) throw rErr;
     rows = rows.concat(data || []);
@@ -161,6 +239,13 @@ async function syncTaskColumn(column, sectionId, term, studentIds){
 }
 
 /* ============ وضع "مهمة" في ورقة الحصة ============ */
+function crmTaskCellHtml(st){
+  return `<div class="crm-att-cell">
+    <button type="button" class="crm-att-btn" id="crmTask_${st.id}" onclick="openCrmTaskScorePicker('${st.id}')">
+      <span class="crm-att-name">${escapeHtml(st.full_name)}</span><span class="crm-att-state"></span></button>
+  </div>`;
+}
+
 async function renderCrmTasks(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
@@ -178,8 +263,9 @@ async function renderCrmTasks(students, selectId){
   }
   if(crmSheet !== s || s.token !== token || s.mode !== 'task') return;
   const idx = taskRowsIndex(data.rows);
+  const gidx = taskGroupIndex(data.rows);
   if(!data.tasks.length){
-    s.task = { data, column, selectedId: null, scores: new Map(), queue: new Map(), term };
+    s.task = { data, column, selectedId: null, scores: new Map(), groups: new Map(), queue: new Map(), term };
     body.innerHTML = head + `<div class="empty-state">لا مهام أدائية لهذه الشعبة بعد.</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmTaskModal()">+ مهمة جديدة</button>
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
@@ -188,33 +274,46 @@ async function renderCrmTasks(students, selectId){
   const selectedId = (selectId && data.tasks.some(t => t.id === selectId)) ? selectId : data.tasks[data.tasks.length - 1].id;
   const task = data.tasks.find(t => t.id === selectedId);
   const scores = idx.get(selectedId) || new Map();
+  const groups = gidx.get(selectedId) || new Map();
   const assigned = students.filter(st => scores.has(st.id));
-  s.task = { data, column, selectedId, scores, queue: new Map(), term, pick: null };
+  const glist = taskGroupsList(groups, assigned.map(st => st.id));
+  const ungrouped = glist.length ? assigned.filter(st => !groups.get(st.id)) : assigned;
+  const byId = new Map(students.map(st => [st.id, st]));
+  const isGroupTask = id => [...(gidx.get(id) || new Map()).values()].some(Boolean);
+  s.task = { data, column, selectedId, scores, groups, queue: new Map(), term, pick: null };
   body.innerHTML = head + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmTasks(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${data.tasks.map(t => `<option value="${t.id}"${t.id === selectedId ? ' selected' : ''}>${escapeHtml(t.title)} · من ${formatScore(t.max_score)} · لـ ${(idx.get(t.id) || new Map()).size}</option>`).join('')}
+        ${data.tasks.map(t => `<option value="${t.id}"${t.id === selectedId ? ' selected' : ''}>${escapeHtml(t.title)} · من ${formatScore(t.max_score)} · ${isGroupTask(t.id) ? 'جماعية' : 'لـ ' + (idx.get(t.id) || new Map()).size}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل المهمة أو حذفها" onclick="openCrmTaskEditor(crmSheet.task && crmSheet.task.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmTaskModal()">+ مهمة</button>
     </div>
     ${task.description ? `<div class="crm-task-desc">${escapeHtml(task.description)}</div>` : ''}
     <div id="crmTaskCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">اضغط على الطالب لرصد درجته من ${formatScore(task.max_score)}${task.due_date ? ' · التسليم ' + shortDateAr(task.due_date) : ''}. لا تُحسب المهمة للطالب حتى تُرصد درجته${column ? '، وتُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود مهام أدائية في الكشف ليُحسب تلقائيًا)'}.</p>
-    ${assigned.length ? `<div class="crm-att-grid">
-      ${assigned.map(st => `<div class="crm-att-cell">
-        <button type="button" class="crm-att-btn" id="crmTask_${st.id}" onclick="openCrmTaskScorePicker('${st.id}')">
-          <span class="crm-att-name">${escapeHtml(st.full_name)}</span><span class="crm-att-state"></span></button>
-      </div>`).join('')}
-    </div>` : '<div class="empty-state">لا أحد من طلاب الشعبة مكلّف بهذه المهمة — اضغط "✎ تعديل" لاختيار الطلاب.</div>'}
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${glist.length ? 'اضغط على المجموعة لرصد درجة واحدة لكل أعضائها، أو على اسم طالب لتعديل درجته وحده' : 'اضغط على الطالب لرصد درجته'} من ${formatScore(task.max_score)}${task.due_date ? ' · التسليم ' + shortDateAr(task.due_date) : ''}. لا تُحسب المهمة للطالب حتى تُرصد درجته${column ? '، وتُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود مهام أدائية في الكشف ليُحسب تلقائيًا)'}.</p>
+    ${glist.map(g => `<div class="crm-task-group">
+      <button type="button" class="crm-att-btn crm-task-group-head" id="crmTaskGroup_${g.no}" onclick="openCrmTaskScorePicker(null, ${g.no})">
+        <span class="crm-att-name">المجموعة ${g.no} · ${arabicCountPhrase(g.members.length, CRM_STUDENT_COUNT_FORMS)}</span><span class="crm-att-state"></span></button>
+      <div class="crm-att-grid">${g.members.map(id => crmTaskCellHtml(byId.get(id))).join('')}</div>
+    </div>`).join('')}
+    ${ungrouped.length ? `${glist.length ? '<div class="crm-tl-meta" style="margin:4px 0;">بلا مجموعة</div>' : ''}<div class="crm-att-grid">${ungrouped.map(crmTaskCellHtml).join('')}</div>` : ''}
+    ${assigned.length ? '' : '<div class="empty-state">لا أحد من طلاب الشعبة مكلّف بهذه المهمة — اضغط "✎ تعديل" لاختيار الطلاب.</div>'}
     <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
-  assigned.forEach(st => paintCrmTask(st.id));
+  paintCrmTaskAll(assigned.map(st => st.id));
   paintCrmTaskCounts();
 }
 
 function crmSelectedTask(){
   const t = crmSheet && crmSheet.task;
   return t && t.selectedId ? t.data.tasks.find(x => x.id === t.selectedId) : null;
+}
+
+/* أعضاء مجموعة من طلاب الشعبة الحاليين المكلَّفين */
+function crmTaskGroupMembers(groupNo){
+  const t = crmSheet && crmSheet.task;
+  if(!t) return [];
+  return crmStudentsOfSection(crmSheet.sectionId).map(x => x.id).filter(id => t.scores.has(id) && t.groups.get(id) === groupNo);
 }
 
 function paintCrmTask(studentId){
@@ -227,26 +326,63 @@ function paintCrmTask(studentId){
   btn.querySelector('.crm-att-state').textContent = v === null || v === undefined ? 'لم يُقيَّم' : `${formatScore(v)} / ${formatScore(task.max_score)}`;
 }
 
+function paintCrmTaskGroup(groupNo){
+  const task = crmSelectedTask();
+  const btn = document.getElementById('crmTaskGroup_' + groupNo);
+  if(!btn || !task) return;
+  const members = crmTaskGroupMembers(groupNo);
+  const st = taskGroupScoreState(members, crmSheet.task.scores);
+  btn.className = 'crm-att-btn crm-task-group-head ' + (st.mixed ? 'tk-mixed' : taskScoreTone(st.value, task.max_score));
+  btn.querySelector('.crm-att-state').textContent = st.value !== null ? `${formatScore(st.value)} / ${formatScore(task.max_score)}`
+    : st.mixed ? `درجات مختلفة · قُيّم ${st.graded} من ${members.length}` : 'لم تُقيَّم';
+}
+
+/* يعيد رسم الطلاب ومجموعاتهم */
+function paintCrmTaskAll(studentIds){
+  const t = crmSheet && crmSheet.task;
+  if(!t) return;
+  const groups = new Set();
+  (studentIds || []).forEach(id => { paintCrmTask(id); const g = t.groups.get(id); if(g) groups.add(g); });
+  groups.forEach(paintCrmTaskGroup);
+}
+
 function paintCrmTaskCounts(){
   const el = document.getElementById('crmTaskCounts');
   const task = crmSelectedTask();
   if(!el || !task) return;
-  const ids = crmStudentsOfSection(crmSheet.sectionId).map(x => x.id).filter(id => crmSheet.task.scores.has(id));
-  const c = taskGradeSummary(crmSheet.task.scores, ids);
-  el.textContent = `قُيّم ${c.graded} من ${c.total}` + (c.avg === null ? '' : ` · المتوسط ${formatScore(c.avg)} من ${formatScore(task.max_score)}`);
+  const t = crmSheet.task;
+  const ids = crmStudentsOfSection(crmSheet.sectionId).map(x => x.id).filter(id => t.scores.has(id));
+  const c = taskGradeSummary(t.scores, ids);
+  const k = taskGroupsList(t.groups, ids).length;
+  el.textContent = `قُيّم ${c.graded} من ${c.total}` + (k ? ` · ${k} مجموعات` : '') + (c.avg === null ? '' : ` · المتوسط ${formatScore(c.avg)} من ${formatScore(task.max_score)}`);
 }
 
-function openCrmTaskScorePicker(studentId){
+/* نافذة الرصد: لطالب واحد (studentId) أو لكل أعضاء مجموعة (groupNo) */
+function openCrmTaskScorePicker(studentId, groupNo){
   const t = crmSheet && crmSheet.task;
   const task = crmSelectedTask();
-  if(!task || !t.scores.has(studentId)) return;
-  const st = crmStudents.find(x => x.id === studentId);
-  const cur = t.scores.get(studentId);
-  t.pick = { taskId: task.id, studentId };
+  if(!task) return;
+  let ids, title, sub = '', cur;
+  if(groupNo){
+    ids = crmTaskGroupMembers(groupNo);
+    if(!ids.length) return;
+    title = 'المجموعة ' + groupNo;
+    sub = ids.map(id => { const st = crmStudents.find(x => x.id === id); return escapeHtml(st ? st.full_name : ''); }).join('، ');
+    cur = taskGroupScoreState(ids, t.scores).value;
+  } else {
+    if(!t.scores.has(studentId)) return;
+    ids = [studentId];
+    const st = crmStudents.find(x => x.id === studentId);
+    title = st ? st.full_name : '';
+    cur = t.scores.get(studentId);
+  }
+  const anyGraded = ids.some(id => t.scores.get(id) !== null && t.scores.get(id) !== undefined);
+  t.pick = { taskId: task.id, studentIds: ids };
   showInfoModal(`
     <div style="text-align:right;">
-      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${escapeHtml(st ? st.full_name : '')}</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(task.title)} · من ${formatScore(task.max_score)}</div>
+      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${escapeHtml(title)}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:${groupNo ? 4 : 10}px;">${escapeHtml(task.title)} · من ${formatScore(task.max_score)}</div>
+      ${groupNo ? `<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;line-height:1.7;">تُعطى الدرجة لكل الأعضاء (${ids.length}): ${sub}. ثم اضغط على اسم أي طالب لتعديل درجته وحده.</div>` : ''}
       <div class="crm-task-chips">
         ${taskQuickScores(task.max_score).map(q => `<button type="button" class="btn btn-outline${cur === q.value ? ' is-on' : ''}" onclick="applyCrmTaskScore(${q.value})">${q.label}<small>${formatScore(q.value)}</small></button>`).join('')}
       </div>
@@ -256,7 +392,7 @@ function openCrmTaskScorePicker(studentId){
         <button class="btn btn-primary" onclick="saveCrmTaskScoreInput()">حفظ</button>
       </div>
       <div id="crmTaskScoreError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:6px;"></div>
-      ${cur === null || cur === undefined ? '' : '<button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="applyCrmTaskScore(null)">مسح التقييم (لم يُقيَّم)</button>'}
+      ${anyGraded ? `<button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="applyCrmTaskScore(null)">مسح التقييم (لم يُقيَّم)${groupNo ? ' لكل الأعضاء' : ''}</button>` : ''}
     </div>`, '400px');
 }
 
@@ -277,51 +413,101 @@ function applyCrmTaskScore(score){
   const t = crmSheet && crmSheet.task;
   const p = t && t.pick;
   closeCrmModal();
-  /* المختار تغيّر بعد فتح النافذة (أو الطالب أُزيل من المهمة): لا نكتب على مهمة أخرى */
-  if(!p || t.selectedId !== p.taskId || !t.scores.has(p.studentId)) return;
+  /* المختار تغيّر بعد فتح النافذة: لا نكتب على مهمة أخرى */
+  if(!p || t.selectedId !== p.taskId) return;
   t.pick = null;
-  const prev = t.scores.get(p.studentId);
-  if(prev === score) return;
-  t.scores.set(p.studentId, score);
-  paintCrmTask(p.studentId);
+  const ids = p.studentIds.filter(id => t.scores.has(id));
+  const prev = new Map(ids.map(id => [id, t.scores.get(id)]));
+  const changed = ids.filter(id => prev.get(id) !== score);
+  if(!changed.length) return;
+  changed.forEach(id => t.scores.set(id, score));
+  paintCrmTaskAll(changed);
   paintCrmTaskCounts();
-  persistCrmTaskScore(p.studentId, score, prev);
+  persistCrmTaskScores(changed, score, prev);
 }
 
-/* حفظ درجة طالب ثم إعادة حساب عموده — بالتتابع لكل طالب */
-function persistCrmTaskScore(studentId, score, prev){
+/* حفظ درجة (طالب أو أعضاء مجموعة) ثم إعادة حساب عمودهم — بعد أي حفظ معلّق لهم */
+function persistCrmTaskScores(ids, score, prev){
   const s = crmSheet;
   const t = s.task;
   const taskId = t.selectedId;
-  const before = t.queue.get(studentId) || Promise.resolve();
+  /* يُعاد العرض لما كان، ما لم تتغيّر الدرجة بنقرة أحدث */
+  const revert = list => {
+    if(crmSheet !== s || t.selectedId !== taskId) return;
+    const back = list.filter(id => t.scores.get(id) === score);
+    back.forEach(id => t.scores.set(id, prev.get(id)));
+    paintCrmTaskAll(back);
+    paintCrmTaskCounts();
+  };
+  const before = Promise.all(ids.map(id => t.queue.get(id) || Promise.resolve()));
   const next = before.then(async () => {
     const uid = currentUser.id;
+    let saved;
     try{
-      const { data, error } = await sb.from('classroom_task_students').update({ score })
-        .eq('teacher_id', uid).eq('task_id', taskId).eq('student_id', studentId).select('id');
+      let q = sb.from('classroom_task_students').update({ score }).eq('teacher_id', uid).eq('task_id', taskId);
+      q = ids.length === 1 ? q.eq('student_id', ids[0]) : q.in('student_id', ids);
+      const { data, error } = await q.select('student_id');
       if(error) throw error;
-      if(!(data || []).length) throw new Error('الطالب لم يعد مكلّفًا بهذه المهمة — ربما عُدّلت من جهاز آخر');
+      saved = (data || []).map(r => r.student_id);
+      if(!saved.length) throw new Error((ids.length === 1 ? 'الطالب لم يعد مكلّفًا' : 'الطلاب لم يعودوا مكلّفين') + ' بهذه المهمة — ربما عُدّلت من جهاز آخر');
     } catch(e){
-      /* يُعاد العرض لما كان، ما لم تتغيّر الدرجة بنقرة أحدث */
-      if(crmSheet === s && t.selectedId === taskId && t.scores.get(studentId) === score){
-        t.scores.set(studentId, prev);
-        paintCrmTask(studentId);
-        paintCrmTaskCounts();
-      }
+      revert(ids);
       showToast('لم تُحفظ الدرجة: ' + taskDbErrorMessage(e), 'error');
       return;
     }
-    const row = t.data.rows.find(r => r.task_id === taskId && r.student_id === studentId);
-    if(row) row.score = score;
-    try{ await syncTaskColumn(t.column, s.sectionId, t.term, [studentId]); }
+    const missing = ids.filter(id => !saved.includes(id));
+    if(missing.length){
+      revert(missing);
+      showToast(`لم تُحفظ درجة ${missing.length} — لم يعودوا مكلّفين بهذه المهمة. حدّث الورقة.`, 'error');
+    }
+    t.data.rows.forEach(r => { if(r.task_id === taskId && saved.includes(r.student_id)) r.score = score; });
+    try{ await syncTaskColumn(t.column, s.sectionId, t.term, saved); }
     catch(e){ showToast('حُفظت الدرجة، وتعذّر تحديث عمود المهام — يُحدَّث عند فتح الكشف', 'error'); }
   });
-  t.queue.set(studentId, next);
+  ids.forEach(id => t.queue.set(id, next));
   return next;
 }
 
 /* ============ إضافة/تعديل مهمة ============ */
-let crmTaskDraft = null; /* { sectionId, editId?, selected: Set, saving, confirmRemoval? } */
+let crmTaskDraft = null; /* { sectionId, editId?, selected: Set, groups: Map|null, groupCount, saving, confirmRemoval? } */
+const CRM_TASK_MAX_GROUPS = 20;
+
+function crmTaskDraftOrdered(){
+  const d = crmTaskDraft;
+  return crmStudentsOfSection(d.sectionId).map(x => x.id).filter(id => d.selected.has(id));
+}
+
+function crmTaskGroupsHtml(){
+  const d = crmTaskDraft;
+  if(!d || !d.groups) return '';
+  const ordered = crmTaskDraftOrdered();
+  const nameOf = id => { const st = crmStudents.find(x => x.id === id); return escapeHtml(st ? st.full_name : ''); };
+  let html = `<div style="display:flex;align-items:center;gap:6px;margin:10px 0 6px;">
+      <span class="crm-field-label" style="margin:0;flex:1;">المجموعات</span>
+      <button type="button" class="btn btn-outline crm-mini-btn" onclick="setCrmTaskGroupCount(-1)" aria-label="أقل">−</button>
+      <b style="min-width:18px;text-align:center;">${d.groupCount}</b>
+      <button type="button" class="btn btn-outline crm-mini-btn" onclick="setCrmTaskGroupCount(1)" aria-label="أكثر">+</button>
+      <button type="button" class="btn btn-outline crm-mini-btn" onclick="shuffleCrmTaskGroups()">🔀 عشوائي</button>
+    </div>`;
+  if(!ordered.length) return html + '<div class="crm-today-empty">اختر الطلاب أولًا، ثم وزّعهم على المجموعات.</div>';
+  for(let no = 1; no <= d.groupCount; no++){
+    const members = ordered.filter(id => d.groups.get(id) === no);
+    html += `<div class="crm-task-group-edit"><div class="crm-tl-meta">المجموعة ${no} · ${members.length ? arabicCountPhrase(members.length, CRM_STUDENT_COUNT_FORMS) : 'فارغة'}</div>
+      ${members.map(id => `<button type="button" class="crm-task-pick is-on" onclick="cycleCrmTaskGroup('${id}')">${nameOf(id)}</button>`).join('')}
+    </div>`;
+  }
+  return html + '<div style="font-size:11px;color:var(--muted);margin-top:4px;">اضغط على اسم الطالب لنقله للمجموعة التالية.</div>';
+}
+
+function paintCrmTaskGroupsBox(){
+  const box = document.getElementById('crmTaskGroupsBox');
+  if(box) box.innerHTML = crmTaskGroupsHtml();
+  const d = crmTaskDraft;
+  ['Ind', 'Grp'].forEach(k => {
+    const b = document.getElementById('crmTaskMode' + k);
+    if(b) b.className = (k === 'Grp') === !!(d && d.groups) ? 'is-on' : '';
+  });
+}
 
 function crmTaskFormHtml(sectionId, task){
   const d = crmTaskDraft;
@@ -340,6 +526,10 @@ function crmTaskFormHtml(sectionId, task){
         <div style="flex:1;"><label class="crm-field-label">التسليم (اختياري)</label>
           <input type="date" class="goal-input" id="crmTaskDue" value="${task && task.due_date ? escapeHtml(task.due_date) : ''}" style="margin-bottom:8px;"></div>
       </div>
+      <div class="crm-seg" style="margin-bottom:8px;">
+        <button type="button" id="crmTaskModeInd" class="${d.groups ? '' : 'is-on'}" onclick="setCrmTaskGroupMode(false)">فردية</button>
+        <button type="button" id="crmTaskModeGrp" class="${d.groups ? 'is-on' : ''}" onclick="setCrmTaskGroupMode(true)">جماعية</button>
+      </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
         <label class="crm-field-label" style="margin:0;flex:1;">الطلاب المكلّفون · <span id="crmTaskPickCount">${d.selected.size}</span></label>
         <button type="button" class="btn btn-outline crm-mini-btn" onclick="setCrmTaskPickAll(true)">الكل</button>
@@ -348,6 +538,7 @@ function crmTaskFormHtml(sectionId, task){
       ${students.length ? `<div class="crm-task-pick-grid">
         ${students.map(st => `<button type="button" class="crm-task-pick${d.selected.has(st.id) ? ' is-on' : ''}" id="crmTaskPick_${st.id}" onclick="toggleCrmTaskPick('${st.id}')">${escapeHtml(st.full_name)}</button>`).join('')}
       </div>` : '<div class="crm-today-empty">لا طلاب في هذه الشعبة.</div>'}
+      <div id="crmTaskGroupsBox">${crmTaskGroupsHtml()}</div>
       <div id="crmTaskError" style="display:none;color:#8A2C2C;font-size:12px;margin:8px 0;line-height:1.7;"></div>
       <button class="btn btn-primary" id="crmTaskSaveBtn" style="width:100%;justify-content:center;margin-top:10px;" onclick="saveCrmTask()">${task ? 'حفظ التعديل' : 'حفظ المهمة'}</button>
       ${task ? `<button class="btn btn-outline" id="crmTaskDeleteBtn" style="width:100%;justify-content:center;margin-top:8px;color:#8A2C2C;" onclick="deleteCrmTask('${task.id}', '${sectionId}')">حذف المهمة</button>` : ''}
@@ -357,11 +548,11 @@ function crmTaskFormHtml(sectionId, task){
 function openCrmTaskModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  crmTaskDraft = { sectionId, selected: new Set(), saving: false };
+  crmTaskDraft = { sectionId, selected: new Set(), groups: null, groupCount: 2, saving: false };
   showInfoModal(crmTaskFormHtml(sectionId, null), '460px');
 }
 
-/* يقرأ المهمة ومكلَّفيها من القاعدة مباشرة (لا من نسخة محلية قد تكون قديمة) */
+/* يقرأ المهمة ومكلَّفيها ومجموعاتهم من القاعدة مباشرة (لا من نسخة محلية قد تكون قديمة) */
 let crmTaskEditorOpening = false;
 async function openCrmTaskEditor(taskId){
   if(!taskId || crmTaskEditorOpening) return;
@@ -370,15 +561,21 @@ async function openCrmTaskEditor(taskId){
   try{
     [tRes, rRes] = await Promise.all([
       sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date').eq('teacher_id', currentUser.id).eq('id', taskId).maybeSingle(),
-      sb.from('classroom_task_students').select('student_id').eq('teacher_id', currentUser.id).eq('task_id', taskId)
+      sb.from('classroom_task_students').select('student_id, group_no').eq('teacher_id', currentUser.id).eq('task_id', taskId)
     ]);
   } catch(e){ tRes = { error: e }; }
   finally { crmTaskEditorOpening = false; }
   if(tRes.error || (rRes && rRes.error)){ showToast('تعذّر تحميل المهمة', 'error'); return; }
   if(!tRes.data){ showToast('المهمة غير موجودة — ربما حُذفت من جهاز آخر', 'error'); return; }
   const task = tRes.data;
+  const rows = rRes.data || [];
+  const grouped = rows.filter(r => r.group_no);
   closeCrmModal();
-  crmTaskDraft = { sectionId: task.section_id, editId: task.id, selected: new Set((rRes.data || []).map(r => r.student_id)), saving: false };
+  crmTaskDraft = {
+    sectionId: task.section_id, editId: task.id, selected: new Set(rows.map(r => r.student_id)), saving: false,
+    groups: grouped.length ? new Map(grouped.map(r => [r.student_id, Number(r.group_no)])) : null,
+    groupCount: grouped.length ? Math.max(...grouped.map(r => Number(r.group_no))) : 2
+  };
   showInfoModal(crmTaskFormHtml(task.section_id, task), '460px');
 }
 
@@ -390,23 +587,78 @@ function paintCrmTaskPickCount(){
 function toggleCrmTaskPick(studentId){
   const d = crmTaskDraft;
   if(!d || d.saving) return;
-  if(d.selected.has(studentId)) d.selected.delete(studentId); else d.selected.add(studentId);
+  if(d.selected.has(studentId)){
+    d.selected.delete(studentId);
+    if(d.groups) d.groups.delete(studentId);
+  } else {
+    d.selected.add(studentId);
+    if(d.groups) d.groups.set(studentId, smallestTaskGroup(d.groups, d.groupCount));
+  }
   d.confirmRemoval = null;
   const btn = document.getElementById('crmTaskPick_' + studentId);
   if(btn) btn.className = 'crm-task-pick' + (d.selected.has(studentId) ? ' is-on' : '');
   paintCrmTaskPickCount();
+  if(d.groups) paintCrmTaskGroupsBox();
 }
 
 function setCrmTaskPickAll(on){
   const d = crmTaskDraft;
   if(!d || d.saving) return;
   crmStudentsOfSection(d.sectionId).forEach(st => {
-    if(on) d.selected.add(st.id); else d.selected.delete(st.id);
+    if(on){
+      if(!d.selected.has(st.id)){
+        d.selected.add(st.id);
+        if(d.groups) d.groups.set(st.id, smallestTaskGroup(d.groups, d.groupCount));
+      }
+    } else {
+      d.selected.delete(st.id);
+      if(d.groups) d.groups.delete(st.id);
+    }
     const btn = document.getElementById('crmTaskPick_' + st.id);
     if(btn) btn.className = 'crm-task-pick' + (on ? ' is-on' : '');
   });
   d.confirmRemoval = null;
   paintCrmTaskPickCount();
+  if(d.groups) paintCrmTaskGroupsBox();
+}
+
+/* جماعية: توزيع المختارين بالترتيب على عدد مناسب (نحو 4 في كل مجموعة) */
+function setCrmTaskGroupMode(on){
+  const d = crmTaskDraft;
+  if(!d || d.saving || on === !!d.groups) return;
+  if(on){
+    const ordered = crmTaskDraftOrdered();
+    d.groupCount = Math.max(1, Math.min(CRM_TASK_MAX_GROUPS, Math.round(ordered.length / 4) || 1));
+    d.groups = distributeTaskGroups(ordered, d.groupCount);
+  } else {
+    d.groups = null;
+  }
+  paintCrmTaskGroupsBox();
+}
+
+function setCrmTaskGroupCount(delta){
+  const d = crmTaskDraft;
+  if(!d || d.saving || !d.groups) return;
+  const n = Math.max(1, Math.min(CRM_TASK_MAX_GROUPS, d.groupCount + delta));
+  if(n === d.groupCount) return;
+  d.groupCount = n;
+  /* تغيير العدد يعيد التوزيع المتوازن بالترتيب — ثم يعدّل المعلم بالنقر على الأسماء */
+  d.groups = distributeTaskGroups(crmTaskDraftOrdered(), n);
+  paintCrmTaskGroupsBox();
+}
+
+function shuffleCrmTaskGroups(){
+  const d = crmTaskDraft;
+  if(!d || d.saving || !d.groups) return;
+  d.groups = distributeTaskGroups(crmTaskDraftOrdered(), d.groupCount, Math.random);
+  paintCrmTaskGroupsBox();
+}
+
+function cycleCrmTaskGroup(studentId){
+  const d = crmTaskDraft;
+  if(!d || d.saving || !d.groups || !d.selected.has(studentId)) return;
+  d.groups.set(studentId, ((d.groups.get(studentId) || 0) % d.groupCount) + 1);
+  paintCrmTaskGroupsBox();
 }
 
 async function saveCrmTask(){
@@ -424,6 +676,9 @@ async function saveCrmTask(){
   const sectionIds = crmStudentsOfSection(d.sectionId).map(s => s.id);
   const selected = [...d.selected].filter(id => sectionIds.includes(id));
   if(!selected.length) return fail('اختر طالبًا واحدًا على الأقل');
+  const groups = d.groups ? normalizeTaskGroups(d.groups, selected) : null;
+  if(groups && selected.some(id => !groups.get(id))) return fail('وزّع كل الطلاب المختارين على المجموعات');
+  const groupOf = id => (groups && groups.get(id)) || null;
   d.saving = true;
   const btns = ['crmTaskSaveBtn', 'crmTaskDeleteBtn'].map(id => document.getElementById(id)).filter(Boolean);
   btns.forEach(b => { b.disabled = true; });
@@ -433,7 +688,7 @@ async function saveCrmTask(){
   let id = d.editId;
   try{
     if(d.editId){
-      const { data: cur, error: cErr } = await sb.from('classroom_task_students').select('student_id, score').eq('teacher_id', uid).eq('task_id', d.editId);
+      const { data: cur, error: cErr } = await sb.from('classroom_task_students').select('student_id, score, group_no').eq('teacher_id', uid).eq('task_id', d.editId);
       if(cErr) throw cErr;
       const plan = planTaskAssigneeChange(cur, selected, sectionIds);
       /* إزالة طالب له درجة تحذف درجته — تأكيد بنقرة ثانية على "حفظ" */
@@ -450,9 +705,21 @@ async function saveCrmTask(){
       const { data: upd, error: uErr } = await sb.from('classroom_tasks').update(payload).eq('teacher_id', uid).eq('id', d.editId).select('id');
       if(uErr) throw uErr;
       if(!(upd || []).length) throw new Error('المهمة غير موجودة — ربما حُذفت من جهاز آخر');
+      /* تغيير المجموعات لا يمسّ الدرجات المرصودة */
+      const byGroup = new Map();
+      planTaskRegroup(cur, selected, groups).forEach(r => {
+        const k = r.group_no === null ? 'none' : r.group_no;
+        if(!byGroup.has(k)) byGroup.set(k, []);
+        byGroup.get(k).push(r.student_id);
+      });
+      for(const [k, ids] of byGroup){
+        const { error: gErr } = await sb.from('classroom_task_students').update({ group_no: k === 'none' ? null : k })
+          .eq('teacher_id', uid).eq('task_id', d.editId).in('student_id', ids);
+        if(gErr) throw gErr;
+      }
       if(plan.add.length){
         const { error: aErr } = await sb.from('classroom_task_students').upsert(
-          plan.add.map(sid => ({ teacher_id: uid, task_id: d.editId, student_id: sid })),
+          plan.add.map(sid => ({ teacher_id: uid, task_id: d.editId, student_id: sid, group_no: groupOf(sid) })),
           { onConflict: 'task_id,student_id', ignoreDuplicates: true });
         if(aErr) throw aErr;
       }
@@ -463,7 +730,7 @@ async function saveCrmTask(){
       }, payload)).select('id').single();
       if(error) throw error;
       id = data.id;
-      const { error: aErr } = await sb.from('classroom_task_students').insert(selected.map(sid => ({ teacher_id: uid, task_id: id, student_id: sid })));
+      const { error: aErr } = await sb.from('classroom_task_students').insert(selected.map(sid => ({ teacher_id: uid, task_id: id, student_id: sid, group_no: groupOf(sid) })));
       if(aErr){
         /* مهمة بلا مكلَّفين لا فائدة منها — تُزال ليعيد المعلم المحاولة نظيفة */
         await sb.from('classroom_tasks').delete().eq('teacher_id', uid).eq('id', id);
@@ -504,6 +771,7 @@ async function openCrmTaskManager(){
   catch(e){ showToast('تعذّر تحميل المهام', 'error'); return; }
   const ids = crmStudentsOfSection(sectionId).map(s => s.id);
   const idx = taskRowsIndex(data.rows);
+  const gidx = taskGroupIndex(data.rows);
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">المهام الأدائية · ${escapeHtml(crmSectionLabel(sectionId))}</h3>
@@ -511,7 +779,8 @@ async function openCrmTaskManager(){
       ${data.tasks.length ? data.tasks.slice().reverse().map(t => {
         const m = idx.get(t.id) || new Map();
         const c = taskGradeSummary(m, ids.filter(id => m.has(id)));
-        return `<div class="crm-lesson-row"><span>${escapeHtml(t.title)} <span class="crm-tl-meta">· من ${formatScore(t.max_score)}${t.due_date ? ' · ' + shortDateAr(t.due_date) : ''}</span>
+        const k = taskGroupsList(gidx.get(t.id) || new Map(), ids).length;
+        return `<div class="crm-lesson-row"><span>${escapeHtml(t.title)} <span class="crm-tl-meta">· من ${formatScore(t.max_score)}${k ? ' · جماعية (' + k + ' مجموعات)' : ''}${t.due_date ? ' · ' + shortDateAr(t.due_date) : ''}</span>
           <div class="crm-tl-meta">مكلّف ${c.total} · قُيّم ${c.graded}${c.avg === null ? '' : ' · المتوسط ' + formatScore(c.avg)}</div></span>
           <span style="display:flex;gap:4px;">
             <button class="crm-icon-btn" title="تعديل" onclick="openCrmTaskEditor('${t.id}')">✎</button>

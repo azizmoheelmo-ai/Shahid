@@ -146,11 +146,12 @@ test('syncTaskColumn — باسم المعلم، وتُحسب مهام الطا�
 });
 
 /* ============ الرصد من ورقة الحصة ============ */
-function sheetWithTask(app, scores){
+function sheetWithTask(app, scores, groups){
   runInAppContext(app, `
     crmSheet = { sectionId: 'S', dateIso: '2026-10-08', mode: 'task', token: 1,
-      task: { data: { tasks: [{ id: 'T1', title: 'تقرير', max_score: 10 }], rows: [{ task_id: 'T1', student_id: 'a', score: null }] },
-        column: { id: 'TC', max_score: 20 }, selectedId: 'T1', scores: new Map(${JSON.stringify(scores)}), queue: new Map(), term: ${JSON.stringify(TERM)}, pick: null } };
+      task: { data: { tasks: [{ id: 'T1', title: 'تقرير', max_score: 10 }], rows: ${JSON.stringify(scores.map(([id, v]) => ({ task_id: 'T1', student_id: id, score: v })))} },
+        column: { id: 'TC', max_score: 20 }, selectedId: 'T1', scores: new Map(${JSON.stringify(scores)}), groups: new Map(${JSON.stringify(groups || [])}),
+        queue: new Map(), term: ${JSON.stringify(TERM)}, pick: null } };
   `);
 }
 
@@ -301,4 +302,122 @@ test('deleteCrmStudent — التراجع يعيد درجات مهامه أيض�
   const restored = writes(log, 'classroom_task_students', 'insert')[0];
   assert.ok(restored, 'درجات المهام تُعاد مع التراجع');
   assert.equal(restored.rows[0].id, 'ts1');
+});
+
+/* ============ المهام الجماعية ============ */
+test('distributeTaskGroups — توزيع متوازن بالترتيب، وعشوائي عند الطلب', async () => {
+  const app = loadApp();
+  const ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'];
+  const m = app.distributeTaskGroups(ids, 4);
+  assert.deepEqual(ids.map(id => m.get(id)), [1, 1, 1, 2, 2, 3, 3, 3, 4, 4], 'متتالية ومتوازنة (3،2،3،2)');
+  const r = app.distributeTaskGroups(ids, 4, () => 0);
+  const sizes = [1, 2, 3, 4].map(g => ids.filter(id => r.get(id) === g).length);
+  assert.deepEqual(sizes, [3, 2, 3, 2], 'العشوائي متوازن أيضًا');
+  assert.notDeepEqual(ids.map(id => r.get(id)), ids.map(id => m.get(id)));
+  assert.equal(app.distributeTaskGroups(['a', 'b'], 5).get('b'), 2, 'لا مجموعات أكثر من الطلاب');
+});
+
+test('normalizeTaskGroups — تُسقط المجموعات الفارغة وغير المختارين وتعيد الترقيم', async () => {
+  const app = loadApp();
+  const m = app.normalizeTaskGroups(new Map([['a', 3], ['b', 3], ['c', 5], ['d', 1]]), ['a', 'b', 'c']);
+  assert.deepEqual([...m.entries()], [['a', 1], ['b', 1], ['c', 2]]);
+});
+
+test('planTaskRegroup — المتغيّر فقط، والتحويل لفردية يمسح المجموعة', async () => {
+  const app = loadApp();
+  const cur = [{ student_id: 'a', group_no: 1 }, { student_id: 'b', group_no: 1 }, { student_id: 'moved', group_no: 2 }];
+  assert.deepEqual([...app.planTaskRegroup(cur, ['a', 'b'], new Map([['a', 1], ['b', 2]]))].map(r => ({ ...r })), [{ student_id: 'b', group_no: 2 }]);
+  assert.deepEqual([...app.planTaskRegroup(cur, ['a', 'b'], null)].map(r => r.student_id + ':' + r.group_no), ['a:null', 'b:null'], 'الطالب المنقول لا يُمس');
+});
+
+test('taskGroupScoreState — موحّدة / مختلفة / لم تُقيَّم', async () => {
+  const app = loadApp();
+  const sc = new Map([['a', 8], ['b', 8], ['c', 5], ['d', null]]);
+  assert.deepEqual({ ...app.taskGroupScoreState(['a', 'b'], sc) }, { value: 8, mixed: false, graded: 2 });
+  assert.deepEqual({ ...app.taskGroupScoreState(['a', 'c'], sc) }, { value: null, mixed: true, graded: 2 });
+  assert.deepEqual({ ...app.taskGroupScoreState(['a', 'd'], sc) }, { value: null, mixed: true, graded: 1 }, 'عضو لم يُقيَّم = ليست موحّدة');
+  assert.deepEqual({ ...app.taskGroupScoreState(['d'], sc) }, { value: null, mixed: false, graded: 0 });
+});
+
+test('درجة المجموعة — تحفظ لكل أعضائها بطلب واحد باسم المعلم، ولا تمسّ المجموعات الأخرى', async () => {
+  const log = [];
+  const seed = {
+    classroom_task_students: [
+      { teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: null }, { teacher_id: 'u1', task_id: 'T1', student_id: 'b', score: null },
+      { teacher_id: 'u1', task_id: 'T1', student_id: 'c', score: null },
+    ],
+    classroom_tasks: [], classroom_grade_scores: [],
+  };
+  const app = taskApp(seed, log);
+  sheetWithTask(app, [['a', null], ['b', null], ['c', null]], [['a', 1], ['b', 1], ['c', 2]]);
+  app.openCrmTaskScorePicker(null, 1);
+  app.applyCrmTaskScore(8);
+  assert.deepEqual([...runInAppContext(app, '[...crmSheet.task.scores.entries()]')], [['a', 8], ['b', 8], ['c', null]]);
+  await runInAppContext(app, 'crmSheet.task.queue.get("a")');
+  const ups = writes(log, 'classroom_task_students', 'update');
+  assert.equal(ups.length, 1, 'طلب واحد للمجموعة');
+  assert.deepEqual(filtersOf(ups[0]), { teacher_id: 'u1', task_id: 'T1', student_id: ['a', 'b'] });
+});
+
+test('درجة المجموعة — عضو لم يعد مكلّفًا تُعاد درجته وحده', async () => {
+  const log = [];
+  const seed = { classroom_task_students: [{ teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: null }], classroom_tasks: [], classroom_grade_scores: [] };
+  const app = taskApp(seed, log);
+  sheetWithTask(app, [['a', null], ['b', 3]], [['a', 1], ['b', 1]]);
+  app.openCrmTaskScorePicker(null, 1);
+  app.applyCrmTaskScore(10);
+  await runInAppContext(app, 'crmSheet.task.queue.get("a")');
+  assert.deepEqual([...runInAppContext(app, '[...crmSheet.task.scores.entries()]')], [['a', 10], ['b', 3]]);
+  assert.match(runInAppContext(app, 'window.__toasts.join("|")'), /لم تُحفظ درجة 1/);
+});
+
+test('مهمة جماعية جديدة — تُحفظ أرقام المجموعات مع المكلَّفين', async () => {
+  const log = [];
+  const app = taskApp({}, log);
+  runInAppContext(app, `crmSheet = { sectionId: 'S', mode: 'task', token: 1 };`);
+  app.openCrmTaskModal();
+  app.toggleCrmTaskPick('a'); app.toggleCrmTaskPick('b'); app.toggleCrmTaskPick('c');
+  app.setCrmTaskGroupMode(true);
+  app.setCrmTaskGroupCount(1);
+  assert.deepEqual([...runInAppContext(app, '[...crmTaskDraft.groups.entries()]')], [['a', 1], ['b', 1], ['c', 2]]);
+  app.cycleCrmTaskGroup('b');
+  fillTaskForm(app, 'مشروع', '10');
+  await app.saveCrmTask();
+  const rows = writes(log, 'classroom_task_students', 'insert')[0].rows;
+  assert.deepEqual([...rows].map(r => r.student_id + ':' + r.group_no), ['a:1', 'b:2', 'c:2']);
+});
+
+test('مهمة جماعية — طالب يُضاف يذهب لأصغر مجموعة، وتغيير العدد يعيد التوزيع المتوازن', async () => {
+  const app = taskApp({}, []);
+  runInAppContext(app, `crmSheet = { sectionId: 'S', mode: 'task', token: 1 };`);
+  app.openCrmTaskModal();
+  app.toggleCrmTaskPick('a'); app.toggleCrmTaskPick('b');
+  app.setCrmTaskGroupMode(true);
+  app.setCrmTaskGroupCount(1);
+  assert.deepEqual([...runInAppContext(app, '[...crmTaskDraft.groups.entries()]')], [['a', 1], ['b', 2]]);
+  app.toggleCrmTaskPick('c');
+  assert.equal(runInAppContext(app, 'crmTaskDraft.groups.get("c")'), 1);
+  app.setCrmTaskGroupCount(-1);
+  assert.deepEqual([...runInAppContext(app, '[...crmTaskDraft.groups.values()]')], [1, 1, 1]);
+});
+
+test('تعديل مهمة جماعية — تغيير المجموعة يحدّث group_no فقط ولا يمسّ الدرجات', async () => {
+  const log = [];
+  const seed = {
+    classroom_tasks: [{ id: 'T1', teacher_id: 'u1', section_id: 'S', title: 'مشروع', description: null, max_score: 10, due_date: null }],
+    classroom_task_students: [
+      { teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: 8, group_no: 1 },
+      { teacher_id: 'u1', task_id: 'T1', student_id: 'b', score: 8, group_no: 1 },
+    ],
+  };
+  const app = taskApp(seed, log);
+  await app.openCrmTaskEditor('T1');
+  assert.equal(runInAppContext(app, 'crmTaskDraft.groupCount'), 1);
+  app.setCrmTaskGroupCount(1); // مجموعتان: a في 1، b في 2
+  fillTaskForm(app, 'مشروع', '10');
+  await app.saveCrmTask();
+  const ups = writes(log, 'classroom_task_students', 'update');
+  assert.equal(ups.length, 1);
+  assert.deepEqual({ ...ups[0].values }, { group_no: 2 });
+  assert.deepEqual(filtersOf(ups[0]), { teacher_id: 'u1', task_id: 'T1', student_id: ['b'] });
 });

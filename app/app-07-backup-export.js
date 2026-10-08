@@ -1462,6 +1462,13 @@ create table if not exists public.classroom_task_students (
   foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
 );
 create index if not exists classroom_task_students_student_idx on public.classroom_task_students(student_id);
+-- رقم المجموعة داخل المهمة الجماعية؛ فارغ = مهمة فردية
+alter table public.classroom_task_students add column if not exists group_no smallint;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_task_students_group_no_chk') then
+    alter table public.classroom_task_students add constraint classroom_task_students_group_no_chk check (group_no is null or group_no between 1 and 50);
+  end if;
+end $$;
 alter table public.classroom_tasks enable row level security;
 alter table public.classroom_task_students enable row level security;
 drop policy if exists "المعلم يدير مهامه فقط" on public.classroom_tasks;

@@ -1327,6 +1327,13 @@
 .crm-task-pick{border:1px solid #D9D3C7;background:#fff;color:var(--navy);font-family:inherit;font-size:12.5px;font-weight:600;padding:8px 6px;text-align:right;cursor:pointer;}
 .crm-task-pick.is-on{background:var(--navy);border-color:var(--navy);color:#fff;}
 .crm-task-pick.is-on::before{content:'✓ ';}
+.crm-att-btn.tk-mixed{background:#F4F1EA;border-color:#C9BFA8;}
+.crm-att-btn.tk-mixed .crm-att-state{color:#5C5340;}
+.crm-task-group{border:1px dashed #C9BFA8;padding:6px;margin-bottom:8px;}
+.crm-task-group-head{width:100%;margin-bottom:6px;font-weight:800;}
+.crm-task-group-edit{border-top:1px dashed #E2DCCF;padding:6px 0;display:flex;flex-wrap:wrap;gap:4px;align-items:center;}
+.crm-task-group-edit .crm-tl-meta{flex-basis:100%;}
+.crm-task-group-edit .crm-task-pick{padding:5px 8px;font-size:12px;}
 .crm-sheet-bar{position:sticky;bottom:calc(66px + env(safe-area-inset-bottom, 0px));display:flex;gap:8px;background:#fff;border-top:1px solid var(--line);padding:10px 0;margin-top:12px;z-index:5;}
 .crm-att-cell{display:flex;align-items:stretch;}
 .crm-att-cell .crm-att-btn{flex:1;min-width:0;}
