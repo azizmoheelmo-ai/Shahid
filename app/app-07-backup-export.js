@@ -1450,6 +1450,8 @@ create table if not exists public.classroom_tasks (
   foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade
 );
 create index if not exists classroom_tasks_term_idx on public.classroom_tasks(teacher_id, academic_year, semester, section_id);
+-- الشاهد الذي وُثّقت به المهمة (حذف الشاهد يفكّ الربط فقط)
+alter table public.classroom_tasks add column if not exists shahid_id uuid references public.shawahid(id) on delete set null;
 create table if not exists public.classroom_task_students (
   id uuid primary key default gen_random_uuid(),
   teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -1916,7 +1918,7 @@ async function exportFullBackup(){
       '     32. lesson_plans.csv (لازم بعد shawahid وclassroom_sections)',
       '     33. classroom_homework.csv (لازم بعد classroom_sections)',
       '     34. classroom_homework_status.csv (لازم بعد classroom_homework وclassroom_students)',
-      '     35. classroom_tasks.csv (لازم بعد classroom_sections)',
+      '     35. classroom_tasks.csv (لازم بعد classroom_sections وshawahid)',
       '     36. classroom_task_students.csv (لازم بعد classroom_tasks وclassroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',

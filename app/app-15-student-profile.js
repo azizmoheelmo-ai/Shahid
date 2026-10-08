@@ -191,6 +191,9 @@ async function loadCrmStudentProfileData(student){
       grades = { columns: sortGradeColumns(cols), scores: sc || [] };
     }
   }
+  /* المهام الأدائية المكلَّف بها في الفصل المعروض */
+  let tasks = [];
+  if(typeof loadStudentTasks === 'function' && typeof crmCurrentTerm === 'function') tasks = await loadStudentTasks(student.id, crmCurrentTerm());
   const incidents = (incRes.data || []).map(i => {
     const type = crmIncidentTypes.find(t => t.id === i.incident_type_id);
     return Object.assign({}, i, { typeName: type ? type.problem_name : 'مخالفة' });
@@ -201,6 +204,7 @@ async function loadCrmStudentProfileData(student){
     currentSectionId: student.section_id || null,
     studentId: student.id,
     grades,
+    tasks,
     incidents,
     positives: posRes.data || [],
     privateNotes: privRes.data || [],
@@ -304,6 +308,7 @@ async function renderCrmStudentProfile(){
 
     ${crmProfileSection('crmProfAtt', 'الحضور (الاستثناءات فقط)', attendanceRows)}
     ${crmProfileSection('crmProfGrades', 'الدرجات', gradeRows)}
+    ${(data.tasks || []).length ? crmProfileSection('crmProfTasks', 'المهام الأدائية', studentTaskLines(data.tasks).map(l => `<div class="crm-tl-row"><span>${escapeHtml(l.title)}</span><span class="crm-tl-meta">${escapeHtml(l.result)}</span></div>`).join('')) : ''}
     ${crmProfileSection('crmProfBeh', 'المواقف', timeline)}
     ${crmProfileSection('crmProfFu', 'المتابعات', followupsHtml)}
     ${crmProfileSection('crmProfPriv', 'ملاحظاتي', `
@@ -752,6 +757,7 @@ function buildStudentReportHtml(data, ctx){
       <tr><td><b>المدرسة:</b> ${e(ctx.school || '')}</td><td><b>الفصل:</b> ${e(ctx.termLabel || '')} · <b>التاريخ:</b> ${ctx.todayIso}</td></tr></table>
     ${sec('الحضور', `<div>${e(lines.attendanceLine)}</div>${att ? `<table class="srep-t">${att}</table>` : ''}`)}
     ${sec('الدرجات', `<div>${e(lines.gradesLine || '')}</div>${gradeRows ? `<table class="srep-t">${gradeRows}</table>` : ''}`)}
+    ${(data.tasks || []).length ? sec('المهام الأدائية', `<table class="srep-t">${studentTaskLines(data.tasks).map(l => `<tr><td>${e(l.title)}</td><td>${e(l.result)}</td></tr>`).join('')}</table>`) : ''}
     ${sec('المواقف الرسمية', inc ? `<table class="srep-t">${inc}</table>` : empty('لا مواقف رسمية.'))}
     ${sec('الملاحظات الإيجابية', pos ? `<ul class="srep-ul">${pos}</ul>` : empty('لا ملاحظات إيجابية.'))}
     ${sec('المتابعات', fus ? `<table class="srep-t">${fus}</table>` : empty('لا متابعات.'))}

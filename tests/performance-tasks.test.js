@@ -421,3 +421,111 @@ test('تعديل مهمة جماعية — تغيير المجموعة يحدّ�
   assert.deepEqual({ ...ups[0].values }, { group_no: 2 });
   assert.deepEqual(filtersOf(ups[0]), { teacher_id: 'u1', task_id: 'T1', student_id: ['b'] });
 });
+
+/* ============ المهمة شاهدًا، ومهام الطالب في ملفه وتقريره ============ */
+test('buildTaskShahidDraft — تنوع أساليب التقويم، توزيع الدرجات بلا أسماء', async () => {
+  const app = loadApp();
+  const d = app.buildTaskShahidDraft({
+    task: { title: 'مجلة الصف', description: 'عدد من 4 صفحات', max_score: 10, due_date: '2026-10-05' },
+    rows: [
+      { student_id: 'a', score: 9, group_no: 1 }, { student_id: 'b', score: 8, group_no: 1 },
+      { student_id: 'c', score: 6, group_no: 2 }, { student_id: 'd', score: 3, group_no: 2 }, { student_id: 'e', score: null, group_no: 2 },
+    ],
+    sectionLabel: 'ثاني ثانوي — الشعبة ٦', todayIso: '2026-10-08',
+  });
+  assert.equal(d.elementKey, 'تنوع أساليب التقويم');
+  assert.equal(d.title, 'مهمة أدائية: مجلة الصف');
+  assert.equal(d.date, '2026-10-05', 'موعد التسليم إن مضى');
+  assert.match(d.description, /5 طلاب في ثاني ثانوي — الشعبة ٦ مهمة أدائية جماعية \(مجموعتان\): مجلة الصف\. عدد من 4 صفحات/);
+  assert.match(d.quant, /قُيّم 4 من 5 · المتوسط 6\.5 من 10 \(65%\)/);
+  assert.match(d.quant, /أتقن \(75% فأكثر\): 2 · متوسط \(50–74%\): 1 · يحتاج دعمًا \(أقل من 50%\): 1/);
+  assert.match(d.quant, /المجموعة 1: 8\.5 من 10 · المجموعة 2: 4\.5 من 10/);
+  assert.match(d.reflection, /طالب واحد دون 50% — يحتاج دعمًا/);
+  assert.match(d.reflection, /بقي طالب واحد لم يُقيَّم بعد/);
+  assert.equal(d.qual, '', 'الملاحظة النوعية يكتبها المعلم');
+  const all = JSON.stringify(d);
+  assert.ok(!/"[a-e]"/.test(all), 'لا معرّفات طلاب في المسودة');
+  const future = app.buildTaskShahidDraft({ task: { title: 'x', max_score: 5, due_date: '2026-12-01' }, rows: [{ student_id: 'a', score: 5 }], todayIso: '2026-10-08' });
+  assert.equal(future.date, '2026-10-08', 'موعد لم يأتِ = تاريخ اليوم');
+  assert.match(future.description, /فردية/);
+});
+
+test('openShahidDraftFromTask — لا مسودة لمهمة بلا أي درجة مرصودة، والقراءة باسم المعلم', async () => {
+  const log = [];
+  const seed = {
+    classroom_tasks: [{ id: 'T1', teacher_id: 'u1', section_id: 'S', title: 'x', max_score: 10 }],
+    classroom_task_students: [{ teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: null }],
+  };
+  const app = taskApp(seed, log);
+  runInAppContext(app, `window.__started = 0; startNewShahid = () => { window.__started++; };`);
+  await app.openShahidDraftFromTask('T1');
+  assert.equal(runInAppContext(app, 'window.__started'), 0);
+  assert.match(runInAppContext(app, 'window.__toasts.join("|")'), /ارصد درجات المهمة أولًا/);
+  assert.ok(log.filter(l => l.op === 'select').every(l => filtersOf(l).teacher_id === 'u1'));
+});
+
+test('openShahidDraftFromTask — يفتح المسودة ويربطها بالمهمة؛ مهمة معلم آخر لا تُفتح', async () => {
+  const log = [];
+  const seed = {
+    classroom_tasks: [{ id: 'T1', teacher_id: 'u1', section_id: 'S', title: 'تقرير', max_score: 10 }, { id: 'X', teacher_id: 'u2', section_id: 'S', title: 'y', max_score: 10 }],
+    classroom_task_students: [{ teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: 7 }, { teacher_id: 'u2', task_id: 'X', student_id: 'z', score: 7 }],
+  };
+  const app = taskApp(seed, log);
+  runInAppContext(app, `window.__filled = null; startNewShahid = () => { taskShahidContext = null; }; updateExample = () => {}; fillShahidFields = f => { window.__filled = f; };`);
+  await app.openShahidDraftFromTask('X');
+  assert.equal(runInAppContext(app, 'window.__filled'), null);
+  await app.openShahidDraftFromTask('T1');
+  assert.equal(runInAppContext(app, 'taskShahidContext && taskShahidContext.taskId'), 'T1');
+  assert.match(runInAppContext(app, 'window.__filled.quant'), /قُيّم 1 من 1/);
+});
+
+test('startNewShahid — يلغي سياق مسودة مهمة سابقة (لا يُربط شاهد آخر بها)', async () => {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  runInAppContext(app, `taskShahidContext = { taskId: 'T1' }; showForm = () => {};`);
+  try{ app.startNewShahid(); } catch(e){ /* DOM وهمي */ }
+  assert.equal(runInAppContext(app, 'taskShahidContext'), null);
+});
+
+test('linkTaskToShahid — باسم المعلم', async () => {
+  const log = [];
+  const app = taskApp({ classroom_tasks: [{ id: 'T1', teacher_id: 'u1' }] }, log);
+  await app.linkTaskToShahid('T1', 'SH1');
+  const u = writes(log, 'classroom_tasks', 'update')[0];
+  assert.deepEqual(filtersOf(u), { teacher_id: 'u1', id: 'T1' });
+  assert.deepEqual({ ...u.values }, { shahid_id: 'SH1' });
+});
+
+test('loadStudentTasks — مهامه في الفصل المعروض فقط وباسم المعلم، ولو من شعبة سابقة', async () => {
+  const seed = {
+    classroom_task_students: [
+      { teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: 7, group_no: 2 },
+      { teacher_id: 'u1', task_id: 'OLD', student_id: 'a', score: null },
+      { teacher_id: 'u1', task_id: 'PREV', student_id: 'a', score: 1 },
+      { teacher_id: 'u2', task_id: 'X', student_id: 'a', score: 0 },
+    ],
+    classroom_tasks: [
+      { id: 'T1', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, title: 'مجلة', max_score: 10, created_at: '2026-10-02' },
+      { id: 'OLD', teacher_id: 'u1', section_id: 'S0', academic_year: TERM.year, semester: 1, title: 'عرض', max_score: 5, created_at: '2026-09-20' },
+      { id: 'PREV', teacher_id: 'u1', section_id: 'S', academic_year: '1447-1448', semester: 2, title: 'قديم', max_score: 5, created_at: '2026-03-01' },
+      { id: 'X', teacher_id: 'u2', section_id: 'S', academic_year: TERM.year, semester: 1, title: 'لغيره', max_score: 5, created_at: '2026-10-01' },
+    ],
+  };
+  const app = taskApp(seed, []);
+  const tasks = await app.loadStudentTasks('a', TERM);
+  const lines = app.studentTaskLines(tasks);
+  assert.deepEqual([...lines].map(l => l.title + ' = ' + l.result), ['عرض = لم يُقيَّم', 'مجلة (جماعية · المجموعة 2) = 7 من 10']);
+});
+
+test('تقرير الطالب — قسم المهام الأدائية بنص محمي', async () => {
+  const app = loadApp();
+  const html = app.buildStudentReportHtml({
+    attendance: [], incidents: [], positives: [], followups: [], grades: { columns: [], scores: [] }, studentId: 'a',
+    tasks: [{ title: '<b>x</b>', max_score: 10, score: 8, group_no: null }],
+  }, { studentName: 'أ', sectionLabel: 'س', todayIso: '2026-10-08' });
+  assert.match(html, /المهام الأدائية/);
+  assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/);
+  assert.match(html, /8 من 10/);
+  const none = app.buildStudentReportHtml({ attendance: [], incidents: [], positives: [], followups: [], grades: { columns: [], scores: [] }, studentId: 'a', tasks: [] },
+    { studentName: 'أ', sectionLabel: 'س', todayIso: '2026-10-08' });
+  assert.ok(!/المهام الأدائية/.test(none), 'لا قسم إن لم يُكلَّف بمهام');
+});

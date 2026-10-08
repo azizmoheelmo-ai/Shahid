@@ -17,6 +17,7 @@
    ============================================================ */
 
 const TASK_QUICK_FRACTIONS = [['كاملة', 1], ['¾', 0.75], ['½', 0.5], ['¼', 0.25], ['0', 0]];
+const TASK_GROUP_COUNT_FORMS = { one: 'مجموعة واحدة', two: 'مجموعتان', few: '{n} مجموعات', many: '{n} مجموعة' };
 
 /* ============ دوال صرفة ============ */
 function taskRowsIndex(rows){
@@ -180,7 +181,7 @@ function taskDbErrorMessage(error){
 /* ============ تحميل ومزامنة عمود المهام ============ */
 async function loadSectionTasks(sectionId, term){
   const uid = currentUser.id;
-  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at')
+  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at, shahid_id')
     .eq('teacher_id', uid).eq('section_id', sectionId).eq('academic_year', term.year).eq('semester', term.semester)
     .order('created_at', { ascending: true });
   if(error) throw error;
@@ -354,7 +355,7 @@ function paintCrmTaskCounts(){
   const ids = crmStudentsOfSection(crmSheet.sectionId).map(x => x.id).filter(id => t.scores.has(id));
   const c = taskGradeSummary(t.scores, ids);
   const k = taskGroupsList(t.groups, ids).length;
-  el.textContent = `قُيّم ${c.graded} من ${c.total}` + (k ? ` · ${k} مجموعات` : '') + (c.avg === null ? '' : ` · المتوسط ${formatScore(c.avg)} من ${formatScore(task.max_score)}`);
+  el.textContent = `قُيّم ${c.graded} من ${c.total}` + (k ? ' · ' + arabicCountPhrase(k, TASK_GROUP_COUNT_FORMS) : '') + (c.avg === null ? '' : ` · المتوسط ${formatScore(c.avg)} من ${formatScore(task.max_score)}`);
 }
 
 /* نافذة الرصد: لطالب واحد (studentId) أو لكل أعضاء مجموعة (groupNo) */
@@ -541,6 +542,7 @@ function crmTaskFormHtml(sectionId, task){
       <div id="crmTaskGroupsBox">${crmTaskGroupsHtml()}</div>
       <div id="crmTaskError" style="display:none;color:#8A2C2C;font-size:12px;margin:8px 0;line-height:1.7;"></div>
       <button class="btn btn-primary" id="crmTaskSaveBtn" style="width:100%;justify-content:center;margin-top:10px;" onclick="saveCrmTask()">${task ? 'حفظ التعديل' : 'حفظ المهمة'}</button>
+      ${task ? `<button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openShahidDraftFromTask('${task.id}')">📄 حوّل إلى شاهد${task.shahid_id ? ' (موثّقة مسبقًا)' : ''}</button>` : ''}
       ${task ? `<button class="btn btn-outline" id="crmTaskDeleteBtn" style="width:100%;justify-content:center;margin-top:8px;color:#8A2C2C;" onclick="deleteCrmTask('${task.id}', '${sectionId}')">حذف المهمة</button>` : ''}
     </div>`;
 }
@@ -560,7 +562,7 @@ async function openCrmTaskEditor(taskId){
   let tRes, rRes;
   try{
     [tRes, rRes] = await Promise.all([
-      sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date').eq('teacher_id', currentUser.id).eq('id', taskId).maybeSingle(),
+      sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, shahid_id').eq('teacher_id', currentUser.id).eq('id', taskId).maybeSingle(),
       sb.from('classroom_task_students').select('student_id, group_no').eq('teacher_id', currentUser.id).eq('task_id', taskId)
     ]);
   } catch(e){ tRes = { error: e }; }
@@ -780,9 +782,10 @@ async function openCrmTaskManager(){
         const m = idx.get(t.id) || new Map();
         const c = taskGradeSummary(m, ids.filter(id => m.has(id)));
         const k = taskGroupsList(gidx.get(t.id) || new Map(), ids).length;
-        return `<div class="crm-lesson-row"><span>${escapeHtml(t.title)} <span class="crm-tl-meta">· من ${formatScore(t.max_score)}${k ? ' · جماعية (' + k + ' مجموعات)' : ''}${t.due_date ? ' · ' + shortDateAr(t.due_date) : ''}</span>
-          <div class="crm-tl-meta">مكلّف ${c.total} · قُيّم ${c.graded}${c.avg === null ? '' : ' · المتوسط ' + formatScore(c.avg)}</div></span>
+        return `<div class="crm-lesson-row"><span>${escapeHtml(t.title)} <span class="crm-tl-meta">· من ${formatScore(t.max_score)}${k ? ' · جماعية (' + arabicCountPhrase(k, TASK_GROUP_COUNT_FORMS) + ')' : ''}${t.due_date ? ' · ' + shortDateAr(t.due_date) : ''}</span>
+          <div class="crm-tl-meta">مكلّف ${c.total} · قُيّم ${c.graded}${c.avg === null ? '' : ' · المتوسط ' + formatScore(c.avg)}${t.shahid_id ? ' · 📄 موثّقة كشاهد' : ''}</div></span>
           <span style="display:flex;gap:4px;">
+            <button class="crm-icon-btn" title="حوّل إلى شاهد" onclick="openShahidDraftFromTask('${t.id}')">📄</button>
             <button class="crm-icon-btn" title="تعديل" onclick="openCrmTaskEditor('${t.id}')">✎</button>
             <button class="crm-icon-btn" title="حذف" onclick="deleteCrmTask('${t.id}', '${sectionId}')">🗑</button>
           </span></div>`;
@@ -813,4 +816,122 @@ async function deleteCrmTask(id, sectionId){
     crmTaskDeleting = false;
   }
   await afterCrmTaskChanged(sectionId, null);
+}
+
+/* ============ المهمة شاهدًا (تنوع أساليب التقويم) ============ */
+/* مسودة بلا أسماء طلاب: وصف المهمة، والمكلَّفون، وتوزيع الدرجات. الملاحظة
+   النوعية والصورة يضيفهما المعلم. */
+function buildTaskShahidDraft(o){
+  const t = o.task;
+  const rows = o.rows || [];
+  const max = Number(t.max_score);
+  const n = rows.length;
+  const graded = rows.filter(r => r.score !== null && r.score !== undefined);
+  const vals = graded.map(r => Number(r.score));
+  const avg = vals.length ? Math.round(100 * vals.reduce((a, b) => a + b, 0) / vals.length) / 100 : null;
+  const high = vals.filter(v => v / max >= 0.75).length;
+  const mid = vals.filter(v => v / max >= 0.5 && v / max < 0.75).length;
+  const low = vals.length - high - mid;
+  const groupNos = [...new Set(rows.map(r => r.group_no).filter(Boolean).map(Number))].sort((a, b) => a - b);
+  const who = arabicCountPhrase(n, CRM_STUDENT_COUNT_FORMS) + (o.sectionLabel ? ' في ' + o.sectionLabel : '');
+  const groupsPhrase = groupNos.length ? arabicCountPhrase(groupNos.length, TASK_GROUP_COUNT_FORMS) : '';
+  let quant = `قُيّم ${vals.length} من ${n}` + (avg === null ? '' : ` · المتوسط ${formatScore(avg)} من ${formatScore(max)} (${Math.round(100 * avg / max)}%)`)
+    + `\nأتقن (75% فأكثر): ${high} · متوسط (50–74%): ${mid} · يحتاج دعمًا (أقل من 50%): ${low}`;
+  if(groupNos.length){
+    quant += '\n' + groupNos.map(g => {
+      const gv = graded.filter(r => Number(r.group_no) === g).map(r => Number(r.score));
+      return `المجموعة ${g}: ${gv.length ? formatScore(Math.round(100 * gv.reduce((a, b) => a + b, 0) / gv.length) / 100) + ' من ' + formatScore(max) : 'لم تُقيَّم'}`;
+    }).join(' · ');
+  }
+  const pending = n - vals.length;
+  return {
+    elementKey: 'تنوع أساليب التقويم',
+    title: 'مهمة أدائية: ' + t.title,
+    classLabel: o.sectionLabel || '',
+    date: t.due_date && t.due_date <= o.todayIso ? t.due_date : o.todayIso,
+    description: `نفّذتُ مع ${who} مهمة أدائية ${groupNos.length ? 'جماعية (' + groupsPhrase + ')' : 'فردية'}: ${t.title}.${t.description ? ' ' + t.description : ''}`,
+    goal: 'تقويم أداء الطلاب بمهمة تطبيقية تقيس قدرتهم على توظيف ما تعلّموه، وتنويع مصادر الدرجة إلى جانب الاختبارات.',
+    steps: [
+      `تصميم المهمة وتحديد درجتها (${formatScore(max)})`,
+      groupNos.length ? `توزيع ${who} على ${groupsPhrase}` : `تكليف ${who} بأسمائهم`,
+      t.due_date ? `تحديد موعد التسليم ${t.due_date}` : null,
+      'رصد درجات المهمة وتحليل توزيعها'
+    ].filter(Boolean),
+    quant,
+    qual: '',
+    reflection: [
+      low ? `${arabicCountPhrase(low, CRM_STUDENT_COUNT_FORMS)} دون 50% — ${low === 1 ? 'يحتاج' : low === 2 ? 'يحتاجان' : 'يحتاجون'} دعمًا في هذه المهارة.` : '',
+      pending ? `بقي ${arabicCountPhrase(pending, CRM_STUDENT_COUNT_FORMS)} ${pending === 1 ? 'لم يُقيَّم' : pending === 2 ? 'لم يُقيَّما' : 'لم يُقيَّموا'} بعد.` : ''
+    ].filter(Boolean).join(' ')
+  };
+}
+
+let crmTaskShahidBusy = false;
+async function openShahidDraftFromTask(taskId){
+  if(crmTaskShahidBusy || !taskId) return;
+  crmTaskShahidBusy = true;
+  const uid = currentUser.id;
+  try{
+    const [tRes, rRes] = await Promise.all([
+      sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, shahid_id').eq('teacher_id', uid).eq('id', taskId).maybeSingle(),
+      sb.from('classroom_task_students').select('student_id, score, group_no').eq('teacher_id', uid).eq('task_id', taskId)
+    ]);
+    if(tRes.error || rRes.error){ showToast('تعذّر تحميل المهمة', 'error'); return; }
+    if(!tRes.data){ showToast('المهمة غير موجودة — ربما حُذفت من جهاز آخر', 'error'); return; }
+    const task = tRes.data;
+    const rows = rRes.data || [];
+    if(!rows.some(r => r.score !== null && r.score !== undefined)){
+      showToast('ارصد درجات المهمة أولًا — الشاهد يقوم على نتائجها', 'error');
+      return;
+    }
+    closeCrmModal();
+    if(task.shahid_id && !(await showConfirm('هذه المهمة موثّقة كشاهد مسبقًا. فتح مسودة شاهد جديد منها؟'))) return;
+    const draft = buildTaskShahidDraft({ task, rows, sectionLabel: crmSectionById(task.section_id) ? crmSectionLabel(task.section_id) : '', todayIso: localIsoDate() });
+    startNewShahid();
+    taskShahidContext = { taskId: task.id };
+    document.getElementById('mLesson').value = draft.title;
+    document.getElementById('mClass').value = draft.classLabel;
+    document.getElementById('mDate').value = draft.date;
+    elementSelect.value = draft.elementKey;
+    updateExample();
+    fillShahidFields({ description: draft.description, goal: draft.goal, steps: draft.steps, quant: draft.quant, qual: draft.qual, reflection: draft.reflection });
+    formDirty = true;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast('مسودة الشاهد جاهزة — أضف ملاحظتك وصورة من عمل الطلاب ثم احفظ', 'ok');
+  } catch(e){
+    showToast('تعذّر إنشاء المسودة: ' + (e.message || ''), 'error');
+  } finally {
+    crmTaskShahidBusy = false;
+  }
+}
+
+/* بعد حفظ الشاهد (من saveShahid) */
+async function linkTaskToShahid(taskId, shahidId){
+  const { error } = await sb.from('classroom_tasks').update({ shahid_id: shahidId }).eq('teacher_id', currentUser.id).eq('id', taskId);
+  if(error) showToast('حُفظ الشاهد، لكن تعذّر ربطه بالمهمة', 'error');
+}
+
+/* ============ مهام الطالب (الملف والتقرير) ============ */
+/* كل مهامه في الفصل المعروض — ولو في شعبة سابقة (نفس منطق العمود المحسوب) */
+async function loadStudentTasks(studentId, term){
+  const uid = currentUser.id;
+  const { data: rows, error } = await sb.from('classroom_task_students').select('task_id, score, group_no')
+    .eq('teacher_id', uid).eq('student_id', studentId);
+  if(error) throw error;
+  if(!(rows || []).length) return [];
+  const { data: tasks, error: tErr } = await sb.from('classroom_tasks').select('id, title, max_score, due_date, created_at')
+    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).in('id', rows.map(r => r.task_id));
+  if(tErr) throw tErr;
+  const byId = new Map(rows.map(r => [r.task_id, r]));
+  return (tasks || []).map(t => Object.assign({}, t, {
+    score: byId.get(t.id).score === null || byId.get(t.id).score === undefined ? null : Number(byId.get(t.id).score),
+    group_no: byId.get(t.id).group_no || null
+  })).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+}
+
+function studentTaskLines(tasks){
+  return (tasks || []).map(t => ({
+    title: t.title + (t.group_no ? ' (جماعية · المجموعة ' + t.group_no + ')' : ''),
+    result: t.score === null ? 'لم يُقيَّم' : formatScore(t.score) + ' من ' + formatScore(t.max_score)
+  }));
 }
