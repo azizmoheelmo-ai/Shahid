@@ -54,15 +54,17 @@ function applySignupLink(){
   const nameEl = document.getElementById('authName');
   if(nameEl) nameEl.focus();
 }
-function showSignupReturnModal(email){
+/* شريط ثابت (لا نافذة) فوق كل شيء: نافذة الترحيب للمستخدم الجديد (onboarding) تُستبدل بها نافذة المعلومات المشتركة
+   فيضيع زر العودة، أما الشريط فلا يزاحمه شيء ويبقى حتى يغلقه المستخدم أو يضغط العودة. */
+function showSignupReturnBar(kind, email){
   if(!signupLinkReturn) return;
-  const href = buildSignupReturnHref(signupLinkReturn.returnUrl, email || signupLinkReturn.email);
-  showInfoModal(`
-    <div style="text-align:right;">
-      <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">✅ تم إنشاء حسابك</h3>
-      <p style="font-size:12.5px;line-height:1.95;margin:0 0 12px;">ارجع الآن إلى مُصحّح وسجّل الدخول هناك بالبريد وكلمة المرور نفسيهما. إن طُلب منك تأكيد البريد فأكّده أولًا.</p>
-      <a class="btn btn-primary" style="display:flex;justify-content:center;text-decoration:none;" href="${escapeHtml(href)}" rel="noopener">العودة إلى مُصحّح</a>
-    </div>`);
+  const bar = document.getElementById('signupReturnBar'); if(!bar) return;
+  const em = email || signupLinkReturn.email || '';
+  document.getElementById('signupReturnMsg').textContent = kind === 'already'
+    ? 'لديك حساب في شواهد بالفعل' + (em ? ' (' + em + ')' : '') + '، فلا حاجة لحساب جديد. ارجع إلى مُصحّح وسجّل الدخول بالبريد وكلمة المرور نفسيهما.'
+    : '✅ تم إنشاء حسابك. ارجع الآن إلى مُصحّح وسجّل الدخول بالبريد وكلمة المرور نفسيهما (إن طُلب تأكيد البريد فأكّده أولًا).';
+  document.getElementById('signupReturnLink').href = buildSignupReturnHref(signupLinkReturn.returnUrl, em);
+  bar.style.display = 'flex';
 }
 
 /* ============ شروط الاستخدام وسياسة الخصوصية ============ */
@@ -280,11 +282,11 @@ async function handleAuthSubmit(){
           } catch(e){ /* لا نمنع إكمال التسجيل — يمكنه ضبطها لاحقًا من الإعدادات */ }
         }
         onLoggedIn(data.session.user);
-        showSignupReturnModal(email);
+        showSignupReturnBar('new', email);
       } else {
         showAuthMsg('تم إنشاء الحساب. تحقق من بريدك الإلكتروني لتأكيد الحساب، ثم سجّل الدخول.', 'ok');
         switchAuthTab('login');
-        showSignupReturnModal(email);
+        showSignupReturnBar('new', email);
       }
     } else {
       /* (3) التحقق من عدم تجاوز عدد المحاولات الفاشلة المسموح بها قبل أي محاولة دخول */
@@ -492,8 +494,14 @@ function checkExistingSession(){
   (async () => {
     const { data } = await sb.auth.getSession();
     if(data.session){
+      /* جاء من رابط «أنشئ حساب» وهو مسجَّل الدخول أصلًا: لا نُنشئ حسابًا ثانيًا، بل نعرض له حسابه ونعيده لمُصحّح */
+      const link = parseSignupLink(location.hash);
       try{ history.replaceState(null, '', location.pathname + location.search); } catch(e){}
       onLoggedIn(data.session.user);
+      if(link && link.returnUrl){
+        signupLinkReturn = link;
+        showSignupReturnBar('already', data.session.user.email || '');
+      }
     } else {
       applySignupLink();
     }
