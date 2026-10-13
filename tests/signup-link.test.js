@@ -71,3 +71,42 @@ describe('applySignupLink', () => {
     assert.equal(a.document.getElementById('authEmail').value, '');
   });
 });
+
+describe('مسجَّل الدخول أصلًا ويأتي من رابط التسجيل', () => {
+  test('يعرض له شريطًا بحسابه وزر العودة لمُصحّح بدل إنشاء حساب ثانٍ (ولا تحجبه نافذة الترحيب)', async () => {
+    const hash = link({ email: 'x@y.co', from: 'musahhih', return: 'https://musahhih-test.vercel.app/' });
+    const session = { user: { id: 'u1', email: 'teacher@example.com', user_metadata: {} } };
+    const permissive = (path) => new Proxy(function(){}, {
+      get: (t, k) => (k === 'then' ? (res, rej) => Promise.resolve({ data: [], error: null, count: 0 }).then(res, rej) : permissive(path.concat(String(k)))),
+      apply: () => {
+        const last = path[path.length - 1];
+        if(last === 'getSession') return Promise.resolve({ data: { session }, error: null });
+        if(last === 'onAuthStateChange') return { data: { subscription: { unsubscribe() {} } } };
+        return permissive(path.concat('()'));
+      }
+    });
+    const a = loadApp({ supabaseClient: permissive([]), location: { hash, pathname: '/index.html', search: '' } });
+    a.checkExistingSession();
+    await new Promise((r) => setTimeout(r, 50));
+    const bar = a.document.getElementById('signupReturnBar'), msg = a.document.getElementById('signupReturnMsg').textContent, lk = a.document.getElementById('signupReturnLink').href;
+    assert.equal(bar.style.display, 'flex');
+    assert.match(msg, /لديك حساب في شواهد بالفعل/);
+    assert.match(msg, /teacher@example\.com/);
+    assert.equal(lk, 'https://musahhih-test.vercel.app/#login&email=teacher%40example.com');
+  });
+});
+
+describe('بعد إنشاء الحساب', () => {
+  test('شريط العودة يظهر برابط مُصحّح والبريد، ولا يظهر بلا رابط عودة صالح', () => {
+    const ok = loadApp({ location: { hash: link({ email: 'a@b.co', from: 'musahhih', return: 'https://musahhih-test.vercel.app/x?y=1' }), pathname: '/index.html', search: '' } });
+    ok.applySignupLink();
+    ok.showSignupReturnBar('new', 'n@e.co');
+    assert.equal(ok.document.getElementById('signupReturnBar').style.display, 'flex');
+    assert.match(ok.document.getElementById('signupReturnMsg').textContent, /تم إنشاء حسابك/);
+    assert.equal(ok.document.getElementById('signupReturnLink').href, 'https://musahhih-test.vercel.app/x#login&email=n%40e.co');
+    const no = loadApp({ location: { hash: link({ email: 'a@b.co', from: 'musahhih', return: 'https://evil.example/' }), pathname: '/index.html', search: '' } });
+    no.applySignupLink();
+    no.showSignupReturnBar('new', 'n@e.co');
+    assert.notEqual(no.document.getElementById('signupReturnBar').style.display, 'flex');
+  });
+});
