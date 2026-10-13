@@ -859,9 +859,11 @@ drop policy if exists "المسؤول فقط يشوف سجل النشاط" on pu
 create policy "المسؤول فقط يشوف سجل النشاط"
   on public.audit_log for select using (public.is_admin(auth.uid()));
 
+-- لا يكتب أحد بالسجل من المتصفح: الزناد أدناه (security definer، مالك الجدول يتجاوز RLS) وواجهات الخادم (service role) فقط.
+-- فنرفض أي إدراج من المستخدم المسجل (كان auth.uid() is not null فيُلوَّث السجل بإدخالات مزيفة). الاسم محفوظ كما هو.
 drop policy if exists "أي مستخدم مسجل يضيف سجل نشاط" on public.audit_log;
 create policy "أي مستخدم مسجل يضيف سجل نشاط"
-  on public.audit_log for insert with check (auth.uid() is not null);
+  on public.audit_log for insert with check (false);
 
 create or replace function public.log_shahid_delete()
 returns trigger as $$
