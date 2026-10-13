@@ -14,6 +14,57 @@ function switchAuthTab(mode){
   hideAuthMsg();
 }
 
+/* ============ رابط تسجيل سريع قادم من تطبيق «مُصحّح» ============
+   مُصحّح يفتح هذا التطبيق بـ  #signup&email=...&from=musahhih&return=...
+   (الجزء بعد # لا يصل لأي خادم): نفتح تبويب «حساب جديد» ونملأ البريد، وبعد
+   نجاح التسجيل نعرض زر «العودة إلى مُصحّح» الذي يفتح رابط العودة مع
+   #login&email=... فيملأ مُصحّح البريد ويضع المؤشر على كلمة المرور.
+   رابط العودة لا يُقبل إلا إن كان نطاقه (https) من القائمة أدناه حرفيًا —
+   لا نعيد توجيه المستخدم لأي نطاق يمرّره الرابط (تحويل مفتوح/تصيّد). */
+const SIGNUP_LINK_RETURN_ORIGINS = ['https://musahhih-test.vercel.app'];
+let signupLinkReturn = null;
+function parseSignupLink(hash, allowedOrigins){
+  if(!/^#signup(&|$)/.test(hash || '')) return null;
+  const allowed = allowedOrigins || SIGNUP_LINK_RETURN_ORIGINS;
+  let params;
+  try{ params = new URLSearchParams(String(hash).replace(/^#signup&?/, '')); } catch(e){ return null; }
+  const em = (params.get('email') || '').trim();
+  const email = em.length <= 120 && /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(em) ? em : '';
+  let returnUrl = '';
+  if(params.get('from') === 'musahhih'){
+    try{
+      const u = new URL(params.get('return') || '');
+      if(u.protocol === 'https:' && allowed.includes(u.origin)) returnUrl = u.origin + u.pathname;
+    } catch(e){}
+  }
+  return { email, returnUrl };
+}
+function buildSignupReturnHref(returnUrl, email){
+  return returnUrl + '#login' + (email ? '&email=' + encodeURIComponent(email) : '');
+}
+function applySignupLink(){
+  const hash = location.hash;
+  if(!/^#signup(&|$)/.test(hash || '')) return;
+  try{ history.replaceState(null, '', location.pathname + location.search); } catch(e){}
+  const info = parseSignupLink(hash);
+  if(!info) return;
+  signupLinkReturn = info.returnUrl ? info : null;
+  switchAuthTab('signup');
+  if(info.email) document.getElementById('authEmail').value = info.email;
+  const nameEl = document.getElementById('authName');
+  if(nameEl) nameEl.focus();
+}
+function showSignupReturnModal(email){
+  if(!signupLinkReturn) return;
+  const href = buildSignupReturnHref(signupLinkReturn.returnUrl, email || signupLinkReturn.email);
+  showInfoModal(`
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">✅ تم إنشاء حسابك</h3>
+      <p style="font-size:12.5px;line-height:1.95;margin:0 0 12px;">ارجع الآن إلى مُصحّح وسجّل الدخول هناك بالبريد وكلمة المرور نفسيهما. إن طُلب منك تأكيد البريد فأكّده أولًا.</p>
+      <a class="btn btn-primary" style="display:flex;justify-content:center;text-decoration:none;" href="${escapeHtml(href)}" rel="noopener">العودة إلى مُصحّح</a>
+    </div>`);
+}
+
 /* ============ شروط الاستخدام وسياسة الخصوصية ============ */
 function showBetaInfoModal(){
   showInfoModal(`
@@ -229,9 +280,11 @@ async function handleAuthSubmit(){
           } catch(e){ /* لا نمنع إكمال التسجيل — يمكنه ضبطها لاحقًا من الإعدادات */ }
         }
         onLoggedIn(data.session.user);
+        showSignupReturnModal(email);
       } else {
         showAuthMsg('تم إنشاء الحساب. تحقق من بريدك الإلكتروني لتأكيد الحساب، ثم سجّل الدخول.', 'ok');
         switchAuthTab('login');
+        showSignupReturnModal(email);
       }
     } else {
       /* (3) التحقق من عدم تجاوز عدد المحاولات الفاشلة المسموح بها قبل أي محاولة دخول */
@@ -439,7 +492,10 @@ function checkExistingSession(){
   (async () => {
     const { data } = await sb.auth.getSession();
     if(data.session){
+      try{ history.replaceState(null, '', location.pathname + location.search); } catch(e){}
       onLoggedIn(data.session.user);
+    } else {
+      applySignupLink();
     }
   })();
 }
