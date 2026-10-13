@@ -167,7 +167,8 @@ function loadApp(opts) {
       }
     },
     localStorage: makeFakeStorage(),
-    URL: { createObjectURL: () => 'blob:fake', revokeObjectURL: () => {} },
+    /* URL حقيقية (قابلة للإنشاء بـ new URL(...) لتحليل الروابط) مع إبقاء دالتي الـblob وهميتين */
+    URL: Object.assign(class extends URL {}, { createObjectURL: () => 'blob:fake', revokeObjectURL: () => {} }),
   };
   sandbox.window = sandbox; // كما بالمتصفح: window === global scope
   sandbox.globalThis = sandbox;
