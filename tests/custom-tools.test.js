@@ -244,6 +244,52 @@ test('saveCustomTool — يُضاف باسم المعلم، ويُرفض الا�
   assert.deepEqual({ t: ins.teacher_id, n: ins.name, ty: ins.tool_type, c: ins.category, m: ins.max_score }, { t: 'u1', n: 'دفتر', ty: 'status', c: 'tests', m: 5 });
 });
 
+test('customToolHintText — يشرح كيف يُحسب كل نوع بمثال بدرجة المعلم', async () => {
+  const app = loadApp();
+  assert.match(app.customToolHintText('score', 20, 'tests'), /متوسط درجاته/);
+  assert.match(app.customToolHintText('score', 20, 'tests'), /20 ثم 10 = 15 من 20/);
+  assert.match(app.customToolHintText('status', 10, 'performance'), /3 من 4 مرات = 7\.5 من 10/);
+  assert.match(app.customToolHintText('counter', 5, 'performance'), /مجموع نقراته \(من 5\)/);
+  assert.equal(app.customToolHintText('score', 0, 'tests'), '');
+});
+
+test('toolCapRoom — أضيق كشف في الفئة، ويتجاهل عمود الأداة نفسها والفئة الأخرى', async () => {
+  const app = loadApp();
+  const cols = [
+    { section_id: 'S1', category: 'tests', name: 'الفترة الأولى', max_score: 10 }, { section_id: 'S1', category: 'tests', name: 'الفترة الثانية', max_score: 10 },
+    { section_id: 'S2', category: 'tests', name: 'اختبار', max_score: 5 },
+    { section_id: 'S2', category: 'performance', name: 'مشاركة', max_score: 40 },
+    { section_id: 'S2', category: 'tests', name: 'عمود أداتي', max_score: 5, tool_id: 'TG' },
+  ];
+  const r = app.toolCapRoom(cols, 'tests', 20, null);
+  assert.equal(r.remaining, 0);
+  assert.deepEqual([...r.names], ['الفترة الأولى', 'الفترة الثانية']);
+  assert.equal(app.toolCapRoom(cols, 'tests', 20, 'TG').remaining, 0);
+  assert.equal(app.toolCapRoom([cols[2], cols[4]], 'tests', 20, 'TG').remaining, 15);
+  assert.equal(app.toolCapRoom([], 'tests', 20, null).remaining, 20);
+});
+
+test('نافذة الأداة — الشرح يتبع النوع، وينبّه حين لا يتسع السقف بقراءة باسم المعلم', async () => {
+  const log = [];
+  const app = appWith({ classroom_grade_columns: [
+    { section_id: 'S', category: 'tests', name: 'الفترة الأولى', max_score: 10, teacher_id: 'u1', academic_year: TERM.year, semester: TERM.semester },
+    { section_id: 'S', category: 'tests', name: 'الفترة الثانية', max_score: 10, teacher_id: 'u1', academic_year: TERM.year, semester: TERM.semester },
+  ] }, log);
+  app.openCustomToolEditor(null);
+  app.pickCustomToolType('score');
+  fillToolForm(app, 'اختبار قصير', '20', 'tests');
+  await app.refreshCustomToolHint();
+  const txt = id => runInAppContext(app, `document.getElementById('${id}').textContent`);
+  assert.match(txt('custToolHint'), /متوسط درجاته/);
+  assert.match(txt('custToolRoom'), /تنبيه/);
+  assert.match(txt('custToolRoom'), /الفترة الأولى/);
+  const sel = log.filter(l => l.table === 'classroom_grade_columns' && l.op === 'select').pop();
+  assert.equal(filtersOf(sel).teacher_id, 'u1');
+  fillToolForm(app, 'اختبار قصير', '0.5', 'performance');
+  await app.refreshCustomToolHint();
+  assert.doesNotMatch(txt('custToolRoom'), /تنبيه/);
+});
+
 test('تعديل الأداة لا يغيّر نوعها، والإخفاء والحذف باسم المعلم', async () => {
   const log = [];
   const app = appWith({ classroom_custom_tools: TOOLS.map(t => Object.assign({ teacher_id: 'u1' }, t)) }, log);
