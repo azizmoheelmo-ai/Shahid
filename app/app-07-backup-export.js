@@ -1526,6 +1526,89 @@ alter table public.user_app_settings enable row level security;
 drop policy if exists "المعلم يدير إعداداته فقط" on public.user_app_settings;
 create policy "المعلم يدير إعداداته فقط" on public.user_app_settings for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- أدوات يضيفها المعلم: عدّاد (+1) أو حالة (تمّ/لم يتمّ) أو درجة؛ عمودها في الكشف kind='manual' برابط tool_id
+create table if not exists public.classroom_custom_tools (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name text not null check (char_length(btrim(name)) between 1 and 40),
+  tool_type text not null check (tool_type in ('counter', 'status', 'score')),
+  category text not null default 'performance' check (category in ('performance', 'tests')),
+  max_score numeric(5,2) not null default 10 check (max_score > 0 and max_score <= 40),
+  hidden boolean not null default false,
+  position smallint not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (id, teacher_id)
+);
+alter table public.classroom_custom_tools enable row level security;
+drop policy if exists "المعلم يدير أدواته فقط" on public.classroom_custom_tools;
+create policy "المعلم يدير أدواته فقط" on public.classroom_custom_tools for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+alter table public.classroom_grade_columns add column if not exists tool_id uuid;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_grade_columns_tool_fk') then
+    alter table public.classroom_grade_columns add constraint classroom_grade_columns_tool_fk foreign key (tool_id, teacher_id) references public.classroom_custom_tools(id, teacher_id) on update cascade on delete cascade;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'classroom_grade_columns_tool_manual_chk') then
+    alter table public.classroom_grade_columns add constraint classroom_grade_columns_tool_manual_chk check (tool_id is null or kind = 'manual');
+  end if;
+end $$;
+create unique index if not exists classroom_grade_columns_tool_uq on public.classroom_grade_columns(teacher_id, section_id, academic_year, semester, tool_id) where tool_id is not null;
+create table if not exists public.classroom_tool_marks (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  tool_id uuid not null,
+  student_id uuid not null,
+  section_id uuid not null,
+  academic_year text not null,
+  semester smallint not null check (semester in (1, 2)),
+  mark_date date not null,
+  period smallint not null default 0 check (period between 0 and 12),
+  value numeric(5,2) not null check (value >= 0),
+  updated_at timestamptz not null default now(),
+  unique (tool_id, student_id, mark_date, period),
+  foreign key (tool_id, teacher_id) references public.classroom_custom_tools(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade,
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade
+);
+create index if not exists classroom_tool_marks_term_idx on public.classroom_tool_marks(teacher_id, tool_id, academic_year, semester);
+create index if not exists classroom_tool_marks_student_idx on public.classroom_tool_marks(student_id);
+alter table public.classroom_tool_marks enable row level security;
+drop policy if exists "المعلم يدير رصد أدواته فقط" on public.classroom_tool_marks;
+create policy "المعلم يدير رصد أدواته فقط" on public.classroom_tool_marks for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+create or replace function public.check_tool_mark() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_type text; v_max numeric;
+begin
+  select tool_type, max_score into v_type, v_max from public.classroom_custom_tools where id = new.tool_id;
+  if v_type = 'status' and new.value not in (0, 1) then
+    raise exception 'tool_mark_invalid' using errcode = 'P0001';
+  elsif v_type = 'score' and new.value > v_max then
+    raise exception 'tool_mark_above_max' using errcode = 'P0001', hint = v_max::text;
+  elsif v_type = 'counter' then
+    raise exception 'tool_mark_invalid' using errcode = 'P0001';
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace trigger trg_check_tool_mark before insert or update on public.classroom_tool_marks for each row execute function public.check_tool_mark();
+create or replace function public.check_tool_max() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_over int;
+begin
+  if new.tool_type <> old.tool_type then
+    raise exception 'tool_type_locked' using errcode = 'P0001';
+  end if;
+  if new.tool_type = 'score' and new.max_score < old.max_score then
+    select count(*) into v_over from public.classroom_tool_marks where tool_id = new.id and value > new.max_score;
+    if v_over > 0 then
+      raise exception 'tool_max_below_marks' using errcode = 'P0001', hint = v_over::text;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace trigger trg_check_tool_max before update on public.classroom_custom_tools for each row execute function public.check_tool_max();
+
 -- حفظ النطاق الجغرافي للتقويم (المعلم لا يملك تعديل profiles مباشرة)
 create or replace function public.set_calendar_region(region text)
 returns void language plpgsql security definer set search_path = '' as $b$
@@ -1843,7 +1926,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1946,14 +2029,16 @@ async function exportFullBackup(){
       '     27. classroom_followup_actions.csv (لازم بعد classroom_followups)',
       '     28. classroom_attention_dismissals.csv',
       '     29. classroom_lesson_skips.csv (لازم بعد classroom_sections)',
-      '     30. classroom_grade_columns.csv (لازم بعد classroom_sections)',
-      '     31. classroom_grade_scores.csv (لازم بعد classroom_grade_columns وclassroom_students)',
-      '     32. lesson_plans.csv (لازم بعد shawahid وclassroom_sections)',
-      '     33. classroom_homework.csv (لازم بعد classroom_sections)',
-      '     34. classroom_homework_status.csv (لازم بعد classroom_homework وclassroom_students)',
-      '     35. classroom_tasks.csv (لازم بعد classroom_sections وshawahid)',
-      '     36. classroom_task_students.csv (لازم بعد classroom_tasks وclassroom_students)',
-      '     37. user_app_settings.csv',
+      '     30. classroom_custom_tools.csv (لازم قبل classroom_grade_columns — عمود الأداة يُشير إليها)',
+      '     31. classroom_grade_columns.csv (لازم بعد classroom_sections)',
+      '     32. classroom_grade_scores.csv (لازم بعد classroom_grade_columns وclassroom_students)',
+      '     33. lesson_plans.csv (لازم بعد shawahid وclassroom_sections)',
+      '     34. classroom_homework.csv (لازم بعد classroom_sections)',
+      '     35. classroom_homework_status.csv (لازم بعد classroom_homework وclassroom_students)',
+      '     36. classroom_tasks.csv (لازم بعد classroom_sections وshawahid)',
+      '     37. classroom_task_students.csv (لازم بعد classroom_tasks وclassroom_students)',
+      '     38. user_app_settings.csv',
+      '     39. classroom_tool_marks.csv (لازم بعد classroom_custom_tools وclassroom_students وclassroom_sections)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

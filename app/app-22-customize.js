@@ -106,6 +106,7 @@ function enabledSectionKeys(features){
 const GRADE_KIND_TOOL = { participation: 'participation', homework: 'homework', task: 'tasks' };
 function gradeColumnVisible(c){
   if(!c) return false;
+  if(c.tool_id) return toolColumnVisible(c); /* عمود أداة خاصة: يتبع إخفاء الأداة (app-23) */
   if(c.category === 'tests') return appToolOn('tests');
   const tool = GRADE_KIND_TOOL[c.kind];
   return tool ? appToolOn(tool) : true;
@@ -114,7 +115,8 @@ function gradeColumnVisible(c){
 /* أوضاع ورقة الحصة المفعّلة بالترتيب */
 const SHEET_MODE_TOOL = { attendance: 'attendance', participation: 'participation', homework: 'homework', task: 'tasks' };
 function enabledSheetModes(){
-  return Object.keys(SHEET_MODE_TOOL).filter(m => appToolOn(SHEET_MODE_TOOL[m]));
+  const builtIn = Object.keys(SHEET_MODE_TOOL).filter(m => appToolOn(SHEET_MODE_TOOL[m]));
+  return builtIn.concat(typeof enabledCustomToolModes === 'function' ? enabledCustomToolModes() : []);
 }
 
 /* متابعة أداتها مخفية لا تظهر ولا تنبّه */
@@ -240,6 +242,7 @@ function renderAppCustomize(){
     ${APP_SECTIONS.map(s => customizeRowHtml('sections', s)).join('')}
     <h3 class="cust-h">أدوات إدارة الصف</h3>
     ${classroom ? APP_TOOLS.map(t => customizeRowHtml('tools', t)).join('') : '<p class="cust-note">فعّل قسم "إدارة الصف" لاختيار أدواته.</p>'}
+    ${classroom && typeof customToolsSectionHtml === 'function' ? customToolsSectionHtml() : ''}
     ${classroom ? gradeCapsEditorHtml('cust') : ''}`;
   fillHiddenSavedCounts(++appCustomizeToken);
 }
