@@ -1407,6 +1407,8 @@
 .crm-seg{display:flex;border:1px solid var(--navy);margin-bottom:12px;}
 .crm-seg button{flex:1;border:none;background:#fff;color:var(--navy);font-family:inherit;font-size:12.5px;font-weight:700;padding:8px 4px;cursor:pointer;}
 .crm-seg button.is-on{background:var(--navy);color:#fff;}
+.crm-seg.is-wrap{flex-wrap:wrap;}
+.crm-seg.is-wrap button{flex:1 1 25%;border-bottom:1px solid var(--line);}
 .crm-trend-row{display:grid;grid-template-columns:minmax(0,1fr) 90px;grid-template-areas:"label val" "bar bar";gap:2px 8px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:12px;}
 .crm-trend-label{grid-area:label;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .crm-trend-val{grid-area:val;text-align:left;color:var(--muted);font-size:11.5px;white-space:nowrap;}

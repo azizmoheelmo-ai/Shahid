@@ -134,7 +134,8 @@ function crmSheetModeSwitchHtml(){
   const m = (crmSheet && crmSheet.mode) || 'attendance';
   const modes = enabledSheetModes();
   if(modes.length < 2) return '';
-  return `<div class="crm-seg">${modes.map(k => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${CRM_SHEET_MODE_LABELS[k]}</button>`).join('')}</div>`;
+  /* أسماء الأدوات الخاصة من المعلم — تُهرَّب */
+  return `<div class="crm-seg${modes.length > 4 ? ' is-wrap' : ''}">${modes.map(k => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${escapeHtml(sheetModeLabel(k))}</button>`).join('')}</div>`;
 }
 
 function setCrmSheetMode(mode){
@@ -148,6 +149,7 @@ function setCrmSheetMode(mode){
     return;
   }
   const students = crmStudentsOfSection(crmSheet.sectionId);
+  if(mode.indexOf('tool:') === 0) return renderCrmToolMode(students, customToolById(mode.slice(5)));
   if(mode === 'participation') return renderCrmParticipation(students);
   if(mode === 'homework') return renderCrmHomework(students);
   if(mode === 'task') return renderCrmTasks(students);
@@ -159,8 +161,9 @@ function crmSheetHeaderText(s){
 }
 
 /* ============ وضع المشاركة ============ */
-function participationTodayKey(s){
-  return 'crm_part:' + (currentUser && currentUser.id) + ':' + lessonKey(s.sectionId, s.dateIso, s.period);
+/* toolId: أداة "عدّاد" خاصة (app-23) — لكل أداة سجلها؛ المفتاح ينتهي دومًا بـ شعبة|تاريخ|حصة */
+function participationTodayKey(s, toolId){
+  return 'crm_part:' + (currentUser && currentUser.id) + ':' + (toolId ? toolId + ':' : '') + lessonKey(s.sectionId, s.dateIso, s.period);
 }
 
 /* حالة المشاركة لكل حصة على هذا الجهاز: عدّاد اليوم + سجل التراجع، فيبقى
@@ -169,9 +172,9 @@ function participationTodayKey(s){
 const PARTICIPATION_UNDO_MAX = 200;
 const PARTICIPATION_KEEP_DAYS = 14;
 
-function readParticipationState(s){
+function readParticipationState(s, toolId){
   let raw = null;
-  try{ raw = JSON.parse(localStorage.getItem(participationTodayKey(s)) || 'null'); } catch(e){}
+  try{ raw = JSON.parse(localStorage.getItem(participationTodayKey(s, toolId)) || 'null'); } catch(e){}
   if(raw && typeof raw === 'object' && raw.counts && typeof raw.counts === 'object'){
     return { counts: raw.counts, undo: Array.isArray(raw.undo) ? raw.undo.filter(x => typeof x === 'string') : [] };
   }
@@ -180,7 +183,7 @@ function readParticipationState(s){
 
 function writeParticipationState(s, p){
   try{
-    localStorage.setItem(participationTodayKey(s), JSON.stringify({ counts: p.today, undo: p.undo.slice(-PARTICIPATION_UNDO_MAX) }));
+    localStorage.setItem(participationTodayKey(s, p.toolId), JSON.stringify({ counts: p.today, undo: p.undo.slice(-PARTICIPATION_UNDO_MAX) }));
   } catch(e){}
 }
 
@@ -197,15 +200,23 @@ function pruneParticipationStates(todayIso){
   } catch(e){}
 }
 
-async function renderCrmParticipation(students){
+/* tool: أداة "عدّاد" خاصة (app-23) — نفس المحرّك على عمودها */
+async function renderCrmParticipation(students, tool){
   const s = crmSheet;
+  const mode = tool ? 'tool:' + tool.id : 'participation';
   const body = document.getElementById('crmLessonSheetBody');
   const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
-  let column = null, scores = new Map();
+  let column = null, scores = new Map(), capError = null;
   try{
-    column = await findKindColumn(s.sectionId, crmCurrentTerm(), 'participation');
+    if(tool){
+      const r = await ensureToolColumn(tool, s.sectionId, crmCurrentTerm());
+      column = r.column || null;
+      capError = r.error ? r : null;
+    } else {
+      column = await findKindColumn(s.sectionId, crmCurrentTerm(), 'participation');
+    }
     if(column){
       const { data, error } = await sb.from('classroom_grade_scores').select('student_id, score')
         .eq('teacher_id', currentUser.id).eq('column_id', column.id);
@@ -213,18 +224,23 @@ async function renderCrmParticipation(students){
       scores = new Map((data || []).map(r => [r.student_id, Number(r.score)]));
     }
   } catch(e){
-    if(crmSheet !== s || s.token !== token || s.mode !== 'participation') return;
-    body.innerHTML = head + `<div class="empty-state">تعذّر التحميل. <button class="btn btn-outline crm-mini-btn" onclick="setCrmSheetMode('participation')">إعادة المحاولة</button></div>`;
+    if(crmSheet !== s || s.token !== token || s.mode !== mode) return;
+    body.innerHTML = head + `<div class="empty-state">تعذّر التحميل. <button class="btn btn-outline crm-mini-btn" onclick="setCrmSheetMode('${mode}')">إعادة المحاولة</button></div>`;
     return;
   }
-  if(crmSheet !== s || s.token !== token || s.mode !== 'participation') return; /* غيّر الوضع أو أغلق الورقة أثناء التحميل */
+  if(crmSheet !== s || s.token !== token || s.mode !== mode) return; /* غيّر الوضع أو أغلق الورقة أثناء التحميل */
+  if(!column && capError){
+    body.innerHTML = head + `<div class="empty-state">${toolCapMessage(tool, capError.remaining).replace('الرصد يُحفظ ولا يُحسب في الكشف حتى', 'لا يمكن الرصد حتى')}</div>
+      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
+    return;
+  }
   if(!column){
     body.innerHTML = head + `<div class="empty-state">لا عمود "مشاركة" في كشف درجات هذه الشعبة لهذا الفصل.
       <button class="btn btn-outline crm-mini-btn" onclick="closeCrmLessonSheet();switchCrmTab('grades')">فتح كشف الدرجات</button></div>`;
     return;
   }
-  const saved = readParticipationState(s);
-  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map() };
+  const saved = readParticipationState(s, tool ? tool.id : null);
+  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null };
   body.innerHTML = head + `
     <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">نقرة = +1 في عمود "${escapeHtml(column.name)}" (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
@@ -293,7 +309,7 @@ function tapCrmParticipation(studentId){
   if(!s || !s.part) return;
   const p = s.part;
   const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
-  if(cur >= Number(p.column.max_score)){ showToast('اكتملت درجة المشاركة لهذا الطالب', 'ok'); return; }
+  if(cur >= Number(p.column.max_score)){ showToast(`اكتملت درجة "${p.column.name}" لهذا الطالب`, 'ok'); return; }
   p.scores.set(studentId, Math.min(Number(p.column.max_score), cur + 1)); /* عرض فوري */
   p.today[studentId] = (p.today[studentId] || 0) + 1;
   p.undo.push(studentId);
