@@ -257,16 +257,28 @@
 
       <div id="homeActionCard" class="home-card home-action-card" style="display:none;"></div>
 
+      <div id="homeCustomizeIntro" class="home-card cust-intro" style="display:none;">
+        <div class="cust-intro-text"><b>✨ جديد: خصّص التطبيق كما تريد</b><small>اختر الأقسام والأدوات التي تستخدمها وأخفِ الباقي — بياناتك لا تُحذف.</small></div>
+        <div class="cust-intro-actions">
+          <button class="btn btn-primary crm-mini-btn" onclick="dismissCustomizeIntro(true)">خصّص الآن</button>
+          <button class="btn btn-outline crm-mini-btn" onclick="dismissCustomizeIntro(false)">لاحقًا</button>
+        </div>
+      </div>
+
       <div id="homeProgressCard" class="home-card home-progress-card" style="display:none;" onclick="showCoverageDetails()"></div>
 
       <div id="serviceAlert" style="display:none;padding:12px 15px;font-size:12.5px;line-height:1.85;"></div>
 
-      <button class="home-cta" onclick="startNewShahid()">+ شاهد جديد</button>
+      <button class="home-cta" id="homeNewShahidBtn" onclick="startNewShahid()">+ شاهد جديد</button>
 
-      <div class="home-tiles">
+      <div class="home-tiles" id="homeTiles">
         <button class="home-tile" id="planHomeBtn" onclick="showPlan()">
           <span class="home-tile-title">📋 أدائي</span>
           <span class="home-tile-sub" id="planHomeSub">الخطة · التقييم الذاتي</span>
+        </button>
+        <button class="home-tile" id="classroomHomeBtn" onclick="showClassroomManagement()" style="display:none;">
+          <span class="home-tile-title">🏫 إدارة الصف</span>
+          <span class="home-tile-sub">حصص اليوم · الطلاب · الدرجات</span>
         </button>
         <button class="home-tile" id="workHomeBtn" onclick="showTasks()">
           <span class="home-tile-title">✅ أعمالي</span>
@@ -275,8 +287,8 @@
       </div>
 
       <div class="home-footer">
-        <button type="button" class="home-link-btn" onclick="exportPortfolio(event)">📄 تصدير ملف الإنجاز</button>
-        <span aria-hidden="true">·</span>
+        <button type="button" class="home-link-btn" id="homeExportPortfolioBtn" onclick="exportPortfolio(event)">📄 تصدير ملف الإنجاز</button>
+        <span aria-hidden="true" id="homeExportPortfolioSep">·</span>
         <a href="#" onclick="showTermsModal();return false;">سياسة الخصوصية</a>
       </div>
     </div>
@@ -454,6 +466,10 @@
 
       <div id="settingsMenu" class="section">
         <div class="home-actions">
+          <button class="home-btn" style="grid-column:1/-1;" onclick="showAppCustomize()">
+            <span class="hb-title">🧩 تخصيص التطبيق</span>
+            <span class="hb-sub">اختر الأقسام والأدوات التي تستخدمها، وأخفِ الباقي</span>
+          </button>
           <button class="home-btn" style="grid-column:1/-1;" onclick="showSettingsSection('profile')">
             <span class="hb-title">👤 الملف الشخصي</span>
             <span class="hb-sub">الاسم، المدرسة، المادة، ومعلومات إضافية</span>
@@ -479,6 +495,11 @@
             <span class="hb-sub">معلومات عن إدارة الأداء الوظيفي</span>
           </button>
         </div>
+      </div>
+
+      <div id="settingsCustomizeBody" class="section" style="display:none;">
+        <button class="btn btn-outline" style="margin-bottom:16px;" onclick="showSettingsSection('menu')">→ رجوع لقائمة الإعدادات</button>
+        <div id="appCustomizeBody"></div>
       </div>
 
       <div id="settingsProfileBody" class="section" style="display:none;">
@@ -1435,6 +1456,7 @@
 <script src="app/app-19-lesson-plans.js"></script>
 <script src="app/app-20-participation-homework.js"></script>
 <script src="app/app-21-performance-tasks.js"></script>
+<script src="app/app-22-customize.js"></script>
 
 </body>
 </html>

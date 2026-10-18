@@ -151,11 +151,13 @@ async function loadCrmGradeSheet(sectionId){
   if(error) return { error };
   /* عمود الواجبات المحسوب يُحدَّث قبل العرض (واجب انقضى موعده منذ آخر فتح
      يُحسب الآن). فشل المزامنة لا يمنع عرض الكشف بآخر قيم محفوظة. */
-  const hwCol = (columns || []).find(c => c.kind === 'homework');
+  /* أداة مخفية: عمودها لا يُعاد حسابه ولا يُعرض ولا يُحسب — بياناته باقية */
+  const visible = (columns || []).filter(gradeColumnVisible);
+  const hwCol = visible.find(c => c.kind === 'homework');
   if(hwCol && typeof syncHomeworkColumn === 'function'){
     try{ await syncHomeworkColumn(hwCol, sectionId, await loadSectionHomework(sectionId, { year, semester })); } catch(e){}
   }
-  const taskCol = (columns || []).find(c => c.kind === 'task');
+  const taskCol = visible.find(c => c.kind === 'task');
   if(taskCol && typeof syncTaskColumn === 'function'){
     try{ await syncTaskColumn(taskCol, sectionId, { year, semester }); } catch(e){}
   }
@@ -166,7 +168,12 @@ async function loadCrmGradeSheet(sectionId){
     if(sErr) return { error: sErr };
     scores = data || [];
   }
-  return { sectionId, year, semester, columns: sortGradeColumns(columns || []), scores };
+  return {
+    sectionId, year, semester, scores,
+    columns: sortGradeColumns(visible),
+    allColumns: sortGradeColumns(columns || []), /* لسقف الفئة وفحص التكرار: القاعدة تعدّ المخفي أيضًا */
+    hiddenColumns: sortGradeColumns((columns || []).filter(c => !gradeColumnVisible(c)))
+  };
 }
 
 /* ============ الكشف ============ */
@@ -208,7 +215,7 @@ function onCrmGradesSectionChange(id){
 }
 
 function crmGradeSheetHtml(g){
-  if(!g.columns.length){
+  if(!(g.allColumns || g.columns).length){
     const term = crmCurrentTerm();
     return `<div class="crm-today-card">
       <div class="crm-today-title">لا كشف درجات لهذه الشعبة في ${escapeHtml(getCrmSemesterLabel())}</div>
@@ -221,14 +228,18 @@ function crmGradeSheetHtml(g){
   const scoreOf = new Map(g.scores.map(s => [s.column_id + '|' + s.student_id, Number(s.score)]));
 
   let html = '<div class="crm-grade-caps">';
-  ['performance', 'tests'].forEach(cat => {
+  ['performance', 'tests'].filter(cat => cat !== 'tests' || appToolOn('tests')).forEach(cat => {
     const used = gradeCategoryTotal(g.columns, cat);
-    const full = used >= GRADE_CAPS[cat];
+    const full = gradeCategoryTotal(g.allColumns || g.columns, cat) >= GRADE_CAPS[cat];
     html += `<div class="crm-grade-cap"><span><b>${GRADE_CATEGORY_LABELS[cat]}</b> · موزّع ${formatScore(used)} من ${GRADE_CAPS[cat]}</span>
       ${full ? '' : `<button class="crm-skip-btn" onclick="openCrmGradeColumnEditor('${cat}', null)">+ عمود</button>`}</div>`;
   });
   html += `<label class="crm-skip-btn" style="display:inline-block;margin-bottom:10px;">📥 استيراد من Excel<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="startCrmGradeImport(event)"></label>`;
   html += '</div>';
+  html += hiddenGradeColumnsLineHtml(g.hiddenColumns);
+  if(!g.columns.length){
+    return html + '<div class="empty-state">كل أعمدة هذا الكشف لأدوات مخفية.</div>';
+  }
 
   if(!students.length){
     return html + '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>';
@@ -258,7 +269,7 @@ function crmGradeSheetHtml(g){
 }
 
 async function createCrmGradeSheet(){
-  if(crmGradeBusy || !crmGrades || crmGrades.columns.length) return;
+  if(crmGradeBusy || !crmGrades || (crmGrades.allColumns || crmGrades.columns).length) return;
   crmGradeBusy = true;
   const btn = document.getElementById('crmGradesCreateBtn');
   if(btn) btn.disabled = true;
@@ -315,18 +326,20 @@ function openCrmGradeColumnEditor(category, columnId){
   if(!crmGrades) return;
   const c = columnId ? crmGrades.columns.find(x => x.id === columnId) : null;
   if(columnId && !c) return;
-  const remaining = GRADE_CAPS[category] - gradeCategoryTotal(crmGrades.columns, category, columnId);
+  const allCols = crmGrades.allColumns || crmGrades.columns;
+  const remaining = GRADE_CAPS[category] - gradeCategoryTotal(allCols, category, columnId);
+  const hiddenHere = (crmGrades.hiddenColumns || []).filter(x => x.category === category);
   crmGradeColumnDraft = { id: columnId || null, category, saving: false };
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${c ? 'تعديل عمود' : 'عمود جديد'} · ${GRADE_CATEGORY_LABELS[category]}</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">المتاح من السقف (${GRADE_CAPS[category]}): ${formatScore(remaining)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">المتاح من السقف (${GRADE_CAPS[category]}): ${formatScore(remaining)}${hiddenHere.length ? ' · يشمل أعمدة مخفية: ' + hiddenHere.map(x => escapeHtml(x.name) + ' (' + formatScore(x.max_score) + ')').join('، ') : ''}</div>
       <label class="crm-field-label">الاسم</label>
       <input class="goal-input" id="crmGradeColName" maxlength="60" value="${c ? escapeHtml(c.name) : ''}" placeholder="مثال: اختبار قصير 1" style="margin-bottom:8px;">
       <label class="crm-field-label">الدرجة القصوى</label>
       <input class="goal-input" id="crmGradeColMax" inputmode="decimal" value="${c ? formatScore(c.max_score) : (remaining > 0 ? formatScore(remaining) : '')}" style="margin-bottom:8px;">
       ${category === 'performance' ? `<label class="crm-field-label">النوع</label>
-      <select class="goal-input" id="crmGradeColKind" style="margin-bottom:8px;">${Object.keys(GRADE_KIND_LABELS).map(k => `<option value="${k}"${(c ? (c.kind || 'manual') : 'manual') === k ? ' selected' : ''}>${GRADE_KIND_LABELS[k]}</option>`).join('')}</select>` : ''}
+      <select class="goal-input" id="crmGradeColKind" style="margin-bottom:8px;">${Object.keys(GRADE_KIND_LABELS).filter(k => k === 'manual' || (c && c.kind === k) || appToolOn(GRADE_KIND_TOOL[k])).map(k => `<option value="${k}"${(c ? (c.kind || 'manual') : 'manual') === k ? ' selected' : ''}>${GRADE_KIND_LABELS[k]}</option>`).join('')}</select>` : ''}
       <label class="crm-field-label">ماذا يقيس؟ (اختياري)</label>
       <input class="goal-input" id="crmGradeColMeasures" maxlength="120" value="${c && c.measures ? escapeHtml(c.measures) : ''}" placeholder="مثال: زمن الماضي البسيط" style="margin-bottom:10px;">
       <div id="crmGradeColError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:8px;line-height:1.7;"></div>
@@ -347,11 +360,12 @@ async function saveCrmGradeColumn(){
   const kindEl = document.getElementById('crmGradeColKind');
   const kind = kindEl ? kindEl.value : 'manual';
   const errBox = document.getElementById('crmGradeColError');
-  const dup = kind !== 'manual' && crmGrades.columns.find(c => c.kind === kind && c.id !== d.id);
+  const allCols = crmGrades.allColumns || crmGrades.columns;
+  const dup = kind !== 'manual' && allCols.find(c => c.kind === kind && c.id !== d.id);
   if(dup){ errBox.textContent = `يوجد عمود من هذا النوع أصلًا ("${dup.name}") — عمود واحد لكل نوع.`; errBox.style.display = 'block'; return; }
   const before = d.id ? crmGrades.columns.find(c => c.id === d.id) : null;
   /* المحسوب يُعاد حسابه بعد الحفظ، فدرجاته القديمة لا تمنع خفض الحد */
-  const err = validateGradeColumn(crmGrades.columns, draft, isComputedGradeKind(kind) ? [] : crmGrades.scores);
+  const err = validateGradeColumn(allCols, draft, isComputedGradeKind(kind) ? [] : crmGrades.scores);
   if(err){ errBox.textContent = err; errBox.style.display = 'block'; return; }
   d.saving = true;
   const btn = document.getElementById('crmGradeColSaveBtn');

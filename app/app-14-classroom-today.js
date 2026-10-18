@@ -558,6 +558,8 @@ async function openCrmLessonSheet(sectionId, dateIso, period){
   const markers = typeof sheetMarkersFor === 'function' ? sheetMarkersFor(attention, students.map(st => st.id), localIsoDate()) : new Map();
 
   crmSheet = { sectionId, dateIso, period, states, lessonId: lesson ? lesson.id : null, updatedAt: lesson ? lesson.updated_at : null, token, dirty: draftRestored, markers, markersLoaded: !!attention };
+  /* الحضور مخفي (تخصيص التطبيق): تفتح الورقة على أول أداة مفعّلة */
+  if(!appToolOn('attendance')){ setCrmSheetMode(enabledSheetModes()[0] || 'none'); return; }
   renderCrmLessonSheet(students, draftRestored);
 }
 
@@ -569,7 +571,7 @@ function renderCrmLessonSheet(students, draftRestored){
   const s = crmSheet;
   /* وضعا المشاركة والواجب يرسمان نفسيهما (app-20) — تحديث علامات الانتباه
      أثناءهما لا يعيد الورقة لوضع الحضور */
-  if(s.mode === 'participation' || s.mode === 'homework' || s.mode === 'task') return;
+  if(s.mode === 'participation' || s.mode === 'homework' || s.mode === 'task' || s.mode === 'none') return;
   const body = document.getElementById('crmLessonSheetBody');
   const dayName = CRM_WEEKDAY_NAMES[weekdayOfIso(s.dateIso)];
   const header = `${escapeHtml(crmSectionLabel(s.sectionId))} · ${dayName} ${s.dateIso.slice(5).replace('-', '/')}${s.period ? ' · الحصة ' + s.period : ''}`;

@@ -136,15 +136,16 @@ async function renderCurrentWeekWidget(){
 }
 
 /* ============ الإعدادات: اختيار النطاق الجغرافي ============
-   تحديث مباشر بـ.eq('id', uid) صريحًا (لا اعتماد على RLS وحدها) — نفس
-   نمط saveDutyType. */
+   عبر الدالة المضبوطة set_calendar_region (نفس نمط saveDutyType): المعلم لا
+   يملك تعديل profiles مباشرة، فالتحديث المباشر كان يمرّ بلا خطأ ولا يحفظ
+   شيئًا — ويعود النطاق فارغًا عند الدخول التالي. */
 async function saveCalendarRegion(region){
   const sel = document.getElementById('calRegionSelect');
   const uid = currentUser.id;
   const previous = calendarRegion;
   if(sel) sel.disabled = true;
   try{
-    const { error } = await sb.from('profiles').update({ calendar_region: region || null }).eq('id', uid);
+    const { error } = await sb.rpc('set_calendar_region', { region: region || null });
     if(error) throw error;
     if(!currentUser || currentUser.id !== uid) return; // تغيّر المستخدم الحالي أثناء الانتظار
     calendarRegion = region || null;

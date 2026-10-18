@@ -290,6 +290,9 @@ async function onLoggedIn(user){
     calendarRegion = (profile && profile.calendar_region) || null;
   } catch(e){ /* تجاهل أي خطأ هنا حتى لا يمنع الدخول */ }
 
+  /* تخصيص التطبيق (الأقسام والأدوات الظاهرة) — فشل التحميل = كل شيء ظاهر */
+  try{ await loadAppFeatures(user.id); } catch(e){ appFeatures = {}; appFeaturesSaved = {}; }
+
   document.getElementById('authView').style.display = 'none';
   document.getElementById('appView').style.display = 'block';
   const meta = user.user_metadata || {};
@@ -316,8 +319,14 @@ async function onLoggedIn(user){
     'acLetterView', 'programsView', 'adminView'
   ].some(id => (document.getElementById(id) || {}).style.display === 'block');
   if(!alreadyNavigatedAway){
-    await showHome();
-    offerDraftRestore();
+    /* قسم واحد مفعّل = يفتح عليه مباشرة */
+    const only = landingSection(appFeatures);
+    if(only && only !== 'shahid' && typeof window[SECTION_OPENERS[only]] === 'function'){
+      await window[SECTION_OPENERS[only]]();
+    } else {
+      await showHome();
+      if(appSectionOn('shahid')) offerDraftRestore();
+    }
   }
 }
 
@@ -331,6 +340,8 @@ function applyStaffRoleVisibility(){
     const el = document.getElementById(id);
     if(el) el.style.display = isStandaloneRole ? 'none' : '';
   });
+  /* تخصيص المعلم يُطبَّق فوق ذلك (لا يُظهر ما أخفاه الدور) */
+  if(typeof applyAppFeatures === 'function') applyAppFeatures();
 }
 
 /* ============ تنبيه تأكيد البريد الإلكتروني ============ */
@@ -823,7 +834,7 @@ async function saveDutyType(duty){
 }
 
 function showSettingsSection(name){
-  const ids = { menu: 'settingsMenu', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', connector: 'settingsConnectorBody', calendarFeed: 'settingsCalendarFeedBody' };
+  const ids = { menu: 'settingsMenu', customize: 'settingsCustomizeBody', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', connector: 'settingsConnectorBody', calendarFeed: 'settingsCalendarFeedBody' };
   Object.values(ids).forEach(id => { document.getElementById(id).style.display = 'none'; });
   document.getElementById(ids[name] || ids.menu).style.display = 'block';
 }

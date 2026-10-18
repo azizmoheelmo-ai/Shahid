@@ -496,9 +496,11 @@ async function loadAttentionData(){
   const [students, sections, lessons, incidents, academicCases, followups, dismissals, improvedFollowups] = results.map(r => r.data || []);
   /* كشف الدرجات للفصل الحالي (كل الشعب) — للقاعدتين 8 و9 */
   const term = crmAttentionTerm();
-  const { data: gradeColumns, error: gcErr } = await sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score')
+  const { data: allGradeColumns, error: gcErr } = await sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score, kind')
     .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester);
   if(gcErr) return null;
+  /* أداة مخفية: أعمدتها لا تُحسب، ولا تنبيهات حضورها أو سلوكها أو متابعاتها */
+  const gradeColumns = (allGradeColumns || []).filter(gradeColumnVisible);
   let gradeScores = [];
   for(const ids of chunkArray((gradeColumns || []).map(c => c.id), 100)){
     const { data, error } = await sb.from('classroom_grade_scores').select('column_id, student_id, score, updated_at')
@@ -507,7 +509,7 @@ async function loadAttentionData(){
     gradeScores = gradeScores.concat(data || []);
   }
   let attendance = [];
-  const lessonIds = lessons.map(l => l.id);
+  const lessonIds = appToolOn('attendance') ? lessons.map(l => l.id) : [];
   for(const ids of chunkArray(lessonIds, 100)){
     const { data, error } = await sb.from('classroom_attendance').select('lesson_id, student_id, status')
       .eq('teacher_id', uid).in('lesson_id', ids);
@@ -519,7 +521,13 @@ async function loadAttentionData(){
     const t = crmIncidentTypes.find(x => x.id === i.incident_type_id);
     i.typeName = t ? t.problem_name : 'مخالفة';
   });
-  return { todayIso, students, sections, lessons, attendance, incidents, academicCases, followups, dismissals, improvedFollowups, gradeColumns: gradeColumns || [], gradeScores };
+  return {
+    todayIso, students, sections, lessons: appToolOn('attendance') ? lessons : [], attendance,
+    incidents: appToolOn('behavior') ? incidents : [], academicCases,
+    followups: followups.filter(followupVisible), dismissals,
+    improvedFollowups: appSectionOn('shahid') ? improvedFollowups.filter(followupVisible) : [], /* "أضفها كشاهد" بلا قسم الشواهد لا معنى لها */
+    gradeColumns, gradeScores
+  };
 }
 
 /* الفصل الحالي من التخزين المحلي (مصدر الحقيقة نفسه الذي تضبطه شاشة
@@ -540,6 +548,7 @@ function crmAttentionTerm(){
 async function refreshAttention(){
   if(!currentUser) return null;
   if(typeof STANDALONE_ROLES !== 'undefined' && STANDALONE_ROLES.includes(dutyType)) return null;
+  if(!appSectionOn('classroom')) return null; /* إدارة الصف مخفية */
   /* تحميل جارٍ بدأ قبل آخر تعديل قد يقرأ بيانات ما قبل التعديل — لا نعيد
      استخدامه، بل نبدأ تحميلًا جديدًا، ولا يكتب القديم فوق الأحدث */
   if(crmAttentionLoading && crmAttentionLoadingGen === crmAttentionGen) return crmAttentionLoading;
@@ -761,9 +770,12 @@ async function renderCrmFollowups(){
   const [cache, openRes, closedRes] = await Promise.all([
     getAttentionFresh(),
     sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, review_date, created_at').eq('teacher_id', currentUser.id).eq('status', 'open').order('review_date', { ascending: true }),
-    sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_text, outcome, next_step, closed_at').eq('teacher_id', currentUser.id).eq('status', 'closed').order('closed_at', { ascending: false }).limit(60)
+    sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, outcome, next_step, closed_at').eq('teacher_id', currentUser.id).eq('status', 'closed').order('closed_at', { ascending: false }).limit(60)
   ]);
   if(token !== crmFollowupsToken) return;
+  /* متابعات أداة مخفية (الحضور/السلوك) لا تظهر — بياناتها باقية */
+  if(openRes.data) openRes.data = openRes.data.filter(followupVisible);
+  if(closedRes.data) closedRes.data = closedRes.data.filter(followupVisible);
   const todayIso = localIsoDate();
   let html = '';
 
@@ -1057,10 +1069,10 @@ async function loadStudentsGradeData(studentIds){
   }
   let columns = [];
   for(const ids of chunkArray([...new Set(scores.map(g => g.column_id))], 100)){
-    const { data, error } = await sb.from('classroom_grade_columns').select('id, category, name, max_score')
+    const { data, error } = await sb.from('classroom_grade_columns').select('id, category, name, max_score, kind')
       .eq('teacher_id', uid).in('id', ids);
     if(error) throw error;
-    columns = columns.concat(data || []);
+    columns = columns.concat((data || []).filter(gradeColumnVisible));
   }
   return { columns, scores };
 }

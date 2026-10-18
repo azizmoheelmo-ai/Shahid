@@ -1506,6 +1506,29 @@ end $b$;
 create or replace trigger trg_check_task_score before insert or update on public.classroom_task_students for each row execute function public.check_task_score();
 create or replace trigger trg_check_task_max before update on public.classroom_tasks for each row execute function public.check_task_max();
 
+-- تخصيص التطبيق لكل معلم: الأقسام والأدوات الظاهرة (المخفي يبقى ببياناته)
+create table if not exists public.user_app_settings (
+  user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  features jsonb not null default '{}'::jsonb check (jsonb_typeof(features) = 'object' and pg_column_size(features) < 4000),
+  updated_at timestamptz not null default now()
+);
+alter table public.user_app_settings enable row level security;
+drop policy if exists "المعلم يدير إعداداته فقط" on public.user_app_settings;
+create policy "المعلم يدير إعداداته فقط" on public.user_app_settings for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- حفظ النطاق الجغرافي للتقويم (المعلم لا يملك تعديل profiles مباشرة)
+create or replace function public.set_calendar_region(region text)
+returns void language plpgsql security definer set search_path = '' as $b$
+begin
+  if auth.uid() is null then raise exception 'يجب تسجيل الدخول'; end if;
+  if region is not null and region not in ('makkah_group', 'other_regions') then
+    raise exception 'نطاق غير معروف: %', region;
+  end if;
+  update public.profiles set calendar_region = region where id = auth.uid();
+end $b$;
+revoke execute on function public.set_calendar_region(text) from public, anon;
+grant execute on function public.set_calendar_region(text) to authenticated;
+
 -- زيادة/إنقاص درجة ذرّيًا (نقرة المشاركة) — security invoker: صلاحيات المعلم نفسه
 create or replace function public.increment_grade_score(p_column_id uuid, p_student_id uuid, p_delta numeric)
 returns numeric language plpgsql security invoker set search_path = '' as $b$
@@ -1810,7 +1833,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -1920,6 +1943,7 @@ async function exportFullBackup(){
       '     34. classroom_homework_status.csv (لازم بعد classroom_homework وclassroom_students)',
       '     35. classroom_tasks.csv (لازم بعد classroom_sections وshawahid)',
       '     36. classroom_task_students.csv (لازم بعد classroom_tasks وclassroom_students)',
+      '     37. user_app_settings.csv',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',
