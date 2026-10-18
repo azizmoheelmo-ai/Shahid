@@ -1437,3 +1437,25 @@
 .plan-target{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;}
 .plan-text{font-size:12.5px;line-height:1.8;white-space:pre-wrap;margin-bottom:6px;}
 .plan-steps{margin:0 0 6px;padding-right:18px;font-size:12.5px;line-height:1.8;}
+
+/* ============ تخصيص التطبيق ============ */
+.cust-note{font-size:12px;color:var(--muted);line-height:1.8;margin:0 0 12px;}
+.cust-h{font-size:14px;color:var(--navy);margin:16px 0 8px;}
+.cust-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);background:#fff;margin-bottom:6px;}
+.cust-row.is-off{background:#F7F5F0;}
+.cust-row.is-off .cust-text b{color:var(--muted);}
+.cust-text{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.cust-text b{font-size:13.5px;color:var(--navy);}
+.cust-text small{font-size:11.5px;color:var(--muted);line-height:1.6;}
+.cust-text .cust-hidden{color:#6B5420;font-weight:600;}
+.cust-switch{flex:none;position:relative;width:46px;height:26px;border-radius:13px;border:none;background:#C9C3B6;cursor:pointer;padding:0;transition:background .15s;}
+.cust-switch span{position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:right .15s;}
+.cust-switch.is-on{background:#215C34;}
+.cust-switch.is-on span{right:23px;}
+.cust-switch:focus-visible{outline:2px solid var(--navy);outline-offset:2px;}
+.cust-sheet-hidden{font-size:11.5px;color:#6B5420;background:#FBF3E6;border:1px solid #E4D2A8;padding:5px 10px;margin:0 0 10px;line-height:1.7;}
+.cust-intro{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.cust-intro-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.cust-intro-text b{font-size:13px;color:var(--navy);}
+.cust-intro-text small{font-size:11.5px;color:var(--muted);line-height:1.6;}
+.cust-intro-actions{display:flex;gap:6px;}

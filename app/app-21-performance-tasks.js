@@ -542,7 +542,7 @@ function crmTaskFormHtml(sectionId, task){
       <div id="crmTaskGroupsBox">${crmTaskGroupsHtml()}</div>
       <div id="crmTaskError" style="display:none;color:#8A2C2C;font-size:12px;margin:8px 0;line-height:1.7;"></div>
       <button class="btn btn-primary" id="crmTaskSaveBtn" style="width:100%;justify-content:center;margin-top:10px;" onclick="saveCrmTask()">${task ? 'حفظ التعديل' : 'حفظ المهمة'}</button>
-      ${task ? `<button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openShahidDraftFromTask('${task.id}')">📄 حوّل إلى شاهد${task.shahid_id ? ' (موثّقة مسبقًا)' : ''}</button>` : ''}
+      ${task && appSectionOn('shahid') ? `<button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openShahidDraftFromTask('${task.id}')">📄 حوّل إلى شاهد${task.shahid_id ? ' (موثّقة مسبقًا)' : ''}</button>` : ''}
       ${task ? `<button class="btn btn-outline" id="crmTaskDeleteBtn" style="width:100%;justify-content:center;margin-top:8px;color:#8A2C2C;" onclick="deleteCrmTask('${task.id}', '${sectionId}')">حذف المهمة</button>` : ''}
     </div>`;
 }
@@ -785,7 +785,7 @@ async function openCrmTaskManager(){
         return `<div class="crm-lesson-row"><span>${escapeHtml(t.title)} <span class="crm-tl-meta">· من ${formatScore(t.max_score)}${k ? ' · جماعية (' + arabicCountPhrase(k, TASK_GROUP_COUNT_FORMS) + ')' : ''}${t.due_date ? ' · ' + shortDateAr(t.due_date) : ''}</span>
           <div class="crm-tl-meta">مكلّف ${c.total} · قُيّم ${c.graded}${c.avg === null ? '' : ' · المتوسط ' + formatScore(c.avg)}${t.shahid_id ? ' · 📄 موثّقة كشاهد' : ''}</div></span>
           <span style="display:flex;gap:4px;">
-            <button class="crm-icon-btn" title="حوّل إلى شاهد" onclick="openShahidDraftFromTask('${t.id}')">📄</button>
+            ${appSectionOn('shahid') ? `<button class="crm-icon-btn" title="حوّل إلى شاهد" onclick="openShahidDraftFromTask('${t.id}')">📄</button>` : ''}
             <button class="crm-icon-btn" title="تعديل" onclick="openCrmTaskEditor('${t.id}')">✎</button>
             <button class="crm-icon-btn" title="حذف" onclick="deleteCrmTask('${t.id}', '${sectionId}')">🗑</button>
           </span></div>`;

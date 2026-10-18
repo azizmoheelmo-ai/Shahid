@@ -79,9 +79,24 @@ describe('applyStaffRoleVisibility', () => {
       IDS.forEach(id => { app.document.getElementById(id).style.display = 'none'; }); // نبدأ من حالة مخفية للتأكد أن الدالة تُظهرها فعليًا
       runInAppContext(app, `dutyType = '${duty}';`);
       app.applyStaffRoleVisibility();
-      IDS.forEach(id => {
+      /* بلاطة إدارة الصف بالرئيسية يحكمها تخصيص التطبيق (تظهر حين يُخفى قسم الشواهد) — تُختبر أدناه */
+      IDS.filter(id => id !== 'classroomHomeBtn').forEach(id => {
         assert.notEqual(app.document.getElementById(id).style.display, 'none', `${id} يجب أن يظهر لمعلم (${duty})`);
       });
     });
+  });
+
+  test('بلاطة إدارة الصف بالرئيسية: تظهر لمعلم أخفى قسم الشواهد، ولا تظهر للدور المستقل', () => {
+    const app = loadApp();
+    installLiveDom(app);
+    runInAppContext(app, `dutyType = 'none'; appFeatures = { sections: { shahid: false }, tools: {} };`);
+    app.applyStaffRoleVisibility();
+    assert.notEqual(app.document.getElementById('classroomHomeBtn').style.display, 'none');
+    runInAppContext(app, `appFeatures = {};`);
+    app.applyStaffRoleVisibility();
+    assert.equal(app.document.getElementById('classroomHomeBtn').style.display, 'none', 'بوجود الشواهد تبقى الرئيسية كما اتُّفق عليها');
+    runInAppContext(app, `dutyType = 'vice_principal'; appFeatures = { sections: { shahid: false }, tools: {} };`);
+    app.applyStaffRoleVisibility();
+    assert.equal(app.document.getElementById('classroomHomeBtn').style.display, 'none');
   });
 });

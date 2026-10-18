@@ -939,6 +939,7 @@ const CRM_TAB_PANES = { today: ['crmTabBtnToday', 'crmTabToday'], followups: ['c
 function switchCrmTab(tab){
   const tabs = CRM_TAB_PANES;
   if(!tabs[tab]) tab = 'today';
+  if(tab === 'record' && typeof appToolOn === 'function' && !appToolOn('behavior')) tab = 'today'; /* السلوك مخفي */
   /* ورقة رصد مفتوحة تُغلق عند الانتقال لأي تبويب (المسودة تبقى محفوظة) */
   const sheet = document.getElementById('crmLessonSheet');
   if(sheet && sheet.style.display !== 'none' && typeof closeCrmLessonSheet === 'function' && tab !== 'today'){
@@ -2385,7 +2386,7 @@ function renderHomeProgressCard(){
   const card = document.getElementById('homeProgressCard');
   if(!card) return;
 
-  if(!getElementsOrder().length){ card.style.display = 'none'; return; }
+  if(!getElementsOrder().length || !appSectionOn('shahid')){ card.style.display = 'none'; return; }
 
   const wp = computeWeightedProgress();
   const barColor = wp.pct >= 80 ? '#215C34' : (wp.pct >= 40 ? 'var(--gold)' : '#B23A3A');
@@ -2421,9 +2422,10 @@ function stillOnHome(){
 }
 
 async function loadAndRenderHomeDashboardExtras(){
-  const hasClassroom = !(typeof STANDALONE_ROLES !== 'undefined' && STANDALONE_ROLES.includes(dutyType));
+  const hasClassroom = !(typeof STANDALONE_ROLES !== 'undefined' && STANDALONE_ROLES.includes(dutyType)) && appSectionOn('classroom');
+  const hasWork = appSectionOn('work');
   const [tasksOk, programsOk, attention] = await Promise.all([
-    loadMyTasks(), loadActivityPrograms(),
+    hasWork ? loadMyTasks() : Promise.resolve(true), hasWork ? loadActivityPrograms() : Promise.resolve(true),
     hasClassroom && typeof getAttentionFresh === 'function' ? getAttentionFresh() : Promise.resolve(undefined)
   ]);
   if(!stillOnHome()) return;
@@ -2432,14 +2434,14 @@ async function loadAndRenderHomeDashboardExtras(){
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const cutoffIso = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-  const tasksNeedingAttention = countTasksNeedingAttention(myTasks, cutoffIso);
+  const tasksNeedingAttention = hasWork ? countTasksNeedingAttention(myTasks, cutoffIso) : 0;
 
   /* sessionsStatus: 'ok' (فُحصت حصص الأسبوع، أو لا برامج أصلًا)،
      'no_region' (لا نطاق جغرافي = لا نعرف الأسبوع الحالي — إجراء مطلوب
      بحد ذاته)، 'failed' (تعذّر جلب التقويم). */
   let sessionsThisWeek = 0;
   let sessionsStatus = 'ok';
-  if(activityPrograms.length){
+  if(hasWork && activityPrograms.length){
     if(!calendarRegion){
       sessionsStatus = 'no_region';
     } else {
@@ -2456,7 +2458,7 @@ async function loadAndRenderHomeDashboardExtras(){
   if(!stillOnHome()) return;
 
   renderHomeActionCard(tasksNeedingAttention, sessionsThisWeek, sessionsStatus, tasksOk && programsOk, classroomUrgent);
-  if(tasksOk && programsOk) renderWorkHomeSummary();
+  if(hasWork && tasksOk && programsOk) renderWorkHomeSummary();
 }
 
 /* دالة صرفة: حالة بطاقة "يحتاج إجراء الآن".

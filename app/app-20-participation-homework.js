@@ -128,15 +128,25 @@ async function findKindColumn(sectionId, term, kind){
 }
 
 /* ============ مفتاح الأوضاع في ورقة الحصة ============ */
+const CRM_SHEET_MODE_LABELS = { attendance: 'حضور', participation: 'مشاركة', homework: 'واجب', task: 'مهمة' };
+/* الأدوات المفعّلة فقط (تخصيص التطبيق)؛ أداة واحدة = لا حاجة لمفتاح */
 function crmSheetModeSwitchHtml(){
   const m = (crmSheet && crmSheet.mode) || 'attendance';
-  const b = (k, t) => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${t}</button>`;
-  return `<div class="crm-seg">${b('attendance', 'حضور')}${b('participation', 'مشاركة')}${b('homework', 'واجب')}${b('task', 'مهمة')}</div>`;
+  const modes = enabledSheetModes();
+  if(modes.length < 2) return '';
+  return `<div class="crm-seg">${modes.map(k => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${CRM_SHEET_MODE_LABELS[k]}</button>`).join('')}</div>`;
 }
 
 function setCrmSheetMode(mode){
   if(!crmSheet) return;
+  if(!enabledSheetModes().includes(mode)) mode = enabledSheetModes()[0] || 'none';
   crmSheet.mode = mode;
+  if(mode === 'none'){
+    document.getElementById('crmLessonSheetBody').innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(crmSheet)}</div>
+      <div class="empty-state">كل أدوات ورقة الحصة مخفية. فعّل ما تحتاجه من الإعدادات ← تخصيص التطبيق.</div>
+      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
+    return;
+  }
   const students = crmStudentsOfSection(crmSheet.sectionId);
   if(mode === 'participation') return renderCrmParticipation(students);
   if(mode === 'homework') return renderCrmHomework(students);

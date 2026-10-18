@@ -172,22 +172,22 @@ async function loadCrmSectionSummaryData(sectionId){
   const sec = crmSectionById(sectionId);
   const sameGrade = crmSections.filter(s => sec && s.grade_level_id === sec.grade_level_id).map(s => s.id);
   const [colsRes, fuRes, lessonsRes, incRes] = await Promise.all([
-    sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score, measures')
+    sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score, measures, kind')
       .eq('teacher_id', uid).eq('academic_year', year).eq('semester', semester).in('section_id', sameGrade),
-    sb.from('classroom_followups').select('id, outcome').eq('teacher_id', uid).eq('section_id', sectionId).eq('status', 'closed'),
+    sb.from('classroom_followups').select('id, outcome, reason_type').eq('teacher_id', uid).eq('section_id', sectionId).eq('status', 'closed'),
     sb.from('classroom_lessons').select('id, lesson_date, period').eq('teacher_id', uid).eq('section_id', sectionId),
     sb.from('classroom_incidents').select('incident_type_id').eq('teacher_id', uid).eq('section_id', sectionId)
   ]);
   const failed = [colsRes, fuRes, lessonsRes, incRes].find(r => r.error);
   if(failed) throw failed.error;
-  const columns = colsRes.data || [];
+  const columns = (colsRes.data || []).filter(gradeColumnVisible); /* أداة مخفية لا تُحسب */
   let scores = [];
   for(const ids of chunkArray(columns.map(c => c.id), 100)){
     const { data, error } = await sb.from('classroom_grade_scores').select('column_id, student_id, score, updated_at').eq('teacher_id', uid).in('column_id', ids);
     if(error) throw error;
     scores = scores.concat(data || []);
   }
-  const fus = fuRes.data || [];
+  const fus = (fuRes.data || []).filter(followupVisible);
   const firstAction = new Map();
   for(const ids of chunkArray(fus.map(f => f.id), 100)){
     const { data, error } = await sb.from('classroom_followup_actions').select('followup_id, action_type, action_date, created_at')
@@ -195,14 +195,14 @@ async function loadCrmSectionSummaryData(sectionId){
     if(error) throw error;
     (data || []).forEach(a => { if(!firstAction.has(a.followup_id)) firstAction.set(a.followup_id, a.action_type); });
   }
-  const lessons = lessonsRes.data || [];
+  const lessons = appToolOn('attendance') ? (lessonsRes.data || []) : [];
   let attendance = [];
   for(const ids of chunkArray(lessons.map(l => l.id), 100)){
     const { data, error } = await sb.from('classroom_attendance').select('lesson_id, status').eq('teacher_id', uid).in('lesson_id', ids);
     if(error) throw error;
     attendance = attendance.concat(data || []);
   }
-  return { sameGrade, columns, scores, fus, firstAction, lessons, attendance, incidents: incRes.data || [] };
+  return { sameGrade, columns, scores, fus, firstAction, lessons, attendance, incidents: appToolOn('behavior') ? (incRes.data || []) : [] };
 }
 
 async function renderCrmSectionSummary(sectionId, head){
