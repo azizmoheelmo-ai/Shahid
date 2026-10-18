@@ -374,13 +374,13 @@ async function onLoggedIn(user){
     'acLetterView', 'programsView', 'adminView'
   ].some(id => (document.getElementById(id) || {}).style.display === 'block');
   if(!alreadyNavigatedAway){
-    /* قسم واحد مفعّل = يفتح عليه مباشرة */
-    const only = landingSection(appFeatures);
-    if(only && only !== 'shahid' && typeof window[SECTION_OPENERS[only]] === 'function'){
-      await window[SECTION_OPENERS[only]]();
-    } else {
+    if(needsCustomizeWizard(user)){
+      /* حساب جديد: يختار المعلم ما يريد أولًا (الرئيسية خلفها، وجولة التعريف بعدها) */
+      custWizard = { pending: true };
       await showHome();
-      if(appSectionOn('shahid')) offerDraftRestore();
+      openCustomizeWizard();
+    } else {
+      await openAppLanding(); /* قسم واحد مفعّل = يفتح عليه مباشرة */
     }
   }
 }
@@ -735,6 +735,7 @@ let _onboardStep = 0;
 let _onboardSteps = [];
 
 function maybeShowOnboardingTour(){
+  if(typeof custWizard !== 'undefined' && custWizard) return; /* أسئلة أول دخول أولًا */
   try{
     if(localStorage.getItem(ONBOARDING_KEY)) return;
   } catch(e){ return; }

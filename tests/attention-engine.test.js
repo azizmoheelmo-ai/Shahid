@@ -308,7 +308,7 @@ test('القاعدة 8 — تحت النصف: بطاقة على مستوى ال�
     assert.equal(cards.length, 1);
     assert.equal(cards[0].kind, 'section');
     assert.equal(cards[0].priority, 'important');
-    assert.match(cards[0].reasons[0].text, /3 من 10 تحت النصف في الأعمال الأدائية/);
+    assert.match(cards[0].reasons[0].text, /3 من 10 تحت النصف في المهام الأدائية والمشاركة والتفاعل/);
     assert.deepEqual([...cards[0].lowStudents].map(x => x.id).sort(), ['st0', 'st1', 'st2']);
   });
   await t.test('طالبان فقط = للمراجعة (لا تدخل الشارة)', () => {

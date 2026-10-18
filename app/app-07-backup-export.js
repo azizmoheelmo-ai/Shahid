@@ -1327,9 +1327,17 @@ create index if not exists classroom_grade_scores_student_idx on public.classroo
 -- حماية مكررة بالقاعدة: سقف الفئة، والدرجة لا تتجاوز القصوى، ولا تُخفض القصوى تحت درجة مرصودة
 create or replace function public.check_grade_column() returns trigger
 language plpgsql set search_path = '' as $b$
-declare v_sum numeric; v_cap numeric; v_over int;
+declare v_sum numeric; v_cap numeric; v_over int; v_g jsonb; v_perf numeric; v_tests numeric;
 begin
-  v_cap := case new.category when 'performance' then 40 else 20 end;
+  -- سقف الفئة من توزيع المعلم (user_app_settings.features.grades، المجموع 60)، وإلا الرسمي 40/20
+  select features->'grades' into v_g from public.user_app_settings where user_id = new.teacher_id;
+  if v_g is not null and jsonb_typeof(v_g->'performance') = 'number' and jsonb_typeof(v_g->'tests') = 'number' then
+    v_perf := (v_g->>'performance')::numeric; v_tests := (v_g->>'tests')::numeric;
+    if v_perf < 0 or v_tests < 0 or v_perf + v_tests <> 60 then v_perf := 40; v_tests := 20; end if;
+  else
+    v_perf := 40; v_tests := 20;
+  end if;
+  v_cap := case new.category when 'performance' then v_perf else v_tests end;
   select coalesce(sum(max_score), 0) into v_sum from public.classroom_grade_columns
     where teacher_id = new.teacher_id and section_id = new.section_id
       and academic_year = new.academic_year and semester = new.semester

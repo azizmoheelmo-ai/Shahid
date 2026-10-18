@@ -233,3 +233,132 @@ test('انحدار: حفظ النطاق الجغرافي عبر الدالة ا�
   assert.deepEqual(log.filter(l => l.op === 'rpc').map(l => l.name + ':' + l.args.region), ['set_calendar_region:makkah_group']);
   assert.equal(log.filter(l => l.table === 'profiles').length, 0);
 });
+
+/* ============ الدفعة 2: توزيع الدرجات (المجموع 60) وأسئلة أول دخول ============ */
+test('validGradeCaps — رقمان غير سالبين بمنازل 0.5 مجموعهما 60', async () => {
+  const app = loadApp();
+  [[40, 20], [45, 15], [45.5, 14.5], [60, 0]].forEach(([p, t]) => assert.equal(app.validGradeCaps({ performance: p, tests: t }), true, p + '/' + t));
+  [[30, 20], [-5, 65], [40.3, 19.7], ['40', '20'], [null, 60]].forEach(([p, t]) => assert.equal(app.validGradeCaps({ performance: p, tests: t }), false, p + '/' + t));
+});
+
+test('التوزيع الافتراضي 40/20، وتوزيع المعلم الصالح يُطبَّق، وغير الصالح يُتجاهل', async () => {
+  const app = loadApp();
+  assert.equal(app.gradeCap('performance'), 40);
+  assert.equal(app.gradeCap('tests'), 20);
+  setFeatures(app, app.normalizeFeatures({ grades: { performance: 50, tests: 10 } }));
+  assert.equal(app.gradeCap('performance'), 50);
+  setFeatures(app, app.normalizeFeatures({ grades: { performance: 50, tests: 50 } }));
+  assert.equal(app.gradeCap('tests'), 20, 'مجموع غير 60 = الرسمي');
+});
+
+test('validateGradeColumn — يتبع توزيع المعلم، والعمود الواحد 40 كحد أقصى', async () => {
+  const app = loadApp();
+  setFeatures(app, { sections: {}, tools: {}, grades: { performance: 50, tests: 10 } });
+  const cols = [{ id: 'p1', category: 'performance', max_score: 30 }, { id: 't1', category: 'tests', max_score: 5 }];
+  assert.equal(app.validateGradeColumn(cols, { category: 'performance', name: 'مشروع', max_score: '20' }, []), null, '30+20 = 50 ضمن السقف');
+  assert.match(app.validateGradeColumn(cols, { category: 'tests', name: 'قصير', max_score: '10' }, []), /يتجاوز سقف التقويمات الشفهية والتحريرية \(10\)/);
+  assert.match(app.validateGradeColumn([], { category: 'performance', name: 'كبير', max_score: '45' }, []), /40 كحد أقصى/);
+});
+
+test('gradeSheetSeed — الافتراضي يملأ توزيع المعلم بنسبه، والسابق يُصغَّر فقط إن تجاوز', async () => {
+  const app = loadApp();
+  const sum = (s, cat) => [...s].filter(c => c.category === cat).reduce((t, c) => t + c.max_score, 0);
+  const def = app.gradeSheetSeed([], { performance: 40, tests: 20 });
+  assert.deepEqual([...def].map(c => c.max_score), [10, 10, 20, 10, 10], '40/20 = الهيكل المعتاد بلا تغيير');
+  const s45 = app.gradeSheetSeed([], { performance: 45, tests: 15 });
+  assert.equal(sum(s45, 'performance'), 45);
+  assert.equal(sum(s45, 'tests'), 15);
+  assert.ok([...s45].every(c => c.max_score > 0 && c.max_score <= 40 && Math.round(c.max_score * 2) === c.max_score * 2));
+  assert.equal([...app.gradeSheetSeed([], { performance: 60, tests: 0 })].filter(c => c.category === 'tests').length, 0, 'سقف 0 = لا أعمدة للفئة');
+  const prev = [{ category: 'performance', name: 'أ', max_score: 15, kind: 'manual' }, { category: 'tests', name: 'ب', max_score: 20, kind: 'manual' }];
+  const kept = app.gradeSheetSeed(prev, { performance: 45, tests: 15 });
+  assert.equal(kept.find(c => c.name === 'أ').max_score, 15, 'ضمن السقف = كما هو');
+  assert.equal(kept.find(c => c.name === 'ب').max_score, 15, 'تجاوز السقف = يُصغَّر إليه');
+});
+
+test('gradeCapsConflicts — كشف قائم يتجاوز السقف الجديد', async () => {
+  const app = loadApp();
+  const cols = [
+    { section_id: 'S', academic_year: 'Y', semester: 1, category: 'tests', max_score: 10 }, { section_id: 'S', academic_year: 'Y', semester: 1, category: 'tests', max_score: 10 },
+    { section_id: 'S', academic_year: 'Y', semester: 1, category: 'performance', max_score: 40 },
+  ];
+  assert.deepEqual([...app.gradeCapsConflicts(cols, { performance: 45, tests: 15 })].map(c => c.category + ':' + c.total), ['tests:20']);
+  assert.equal(app.gradeCapsConflicts(cols, { performance: 40, tests: 20 }).length, 0);
+});
+
+function capsInputs(app, perf, tests){
+  runInAppContext(app, `document.getElementById('custCapPerf').value = ${JSON.stringify(perf)}; document.getElementById('custCapTests').value = ${JSON.stringify(tests)};`);
+}
+
+test('saveGradeCaps — لا يُحفظ توزيع يجعل كشفًا قائمًا مخالفًا، والفحص باسم المعلم', async () => {
+  const log = [];
+  const seed = { classroom_grade_columns: [{ teacher_id: 'u1', section_id: 'S', academic_year: 'Y', semester: 1, category: 'tests', max_score: 20 }, { teacher_id: 'u2', section_id: 'X', academic_year: 'Y', semester: 1, category: 'performance', max_score: 40 }] };
+  const app = appWith(seed, log);
+  setFeatures(app, { sections: {}, tools: {} });
+  capsInputs(app, '45', '15');
+  await app.saveGradeCaps();
+  assert.equal(log.filter(l => l.op === 'upsert').length, 0);
+  assert.match(runInAppContext(app, `document.getElementById('custCapsMsg').textContent`), /تتجاوز السقف الجديد/);
+  assert.deepEqual(filtersOf(log.find(l => l.table === 'classroom_grade_columns')), { teacher_id: 'u1' });
+  capsInputs(app, '٣٥', '25');
+  await app.saveGradeCaps();
+  const up = log.filter(l => l.op === 'upsert')[0];
+  assert.deepEqual(JSON.parse(JSON.stringify(up.values.features.grades)), { performance: 35, tests: 25 });
+  assert.equal(app.gradeCap('tests'), 25);
+});
+
+test('saveGradeCaps — مجموع غير 60 يُرفض قبل أي طلب', async () => {
+  const log = [];
+  const app = appWith({}, log);
+  capsInputs(app, '40', '30');
+  await app.saveGradeCaps();
+  assert.equal(log.length, 0);
+  assert.match(runInAppContext(app, `document.getElementById('custCapsMsg').textContent`), /مجموعهما 60/);
+});
+
+test('needsCustomizeWizard — للحساب الجديد بلا إعدادات فقط', async () => {
+  const app = loadApp();
+  runInAppContext(app, 'appFeaturesRowExists = false;');
+  assert.equal(app.needsCustomizeWizard({ created_at: '2026-10-20T10:00:00Z' }), true);
+  assert.equal(app.needsCustomizeWizard({ created_at: '2026-09-01T10:00:00Z' }), false, 'المعلمون الحاليون لا يُسألون');
+  runInAppContext(app, 'appFeaturesRowExists = true;');
+  assert.equal(app.needsCustomizeWizard({ created_at: '2026-10-20T10:00:00Z' }), false, 'سبق أن اختار');
+});
+
+test('أسئلة أول دخول — الخطوات بحسب الاختيار، وما لم يُختر يُخفى', async () => {
+  const app = loadApp();
+  const w = runInAppContext(app, `({ step: 'sections', sections: new Set(['classroom']), tools: new Set(['attendance', 'behavior']) })`);
+  assert.deepEqual([...app.wizardSteps(w)], ['sections', 'tools'], 'لا أداة لها درجات = لا سؤال توزيع');
+  runInAppContext(app, `window.__w = { step: 'sections', sections: new Set(['classroom', 'shahid']), tools: new Set(['participation']) };`);
+  assert.deepEqual([...app.wizardSteps(runInAppContext(app, 'window.__w'))], ['sections', 'tools', 'grades']);
+  const f = JSON.parse(JSON.stringify(app.featuresFromWizard(runInAppContext(app, 'window.__w'), { performance: 45, tests: 15 })));
+  assert.deepEqual(f, { sections: { plan: false, work: false }, tools: { attendance: false, homework: false, tasks: false, tests: false, behavior: false }, grades: { performance: 45, tests: 15 } });
+  const onlyShahid = JSON.parse(JSON.stringify(app.featuresFromWizard(runInAppContext(app, `({ sections: new Set(['shahid']), tools: new Set() })`), null)));
+  assert.deepEqual(onlyShahid, { sections: { plan: false, work: false, classroom: false }, tools: {} });
+});
+
+test('finishCustomizeWizard — لا شيء مختار مسبقًا، ويُحفظ الاختيار باسم المعلم ثم تُفتح الشاشة المناسبة', async () => {
+  const log = [];
+  const app = appWith({}, log);
+  runInAppContext(app, `window.__opened = []; showInfoModal = () => {}; closeCrmModal = () => {}; showClassroomManagement = async () => window.__opened.push('classroom'); showHome = async () => window.__opened.push('home');`);
+  app.openCustomizeWizard();
+  assert.equal(runInAppContext(app, 'custWizard.sections.size + custWizard.tools.size'), 0, 'لا اختيار مسبق');
+  app.toggleWizardPick('sections', 'classroom');
+  app.moveCustomizeWizard(1);
+  app.toggleWizardPick('tools', 'attendance');
+  await app.finishCustomizeWizard();
+  const up = log.filter(l => l.op === 'upsert')[0];
+  assert.equal(up.values.user_id, 'u1');
+  assert.equal(app.appSectionOn('shahid'), false);
+  assert.equal(app.appToolOn('attendance'), true);
+  assert.equal(app.appToolOn('homework'), false);
+  assert.deepEqual([...runInAppContext(app, 'window.__opened')], ['classroom'], 'قسم واحد = يفتح عليه');
+  assert.equal(runInAppContext(app, 'custWizard'), null);
+});
+
+test('جولة التعريف لا تُفتح فوق أسئلة أول دخول', async () => {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  runInAppContext(app, `window.__tour = 0; showOnboardingStep = () => window.__tour++; custWizard = { pending: true };`);
+  app.maybeShowOnboardingTour();
+  assert.equal(runInAppContext(app, 'window.__tour'), 0);
+});
