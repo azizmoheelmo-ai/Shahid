@@ -10,8 +10,16 @@
      القصوى، ولا تُخفض القصوى تحت درجة مرصودة — لا يكسرها جهاز ثانٍ.
    ============================================================ */
 
-const GRADE_CAPS = { performance: 40, tests: 20 };
-const GRADE_CATEGORY_LABELS = { performance: 'الأعمال الأدائية', tests: 'الاختبارات والتقييمات' };
+/* التوزيع الرسمي 40/20 (المجموع 60)، وللمعلم تقسيمه بحرية بشرط المجموع 60
+   (تخصيص التطبيق) — القاعدة تفرض نفس السقف من نفس الإعداد */
+const GRADE_CAPS_DEFAULT = { performance: 40, tests: 20 };
+const GRADE_CAPS_TOTAL = 60;
+const GRADE_COLUMN_MAX = 40; /* حد العمود الواحد في القاعدة */
+function gradeCap(category){
+  const caps = typeof appGradeCaps === 'function' ? appGradeCaps() : GRADE_CAPS_DEFAULT;
+  return caps[category];
+}
+const GRADE_CATEGORY_LABELS = { performance: 'المهام الأدائية والمشاركة والتفاعل', tests: 'التقويمات الشفهية والتحريرية' };
 const GRADE_CATEGORY_SHORT = { performance: 'أدائي', tests: 'اختبارات' };
 const DEFAULT_GRADE_COLUMNS = [
   { category: 'performance', name: 'مشاركة', max_score: 10, kind: 'participation' },
@@ -56,7 +64,8 @@ function validateGradeColumn(columns, draft, scores){
   const max = Number(draft.max_score);
   if(!(max > 0)) return 'الدرجة القصوى يجب أن تكون أكبر من صفر';
   if(!/^\d+(\.\d{1,2})?$/.test(String(draft.max_score).trim())) return 'الدرجة القصوى رقم بمنزلتين عشريتين كحد أقصى';
-  const cap = GRADE_CAPS[draft.category];
+  if(max > GRADE_COLUMN_MAX) return `الدرجة القصوى للعمود الواحد ${GRADE_COLUMN_MAX} كحد أقصى`;
+  const cap = gradeCap(draft.category);
   const others = gradeCategoryTotal(columns, draft.category, draft.id);
   if(others + max > cap){
     return `يتجاوز سقف ${GRADE_CATEGORY_LABELS[draft.category]} (${cap}): الموزّع على الأعمدة الأخرى ${formatScore(others)}، المتبقي ${formatScore(cap - others)}`;
@@ -101,11 +110,48 @@ function previousGradeTerm(year, semester){
 }
 
 /* أعمدة الكشف الجديد: هيكل الفصل السابق لنفس الشعبة (بلا درجات)، وإلا الافتراضي */
-function gradeSheetSeed(prevColumns){
+function gradeSheetSeed(prevColumns, caps){
+  caps = caps || { performance: gradeCap('performance'), tests: gradeCap('tests') };
   if(prevColumns && prevColumns.length){
-    return prevColumns.map(c => ({ category: c.category, name: c.name, max_score: Number(c.max_score), measures: c.measures || null, position: c.position || 0, kind: c.kind || 'manual' }));
+    const prev = prevColumns.map(c => ({ category: c.category, name: c.name, max_score: Number(c.max_score), measures: c.measures || null, position: c.position || 0, kind: c.kind || 'manual' }));
+    return fitColumnsToCaps(prev, caps, false); /* يُصغَّر فقط إن تجاوز السقف الحالي */
   }
-  return DEFAULT_GRADE_COLUMNS.map((c, i) => ({ category: c.category, name: c.name, max_score: c.max_score, measures: null, position: i, kind: c.kind }));
+  const seed = DEFAULT_GRADE_COLUMNS.map((c, i) => ({ category: c.category, name: c.name, max_score: c.max_score, measures: null, position: i, kind: c.kind }));
+  return fitColumnsToCaps(seed, caps, true); /* الافتراضي يملأ توزيع المعلم بنسبه */
+}
+
+/* يوزّع درجات أعمدة كل فئة على سقفها بالنسبة نفسها (بمنازل 0.5، والباقي على
+   الأخير). exact=false: لا يمسّ فئة مجموعها ضمن السقف. سقف 0 = لا أعمدة للفئة. */
+function fitColumnsToCaps(columns, caps, exact){
+  const out = [];
+  ['performance', 'tests'].forEach(cat => {
+    let cols = columns.filter(c => c.category === cat);
+    const cap = Number(caps[cat]);
+    const total = cols.reduce((t, c) => t + c.max_score, 0);
+    if(!cols.length || (!exact && total <= cap)){ out.push(...cols); return; }
+    if(!(cap > 0)) return;
+    const n = Math.max(1, Math.min(cols.length, Math.floor(cap / 0.5))); /* لا عمود أقل من 0.5 */
+    cols = cols.slice(0, n);
+    const sub = cols.reduce((t, c) => t + c.max_score, 0) || n;
+    const scaled = cols.map(c => Object.assign({}, c, { max_score: Math.max(0.5, Math.round(c.max_score * cap / sub * 2) / 2) }));
+    const last = scaled[scaled.length - 1];
+    last.max_score = Math.round((last.max_score + cap - scaled.reduce((t, c) => t + c.max_score, 0)) * 100) / 100;
+    if(last.max_score <= 0 || scaled.some(c => c.max_score > GRADE_COLUMN_MAX)){
+      /* حالة طرفية (نِسَب حادة): توزيع متساوٍ والباقي على الأخير */
+      const each = Math.floor(cap / n * 2) / 2;
+      const eq = cols.map(c => Object.assign({}, c, { max_score: each }));
+      eq[n - 1].max_score = Math.round((cap - each * (n - 1)) * 100) / 100;
+      out.push(...eq);
+      return;
+    }
+    out.push(...scaled);
+  });
+  return out;
+}
+
+/* نص الهيكل الافتراضي كما سيُنشأ فعلًا بتوزيع المعلم */
+function defaultGradeSeedText(){
+  return gradeSheetSeed([]).map(c => `${c.name} ${formatScore(c.max_score)}`).join(' · ');
 }
 
 function sortGradeColumns(columns){
@@ -219,7 +265,7 @@ function crmGradeSheetHtml(g){
     const term = crmCurrentTerm();
     return `<div class="crm-today-card">
       <div class="crm-today-title">لا كشف درجات لهذه الشعبة في ${escapeHtml(getCrmSemesterLabel())}</div>
-      <p style="font-size:12px;color:var(--muted);line-height:1.8;margin:0 0 10px;">يُنشأ الكشف بهيكل فصلك السابق لهذه الشعبة إن وُجد، وإلا بالهيكل الافتراضي: مشاركة 10 · واجبات 10 · مهام أدائية 20 · الفترة الأولى 10 · الفترة الثانية 10. تعدّل الأعمدة متى شئت.</p>
+      <p style="font-size:12px;color:var(--muted);line-height:1.8;margin:0 0 10px;">يُنشأ الكشف بهيكل فصلك السابق لهذه الشعبة إن وُجد، وإلا بالهيكل الافتراضي: ${escapeHtml(defaultGradeSeedText())}. تعدّل الأعمدة متى شئت.</p>
       <button class="btn btn-primary" id="crmGradesCreateBtn" onclick="createCrmGradeSheet()" data-year="${escapeHtml(term.year)}">إنشاء الكشف</button>
     </div>`;
   }
@@ -230,8 +276,8 @@ function crmGradeSheetHtml(g){
   let html = '<div class="crm-grade-caps">';
   ['performance', 'tests'].filter(cat => cat !== 'tests' || appToolOn('tests')).forEach(cat => {
     const used = gradeCategoryTotal(g.columns, cat);
-    const full = gradeCategoryTotal(g.allColumns || g.columns, cat) >= GRADE_CAPS[cat];
-    html += `<div class="crm-grade-cap"><span><b>${GRADE_CATEGORY_LABELS[cat]}</b> · موزّع ${formatScore(used)} من ${GRADE_CAPS[cat]}</span>
+    const full = gradeCategoryTotal(g.allColumns || g.columns, cat) >= gradeCap(cat);
+    html += `<div class="crm-grade-cap"><span><b>${GRADE_CATEGORY_LABELS[cat]}</b> · موزّع ${formatScore(used)} من ${formatScore(gradeCap(cat))}</span>
       ${full ? '' : `<button class="crm-skip-btn" onclick="openCrmGradeColumnEditor('${cat}', null)">+ عمود</button>`}</div>`;
   });
   html += `<label class="crm-skip-btn" style="display:inline-block;margin-bottom:10px;">📥 استيراد من Excel<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="startCrmGradeImport(event)"></label>`;
@@ -327,13 +373,13 @@ function openCrmGradeColumnEditor(category, columnId){
   const c = columnId ? crmGrades.columns.find(x => x.id === columnId) : null;
   if(columnId && !c) return;
   const allCols = crmGrades.allColumns || crmGrades.columns;
-  const remaining = GRADE_CAPS[category] - gradeCategoryTotal(allCols, category, columnId);
+  const remaining = gradeCap(category) - gradeCategoryTotal(allCols, category, columnId);
   const hiddenHere = (crmGrades.hiddenColumns || []).filter(x => x.category === category);
   crmGradeColumnDraft = { id: columnId || null, category, saving: false };
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${c ? 'تعديل عمود' : 'عمود جديد'} · ${GRADE_CATEGORY_LABELS[category]}</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">المتاح من السقف (${GRADE_CAPS[category]}): ${formatScore(remaining)}${hiddenHere.length ? ' · يشمل أعمدة مخفية: ' + hiddenHere.map(x => escapeHtml(x.name) + ' (' + formatScore(x.max_score) + ')').join('، ') : ''}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">المتاح من السقف (${formatScore(gradeCap(category))}): ${formatScore(remaining)}${hiddenHere.length ? ' · يشمل أعمدة مخفية: ' + hiddenHere.map(x => escapeHtml(x.name) + ' (' + formatScore(x.max_score) + ')').join('، ') : ''}</div>
       <label class="crm-field-label">الاسم</label>
       <input class="goal-input" id="crmGradeColName" maxlength="60" value="${c ? escapeHtml(c.name) : ''}" placeholder="مثال: اختبار قصير 1" style="margin-bottom:8px;">
       <label class="crm-field-label">الدرجة القصوى</label>
