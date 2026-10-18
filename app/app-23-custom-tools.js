@@ -78,6 +78,33 @@ function toolDbErrorMessage(error){
   return msg || 'خطأ بالاتصال';
 }
 
+/* شرح كيف تُحسب الأداة في الكشف — يظهر في نافذة الأداة قبل الحفظ */
+function customToolHintText(type, max, category){
+  const m = Number(max);
+  if(!(m > 0)) return '';
+  const f = formatScore;
+  if(type === 'counter') return `كل نقرة = +1 للطالب حتى ${f(m)}، وعمود الكشف مجموع نقراته (من ${f(m)}).`;
+  if(type === 'status') return `تضغط لكل طالب "تمّ" أو "لم يتمّ" في كل حصة. عمود الكشف = نسبة مرات "تمّ" × ${f(m)}. مثال: تمّ في 3 من 4 مرات = ${f(0.75 * m)} من ${f(m)}.`;
+  return `لكل طالب درجة من ${f(m)} في كل مرة ترصد فيها. عمود الكشف = متوسط درجاته (تُجمع الدرجات وتُقسم على عدد مرات الرصد). مثال: ${f(m)} ثم ${f(m / 2)} = ${f(0.75 * m)} من ${f(m)}. ومن لم يُرصد له شيء لا يُحسب عليه.`;
+}
+
+/* أضيق مساحة متبقية في فئة عبر كشوف الفصل: أعمدة كل شعبة تُجمع (بدون أعمدة هذه الأداة نفسها) */
+function toolCapRoom(columns, category, cap, ownToolId){
+  const bySection = new Map();
+  (columns || []).forEach(c => {
+    if(c.category !== category || (ownToolId && c.tool_id === ownToolId)) return;
+    if(!bySection.has(c.section_id)) bySection.set(c.section_id, []);
+    bySection.get(c.section_id).push(c);
+  });
+  let worst = null;
+  bySection.forEach(cols => {
+    const used = cols.reduce((n, c) => n + Number(c.max_score), 0);
+    if(!worst || used > worst.used) worst = { used, names: cols.map(c => c.name) };
+  });
+  if(!worst) return { remaining: cap, names: [] };
+  return { remaining: Math.round((cap - worst.used) * 100) / 100, names: worst.names };
+}
+
 /* ============ التحميل ============ */
 async function loadCustomTools(uid){
   crmCustomTools = [];
@@ -413,16 +440,45 @@ function renderCustomToolEditor(t){
     </div>
     <div style="display:flex;gap:8px;">
       <div style="flex:1;"><label class="crm-field-label">${d.type === 'score' ? 'درجة كل رصد وعموده' : 'درجة العمود'}</label>
-        <input class="goal-input" id="custToolMax" inputmode="decimal" value="${escapeHtml(keepMax)}" style="margin-bottom:8px;"></div>
+        <input class="goal-input" id="custToolMax" inputmode="decimal" value="${escapeHtml(keepMax)}" oninput="refreshCustomToolHint()" style="margin-bottom:8px;"></div>
       <div style="flex:1;"><label class="crm-field-label">تُحسب ضمن</label>
-        <select class="goal-input" id="custToolCat" style="margin-bottom:8px;"${d.id ? ' disabled' : ''}>
+        <select class="goal-input" id="custToolCat" onchange="refreshCustomToolHint()" style="margin-bottom:8px;"${d.id ? ' disabled' : ''}>
           ${['performance', 'tests'].map(c => `<option value="${c}"${keepCat === c ? ' selected' : ''}>${escapeHtml(GRADE_CATEGORY_LABELS[c])}</option>`).join('')}
         </select></div>
     </div>
     ${d.id ? '<p class="cust-note" style="margin:0 0 6px;">تعديل الدرجة يُطبَّق على أعمدة الشعب الجديدة؛ عدّل الأعمدة القائمة من الكشف.</p>' : ''}
+    <p id="custToolHint" class="cust-note" style="margin:0 0 6px;"></p>
+    <p id="custToolRoom" class="cust-note" style="margin:0 0 6px;"></p>
     <div id="custToolErr" class="cust-caps-msg" style="display:none;"></div>
     <button class="btn btn-primary" id="custToolSaveBtn" style="width:100%;justify-content:center;margin-top:6px;" onclick="saveCustomTool()">${d.id ? 'حفظ التعديل' : 'إضافة الأداة'}</button>
     ${d.id ? `<button class="btn btn-outline" id="custToolDeleteBtn" style="width:100%;justify-content:center;margin-top:8px;color:#8A2C2C;" onclick="deleteCustomTool('${d.id}')">حذف الأداة</button>` : ''}`;
+  refreshCustomToolHint();
+}
+
+let customToolRoomSeq = 0;
+/* الشرح يتبع النوع والدرجة والفئة؛ ثم تنبيه السقف من كشوف المعلم (قراءة فقط، تُهمل إن تغيّرت النافذة) */
+async function refreshCustomToolHint(){
+  const d = customToolDraft;
+  const hint = document.getElementById('custToolHint'), room = document.getElementById('custToolRoom');
+  if(!d || !hint || !room || !currentUser) return;
+  const max = parseCapInput(document.getElementById('custToolMax').value);
+  const category = document.getElementById('custToolCat').value === 'tests' ? 'tests' : 'performance';
+  hint.textContent = customToolHintText(d.type, max, category);
+  const cap = gradeCap(category);
+  room.textContent = `سقف "${GRADE_CATEGORY_LABELS[category]}" عندك ${formatScore(cap)} درجة.`;
+  room.style.color = '';
+  const seq = ++customToolRoomSeq;
+  const uid = currentUser.id;
+  let term;
+  try{ term = crmCurrentTerm(); } catch(e){ return; }
+  const { data, error } = await sb.from('classroom_grade_columns').select('section_id, category, name, max_score, tool_id')
+    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).eq('category', category);
+  if(error || seq !== customToolRoomSeq || customToolDraft !== d || !currentUser || currentUser.id !== uid) return;
+  const r = toolCapRoom(data, category, cap, d.id);
+  if(max > 0 && r.names.length && max > r.remaining){
+    room.style.color = '#8A2C2C';
+    room.textContent = `تنبيه: في أحد كشوفك المتبقي من سقف "${GRADE_CATEGORY_LABELS[category]}" ${formatScore(Math.max(0, r.remaining))} فقط، وهذه الأداة من ${formatScore(max)} — لن يُنشأ عمودها هناك حتى تعدّل أو تحذف أعمدة قائمة (${r.names.slice(0, 4).join('، ')}). الرصد لا يضيع.`;
+  }
 }
 
 function pickCustomToolType(k){
