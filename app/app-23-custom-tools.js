@@ -83,9 +83,9 @@ function customToolHintText(type, max, category){
   const m = Number(max);
   if(!(m > 0)) return '';
   const f = formatScore;
-  if(type === 'counter') return `كل نقرة = +1 للطالب حتى ${f(m)}، وعمود الكشف مجموع نقراته (من ${f(m)}).`;
-  if(type === 'status') return `تضغط لكل طالب "تمّ" أو "لم يتمّ" في كل حصة. عمود الكشف = نسبة مرات "تمّ" × ${f(m)}. مثال: تمّ في 3 من 4 مرات = ${f(0.75 * m)} من ${f(m)}.`;
-  return `لكل طالب درجة من ${f(m)} في كل مرة ترصد فيها. عمود الكشف = متوسط درجاته (تُجمع الدرجات وتُقسم على عدد مرات الرصد). مثال: ${f(m)} ثم ${f(m / 2)} = ${f(0.75 * m)} من ${f(m)}. ومن لم يُرصد له شيء لا يُحسب عليه.`;
+  if(type === 'counter') return `كل نقرة = +1، والكشف يجمع النقرات (حتى ${f(m)}).`;
+  if(type === 'status') return `الكشف يحسب كم مرة "تمّ". مثال: تمّ 3 مرات من 4 ← ${f(0.75 * m)} من ${f(m)}.`;
+  return `الكشف يأخذ متوسط درجات الطالب. مثال: ${f(m)} و ${f(m / 2)} ← ${f(0.75 * m)} من ${f(m)}. من لم تُرصد له درجة لا يُحسب عليه.`;
 }
 
 /* أضيق مساحة متبقية في فئة عبر كشوف الفصل: أعمدة كل شعبة تُجمع (بدون أعمدة هذه الأداة نفسها) */
@@ -465,7 +465,7 @@ async function refreshCustomToolHint(){
   const category = document.getElementById('custToolCat').value === 'tests' ? 'tests' : 'performance';
   hint.textContent = customToolHintText(d.type, max, category);
   const cap = gradeCap(category);
-  room.textContent = `سقف "${GRADE_CATEGORY_LABELS[category]}" عندك ${formatScore(cap)} درجة.`;
+  room.textContent = `المجموع المسموح في هذه الفئة: ${formatScore(cap)} درجة.`;
   room.style.color = '';
   const seq = ++customToolRoomSeq;
   const uid = currentUser.id;
@@ -477,7 +477,10 @@ async function refreshCustomToolHint(){
   const r = toolCapRoom(data, category, cap, d.id);
   if(max > 0 && r.names.length && max > r.remaining){
     room.style.color = '#8A2C2C';
-    room.textContent = `تنبيه: في أحد كشوفك المتبقي من سقف "${GRADE_CATEGORY_LABELS[category]}" ${formatScore(Math.max(0, r.remaining))} فقط، وهذه الأداة من ${formatScore(max)} — لن يُنشأ عمودها هناك حتى تعدّل أو تحذف أعمدة قائمة (${r.names.slice(0, 4).join('، ')}). الرصد لا يضيع.`;
+    const names = r.names.slice(0, 4).join('، ');
+    room.textContent = r.remaining <= 0
+      ? `⚠ لا يتسع الكشف لهذه الأداة: الفئة ممتلئة بـ (${names}). احذف أو صغّر أحد هذه الأعمدة وإلا لن يظهر عمود الأداة. الرصد محفوظ.`
+      : `⚠ المتبقي في الكشف ${formatScore(r.remaining)} فقط والأداة من ${formatScore(max)}. صغّر أحد الأعمدة (${names}) أو درجة الأداة. الرصد محفوظ.`;
   }
 }
 
