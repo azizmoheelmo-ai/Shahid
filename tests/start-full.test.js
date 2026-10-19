@@ -134,7 +134,7 @@ test('تغيير "يبدأ من" للمشاركة — بعد تأكيد: يُم�
   assert.deepEqual([...up.values].map(r => r.column_id + ':' + r.student_id + ':' + r.score + ':' + r.teacher_id), ['P:a:10:u1', 'P:b:10:u1', 'P2:c:5:u1']);
   assert.equal(get(app, 'appFeatures.startFull.participation'), true);
   assert.equal(get(app, 'window.__saved'), 1);
-  assert.deepEqual([...get(app, 'window.__synced')], ['S', 'S2']);
+  assert.deepEqual([...get(app, 'window.__synced')], [], 'لا إعادة تحميل للكشف كله — المشاركة لا عمود محسوب لها');
 });
 
 test('تغيير "يبدأ من" للواجبات إلى 0 — يُمسح التسليم في واجبات الفصل لشعب المعلم، ولا "سلّم" جديد', async () => {
@@ -163,7 +163,8 @@ test('إعداد الدرجات — "يبدأ من [0][الكاملة]" لكل �
   const html = app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
   ['participation', 'task', 'tool:' + TOOL_ID, 'tool:' + STATUS_ID, 'tool:' + SCORE_ID, 'tool:' + NEW_ID]
     .forEach(k => assert.match(html, new RegExp(`setGradeStartMode\\('${k}', true\\)`), k));
-  assert.match(html, /<button type="button" class="is-on" onclick="setGradeStartMode\('homework', true\)">الكاملة/, 'الواجبات على الكاملة');
+  assert.match(html, /<button type="button" class="is-on" aria-pressed="true" onclick="setGradeStartMode\('homework', true\)">✓ الكاملة/, 'الواجبات على الكاملة وعليها ✓');
+  assert.match(html, /aria-pressed="true" onclick="setGradeStartMode\('participation', false\)">✓ 0</, 'المشاركة على 0 وعليها ✓');
 });
 
 test('انحدار: الكشف لا يكتب "الكاملة" مباشرة في عمود محسوب (واجبات/مهام/حالة/درجة) — تُمحى عند المزامنة وتعطي من لا رصد له الكاملة', async () => {
@@ -317,4 +318,88 @@ test('تغيير "يبدأ من" لأداة "حالة" — يُمسح رصدها
   await app.setGradeStartMode('tool:' + STATUS_ID, false);
   assert.equal(log.filter(l => l.op === 'upsert').length, 0);
   assert.equal(get(app, 'gradeStartsFull("tool:' + STATUS_ID + '")'), false);
+});
+
+function stubResync(app){
+  runInAppContext(app, `crmCustomTools = ${TOOLS}; crmCustomToolsLoaded = true; window.__resync = []; window.__busy = [];
+    syncToolColumn = async (c, t, s) => { window.__resync.push('tool:' + c.id + ':' + s); };
+    syncTaskColumn = async (c, s) => { window.__resync.push('task:' + c.id + ':' + s); };
+    syncHomeworkColumn = async (c, s) => { window.__resync.push('hw:' + c.id + ':' + s); }; loadSectionHomework = async () => ({});
+    setStartModeBusy = (k, on) => { window.__busy.push(k + ':' + on); };`);
+}
+
+test('سرعة تغيير "يبدأ من": أداة بلا رصد سابق — لا مسح ولا إعادة حساب ولا تحميل للكشف، والخيار يُحفظ', async () => {
+  const log = [];
+  const seed = { classroom_grade_columns: [col('B', 'S', 'manual', 2, { tool_id: STATUS_ID }), col('B2', 'S2', 'manual', 2, { tool_id: STATUS_ID })], classroom_tool_marks: [] };
+  const app = appWith(seed, log);
+  stubResync(app);
+  await app.setGradeStartMode('tool:' + STATUS_ID, true);
+  assert.equal(log.filter(l => l.op !== 'select').length, 0);
+  assert.deepEqual([...get(app, 'window.__resync')], []);
+  assert.deepEqual([...get(app, 'window.__synced')], []);
+  assert.equal(get(app, 'gradeStartsFull("tool:' + STATUS_ID + '")'), true);
+  assert.equal(get(app, 'window.__saved'), 1);
+});
+
+test('سرعة تغيير "يبدأ من": أداة لها رصد — يُعاد حساب عمودها فقط في شعبي (لا كشف كامل)، و"جارٍ التطبيق" يظهر ثم يزول', async () => {
+  const log = [];
+  const seed = {
+    classroom_grade_columns: [col('B', 'S', 'manual', 2, { tool_id: STATUS_ID }), col('B2', 'S2', 'manual', 2, { tool_id: STATUS_ID }), col('BZ', 'Z', 'manual', 2, { tool_id: STATUS_ID }), col('P', 'S', 'participation', 10)],
+    classroom_tool_marks: [{ id: 'm1', teacher_id: 'u1', tool_id: STATUS_ID, student_id: 'a', section_id: 'S', academic_year: TERM.year, semester: 1, mark_date: '2026-10-01', period: 1, value: 0 }]
+  };
+  const app = appWith(seed, log);
+  stubResync(app);
+  runInAppContext(app, `window.__answer = false;`);
+  await app.setGradeStartMode('tool:' + STATUS_ID, true);
+  assert.deepEqual([...get(app, 'window.__busy')], [], 'الإلغاء لا يظهر "جارٍ"');
+  runInAppContext(app, `window.__answer = true;`);
+  await app.setGradeStartMode('tool:' + STATUS_ID, true);
+  assert.deepEqual([...get(app, 'window.__resync')].sort(), ['tool:B2:S2', 'tool:B:S']);
+  assert.deepEqual([...get(app, 'window.__synced')], []);
+  assert.deepEqual([...get(app, 'window.__busy')], ['tool:' + STATUS_ID + ':true', 'tool:' + STATUS_ID + ':false']);
+});
+
+test('"جارٍ التطبيق" يزول حتى لو فشل الحفظ', async () => {
+  const app = appWith({ classroom_tool_marks: [] }, []);
+  stubResync(app);
+  runInAppContext(app, `saveAppFeatures = async () => { throw new Error('net'); };`);
+  await app.setGradeStartMode('tool:' + STATUS_ID, true);
+  assert.deepEqual([...get(app, 'window.__busy')].map(x => x.split(':').pop()), ['true', 'false']);
+  assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر/);
+});
+
+test('سرعة تغيير "يبدأ من": المهام — يُعاد حساب عمود المهام فقط في كل شعبة', async () => {
+  const log = [];
+  const seed = {
+    classroom_grade_columns: [col('K', 'S', 'task', 10), col('K2', 'S2', 'task', 10), col('H', 'S', 'homework', 10)],
+    classroom_tasks: [{ id: 'T1', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, max_score: 10 }]
+  };
+  const app = appWith(seed, log);
+  stubResync(app);
+  await app.setGradeStartMode('task', true);
+  assert.deepEqual([...get(app, 'window.__resync')].sort(), ['task:K2:S2', 'task:K:S']);
+});
+
+test('setStartModeBusy — يعطّل زرّي الخيار ويظهر "جارٍ التطبيق" ثم يعيدهما', async () => {
+  const app = loadApp();
+  runInAppContext(app, `
+    const btns = [{ disabled: false }, { disabled: false }], note = { textContent: '' };
+    window.__el = { querySelectorAll: () => btns, querySelector: () => note, btns, note };
+    document.querySelector = sel => sel === '[data-start-key="task"]' ? window.__el : null;`);
+  app.setStartModeBusy('task', true);
+  assert.deepEqual([...get(app, 'window.__el.btns.map(b => b.disabled)')], [true, true]);
+  assert.match(get(app, 'window.__el.note.textContent'), /جارٍ التطبيق/);
+  app.setStartModeBusy('task', false);
+  assert.deepEqual([...get(app, 'window.__el.btns.map(b => b.disabled)')], [false, false]);
+  assert.equal(get(app, 'window.__el.note.textContent'), '');
+});
+
+test('انحدار: Service Worker يجلب style.css من الشبكة أولًا (لا تنسيق قديم مع كود جديد)', async () => {
+  const vm = require('node:vm');
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'sw.js'), 'utf8');
+  const ctx = { self: { addEventListener(){}, location: { origin: 'https://x' } }, caches: {}, URL };
+  vm.runInNewContext(src, ctx);
+  assert.equal(ctx.isAppLogicRequest(new URL('https://x/style.css')), true);
+  assert.equal(ctx.isAppLogicRequest(new URL('https://x/app/app-25-grade-weights.js')), true);
+  assert.equal(ctx.isAppLogicRequest(new URL('https://x/icon-192.png')), false);
 });
