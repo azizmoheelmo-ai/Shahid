@@ -112,38 +112,43 @@ function crmGradeSettingsHtml(g){
     return `<div class="crm-gs-line">
       <span>${escapeHtml(c.name)}${t.tool ? ' 🧩' : ''} <small style="color:var(--muted);">${escapeHtml(t.sub)}${c.column && hidden.has(c.column.id) ? ' · مخفي' : ''}${c.tool ? ' · جديد' : ''}</small>
         ${t.tool ? `<a href="#" style="font-size:11px;" onclick="event.preventDefault();openCustomToolEditor('${t.tool.id}')">تعديل</a>` : ''}</span>
-      <input class="goal-input crm-weight-input" inputmode="decimal" data-key="${c.key}" value="${value}" oninput="paintCrmGradeSettings()" style="width:70px;margin:0;text-align:center;">
+      <span class="gs-cell"><input class="goal-input gs-num crm-weight-input" inputmode="decimal" data-key="${c.key}" value="${value}" oninput="paintCrmGradeSettings()">
+        <button type="button" class="gs-del" title="حذف" aria-label="حذف ${escapeHtml(c.name)}" onclick="deleteGradeComponent('${c.key}')">🗑</button></span>
     </div>`;
   }).join('');
+  const have = new Set((g.allColumns || g.columns).map(c => c.kind));
+  const missing = BUILTIN_GRADE_COMPONENTS.filter(b => !have.has(b.kind));
   const testsOn = appToolOn('tests');
   const ids = crmStudentsOfSection(g.sectionId).map(s => s.id);
   const testRows = g.columns.filter(c => c.category === 'tests').map(c => {
     const st = gradeColumnStats(c.id, g.scores, ids);
-    return `<div class="crm-lesson-row" style="cursor:pointer;" onclick="openCrmGradeColumnMenu('${c.id}')">
-      <span><b>${escapeHtml(c.name)}</b> · من ${formatScore(c.max_score)}${c.tool_id ? ' 🧩' : ''}</span>
-      <span style="font-size:11.5px;color:var(--muted);">رُصد ${ids.length - st.missing} من ${ids.length}</span></div>`;
+    return `<div class="crm-gs-line">
+      <a href="#" class="gs-test" onclick="event.preventDefault();openCrmGradeColumnMenu('${c.id}')"><b>${escapeHtml(c.name)}</b> · من ${formatScore(c.max_score)}${c.tool_id ? ' 🧩' : ''}
+        <small style="color:var(--muted);">رُصد ${ids.length - st.missing} من ${ids.length}</small></a>
+      ${c.tool_id ? '' : `<button type="button" class="gs-del" title="حذف" aria-label="حذف ${escapeHtml(c.name)}" onclick="deleteGradeTestEverywhere('${c.id}')">🗑</button>`}</div>`;
   }).join('');
-  return back + `<div class="crm-today-card">
+  return back + `<div class="crm-today-card gs-panel">
     <div class="crm-today-title">⚙ إعداد الدرجات</div>
     <p class="crm-gs-note" style="margin:0 0 8px;">الإعداد هنا، والرصد في ورقة الحصة. الحفظ يُطبَّق على كل شعبك لهذا الفصل.</p>
 
     <h4 class="crm-gs-step">① التوزيع (المجموع ${GRADE_CAPS_TOTAL})</h4>
-    <div class="crm-gs-line"><span>الأداء</span><input class="goal-input" id="gsCapPerf" inputmode="decimal" value="${formatScore(caps.performance)}" oninput="syncGradeCapInputs('gs', 'performance');paintCrmGradeSettings()" style="width:70px;margin:0;text-align:center;"></div>
-    <div class="crm-gs-line"><span>الاختبارات</span><input class="goal-input" id="gsCapTests" inputmode="decimal" value="${formatScore(caps.tests)}" oninput="syncGradeCapInputs('gs', 'tests');paintCrmGradeSettings()" style="width:70px;margin:0;text-align:center;"></div>
+    <div class="crm-gs-line"><span>الأداء</span><input class="goal-input gs-num" id="gsCapPerf" inputmode="decimal" value="${formatScore(caps.performance)}" oninput="syncGradeCapInputs('gs', 'performance');paintCrmGradeSettings()"></div>
+    <div class="crm-gs-line"><span>الاختبارات</span><input class="goal-input gs-num" id="gsCapTests" inputmode="decimal" value="${formatScore(caps.tests)}" oninput="syncGradeCapInputs('gs', 'tests');paintCrmGradeSettings()"></div>
     <p class="crm-gs-note">الرسمي ${GRADE_CAPS_DEFAULT.performance} و${GRADE_CAPS_DEFAULT.tests}. اكتب إحداهما والأخرى تُكمَل.</p>
 
     <h4 class="crm-gs-step">② مكوّنات الأداء</h4>
     ${compRows}
     <div id="crmWeightsTotal" style="font-size:13px;font-weight:700;margin:8px 0;"></div>
-    ${(typeof crmCustomTools !== 'undefined' ? crmCustomTools.length : 0) < CUSTOM_TOOL_MAX ? '<button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="openCustomToolEditor(null)">+ مكوّن (مثل: بحوث، قراءة، مشروع)</button>' : ''}
+    ${missing.length ? `<div class="crm-gs-note">محذوف من الكشف: ${missing.map(b => `<button type="button" class="gs-add gs-add-sm" onclick="addBuiltinGradeComponent('${b.kind}')">↩ ${b.name}</button>`).join(' ')}</div>` : ''}
+    ${(typeof crmCustomTools !== 'undefined' ? crmCustomTools.length : 0) < CUSTOM_TOOL_MAX ? '<button class="gs-add" onclick="openCustomToolEditor(null)">+ مكوّن (مثل: بحوث، قراءة، مشروع)</button>' : ''}
 
     ${testsOn ? `<h4 class="crm-gs-step">③ الاختبارات — ${escapeHtml(crmSectionLabel(g.sectionId))} (محصلتها من ${formatScore(caps.tests)})</h4>
     ${testRows || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
-    <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:6px;" onclick="openCrmGradeColumnEditor('tests', null)">+ اختبار</button>
-    ${testRows ? '<p class="crm-gs-note">اضغط على اختبار لرصد درجاته أو تعديله أو حذفه.</p>' : ''}` : ''}
+    <button class="gs-add" style="margin-top:6px;" onclick="openCrmGradeColumnEditor('tests', null)">+ اختبار</button>
+    ${testRows ? '<p class="crm-gs-note">اضغط على اسم الاختبار لرصد درجاته أو تعديله، و🗑 يحذفه من كل شعبك.</p>' : ''}` : ''}
 
     <div id="crmGradeSettingsError" style="display:none;color:#8A2C2C;font-size:12px;margin:10px 0 0;line-height:1.7;"></div>
-    <button class="btn btn-primary" id="crmGradeSettingsSaveBtn" style="width:100%;justify-content:center;margin-top:12px;" onclick="saveCrmGradeSettings()">حفظ — يُطبَّق على كل شعبي</button>
+    <button class="gs-save" id="crmGradeSettingsSaveBtn" onclick="saveCrmGradeSettings()">💾 حفظ — يُطبَّق على كل شعبي</button>
   </div>`;
 }
 
@@ -202,7 +207,7 @@ async function saveCrmGradeSettings(){
   d.saving = true;
   const btn = document.getElementById('crmGradeSettingsSaveBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الحفظ...'; }
-  const done = () => { d.saving = false; if(btn){ btn.disabled = false; btn.textContent = 'حفظ — يُطبَّق على كل شعبي'; } };
+  const done = () => { d.saving = false; if(btn){ btn.disabled = false; btn.textContent = '💾 حفظ — يُطبَّق على كل شعبي'; } };
   const uid = currentUser.id;
   try{
     /* وزن أداء أصغر: تُصغَّر المكوّنات أولًا ثم يُحفظ التوزيع؛ وأكبر: العكس — فلا يرفض السقف خطوة في الوسط */
@@ -291,4 +296,124 @@ async function openGradeSettingsFromAnywhere(){
   try{ localStorage.setItem('crm_grades_view', 'sheet'); } catch(e){}
   if(document.getElementById('classroomView').style.display === 'none') await showClassroomManagement();
   switchCrmTab('grades');
+}
+
+/* ============ حذف المكوّنات والاختبارات (من إعداد الدرجات) ============ */
+const BUILTIN_GRADE_COMPONENTS = [
+  { kind: 'participation', name: 'مشاركة', max: 10 },
+  { kind: 'homework', name: 'واجبات', max: 10 },
+  { kind: 'task', name: 'مهام أدائية', max: 20 }
+];
+
+/* أعمدة هذا الفصل (كل شعب المعلم) المطابقة لمكوّن */
+async function termColumnsMatching(match){
+  const term = crmCurrentTerm();
+  const { data, error } = await sb.from('classroom_grade_columns').select('id, section_id, category, kind, tool_id, name, max_score')
+    .eq('teacher_id', currentUser.id).eq('academic_year', term.year).eq('semester', term.semester);
+  if(error) throw error;
+  const mine = new Set(crmSections.map(s => s.id));
+  return (data || []).filter(c => mine.has(c.section_id) && match(c));
+}
+
+async function countScoresOf(columnIds){
+  if(!columnIds.length) return 0;
+  const { data, error } = await sb.from('classroom_grade_scores').select('id').eq('teacher_id', currentUser.id).in('column_id', columnIds);
+  if(error) throw error;
+  return (data || []).length;
+}
+
+async function setAppToolOn(key, on){
+  const next = normalizeFeatures(appFeatures);
+  next.tools = Object.assign({}, next.tools, { [key]: on });
+  appFeatures = next;
+  afterAppFeaturesChanged();
+  await saveAppFeatures();
+}
+
+let gradeComponentBusy = false;
+async function withGradeComponentBusy(fn){
+  if(gradeComponentBusy || !currentUser) return;
+  gradeComponentBusy = true;
+  try{ await fn(); }
+  catch(e){ showToast('تعذّر: ' + gradeDbErrorMessage(e), 'error'); }
+  finally { gradeComponentBusy = false; }
+}
+
+/* حذف مكوّن أداء من كشوف كل الشعب لهذا الفصل. الأداة الخاصة تُحذف كلها (بتأكيدها)؛
+   والأساسي (مشاركة/واجبات/مهام) يُحذف عموده وتُخفى أداته من ورقة الحصة */
+function deleteGradeComponent(key){
+  const d = crmWeightsDraft;
+  const comp = d && d.components.find(c => c.key === key);
+  if(!comp) return;
+  const toolId = comp.tool ? comp.tool.id : (comp.column && comp.column.tool_id);
+  if(toolId) return deleteCustomTool(toolId);
+  return withGradeComponentBusy(async () => {
+    const identity = perfComponentIdentity(comp);
+    const cols = await termColumnsMatching(c => c.category === 'performance' && perfComponentIdentity({ column: c }) === identity);
+    const n = await countScoresOf(cols.map(c => c.id));
+    const kind = comp.column.kind;
+    const toolKey = GRADE_KIND_TOOL[kind];
+    const ok = await showConfirm(`حذف "${comp.name}" من كشوف كل شعبك لهذا الفصل؟` +
+      (n ? ` تُحذف معه ${n} درجة مرصودة فيه.` : '') +
+      (kind === 'homework' || kind === 'task' ? ' رصد التسليم/المهام نفسه يبقى، ويعود حسابه إن أرجعته.' : '') +
+      (toolKey ? ` وتُخفى "${CRM_SHEET_MODE_LABELS[kind]}" من ورقة الحصة.` : ''));
+    if(!ok || !cols.length) return;
+    const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', currentUser.id).in('id', cols.map(c => c.id));
+    if(error) throw error;
+    if(toolKey && appToolOn(toolKey)) await setAppToolOn(toolKey, false);
+    showToast(`حُذف "${comp.name}"`, 'ok');
+    if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
+    renderCrmGrades();
+  });
+}
+
+/* إرجاع مكوّن أساسي محذوف: يُنشأ عموده في كل شعبة لها كشف (بوزنه أو ما يتسع)، وتُظهر أداته */
+function addBuiltinGradeComponent(kind){
+  const b = BUILTIN_GRADE_COMPONENTS.find(x => x.kind === kind);
+  if(!b) return;
+  return withGradeComponentBusy(async () => {
+    const term = crmCurrentTerm();
+    const all = await termColumnsMatching(() => true);
+    const bySection = new Map();
+    all.forEach(c => { if(!bySection.has(c.section_id)) bySection.set(c.section_id, []); bySection.get(c.section_id).push(c); });
+    const cap = gradeCap('performance');
+    const rows = [], full = [];
+    bySection.forEach((cols, sectionId) => {
+      if(!hasBaseGradeColumns(cols) || cols.some(c => c.kind === kind)) return;
+      const used = cols.filter(c => c.category === 'performance').reduce((a, c) => a + Number(c.max_score), 0);
+      const room = Math.floor((cap - used) / GRADE_WEIGHT_STEP) * GRADE_WEIGHT_STEP;
+      if(room < GRADE_WEIGHT_STEP){ full.push(sectionId); return; }
+      rows.push({ teacher_id: currentUser.id, section_id: sectionId, academic_year: term.year, semester: term.semester,
+        category: 'performance', kind, name: b.name, max_score: Math.min(b.max, room), position: cols.filter(c => c.category === 'performance').length });
+    });
+    if(full.length && !rows.length){ showToast(`لا متسع في الأداء لـ"${b.name}" — أنقص وزن مكوّن آخر واحفظ، ثم أرجعه`, 'error'); return; }
+    if(rows.length){
+      const { error } = await sb.from('classroom_grade_columns').insert(rows);
+      if(error) throw error;
+    }
+    const toolKey = GRADE_KIND_TOOL[kind];
+    if(toolKey && !appToolOn(toolKey)) await setAppToolOn(toolKey, true);
+    showToast(`أُرجع "${b.name}" — راجع وزنه ثم احفظ` + (full.length ? ` (${full.length} شعبة بلا متسع)` : ''), full.length ? 'error' : 'ok');
+    if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
+    renderCrmGrades();
+  });
+}
+
+/* حذف اختبار من كل الشعب (نفس الاسم والدرجة الكاملة — أُضيف لها معًا) */
+function deleteGradeTestEverywhere(columnId){
+  const g = crmGrades;
+  const t = g && (g.allColumns || g.columns).find(c => c.id === columnId);
+  if(!t) return;
+  return withGradeComponentBusy(async () => {
+    const name = normalizeGradeColumnName(t.name);
+    const cols = await termColumnsMatching(c => c.category === 'tests' && !c.tool_id && normalizeGradeColumnName(c.name) === name && Number(c.max_score) === Number(t.max_score));
+    const n = await countScoresOf(cols.map(c => c.id));
+    const ok = await showConfirm(`حذف اختبار "${t.name}" (من ${formatScore(t.max_score)})` + (cols.length > 1 ? ` من ${cols.length} شعب` : '') + '؟' + (n ? ` تُحذف معه ${n} درجة مرصودة نهائيًا.` : ''));
+    if(!ok || !cols.length) return;
+    const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', currentUser.id).in('id', cols.map(c => c.id));
+    if(error) throw error;
+    showToast(`حُذف "${t.name}"`, 'ok');
+    if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
+    renderCrmGrades();
+  });
 }

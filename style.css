@@ -1500,3 +1500,20 @@
 .crm-gs-big small{font-size:12px;color:var(--muted);font-weight:600;}
 .crm-gs-chip{display:inline-block;background:#E3F1EE;color:#12796A;border-radius:12px;padding:0 8px;font-size:11px;}
 .crm-gs-step{font-size:13.5px;color:var(--navy);margin:14px 0 4px;padding-right:8px;border-right:3px solid var(--gold);}
+
+/* ============ ألوان "إعداد الدرجات": الأزرار تتميّز عن الصفحة ============ */
+.gs-panel{background:#FBFAF6;}
+.gs-panel .crm-gs-line{background:#fff;border:1px solid #EEE9DF;border-radius:8px;padding:6px 10px;margin-bottom:6px;}
+.crm-gs-step{background:#EAF0F5;border-right:4px solid var(--navy);border-radius:6px;padding:6px 10px;}
+.gs-cell{display:flex;align-items:center;gap:6px;}
+.gs-num{width:64px;margin:0;text-align:center;font-weight:700;color:var(--navy);background:#FFFDF6;border-color:var(--gold);}
+.gs-add{display:block;width:100%;margin-top:4px;padding:9px;border-radius:8px;border:1px dashed #12796A;background:#E3F1EE;color:#0E5F53;font-weight:700;font-family:inherit;font-size:13.5px;cursor:pointer;}
+.gs-add:hover{background:#D3EAE4;}
+.gs-add-sm{display:inline-block;width:auto;padding:4px 10px;font-size:12px;margin:2px 0;}
+.gs-del{border:1px solid #E7C4C4;background:#FBEFEF;color:#8A2C2C;border-radius:8px;width:34px;height:34px;font-size:14px;cursor:pointer;flex:none;}
+.gs-del:hover{background:#F6DCDC;}
+.gs-test{color:var(--ink);text-decoration:none;flex:1;}
+.gs-test small{display:block;}
+.gs-save{display:block;width:100%;margin-top:14px;padding:12px;border-radius:10px;border:0;background:#12796A;color:#fff;font-weight:700;font-size:15px;font-family:inherit;cursor:pointer;box-shadow:0 2px 0 #0B5A4F;}
+.gs-save:disabled{opacity:.6;cursor:default;}
+.gs-open{margin-top:8px;padding:7px 14px;border-radius:8px;border:0;background:var(--gold);color:#fff;font-weight:700;font-family:inherit;font-size:13px;cursor:pointer;}

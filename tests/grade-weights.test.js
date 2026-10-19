@@ -17,7 +17,7 @@ const baseCols = s => [col(s + 'p', s, 'مشاركة', 10, { kind: 'participatio
 const TOOL = { id: 'T', name: 'إحضار الكتاب', tool_type: 'status', category: 'performance', max_score: 1, hidden: false };
 
 function fakeClient(seed, log){
-  const match = (rows, f) => (rows || []).filter(r => f.every(([c, v]) => r[c] === v));
+  const match = (rows, f) => (rows || []).filter(r => f.every(([c, v]) => Array.isArray(v) ? v.includes(r[c]) : r[c] === v));
   return {
     from(table){
       const f = []; let op = 'select', values = null;
@@ -25,7 +25,7 @@ function fakeClient(seed, log){
         if(op !== 'select'){ log.push({ table, op, values, filters: f.slice() }); return { data: null, error: null }; }
         return { data: match(seed[table], f), error: null };
       };
-      const api = { select(){ return api; }, eq(c, v){ f.push([c, v]); return api; }, in(){ return api; }, order(){ return api; },
+      const api = { select(){ return api; }, eq(c, v){ f.push([c, v]); return api; }, in(c, v){ f.push([c, v]); return api; }, order(){ return api; },
         insert(r){ op = 'insert'; values = r; return api; }, upsert(r){ op = 'upsert'; values = r; return api; },
         update(r){ op = 'update'; values = r; return api; }, delete(){ op = 'delete'; return api; },
         then(res, rej){ return Promise.resolve(result()).then(res, rej); } };
@@ -156,4 +156,78 @@ test('الكشف المبسّط — زر "⚙ إعداد الدرجات" ولا 
   const html = app.crmGradeSimpleHtml(g);
   assert.match(html, /openCrmGradeSettings\(\)">⚙ إعداد الدرجات/);
   assert.doesNotMatch(html, /openCrmGradeColumnEditor\('tests'/);
+});
+
+/* ============ الحذف والإرجاع ============ */
+function delApp(seed, log, confirm){
+  const app = appWith(seed, log);
+  runInAppContext(app, `
+    window.__confirm = []; showConfirm = async m => { window.__confirm.push(m); return ${confirm === false ? 'false' : 'true'}; };
+    window.__saved = 0; saveAppFeatures = async () => { window.__saved++; }; afterAppFeaturesChanged = () => {};
+    window.__toolDeleted = []; deleteCustomTool = id => window.__toolDeleted.push(id);
+    appFeatures = { sections: {}, tools: {} };`);
+  return app;
+}
+
+test('حذف مكوّن أساسي — من كل الشعب باسم المعلم بعد تأكيد يذكر الدرجات، ويُخفي أداته من ورقة الحصة', async () => {
+  const log = [];
+  /* Zp: شعبة ليست من شعب المعلم الحالية (لا تُمس) */
+  const seed = { classroom_grade_columns: baseCols('S').concat(baseCols('S2'), [col('Xp', 'S', 'مشاركة', 10, { kind: 'participation', teacher_id: 'u2' }), col('Zp', 'Z', 'مشاركة', 10, { kind: 'participation' })]),
+    classroom_grade_scores: [{ id: 1, teacher_id: 'u1', column_id: 'Sp', score: 5 }, { id: 2, teacher_id: 'u1', column_id: 'S2p', score: 3 }, { id: 3, teacher_id: 'u2', column_id: 'Xp', score: 9 }] };
+  const app = delApp(seed, log);
+  app.crmGradeSettingsHtml(sheetG(seed.classroom_grade_columns, 'S'));
+  await app.deleteGradeComponent('c:Sp');
+  assert.match(get(app, 'window.__confirm[0]'), /حذف "مشاركة" من كشوف كل شعبك/);
+  assert.match(get(app, 'window.__confirm[0]'), /2 درجة مرصودة/);
+  assert.match(get(app, 'window.__confirm[0]'), /وتُخفى "مشاركة" من ورقة الحصة/);
+  const del = log.filter(l => l.op === 'delete')[0];
+  assert.deepEqual(Object.fromEntries(del.filters.map(([c, v]) => [c, Array.isArray(v) ? [...v].sort() : v])), { teacher_id: 'u1', id: ['S2p', 'Sp'] });
+  assert.equal(get(app, 'appFeatures.tools.participation'), false);
+  assert.equal(get(app, 'window.__saved'), 1);
+});
+
+test('حذف — إلغاء التأكيد لا يحذف، والمكوّن الخاص يُحذف بأداته', async () => {
+  const log = [];
+  const cols = baseCols('S').concat([col('ct', 'S', 'بحوث', 5, { tool_id: 'T' })]);
+  const app = delApp({ classroom_grade_columns: cols, classroom_grade_scores: [] }, log, false);
+  app.crmGradeSettingsHtml(sheetG(cols, 'S'));
+  await app.deleteGradeComponent('c:Sh');
+  assert.equal(log.filter(l => l.op === 'delete').length, 0);
+  app.deleteGradeComponent('c:ct');
+  assert.deepEqual([...get(app, 'window.__toolDeleted')], ['T']);
+});
+
+test('إرجاع مكوّن أساسي محذوف — في الشعب التي لها كشف وينقصها، بوزنه أو ما يتسع، ويُظهر أداته', async () => {
+  const log = [];
+  const noHw = s => baseCols(s).filter(c => c.kind !== 'homework');
+  const seed = { classroom_grade_columns: noHw('S').concat(noHw('S2'), [col('m', 'S2', 'مشروع', 5)]) };
+  const app = delApp(seed, log);
+  runInAppContext(app, `appFeatures = { sections: {}, tools: { homework: false } };`);
+  const html = app.crmGradeSettingsHtml(sheetG(seed.classroom_grade_columns, 'S'));
+  assert.match(html, /addBuiltinGradeComponent\('homework'\)">↩ واجبات/);
+  await app.addBuiltinGradeComponent('homework');
+  const rows = log.filter(l => l.op === 'insert')[0].values;
+  assert.deepEqual([...rows].map(r => r.section_id + ':' + r.max_score + ':' + r.kind + ':' + r.teacher_id), ['S:10:homework:u1', 'S2:5:homework:u1'], 'S2 فيها مشروع 5 فيتسع 5 فقط');
+  assert.equal(get(app, 'appFeatures.tools.homework'), true);
+});
+
+test('حذف اختبار — من كل الشعب بنفس الاسم والدرجة الكاملة فقط', async () => {
+  const log = [];
+  const t = (id, s, name, max, extra) => col(id, s, name, max, Object.assign({ category: 'tests' }, extra || {}));
+  const cols = baseCols('S').concat([t('a1', 'S', 'الفترة الأولى', 20), t('a2', 'S2', ' الفترة  الأولى ', 20), t('a3', 'S2', 'الفترة الأولى', 10), t('a4', 'S', 'قصير', 20), t('a5', 'S2', 'الفترة الأولى', 20, { teacher_id: 'u2' })]);
+  const app = delApp({ classroom_grade_columns: cols, classroom_grade_scores: [] }, log);
+  runInAppContext(app, `crmGrades = ${JSON.stringify(sheetG(cols, 'S'))};`);
+  await Promise.all([app.deleteGradeTestEverywhere('a1'), app.deleteGradeTestEverywhere('a1')]);
+  const dels = log.filter(l => l.op === 'delete');
+  assert.equal(dels.length, 1, 'لا يتكرر بنقرتين');
+  assert.deepEqual([...dels[0].filters.find(([c]) => c === 'id')[1]].sort(), ['a1', 'a2']);
+  assert.match(get(app, 'window.__confirm[0]'), /من 2 شعب/);
+});
+
+test('إعداد الدرجات — زر حذف 🗑 لكل مكوّن ولكل اختبار يدوي', async () => {
+  const app = delApp({}, []);
+  const cols = baseCols('S').concat([col('t1', 'S', 'قصير', 20, { category: 'tests' })]);
+  const html = app.crmGradeSettingsHtml(sheetG(cols, 'S'));
+  for(const k of ['c:Sp', 'c:Sh', 'c:Sk']) assert.match(html, new RegExp(`deleteGradeComponent\\('${k}'\\)`));
+  assert.match(html, /deleteGradeTestEverywhere\('t1'\)/);
 });
