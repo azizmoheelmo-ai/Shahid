@@ -263,13 +263,17 @@ async function renderCrmParticipation(students, tool){
   const full = gradeStartsFull(tool ? 'tool:' + tool.id : 'participation');
   s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full, step: full ? -1 : 1 };
   body.innerHTML = head + `
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${full
-      ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}) — نقرة = <b style="color:#8A2C2C;">−1</b> من "${escapeHtml(column.name)}". تُحفظ فورًا.`
-      : `نقرة = +1 في عمود "${escapeHtml(column.name)}" (من ${formatScore(column.max_score)}) — تُحفظ فورًا.`}</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة في "${escapeHtml(column.name)}" (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
-        <button type="button" class="crm-att-btn${s.states[st.id] === 'absent' ? ' is-absent' : ''}" id="crmPart_${st.id}" onclick="tapCrmParticipation('${st.id}')">
-          <span class="crm-att-name">${escapeHtml(st.full_name)}</span><span class="crm-part-val"></span></button>
+        <div class="crm-att-btn crm-part-tile${s.states[st.id] === 'absent' ? ' is-absent' : ''}" id="crmPart_${st.id}">
+          <span class="crm-att-name">${escapeHtml(st.full_name)}<span class="crm-part-chip"></span></span>
+          <span class="crm-part-step">
+            <button type="button" class="crm-part-plus" aria-label="+1 ${escapeHtml(st.full_name)}" onclick="tapCrmParticipation('${st.id}', 1)">+</button>
+            <span class="crm-part-val"></span>
+            <button type="button" class="crm-part-minus" aria-label="−1 ${escapeHtml(st.full_name)}" onclick="tapCrmParticipation('${st.id}', -1)">−</button>
+          </span>
+        </div>
       </div>`).join('')}
     </div>
     <div class="crm-sheet-bar">
@@ -285,17 +289,20 @@ function paintCrmParticipation(studentId){
   const btn = document.getElementById('crmPart_' + studentId);
   if(!btn || !s || !s.part) return;
   const score = s.part.scores.has(studentId) ? s.part.scores.get(studentId) : null;
-  const today = s.part.today[studentId] || 0;
-  const minus = (s.part.step || 1) < 0;
+  /* صافي تغيّر اليوم: today يعدّ النقرات باتجاه الوضع (+1، أو −1 لمن يبدأ من الكاملة) */
+  const net = (s.part.today[studentId] || 0) * (s.part.step || 1);
   btn.querySelector('.crm-part-val').innerHTML =
-    `${score === null ? '—' : formatScore(score)}<span class="crm-grade-max"> / ${formatScore(s.part.column.max_score)}</span>${today ? `<b class="crm-part-today${minus ? ' is-minus' : ''}">${minus ? '−' : '+'}${today}</b>` : ''}`;
-  btn.classList.toggle('is-full', !minus && score !== null && score >= Number(s.part.column.max_score));
+    `<b>${score === null ? '—' : formatScore(score)}</b><span class="crm-grade-max"> / ${formatScore(s.part.column.max_score)}</span>`;
+  const chip = btn.querySelector('.crm-part-chip');
+  if(chip) chip.innerHTML = net ? `<b class="crm-part-today${net < 0 ? ' is-minus' : ''}" dir="ltr">${net < 0 ? '−' : '+'}${Math.abs(net)}</b>` : '';
+  btn.classList.toggle('is-full', score !== null && score >= Number(s.part.column.max_score));
   const undo = document.getElementById('crmPartUndoBtn');
   if(undo) undo.disabled = !s.part.undo.length;
 }
 
 /* النقرات على نفس الطالب تُرسل بالتتابع (لا تتقاطع) — والقاعدة تجمعها ذرّيًا */
-function queueCrmParticipation(studentId, delta){
+/* kind: 'tap' (نقرة + أو −) أو 'undo' (تراجع عنها) — لإرجاع العرض والسجل بدقة عند الفشل */
+function queueCrmParticipation(studentId, delta, kind){
   const s = crmSheet;
   const p = s.part;
   const prev = p.queue.get(studentId) || Promise.resolve();
@@ -313,19 +320,22 @@ function queueCrmParticipation(studentId, delta){
     }
   }).catch(e => {
     markCrmSheetFailure();
-    const isTap = delta === (p.step || 1); /* نقرة (±1 حسب الوضع) أم تراجع عنها */
+    const isTap = kind !== 'undo';
     showToast((isTap ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + (e.message || 'خطأ بالاتصال'), 'error');
     /* إرجاع كل أثر العرض المتفائل: الدرجة والعدّاد وسجل التراجع. لو بقيت نقرة
        فاشلة في السجل، أنقص "تراجع" لاحقًا درجة حقيقية لم تُضف أصلًا */
     const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
     const back = cur - delta;
     if(back <= 0 && delta > 0 && !p.full) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, Math.min(Number(p.column.max_score), back)));
-    p.today[studentId] = Math.max(0, (p.today[studentId] || 0) + (isTap ? -1 : 1));
+    /* اتجاه النقرة الأصلية: النقرة نفسها، أو عكس التراجع */
+    const dir = isTap ? delta : -delta;
+    const entry = participationUndoEntry(p, studentId, dir);
+    p.today[studentId] = (p.today[studentId] || 0) + (isTap ? -1 : 1) * (dir === (p.step || 1) ? 1 : -1);
     if(isTap){
-      const i = p.undo.lastIndexOf(studentId);
+      const i = p.undo.lastIndexOf(entry);
       if(i !== -1) p.undo.splice(i, 1);
     } else {
-      p.undo.push(studentId);
+      p.undo.push(entry);
     }
     writeParticipationState(s, p);
     if(crmSheet === s && s.part === p) paintCrmParticipation(studentId);
@@ -334,36 +344,47 @@ function queueCrmParticipation(studentId, delta){
   return next;
 }
 
-function tapCrmParticipation(studentId){
+/* سجل التراجع: النقرة باتجاه الوضع تُحفظ بمعرّف الطالب وحده (كالصيغة القديمة المحفوظة على
+   الأجهزة)، والنقرة المعاكسة بـ"~" قبله — فيُعرف عند التراجع ماذا يُعكس */
+function participationUndoEntry(p, studentId, dir){
+  return dir === (p.step || 1) ? studentId : '~' + studentId;
+}
+
+/* dir: +1 أو −1 (زرّا المستطيل)؛ بلا dir = اتجاه الوضع */
+function tapCrmParticipation(studentId, dir){
   const s = crmSheet;
   if(!s || !s.part) return;
   const p = s.part;
   const max = Number(p.column.max_score);
-  const step = p.step || 1; /* +1 (يبدأ من 0) أو −1 (يبدأ من الكاملة) */
+  const step = p.step || 1; /* اتجاه الوضع: +1 (يبدأ من 0) أو −1 (يبدأ من الكاملة) */
+  dir = dir === 1 || dir === -1 ? dir : step;
   const cur = p.scores.has(studentId) ? p.scores.get(studentId) : (p.full ? max : 0);
-  if(step > 0 && cur >= max){ showToast(`اكتملت درجة "${p.column.name}" لهذا الطالب`, 'ok'); return; }
-  if(step < 0 && cur <= 0){ showToast(`درجة "${p.column.name}" لهذا الطالب صفر`, 'ok'); return; }
-  p.scores.set(studentId, Math.max(0, Math.min(max, cur + step))); /* عرض فوري */
-  p.today[studentId] = (p.today[studentId] || 0) + 1;
-  p.undo.push(studentId);
+  if(dir > 0 && cur >= max){ showToast(`اكتملت درجة "${p.column.name}" لهذا الطالب`, 'ok'); return; }
+  if(dir < 0 && cur <= 0){ showToast(`درجة "${p.column.name}" لهذا الطالب صفر`, 'ok'); return; }
+  p.scores.set(studentId, Math.max(0, Math.min(max, cur + dir))); /* عرض فوري */
+  p.today[studentId] = (p.today[studentId] || 0) + (dir === step ? 1 : -1);
+  p.undo.push(participationUndoEntry(p, studentId, dir));
   writeParticipationState(s, p);
   paintCrmParticipation(studentId);
-  queueCrmParticipation(studentId, step);
+  queueCrmParticipation(studentId, dir, 'tap');
 }
 
 function undoCrmParticipation(){
   const s = crmSheet;
   if(!s || !s.part || !s.part.undo.length) return;
   const p = s.part;
-  const studentId = p.undo.pop();
+  const entry = p.undo.pop();
+  const opposite = entry.charAt(0) === '~';
+  const studentId = opposite ? entry.slice(1) : entry;
   const step = p.step || 1;
+  const dir = opposite ? -step : step; /* اتجاه النقرة التي نتراجع عنها */
   const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
-  const back = cur - step;
-  if(back <= 0 && step > 0) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, Math.min(Number(p.column.max_score), back)));
-  p.today[studentId] = Math.max(0, (p.today[studentId] || 0) - 1);
+  const back = cur - dir;
+  if(back <= 0 && dir > 0 && !p.full) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, Math.min(Number(p.column.max_score), back)));
+  p.today[studentId] = (p.today[studentId] || 0) - (opposite ? -1 : 1);
   writeParticipationState(s, p);
   paintCrmParticipation(studentId);
-  queueCrmParticipation(studentId, -step);
+  queueCrmParticipation(studentId, -dir, 'undo');
 }
 
 /* ============ وضع الواجب ============ */
