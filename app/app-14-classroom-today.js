@@ -284,7 +284,7 @@ async function renderCrmToday(){
         const label = escapeHtml(crmSectionLabel(r.section_id));
         const isNext = i === plan.nextIndex;
         const action = r.recorded
-          ? `<span class="crm-lesson-done">مرصودة ✓</span><button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">تعديل</button>`
+          ? `<span class="crm-lesson-done">الحضور ✓</span><button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">تعديل</button>`
           : r.skip
             ? `<button class="btn btn-outline crm-mini-btn" onclick="undoCrmLessonSkip('${r.skip.id}')">تراجع</button>`
             : `<button class="crm-skip-btn" onclick="openCrmSkipModal('${r.section_id}','${todayIso}',${r.period})">لم أحضر</button><button class="btn ${isNext ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">رصد</button>`;
@@ -309,7 +309,7 @@ async function renderCrmToday(){
   /* ---- غير المرصود ---- */
   const unrecorded = findUnrecordedLessons(crmTimetableSlots, lessons, todayIso, 7, d => !!holidayCheck.nameFor(d), skips);
   if(unrecorded.length){
-    html += `<div class="crm-today-card crm-today-warn"><div class="crm-today-title">⚠ لم تُرصد (آخر 7 أيام): ${unrecorded.length}</div>`;
+    html += `<div class="crm-today-card crm-today-warn"><div class="crm-today-title">⚠ حضور لم يُرصد (آخر 7 أيام): ${unrecorded.length}</div>`;
     html += unrecorded.map(u => `<div class="crm-lesson-row">
         <span>${CRM_WEEKDAY_NAMES[u.weekday]} ${u.date.slice(5).replace('-', '/')} · الحصة ${u.period} · ${escapeHtml(crmSectionLabel(u.section_id))}</span>
         <span class="crm-lesson-actions"><button class="crm-skip-btn" onclick="openCrmSkipModal('${u.section_id}','${u.date}',${u.period})">لم أحضر</button><button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${u.section_id}','${u.date}',${u.period})">رصد</button></span>
@@ -662,44 +662,8 @@ function markAllCrmPresent(){
   paintCrmSheetCounts();
 }
 
-/* ورقة الحصة تُحفظ بحفظ حضورها: ما يُرصد في المشاركة والواجب والمهام والأدوات يُحفظ فورًا
-   في الكشف، لكن الحصة تبقى "غير مرصودة" حتى يُحفظ حضورها. لا نحفظه بصمت (الكل
-   حاضر افتراضيًا) — نسأل المعلم عند الرجوع، ونعرض زر حفظ في أوضاع الأدوات. */
-function markCrmSheetActivity(){
-  if(crmSheet) crmSheet.activity = true;
-}
-
-function crmSheetAttendanceSummary(s){
-  const c = attendanceCounts(s.states);
-  return (c.absent || c.late || c.permitted_exit) ? `غائب ${c.absent} · متأخر ${c.late} · مستأذن ${c.permitted_exit}` : 'الكل حاضر';
-}
-
-/* الحصة تحتاج حفظ حضورها؟ (حضورها مفعّل، ولم تُحفظ بعد، ووضع الورقة ليس الحضور) */
-function crmSheetNeedsAttendanceSave(s){
-  return !!s && !s.lessonId && appToolOn('attendance');
-}
-
-function crmSheetUnsavedBannerHtml(){
-  const s = crmSheet;
-  if(!crmSheetNeedsAttendanceSave(s) || !s.mode || s.mode === 'attendance') return '';
-  return `<div class="crm-sheet-note" style="display:flex;gap:8px;align-items:center;justify-content:space-between;">
-    <span>حضور هذه الحصة لم يُحفظ بعد، فتظهر "غير مرصودة".</span>
-    <button class="btn btn-outline crm-mini-btn" id="crmModeSaveBtn" onclick="saveCrmLessonSheet()">حفظ الحصة (${escapeHtml(crmSheetAttendanceSummary(s))})</button></div>`;
-}
-
-/* "رجوع" من أوضاع الأدوات: إن رُصد شيء والحصة لم تُحفظ نسأل أولًا */
-function leaveCrmLessonSheet(){
-  const s = crmSheet;
-  if(!s) return;
-  if(!s.activity || !crmSheetNeedsAttendanceSave(s) || crmSheetSaving){ closeCrmLessonSheet(); return; }
-  showInfoModal(`<div style="text-align:right;">
-    <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">الحصة لم تُرصد بعد</h3>
-    <p style="font-size:13px;line-height:1.7;margin:0 0 12px;">رصدت في هذه الحصة، لكن حضورها لم يُحفظ، فتبقى "غير مرصودة" في شاشة اليوم. أحفظها الآن بالحضور الحالي (<b>${escapeHtml(crmSheetAttendanceSummary(s))}</b>)؟</p>
-    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="closeCrmModal();saveCrmLessonSheet()">حفظ الحصة وإغلاق</button>
-    <button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="closeCrmModal();closeCrmLessonSheet()">إغلاق الحصة بدون حفظ</button>
-  </div>`, '420px');
-}
-
+/* الحضور مستقل عن بقية أوضاع الورقة: الحصة "مرصودة" بحفظ حضورها وحده، وما يُرصد في
+   المشاركة والواجب والمهام والأدوات يُحفظ بنقرته ولا يغيّر حالة الحضور. */
 function markCrmSheetFailure(){
   if(crmSheet) crmSheet.failed = true;
 }
@@ -713,8 +677,8 @@ function crmSheetPendingWrites(s){
   return [s.part, s.hw, s.tool, s.task].filter(x => x && x.queue).flatMap(x => [...x.queue.values()]);
 }
 
-/* زر "حفظ" في شريط أوضاع الأدوات: ينتظر اكتمال ما أُرسل ويتأكد من نجاحه، ثم يحفظ
-   حضور الحصة إن لم يُحفظ (بطلب صريح من المعلم)، ويُغلق الورقة */
+/* زر "حفظ" في شريط أوضاع الأدوات: يؤكد اكتمال ما أُرسل — ينتظره ويتأكد من نجاحه ثم
+   يُغلق الورقة. لا يمسّ حضور الحصة. */
 let crmSheetFinishing = false;
 async function finishCrmLessonSheet(){
   const s = crmSheet;
@@ -731,7 +695,6 @@ async function finishCrmLessonSheet(){
     await Promise.allSettled(crmSheetPendingWrites(s));
     if(crmSheet !== s) return;
     if(s.failed){ showToast('لم يكتمل الحفظ — راجع الرسالة الحمراء ثم أعد المحاولة', 'error'); return; }
-    if(crmSheetNeedsAttendanceSave(s)){ await saveCrmLessonSheet(); return; }
     showToast('تم الحفظ ✓', 'ok');
     closeCrmLessonSheet();
   } finally {
@@ -743,8 +706,7 @@ async function finishCrmLessonSheet(){
 async function saveCrmLessonSheet(){
   if(!crmSheet || crmSheetSaving) return;
   const sheet = crmSheet;
-  /* زر الحضور وزر الشريط في أوضاع الأدوات */
-  const btns = ['crmSheetSaveBtn', 'crmModeSaveBtn'].map(i => document.getElementById(i)).filter(Boolean);
+    const btns = [document.getElementById('crmSheetSaveBtn')].filter(Boolean);
   crmSheetSaving = true;
   const labels = btns.map(b => b.textContent);
   btns.forEach(b => { b.disabled = true; b.textContent = 'جارٍ الحفظ...'; });
