@@ -221,6 +221,9 @@ function crmStudentsOfSection(sectionId){
    ============================================================ */
 let crmTodayRenderToken = 0;
 
+/* بطاقة "شعبي" في تبويب اليوم — موقوفة لتبسيط الصفحة (true يعيدها) */
+const TODAY_SECTIONS_CARD_ON = false;
+
 async function renderCrmToday(){
   const box = document.getElementById('crmTodayBody');
   if(!box) return;
@@ -237,7 +240,7 @@ async function renderCrmToday(){
     getAttentionFresh(),
     sb.from('classroom_lesson_skips').select('id, section_id, lesson_date, period, note')
       .eq('teacher_id', currentUser.id).gte('lesson_date', since).lte('lesson_date', todayIso),
-    loadLessonPlans().catch(() => null)
+    appSectionOn('shahid') ? loadLessonPlans().catch(() => null) : Promise.resolve(null)
   ]);
   if(token !== crmTodayRenderToken) return; /* طُلب رسم أحدث أثناء الانتظار (تغيّر الفصل/السنة) */
   if(!ttOk || lessonsRes.error){
@@ -249,7 +252,7 @@ async function renderCrmToday(){
   const skips = skipsRes && !skipsRes.error ? (skipsRes.data || []) : [];
   crmTodayLoaded = { lessons, skips };
   let attendance = [];
-  if(lessons.length){
+  if(TODAY_SECTIONS_CARD_ON && lessons.length){
     const { data: att, error: aErr } = await sb.from('classroom_attendance').select('lesson_id, status')
       .eq('teacher_id', currentUser.id).in('lesson_id', lessons.map(l => l.id));
     if(token !== crmTodayRenderToken) return;
@@ -301,13 +304,14 @@ async function renderCrmToday(){
   html += '</div>';
 
   /* ---- خططي (أخطط ← أنفّذ ← أوثّق) ---- */
-  html += lessonPlansTodayHtml(plans, todayIso);
+  /* خططي: مرتبطة بالشواهد (نموذج الشاهد ← خطة) — تظهر لمن فعّل قسم الشواهد */
+  if(appSectionOn('shahid')) html += lessonPlansTodayHtml(plans, todayIso);
 
   /* ---- يحتاج انتباهي (أعلى 5) ---- */
   html += attentionTodaySectionHtml(attention);
 
-  /* ---- غير المرصود ---- */
-  const unrecorded = findUnrecordedLessons(crmTimetableSlots, lessons, todayIso, 7, d => !!holidayCheck.nameFor(d), skips);
+  /* ---- غير المرصود ---- (تنبيه: موقوف مع بقية التنبيهات) */
+  const unrecorded = ATTENTION_ALERTS_ON ? findUnrecordedLessons(crmTimetableSlots, lessons, todayIso, 7, d => !!holidayCheck.nameFor(d), skips) : [];
   if(unrecorded.length){
     html += `<div class="crm-today-card crm-today-warn"><div class="crm-today-title">⚠ حضور لم يُرصد (آخر 7 أيام): ${unrecorded.length}</div>`;
     html += unrecorded.map(u => `<div class="crm-lesson-row">
@@ -317,18 +321,20 @@ async function renderCrmToday(){
     html += '</div>';
   }
 
-  /* ---- شعبي ---- */
-  html += '<div class="crm-today-card"><div class="crm-today-title">شعبي</div>';
-  const sortedSections = crmSections.slice().sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar', { numeric: true }));
-  html += sortedSections.map(sec => {
-    const studentCount = crmStudentsOfSection(sec.id).length;
-    const secLessons = lessons.filter(l => l.section_id === sec.id);
-    const rate = sectionAttendanceRate(secLessons, attendance, studentCount);
-    const rateText = rate === null ? 'لا رصد هذا الأسبوع' : `حضور الأسبوع ${rate}%`;
-    return `<div class="crm-lesson-row"><span>${escapeHtml(crmSectionOptionLabel(sec))}</span>
-      <span style="font-size:11.5px;color:var(--muted);">${studentCount ? arabicCountPhrase(studentCount, CRM_STUDENT_COUNT_FORMS) : 'لا طلاب مربوطون'} · ${rateText}</span></div>`;
-  }).join('');
-  html += '</div>';
+  /* ---- شعبي ---- (عدد الطلاب وحضور الأسبوع لكل شعبة — موقوف لتبسيط الصفحة؛ ملخص الشعبة في تبويب الدرجات) */
+  if(TODAY_SECTIONS_CARD_ON){
+    html += '<div class="crm-today-card"><div class="crm-today-title">شعبي</div>';
+    const sortedSections = crmSections.slice().sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar', { numeric: true }));
+    html += sortedSections.map(sec => {
+      const studentCount = crmStudentsOfSection(sec.id).length;
+      const secLessons = lessons.filter(l => l.section_id === sec.id);
+      const rate = sectionAttendanceRate(secLessons, attendance, studentCount);
+      const rateText = rate === null ? 'لا رصد هذا الأسبوع' : `حضور الأسبوع ${rate}%`;
+      return `<div class="crm-lesson-row"><span>${escapeHtml(crmSectionOptionLabel(sec))}</span>
+        <span style="font-size:11.5px;color:var(--muted);">${studentCount ? arabicCountPhrase(studentCount, CRM_STUDENT_COUNT_FORMS) : 'لا طلاب مربوطون'} · ${rateText}</span></div>`;
+    }).join('');
+    html += '</div>';
+  }
 
   box.innerHTML = html;
 }
