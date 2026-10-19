@@ -266,7 +266,7 @@ async function loadCrmGradeSheet(sectionId){
   }
   /* "يبدأ من الكاملة" (إعداد الدرجات): من لا درجة له — طالب جديد مثلًا — يأخذ الكاملة */
   for(const c of visible){
-    const key = typeof startFullKeyOfColumn === 'function' ? startFullKeyOfColumn(c) : null;
+    const key = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
     if(!key || !gradeStartsFull(key)) continue;
     const have = new Set(scores.filter(x => x.column_id === c.id).map(x => x.student_id));
     try{

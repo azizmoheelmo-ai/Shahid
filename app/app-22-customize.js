@@ -64,7 +64,7 @@ function normalizeFeatures(raw){
   pick(APP_SECTIONS, 'sections');
   pick(APP_TOOLS, 'tools');
   if(raw && validGradeCaps(raw.grades)) out.grades = { performance: raw.grades.performance, tests: raw.grades.tests };
-  /* "يبدأ من الكاملة" لمكوّنات الأداء (المشاركة، الواجبات، العدّادات الخاصة) — الأصل من 0 */
+  /* "يبدأ من الكاملة" لمكوّنات الأداء (المشاركة، الواجبات، المهام، المكوّنات الخاصة) — الأصل من 0 */
   const sf = raw && raw.startFull;
   if(sf && typeof sf === 'object'){
     const keys = Object.keys(sf).filter(k => sf[k] === true && isStartFullKey(k));
@@ -74,7 +74,7 @@ function normalizeFeatures(raw){
 }
 
 function isStartFullKey(k){
-  return k === 'participation' || k === 'homework' || /^tool:[0-9a-f-]{36}$/i.test(k);
+  return k === 'participation' || k === 'homework' || k === 'task' || /^tool:[0-9a-f-]{36}$/i.test(k);
 }
 
 function gradeStartsFull(key){

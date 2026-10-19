@@ -54,8 +54,23 @@ function toolColumnScoreFor(tool, values, colMax){
   return Math.round(100 * avg * Number(colMax)) / 100;
 }
 
-function nextToolStatus(v){
+function nextToolStatus(v, full){
+  if(full) return v >= 1 ? 0 : 1; /* من الكاملة: تمّ ⇄ لم يتمّ (الحصة تبدأ "تمّ" للجميع) */
   return v === undefined || v === null ? 1 : (v >= 1 ? 0 : null); /* لم يُرصد ← تمّ ← لم يتمّ ← لم يُرصد */
+}
+
+/* "يبدأ من الكاملة" لأداة حالة/درجة: من لم يُرصد له في هذه الحصة يأخذ الكاملة (لا يكتب فوق رصد قائم أو متزامن) */
+async function fillToolLessonFull(tool, s, term, period, studentIds, values){
+  const missing = (studentIds || []).filter(id => !values.has(id));
+  if(!missing.length) return [];
+  const value = toolFullValue(tool);
+  const { error } = await sb.from('classroom_tool_marks').upsert(missing.map(id => ({
+    teacher_id: currentUser.id, tool_id: tool.id, student_id: id, section_id: s.sectionId, academic_year: term.year, semester: term.semester,
+    mark_date: s.dateIso, period, value
+  })), { onConflict: 'tool_id,student_id,mark_date,period', ignoreDuplicates: true });
+  if(error) throw error;
+  missing.forEach(id => values.set(id, value));
+  return missing;
 }
 
 function sheetModeLabel(mode){
@@ -183,7 +198,8 @@ async function renderCrmToolMode(students, tool){
   const token = s.token;
   const term = crmCurrentTerm();
   const period = s.period || 0;
-  let colRes, marks;
+  const full = gradeStartsFull(mode);
+  let colRes, marks, values, filled = [];
   try{
     [colRes, marks] = await Promise.all([
       ensureToolColumn(tool, s.sectionId, term),
@@ -191,18 +207,28 @@ async function renderCrmToolMode(students, tool){
         .eq('section_id', s.sectionId).eq('mark_date', s.dateIso).eq('period', period)
     ]);
     if(marks.error) throw marks.error;
+    values = new Map((marks.data || []).map(m => [m.student_id, Number(m.value)]));
+    if(full) filled = await fillToolLessonFull(tool, s, term, period, students.map(st => st.id), values);
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== mode) return;
     body.innerHTML = head + `<div class="empty-state">تعذّر التحميل. <button class="btn btn-outline crm-mini-btn" onclick="setCrmSheetMode('${mode}')">إعادة المحاولة</button></div>`;
     return;
   }
   if(crmSheet !== s || s.token !== token || s.mode !== mode) return;
-  s.tool = { tool, column: colRes.column || null, values: new Map((marks.data || []).map(m => [m.student_id, Number(m.value)])), queue: new Map(), term, period };
+  s.tool = { tool, column: colRes.column || null, values, queue: new Map(), term, period, full };
+  if(filled.length && s.tool.column){
+    /* في طابور الطالب: نقرته التالية تنتظر هذه المزامنة فلا تسبقها وتُكتب فوقها قيمة قديمة. فشلها يُصلَح عند فتح الكشف */
+    const sync = syncToolColumn(s.tool.column, tool, s.sectionId, term, filled).catch(() => {});
+    filled.forEach(id => s.tool.queue.set(id, sync));
+  }
   const status = tool.tool_type === 'status';
   body.innerHTML = head + `
     ${colRes.error ? `<div class="cust-sheet-hidden">${toolCapMessage(tool, colRes.remaining)}</div>` : ''}
     <div id="crmToolCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${status
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${full
+      ? (status ? 'الحصة تبدأ <b>"تمّ"</b> للجميع — اضغط على من لم يتمّ فقط. يُحفظ فورًا.'
+                : `تبدأ الدرجة <b>كاملة</b> (${formatScore(tool.max_score)}) — اضغط على من قصّر فقط لتُنقص درجته.`)
+      : status
       ? 'اضغط: تمّ ← لم يتمّ ← لم يُرصد. يُحفظ فورًا، و"لم يُرصد" لا يُحسب.'
       : `اضغط على الطالب لرصد درجته من ${formatScore(tool.max_score)}. ما لم يُرصد لا يُحسب.`}${s.tool.column ? ' يُحسب في عمود "' + escapeHtml(s.tool.column.name) + '".' : ''}</p>
     <div class="crm-att-grid">
@@ -213,8 +239,8 @@ async function renderCrmToolMode(students, tool){
     </div>
     <div class="crm-sheet-bar">
       ${crmSheetFinishBtnHtml()}
-      ${status ? '<button class="btn btn-outline" style="flex:1;" onclick="markAllCrmToolDone()">الكل تمّ</button>' : ''}
-      <button class="btn btn-outline"${status ? '' : ' style="flex:1;"'} onclick="closeCrmLessonSheet()">رجوع</button>
+      ${status && !full ? '<button class="btn btn-outline" style="flex:1;" onclick="markAllCrmToolDone()">الكل تمّ</button>' : ''}
+      <button class="btn btn-outline"${status && !full ? '' : ' style="flex:1;"'} onclick="closeCrmLessonSheet()">رجوع</button>
     </div>`;
   students.forEach(st => paintCrmTool(st.id));
   paintCrmToolCounts();
@@ -258,7 +284,7 @@ function tapCrmTool(studentId){
   if(!t) return;
   if(t.tool.tool_type === 'status'){
     const prev = t.values.has(studentId) ? t.values.get(studentId) : null;
-    setCrmToolValue(studentId, nextToolStatus(prev));
+    setCrmToolValue(studentId, nextToolStatus(prev, t.full));
   } else {
     openCrmToolScorePicker(studentId);
   }
@@ -283,7 +309,7 @@ function openCrmToolScorePicker(studentId){
         <button class="btn btn-primary" onclick="saveCrmToolScoreInput()">حفظ</button>
       </div>
       <div id="crmToolScoreError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:6px;"></div>
-      ${cur === null ? '' : '<button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="applyCrmToolScore(null)">مسح الرصد (لم يُرصد)</button>'}
+      ${cur === null || t.full ? '' : '<button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="applyCrmToolScore(null)">مسح الرصد (لم يُرصد)</button>'}
     </div>`, '400px');
 }
 
