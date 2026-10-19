@@ -269,7 +269,7 @@ async function renderCrmTasks(students, selectId){
     s.task = { data, column, selectedId: null, scores: new Map(), groups: new Map(), queue: new Map(), term };
     body.innerHTML = head + `<div class="empty-state">لا مهام أدائية لهذه الشعبة بعد.</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmTaskModal()">+ مهمة جديدة</button>
-      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
+      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="leaveCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
   const selectedId = (selectId && data.tasks.some(t => t.id === selectId)) ? selectId : data.tasks[data.tasks.length - 1].id;
@@ -300,7 +300,7 @@ async function renderCrmTasks(students, selectId){
     </div>`).join('')}
     ${ungrouped.length ? `${glist.length ? '<div class="crm-tl-meta" style="margin:4px 0;">بلا مجموعة</div>' : ''}<div class="crm-att-grid">${ungrouped.map(crmTaskCellHtml).join('')}</div>` : ''}
     ${assigned.length ? '' : '<div class="empty-state">لا أحد من طلاب الشعبة مكلّف بهذه المهمة — اضغط "✎ تعديل" لاختيار الطلاب.</div>'}
-    <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
+    <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="leaveCrmLessonSheet()">رجوع</button></div>`;
   paintCrmTaskAll(assigned.map(st => st.id));
   paintCrmTaskCounts();
 }
@@ -429,6 +429,7 @@ function applyCrmTaskScore(score){
 
 /* حفظ درجة (طالب أو أعضاء مجموعة) ثم إعادة حساب عمودهم — بعد أي حفظ معلّق لهم */
 function persistCrmTaskScores(ids, score, prev){
+  markCrmSheetActivity();
   const s = crmSheet;
   const t = s.task;
   const taskId = t.selectedId;

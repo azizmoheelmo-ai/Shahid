@@ -133,9 +133,10 @@ const CRM_SHEET_MODE_LABELS = { attendance: 'حضور', participation: 'مشار
 function crmSheetModeSwitchHtml(){
   const m = (crmSheet && crmSheet.mode) || 'attendance';
   const modes = enabledSheetModes();
-  if(modes.length < 2) return '';
+  const banner = crmSheetUnsavedBannerHtml();
+  if(modes.length < 2) return banner;
   /* أسماء الأدوات الخاصة من المعلم — تُهرَّب */
-  return `<div class="crm-seg${modes.length > 4 ? ' is-wrap' : ''}">${modes.map(k => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${escapeHtml(sheetModeLabel(k))}</button>`).join('')}</div>`;
+  return `<div class="crm-seg${modes.length > 4 ? ' is-wrap' : ''}">${modes.map(k => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${escapeHtml(sheetModeLabel(k))}</button>`).join('')}</div>${banner}`;
 }
 
 function setCrmSheetMode(mode){
@@ -145,7 +146,7 @@ function setCrmSheetMode(mode){
   if(mode === 'none'){
     document.getElementById('crmLessonSheetBody').innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(crmSheet)}</div>
       <div class="empty-state">كل أدوات ورقة الحصة مخفية. فعّل ما تحتاجه من الإعدادات ← تخصيص التطبيق.</div>
-      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
+      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="leaveCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
   const students = crmStudentsOfSection(crmSheet.sectionId);
@@ -231,7 +232,7 @@ async function renderCrmParticipation(students, tool){
   if(crmSheet !== s || s.token !== token || s.mode !== mode) return; /* غيّر الوضع أو أغلق الورقة أثناء التحميل */
   if(!column && capError){
     body.innerHTML = head + `<div class="empty-state">${toolCapMessage(tool, capError.remaining).replace('الرصد يُحفظ ولا يُحسب في الكشف حتى', 'لا يمكن الرصد حتى')}</div>
-      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
+      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="leaveCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
   if(!column){
@@ -251,7 +252,7 @@ async function renderCrmParticipation(students, tool){
     </div>
     <div class="crm-sheet-bar">
       <button class="btn btn-outline" id="crmPartUndoBtn" style="flex:1;" onclick="undoCrmParticipation()" disabled>↶ تراجع عن آخر نقرة</button>
-      <button class="btn btn-outline" onclick="closeCrmLessonSheet()">رجوع</button>
+      <button class="btn btn-outline" onclick="leaveCrmLessonSheet()">رجوع</button>
     </div>`;
   students.forEach(st => paintCrmParticipation(st.id));
 }
@@ -313,6 +314,7 @@ function tapCrmParticipation(studentId){
   p.scores.set(studentId, Math.min(Number(p.column.max_score), cur + 1)); /* عرض فوري */
   p.today[studentId] = (p.today[studentId] || 0) + 1;
   p.undo.push(studentId);
+  markCrmSheetActivity();
   writeParticipationState(s, p);
   paintCrmParticipation(studentId);
   queueCrmParticipation(studentId, 1);
@@ -353,7 +355,7 @@ async function renderCrmHomework(students, selectId){
   if(!hw.homeworks.length){
     body.innerHTML = head + `<div class="empty-state">لا واجبات لهذه الشعبة بعد.</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmHomeworkModal()">+ واجب جديد</button>
-      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
+      <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="leaveCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
   const statuses = homeworkStatusIndex(hw.statusRows).get(selectedId) || new Map();
@@ -375,7 +377,7 @@ async function renderCrmHomework(students, selectId){
     </div>
     <div class="crm-sheet-bar">
       <button class="btn btn-outline" style="flex:1;" onclick="markAllCrmHomeworkSubmitted()">الكل سلّم</button>
-      <button class="btn btn-outline" onclick="closeCrmLessonSheet()">رجوع</button>
+      <button class="btn btn-outline" onclick="leaveCrmLessonSheet()">رجوع</button>
     </div>`;
   s.hw.statuses = statuses;
   students.forEach(st => paintCrmHomework(st.id));
@@ -427,6 +429,7 @@ function tapCrmHomework(studentId){
   if(st === 'missing') s.hw.statuses.delete(studentId); else s.hw.statuses.set(studentId, st);
   paintCrmHomework(studentId);
   paintCrmHomeworkCounts();
+  markCrmSheetActivity();
   persistCrmHomework(studentId, st);
 }
 
@@ -437,6 +440,7 @@ async function markAllCrmHomeworkSubmitted(){
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !s.hw.statuses.has(id));
   if(!ids.length) return;
   crmHwBulkBusy = true;
+  markCrmSheetActivity();
   const uid = currentUser.id, hwId = s.hw.selectedId;
   ids.forEach(id => { s.hw.statuses.set(id, 'submitted'); paintCrmHomework(id); });
   paintCrmHomeworkCounts();
