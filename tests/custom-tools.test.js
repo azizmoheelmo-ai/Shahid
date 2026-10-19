@@ -246,10 +246,10 @@ test('saveCustomTool — يُضاف باسم المعلم، ويُرفض الا�
 
 test('customToolHintText — يشرح كيف يُحسب كل نوع بمثال بدرجة المعلم', async () => {
   const app = loadApp();
-  assert.match(app.customToolHintText('score', 20, 'tests'), /متوسط درجاته/);
-  assert.match(app.customToolHintText('score', 20, 'tests'), /20 ثم 10 = 15 من 20/);
-  assert.match(app.customToolHintText('status', 10, 'performance'), /3 من 4 مرات = 7\.5 من 10/);
-  assert.match(app.customToolHintText('counter', 5, 'performance'), /مجموع نقراته \(من 5\)/);
+  assert.match(app.customToolHintText('score', 20, 'tests'), /متوسط درجات الطالب/);
+  assert.match(app.customToolHintText('score', 20, 'tests'), /20 و 10 ← 15 من 20/);
+  assert.match(app.customToolHintText('status', 10, 'performance'), /3 مرات من 4 ← 7\.5 من 10/);
+  assert.match(app.customToolHintText('counter', 5, 'performance'), /يجمع النقرات \(حتى 5\)/);
   assert.equal(app.customToolHintText('score', 0, 'tests'), '');
 });
 
@@ -280,14 +280,14 @@ test('نافذة الأداة — الشرح يتبع النوع، وينبّه 
   fillToolForm(app, 'اختبار قصير', '20', 'tests');
   await app.refreshCustomToolHint();
   const txt = id => runInAppContext(app, `document.getElementById('${id}').textContent`);
-  assert.match(txt('custToolHint'), /متوسط درجاته/);
-  assert.match(txt('custToolRoom'), /تنبيه/);
+  assert.match(txt('custToolHint'), /متوسط درجات الطالب/);
+  assert.match(txt('custToolRoom'), /لا يتسع الكشف/);
   assert.match(txt('custToolRoom'), /الفترة الأولى/);
   const sel = log.filter(l => l.table === 'classroom_grade_columns' && l.op === 'select').pop();
   assert.equal(filtersOf(sel).teacher_id, 'u1');
   fillToolForm(app, 'اختبار قصير', '0.5', 'performance');
   await app.refreshCustomToolHint();
-  assert.doesNotMatch(txt('custToolRoom'), /تنبيه/);
+  assert.doesNotMatch(txt('custToolRoom'), /⚠/);
 });
 
 test('تعديل الأداة لا يغيّر نوعها، والإخفاء والحذف باسم المعلم', async () => {
