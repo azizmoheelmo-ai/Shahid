@@ -1564,3 +1564,42 @@ html.booting #authView{display:none !important;}
 .crm-gs-pnav{display:flex;gap:8px;margin-top:4px;}
 .crm-gs-pnav .btn{flex:1;justify-content:center;}
 .crm-gs-pnav .btn:disabled{opacity:.4;cursor:default;}
+
+/* تبويب الطلاب: شعبي ← صفحة الشعبة، و⚙ المراحل والشعب */
+.crm-stu-search{border-radius:10px;margin-bottom:6px;}
+.crm-stu-gh{font-size:12.5px;color:var(--muted);font-weight:700;margin:14px 2px 6px;}
+.crm-stu-card{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:right;background:#fff;border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:8px;font-family:inherit;color:inherit;cursor:pointer;}
+.crm-stu-card:hover{background:#FAF8F3;}
+.crm-stu-card b{font-size:15.5px;color:var(--navy);}
+.crm-stu-card small{color:var(--muted);font-size:12.5px;}
+.crm-stu-card.is-warn{border-color:#E0C27A;background:#FFFBF0;}
+.crm-stu-chev{color:#B9B2A3;font-size:20px;}
+.crm-stu-none{font-size:12px;color:var(--muted);margin:2px 2px 8px;line-height:1.7;}
+.crm-stu-empty{border:1px dashed #CFC8B8;border-radius:12px;padding:16px;text-align:center;font-size:13px;color:var(--muted);line-height:1.9;}
+.crm-stu-empty b{display:block;color:var(--navy);font-size:15px;}
+.crm-stu-empty .btn{margin-top:8px;}
+.crm-stu-setup{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:right;border:1px dashed #CFC8B8;border-radius:12px;padding:12px 14px;margin-top:18px;background:#fff;font-family:inherit;color:var(--navy);font-size:13.5px;font-weight:700;cursor:pointer;}
+.crm-stu-setup small{display:block;font-weight:400;color:var(--muted);font-size:11.5px;}
+.crm-stu-top{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--muted);margin-bottom:6px;}
+.crm-stu-title{margin:6px 0 2px;font-size:18px;color:var(--navy);}
+.crm-stu-sub{font-size:12px;color:var(--muted);margin-bottom:12px;}
+.crm-stu-actions{display:flex;gap:8px;margin-bottom:10px;}
+.crm-stu-actions .btn{flex:1;justify-content:center;}
+.crm-stu-form{background:#F7F5F0;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;}
+.crm-stu-list{border-top:1px solid #EEE9DF;}
+.crm-stu-row{display:flex;align-items:center;gap:8px;border-bottom:1px solid #EEE9DF;}
+.crm-stu-name{flex:1;text-align:right;background:none;border:0;padding:12px 4px;font-family:inherit;font-size:14px;color:inherit;cursor:pointer;}
+.crm-stu-name small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px;}
+.crm-stu-num{color:var(--muted);font-size:11.5px;}
+.crm-stu-more{border:1px solid var(--line);background:#fff;border-radius:8px;color:var(--muted);font-size:17px;line-height:1;padding:6px 10px;cursor:pointer;}
+.crm-struct-card{display:block;width:100%;text-align:right;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:#fff;font-family:inherit;color:inherit;}
+.crm-struct-card.is-add{border-style:dashed;color:var(--navy);font-weight:700;font-size:14px;cursor:pointer;}
+.crm-struct-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.crm-struct-head b{font-size:15px;color:var(--navy);}
+.crm-struct-del{background:none;border:0;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer;}
+.crm-struct-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.crm-struct-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#F7F5F0;border-radius:16px;padding:4px 12px;font-size:12.5px;font-family:inherit;color:inherit;}
+.crm-struct-chip button{background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px;padding:0;}
+.crm-struct-chip.is-add{border-style:dashed;background:#fff;color:var(--navy);font-weight:700;cursor:pointer;}
+.crm-struct-add{display:flex;gap:6px;align-items:center;margin-top:8px;}
+.crm-struct-add .goal-input{margin:0;flex:1;}

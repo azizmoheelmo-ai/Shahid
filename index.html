@@ -695,6 +695,17 @@
       <!-- ============ تبويب: اليوم ============ -->
       <div id="crmTabToday" style="display:none;">
         <div class="section" id="crmTodayBody"></div>
+
+        <!-- ============ الجدول الأسبوعي (اختياري) — منه تُبنى حصص اليوم ============ -->
+        <div class="section" id="crmTimetableSection">
+          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCrmGroup('crmTimetableBody')">
+            <h2 style="margin:0;">📅 جدولي الأسبوعي <span style="font-size:12px;font-weight:400;color:var(--muted);">(اختياري)</span></h2>
+            <span id="crmTimetableBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
+          </div>
+          <div id="crmTimetableBody" style="display:none;margin-top:10px;">
+            <div id="crmTimetableEditor"></div>
+          </div>
+        </div>
       </div>
 
       <!-- ============ تبويب: المتابعات (يحتاج انتباهي + المتابعات) ============ -->
@@ -768,45 +779,38 @@
 
         <div class="section" id="crmLinkReviewBox" style="display:none;"></div>
 
-        <!-- ============ 1) المراحل الدراسية ============ -->
+        <!-- ============ الطلاب: ثلاث شاشات (شعبي ← صفحة الشعبة، والإعداد) ============ -->
         <div class="section">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
-            <h2 style="margin:0;">1. المراحل الدراسية</h2>
-            <button class="btn btn-outline" onclick="addCrmGradeLevel()">+ إضافة مرحلة</button>
+          <!-- شعبي: بحث في كل الطلاب، وبطاقة لكل شعبة -->
+          <div id="crmStuHome">
+            <input class="goal-input crm-stu-search" id="crmStudentSearch" placeholder="🔍 ابحث عن طالب في كل شعبك..." oninput="debouncedRenderCrmStudentsList()">
+            <div id="crmStudentsList"></div>
+            <button type="button" class="crm-stu-setup" onclick="openCrmStructure()">
+              <span>⚙ المراحل والشعب<small>أضف مرحلة أو شعبة، أو احذفها</small></span><span class="crm-stu-chev" aria-hidden="true">‹</span>
+            </button>
           </div>
-          <div id="crmGradesList"></div>
-        </div>
 
-        <!-- ============ 2) الجدول الأسبوعي (اختياري) ============ -->
-        <!-- الشعب نفسها تُضاف من داخل بطاقة كل مرحلة بالقسم 1 -->
-        <div class="section" id="crmTimetableSection">
-          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCrmGroup('crmTimetableBody')">
-            <h2 style="margin:0;">2. الجدول الأسبوعي <span style="font-size:12px;font-weight:400;color:var(--muted);">(اختياري)</span></h2>
-            <span id="crmTimetableBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
-          </div>
-          <div id="crmTimetableBody" style="display:none;margin-top:10px;">
-            <div id="crmTimetableEditor"></div>
-          </div>
-        </div>
-
-        <!-- ============ 3) الطلاب ============ -->
-        <div class="section">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
-            <h2 style="margin:0;">3. الطلاب</h2>
-            <div style="display:flex;gap:6px;">
-              <button class="btn btn-outline" onclick="toggleAddStudentForm()">+ إضافة طالب</button>
-              <button class="btn btn-outline" onclick="toggleCrmImportBox()">استيراد Excel</button>
+          <!-- صفحة الشعبة: طلابها، والإضافة والاستيراد لها مباشرة -->
+          <div id="crmStuSection" style="display:none;">
+            <div class="crm-stu-top"><button type="button" class="btn btn-outline crm-mini-btn" onclick="closeCrmStuSection()">→ شعبي</button><span id="crmStuSectionCount"></span></div>
+            <h3 class="crm-stu-title" id="crmStuSectionTitle"></h3>
+            <div class="crm-stu-sub">اضغط على الطالب لملفه، و⋯ للنقل أو الحذف</div>
+            <div class="crm-stu-actions" id="crmStuSectionActions">
+              <button type="button" class="btn btn-primary" onclick="toggleAddStudentForm()">+ طالب</button>
+              <button type="button" class="btn btn-outline" onclick="toggleCrmImportBox()">استيراد Excel</button>
               <input type="file" id="crmExcelInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importStudentsExcel(event)">
             </div>
-          </div>
 
-          <div id="crmImportBox" style="display:none;background:#F7F5F0;border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;">
-            <select class="goal-input" id="crmImportSectionSelect" style="margin-bottom:8px;">
-              <option value="">اختر الشعبة التي تستورد إليها</option>
-            </select>
-            <button class="btn btn-primary" onclick="startCrmImport()">اختيار ملف Excel</button>
+            <div id="addStudentBox" class="crm-stu-form" style="display:none;">
+              <input class="goal-input" id="newStudentName" maxlength="100" placeholder="اسم الطالب" style="margin-bottom:8px;">
+              <input class="goal-input" id="newStudentNumber" maxlength="30" placeholder="رقم الطالب (اختياري)" style="margin-bottom:10px;">
+              <button class="btn btn-primary" id="newStudentSaveBtn" onclick="addClassroomStudent()">حفظ الطالب</button>
+            </div>
+
+            <div id="crmImportBox" class="crm-stu-form" style="display:none;">
+              <button class="btn btn-primary" onclick="startCrmImport()">اختيار ملف Excel</button>
             <div style="font-size:11.5px;line-height:1.9;margin-top:10px;">
-              <p style="margin:0 0 8px;">ملف لكل شعبة: يكفي عمود <b>"الاسم"</b> (إلزامي)، وعمود <b>"رقم الطالب"</b> اختياري. الشعبة تُحدَّد من القائمة أعلاه، وأي عمود "مرحلة/شعبة" داخل الملف يُتجاهل. الأسماء الموجودة أصلًا بنفس الشعبة تُتخطّى تلقائيًا.</p>
+              <p style="margin:0 0 8px;">ملف لكل شعبة: يكفي عمود <b>"الاسم"</b> (إلزامي)، وعمود <b>"رقم الطالب"</b> اختياري. يُستورد إلى هذه الشعبة، وأي عمود "مرحلة/شعبة" داخل الملف يُتجاهل. الأسماء الموجودة أصلًا بنفس الشعبة تُتخطّى تلقائيًا.</p>
               <table style="width:100%;border-collapse:collapse;font-size:11px;">
                 <tr style="background:#EDE9DE;">
                   <td style="border:1px solid var(--line);padding:4px 6px;font-weight:700;">الاسم</td>
@@ -822,22 +826,18 @@
                 </tr>
               </table>
             </div>
+            </div>
+
+            <div id="crmSectionStudentsList"></div>
           </div>
 
-          <div id="addStudentBox" style="display:none;background:#F7F5F0;border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;">
-            <input class="goal-input" id="newStudentName" maxlength="100" placeholder="اسم الطالب" style="margin-bottom:8px;">
-            <select class="goal-input" id="newStudentGradeSelect" style="margin-bottom:8px;" onchange="onNewStudentGradeChange()">
-              <option value="">اختر المرحلة</option>
-            </select>
-            <select class="goal-input" id="newStudentSectionSelect" style="margin-bottom:8px;">
-              <option value="">اختر الشعبة</option>
-            </select>
-            <input class="goal-input" id="newStudentNumber" maxlength="30" placeholder="رقم الطالب (اختياري)" style="margin-bottom:10px;">
-            <button class="btn btn-primary" onclick="addClassroomStudent()">حفظ الطالب</button>
+          <!-- إعداد المراحل والشعب (مرة في بداية السنة) -->
+          <div id="crmStuStructure" style="display:none;">
+            <div class="crm-stu-top"><button type="button" class="btn btn-outline crm-mini-btn" onclick="closeCrmStructure()">→ شعبي</button></div>
+            <h3 class="crm-stu-title">⚙ المراحل والشعب</h3>
+            <div class="crm-stu-sub">تُضبط مرة في بداية السنة. الجدول الأسبوعي في تبويب «اليوم».</div>
+            <div id="crmGradesList"></div>
           </div>
-
-          <input class="goal-input" id="crmStudentSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderCrmStudentsList()">
-          <div id="crmStudentsList"></div>
         </div>
       </div>
 

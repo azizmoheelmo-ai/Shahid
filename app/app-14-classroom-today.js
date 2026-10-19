@@ -433,8 +433,9 @@ function setCrmTimetableDay(day){
   renderCrmTimetableEditor();
 }
 
+/* الجدول في تبويب "اليوم" (منه تُبنى حصص اليوم) */
 function openCrmTimetableEditor(){
-  switchCrmTab('students');
+  if(document.getElementById('crmTabToday').style.display === 'none') switchCrmTab('today');
   const box = document.getElementById('crmTimetableBody');
   if(box){
     box.style.display = 'block';
@@ -450,7 +451,7 @@ async function renderCrmTimetableEditor(){
   const box = document.getElementById('crmTimetableEditor');
   if(!box) return;
   if(!crmSections.length){
-    box.innerHTML = '<div class="empty-state">أضف الشعب أولًا (القسم 1).</div>';
+    box.innerHTML = '<div class="empty-state">أضف الشعب أولًا من تبويب "الطلاب" ← "⚙ المراحل والشعب".</div>';
     return;
   }
   const ok = await loadCrmTimetable();
