@@ -114,7 +114,7 @@ function gradeColumnVisible(c){
 }
 
 /* أوضاع ورقة الحصة المفعّلة بالترتيب */
-const SHEET_MODE_TOOL = { attendance: 'attendance', participation: 'participation', homework: 'homework', task: 'tasks' };
+const SHEET_MODE_TOOL = { attendance: 'attendance', participation: 'participation', homework: 'homework', task: 'tasks', test: 'tests' };
 function enabledSheetModes(){
   const builtIn = Object.keys(SHEET_MODE_TOOL).filter(m => appToolOn(SHEET_MODE_TOOL[m]));
   return builtIn.concat(typeof enabledCustomToolModes === 'function' ? enabledCustomToolModes() : []);

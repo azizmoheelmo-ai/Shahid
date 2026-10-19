@@ -128,7 +128,7 @@ async function findKindColumn(sectionId, term, kind){
 }
 
 /* ============ مفتاح الأوضاع في ورقة الحصة ============ */
-const CRM_SHEET_MODE_LABELS = { attendance: 'حضور', participation: 'مشاركة', homework: 'واجب', task: 'مهمة' };
+const CRM_SHEET_MODE_LABELS = { attendance: 'حضور', participation: 'مشاركة', homework: 'واجب', task: 'مهمة', test: 'اختبار' };
 /* الأدوات المفعّلة فقط (تخصيص التطبيق)؛ أداة واحدة = لا حاجة لمفتاح */
 function crmSheetModeSwitchHtml(){
   const m = (crmSheet && crmSheet.mode) || 'attendance';
@@ -153,6 +153,7 @@ function setCrmSheetMode(mode){
   if(mode === 'participation') return renderCrmParticipation(students);
   if(mode === 'homework') return renderCrmHomework(students);
   if(mode === 'task') return renderCrmTasks(students);
+  if(mode === 'test') return renderCrmTestMode(students);
   renderCrmLessonSheet(students, false);
 }
 
