@@ -131,7 +131,8 @@ async function ensureToolColumn(tool, sectionId, term){
   if(cErr) throw cErr;
   const used = (cols || []).filter(c => c.category === tool.category).reduce((s, c) => s + Number(c.max_score), 0);
   const remaining = Math.round((gradeCap(tool.category) - used) * 100) / 100;
-  if(tool.max_score > remaining) return { error: 'cap', remaining };
+  /* الاختبارات بلا سقف — عمود أداة فيها اختبار يدخل المحصلة */
+  if(tool.category === 'performance' && tool.max_score > remaining) return { error: 'cap', remaining };
   const { data: created, error } = await sb.from('classroom_grade_columns').insert({
     teacher_id: uid, section_id: sectionId, academic_year: term.year, semester: term.semester,
     category: tool.category, name: tool.name, max_score: tool.max_score, kind: 'manual', tool_id: tool.id,
@@ -468,8 +469,9 @@ async function refreshCustomToolHint(){
   const category = document.getElementById('custToolCat').value === 'tests' ? 'tests' : 'performance';
   hint.textContent = customToolHintText(d.type, max, category);
   const cap = gradeCap(category);
-  room.textContent = `المجموع المسموح في هذه الفئة: ${formatScore(cap)} درجة.`;
   room.style.color = '';
+  if(category === 'tests'){ room.textContent = `تدخل محصلة الاختبارات (من ${formatScore(cap)}) — بلا حد لعدد الاختبارات.`; return; }
+  room.textContent = `المجموع المسموح في هذه الفئة: ${formatScore(cap)} درجة.`;
   const seq = ++customToolRoomSeq;
   const uid = currentUser.id;
   let term;

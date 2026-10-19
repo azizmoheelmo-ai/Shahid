@@ -3,11 +3,11 @@
    كشف الدرجات (app-17-grades.js) — الدوال الصرفة
    ------------------------------------------------------------
    القواعد المتفق عليها بالتصميم:
-   - فئتان بسقف: أعمال أدائية 40، اختبارات وتقييمات 20. أقل من السقف مسموح
-     ("موزّع X من 40")، وتجاوزه ممنوع برسالة واضحة.
+   - الأداء بسقف 40 (أعمدته مكوّناته) — أقل منه مسموح وتجاوزه ممنوع برسالة واضحة؛
+     والاختبارات بلا سقف (المحصلة من 20 — tests/grades-fixed.test.js).
    - خفض الدرجة القصوى لعمود تحت درجة مرصودة ممنوع مع عدد الطلاب.
    - الخانة الفارغة "لم تُرصد" لا صفر — النسبة من الأعمدة المرصودة فقط.
-   - الهيكل يُنسخ من الفصل السابق لنفس الشعبة (أعمدة بلا درجات)، وإلا الافتراضي.
+   - هيكل الأداء يُنسخ من الفصل السابق لنفس الشعبة (بلا درجات ولا اختبارات)، وإلا الافتراضي.
    ============================================================ */
 
 const assert = require('node:assert/strict');
@@ -43,10 +43,13 @@ test('validateGradeColumn', async (t) => {
   await t.test('أقل من السقف مسموح', () => {
     assert.equal(app.validateGradeColumn(cols, { category: 'performance', name: 'مهام', max_score: 20 }, []), null);
   });
-  await t.test('تجاوز السقف ممنوع ويذكر المتبقي', () => {
-    const err = app.validateGradeColumn(cols, { category: 'tests', name: 'قصير', max_score: 5 }, []);
-    assert.match(err, /20/);
-    assert.match(err, /المتبقي 0/);
+  await t.test('تجاوز سقف الأداء ممنوع ويذكر المتبقي', () => {
+    const err = app.validateGradeColumn(cols, { category: 'performance', name: 'مشروع', max_score: 25 }, []);
+    assert.match(err, /40/);
+    assert.match(err, /المتبقي 20/);
+  });
+  await t.test('الاختبارات بلا سقف: اختبار ثالث من 20 مسموح', () => {
+    assert.equal(app.validateGradeColumn(cols, { category: 'tests', name: 'قصير', max_score: 20 }, []), null);
   });
   await t.test('تعديل عمود لا يحسب قيمته القديمة مرتين', () => {
     assert.equal(app.validateGradeColumn(cols, { id: 't1', category: 'tests', name: 't1', max_score: 10 }, []), null);
@@ -96,17 +99,18 @@ test('previousGradeTerm', async () => {
 
 test('gradeSheetSeed', async (t) => {
   const app = loadApp();
-  await t.test('بلا فصل سابق = الافتراضي (مشاركة 10، واجبات 10، مهام أدائية 20، فترتان 10+10)', () => {
+  await t.test('بلا فصل سابق = مكوّنات الأداء (مشاركة 10، واجبات 10، مهام أدائية 20) بلا اختبارات', () => {
     const seed = app.gradeSheetSeed([]);
     assert.deepEqual([...seed].map(c => c.category + ':' + c.name + ':' + c.max_score), [
       'performance:مشاركة:10', 'performance:واجبات:10', 'performance:مهام أدائية:20',
-      'tests:الفترة الأولى:10', 'tests:الفترة الثانية:10',
     ]);
   });
-  await t.test('من الفصل السابق: الأعمدة فقط (الاسم والدرجة وماذا يقيس)', () => {
-    const prev = [col('x', 'tests', 20, { name: 'اختبار شامل', measures: 'الوحدات 1-3', position: 1, section_id: 'S', academic_year: '1447-1448' })];
+  await t.test('من الفصل السابق: أعمدة الأداء فقط (الاسم والدرجة وماذا يقيس) — الاختبارات خاصة بكل فصل', () => {
+    const prev = [col('p', 'performance', 15, { name: 'مشروع', measures: 'الوحدات 1-3', position: 1, section_id: 'S', academic_year: '1447-1448' }),
+      col('x', 'tests', 20, { name: 'اختبار شامل', position: 0, section_id: 'S', academic_year: '1447-1448' })];
     const seed = app.gradeSheetSeed(prev);
-    assert.deepEqual({ ...seed[0] }, { category: 'tests', name: 'اختبار شامل', max_score: 20, measures: 'الوحدات 1-3', position: 1, kind: 'manual', tool_id: null });
+    assert.equal(seed.length, 1);
+    assert.deepEqual({ ...seed[0] }, { category: 'performance', name: 'مشروع', max_score: 15, measures: 'الوحدات 1-3', position: 1, kind: 'manual', tool_id: null });
   });
 });
 

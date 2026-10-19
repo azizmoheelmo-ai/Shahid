@@ -198,8 +198,9 @@ test('loadCrmGradeSheet — عمود الأداة المخفية: لا يُعر�
   assert.deepEqual([...g.columns].map(c => c.id), ['M']);
   assert.deepEqual([...g.hiddenColumns].map(c => c.id), ['HW']);
   assert.equal(log.filter(l => l.table === 'classroom_homework').length, 0, 'لا مزامنة لعمود مخفي');
-  const html = app.crmGradeSheetHtml(g);
+  const html = app.crmGradeDetailHtml(g);
   assert.match(html, /مخفي ولا يُحسب: واجبات \(10\)/);
+  assert.match(app.crmGradeSimpleHtml(g), /مخفي ولا يُحسب: واجبات \(10\)/);
   assert.match(html, /موزّع 30 من 40/, 'الموزّع الظاهر');
   assert.ok(!/openCrmGradeColumnEditor\('performance'/.test(html), 'السقف ممتلئ فعليًا بالمخفي — لا "+ عمود" يرفضه الخادم');
 });
@@ -207,9 +208,11 @@ test('loadCrmGradeSheet — عمود الأداة المخفية: لا يُعر�
 test('كشف كل أعمدته مخفية لا يُعرض كـ"لا كشف" (فلا يُنشأ كشف مكرر)', async () => {
   const app = loadApp();
   setFeatures(app, { sections: {}, tools: { tests: false } });
-  const html = app.crmGradeSheetHtml({ sectionId: 'S', columns: [], allColumns: [{ id: 'T', category: 'tests', name: 'الفترة الأولى', max_score: 10 }], hiddenColumns: [{ id: 'T', category: 'tests', name: 'الفترة الأولى', max_score: 10 }], scores: [] });
-  assert.ok(!/إنشاء الكشف/.test(html));
-  assert.match(html, /كل أعمدة هذا الكشف لأدوات مخفية/);
+  const g = { sectionId: 'S', columns: [], allColumns: [{ id: 'T', category: 'tests', name: 'الفترة الأولى', max_score: 10 }], hiddenColumns: [{ id: 'T', category: 'tests', name: 'الفترة الأولى', max_score: 10 }], scores: [] };
+  for(const html of [app.crmGradeDetailHtml(g), app.crmGradeSimpleHtml(g)]){
+    assert.ok(!/إنشاء الكشف/.test(html));
+    assert.match(html, /كل أعمدة هذا الكشف لأدوات مخفية/);
+  }
 });
 
 test('ورقة الحصة — المفتاح يعرض الأدوات المفعّلة فقط، والوضع المخفي يتحوّل لأول مفعّل', async () => {
@@ -256,7 +259,8 @@ test('validateGradeColumn — يتبع توزيع المعلم، والعمود 
   setFeatures(app, { sections: {}, tools: {}, grades: { performance: 50, tests: 10 } });
   const cols = [{ id: 'p1', category: 'performance', max_score: 30 }, { id: 't1', category: 'tests', max_score: 5 }];
   assert.equal(app.validateGradeColumn(cols, { category: 'performance', name: 'مشروع', max_score: '20' }, []), null, '30+20 = 50 ضمن السقف');
-  assert.match(app.validateGradeColumn(cols, { category: 'tests', name: 'قصير', max_score: '10' }, []), /يتجاوز سقف التقويمات الشفهية والتحريرية \(10\)/);
+  assert.equal(app.validateGradeColumn(cols, { category: 'tests', name: 'قصير', max_score: '10' }, []), null, 'الاختبارات بلا سقف');
+  assert.match(app.validateGradeColumn(cols, { category: 'performance', name: 'زيادة', max_score: '25' }, []), /يتجاوز سقف المهام الأدائية والمشاركة والتفاعل \(50\)/);
   assert.match(app.validateGradeColumn([], { category: 'performance', name: 'كبير', max_score: '45' }, []), /40 كحد أقصى/);
 });
 
@@ -264,16 +268,17 @@ test('gradeSheetSeed — الافتراضي يملأ توزيع المعلم ب�
   const app = loadApp();
   const sum = (s, cat) => [...s].filter(c => c.category === cat).reduce((t, c) => t + c.max_score, 0);
   const def = app.gradeSheetSeed([], { performance: 40, tests: 20 });
-  assert.deepEqual([...def].map(c => c.max_score), [10, 10, 20, 10, 10], '40/20 = الهيكل المعتاد بلا تغيير');
+  assert.deepEqual([...def].map(c => c.max_score), [10, 10, 20], '40 = مكوّنات الأداء المعتادة، ولا اختبارات افتراضية');
   const s45 = app.gradeSheetSeed([], { performance: 45, tests: 15 });
   assert.equal(sum(s45, 'performance'), 45);
-  assert.equal(sum(s45, 'tests'), 15);
+  assert.equal(sum(s45, 'tests'), 0);
   assert.ok([...s45].every(c => c.max_score > 0 && c.max_score <= 40 && Math.round(c.max_score * 2) === c.max_score * 2));
-  assert.equal([...app.gradeSheetSeed([], { performance: 60, tests: 0 })].filter(c => c.category === 'tests').length, 0, 'سقف 0 = لا أعمدة للفئة');
-  const prev = [{ category: 'performance', name: 'أ', max_score: 15, kind: 'manual' }, { category: 'tests', name: 'ب', max_score: 20, kind: 'manual' }];
-  const kept = app.gradeSheetSeed(prev, { performance: 45, tests: 15 });
+  const prev = [{ category: 'performance', name: 'أ', max_score: 15, kind: 'manual' }, { category: 'performance', name: 'ج', max_score: 40, kind: 'manual' }, { category: 'tests', name: 'ب', max_score: 20, kind: 'manual' }];
+  const kept = app.gradeSheetSeed(prev.slice(0, 1).concat(prev.slice(2)), { performance: 45, tests: 15 });
   assert.equal(kept.find(c => c.name === 'أ').max_score, 15, 'ضمن السقف = كما هو');
-  assert.equal(kept.find(c => c.name === 'ب').max_score, 15, 'تجاوز السقف = يُصغَّر إليه');
+  assert.equal(kept.find(c => c.name === 'ب'), undefined, 'اختبارات الفصل السابق لا تُنسخ');
+  const shrunk = app.gradeSheetSeed(prev, { performance: 45, tests: 15 });
+  assert.equal(sum(shrunk, 'performance'), 45, 'أداء تجاوز السقف = يُصغَّر إليه');
 });
 
 test('gradeCapsConflicts — كشف قائم يتجاوز السقف الجديد', async () => {
@@ -282,7 +287,8 @@ test('gradeCapsConflicts — كشف قائم يتجاوز السقف الجدي�
     { section_id: 'S', academic_year: 'Y', semester: 1, category: 'tests', max_score: 10 }, { section_id: 'S', academic_year: 'Y', semester: 1, category: 'tests', max_score: 10 },
     { section_id: 'S', academic_year: 'Y', semester: 1, category: 'performance', max_score: 40 },
   ];
-  assert.deepEqual([...app.gradeCapsConflicts(cols, { performance: 45, tests: 15 })].map(c => c.category + ':' + c.total), ['tests:20']);
+  assert.equal(app.gradeCapsConflicts(cols, { performance: 45, tests: 15 }).length, 0, 'الاختبارات بلا سقف — لا تعارض');
+  assert.deepEqual([...app.gradeCapsConflicts(cols, { performance: 35, tests: 25 })].map(c => c.category + ':' + c.total), ['performance:40']);
   assert.equal(app.gradeCapsConflicts(cols, { performance: 40, tests: 20 }).length, 0);
 });
 
@@ -292,19 +298,19 @@ function capsInputs(app, perf, tests){
 
 test('saveGradeCaps — لا يُحفظ توزيع يجعل كشفًا قائمًا مخالفًا، والفحص باسم المعلم', async () => {
   const log = [];
-  const seed = { classroom_grade_columns: [{ teacher_id: 'u1', section_id: 'S', academic_year: 'Y', semester: 1, category: 'tests', max_score: 20 }, { teacher_id: 'u2', section_id: 'X', academic_year: 'Y', semester: 1, category: 'performance', max_score: 40 }] };
+  const seed = { classroom_grade_columns: [{ teacher_id: 'u1', section_id: 'S', academic_year: 'Y', semester: 1, category: 'performance', max_score: 40 }, { teacher_id: 'u1', section_id: 'S', academic_year: 'Y', semester: 1, category: 'tests', max_score: 30 }, { teacher_id: 'u2', section_id: 'X', academic_year: 'Y', semester: 1, category: 'performance', max_score: 10 }] };
   const app = appWith(seed, log);
   setFeatures(app, { sections: {}, tools: {} });
-  capsInputs(app, '45', '15');
+  capsInputs(app, '35', '25');
   await app.saveGradeCaps();
-  assert.equal(log.filter(l => l.op === 'upsert').length, 0);
+  assert.equal(log.filter(l => l.op === 'upsert').length, 0, 'أداء 40 قائم لا يتسع في 35');
   assert.match(runInAppContext(app, `document.getElementById('custCapsMsg').textContent`), /تتجاوز السقف الجديد/);
   assert.deepEqual(filtersOf(log.find(l => l.table === 'classroom_grade_columns')), { teacher_id: 'u1' });
-  capsInputs(app, '٣٥', '25');
+  capsInputs(app, '٤٥', '15');
   await app.saveGradeCaps();
   const up = log.filter(l => l.op === 'upsert')[0];
-  assert.deepEqual(JSON.parse(JSON.stringify(up.values.features.grades)), { performance: 35, tests: 25 });
-  assert.equal(app.gradeCap('tests'), 25);
+  assert.deepEqual(JSON.parse(JSON.stringify(up.values.features.grades)), { performance: 45, tests: 15 }, 'اختبارات 30 قائمة لا تمنع: بلا سقف');
+  assert.equal(app.gradeCap('tests'), 15);
 });
 
 test('saveGradeCaps — مجموع غير 60 يُرفض قبل أي طلب', async () => {

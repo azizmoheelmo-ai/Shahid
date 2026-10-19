@@ -134,6 +134,15 @@ test('ensureToolColumn — يعيد القائم، وينشئ ضمن السقف 
   assert.equal(r3.column.id, 'CT');
 });
 
+test('ensureToolColumn — أداة في الاختبارات لا يمنعها سقف: اختبارات قائمة مجموعها 40 لا تمنع عمودها', async () => {
+  const log = [];
+  const t = (id, max) => ({ id, teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, category: 'tests', max_score: max, kind: 'manual' });
+  const app = appWith({ classroom_grade_columns: [t('A', 20), t('B', 20)] }, log);
+  const r = await app.ensureToolColumn(runInAppContext(app, 'crmCustomTools[2]'), 'S', TERM);
+  assert.ok(r.column, 'أُنشئ العمود');
+  assert.equal(writes(log, 'classroom_grade_columns', 'insert')[0].rows[0].category, 'tests');
+});
+
 test('syncToolColumn — رصد الفصل كله (ولو من شعبة سابقة) باسم المعلم، ولا رصد = تُمسح الدرجة', async () => {
   const log = [];
   const seed = {
@@ -269,25 +278,24 @@ test('toolCapRoom — أضيق كشف في الفئة، ويتجاهل عمود 
   assert.equal(app.toolCapRoom([], 'tests', 20, null).remaining, 20);
 });
 
-test('نافذة الأداة — الشرح يتبع النوع، وينبّه حين لا يتسع السقف بقراءة باسم المعلم', async () => {
+test('نافذة الأداة — الشرح يتبع النوع، وينبّه حين لا يتسع سقف الأداء بقراءة باسم المعلم، والاختبارات بلا سقف', async () => {
   const log = [];
-  const app = appWith({ classroom_grade_columns: [
-    { section_id: 'S', category: 'tests', name: 'الفترة الأولى', max_score: 10, teacher_id: 'u1', academic_year: TERM.year, semester: TERM.semester },
-    { section_id: 'S', category: 'tests', name: 'الفترة الثانية', max_score: 10, teacher_id: 'u1', academic_year: TERM.year, semester: TERM.semester },
-  ] }, log);
+  const c = (name, max) => ({ section_id: 'S', category: 'performance', name, max_score: max, teacher_id: 'u1', academic_year: TERM.year, semester: TERM.semester });
+  const app = appWith({ classroom_grade_columns: [c('مشاركة', 10), c('واجبات', 10), c('مهام أدائية', 20)] }, log);
   app.openCustomToolEditor(null);
   app.pickCustomToolType('score');
-  fillToolForm(app, 'اختبار قصير', '20', 'tests');
+  fillToolForm(app, 'قراءة', '10', 'performance');
   await app.refreshCustomToolHint();
   const txt = id => runInAppContext(app, `document.getElementById('${id}').textContent`);
   assert.match(txt('custToolHint'), /متوسط درجات الطالب/);
   assert.match(txt('custToolRoom'), /لا يتسع الكشف/);
-  assert.match(txt('custToolRoom'), /الفترة الأولى/);
+  assert.match(txt('custToolRoom'), /مهام أدائية/);
   const sel = log.filter(l => l.table === 'classroom_grade_columns' && l.op === 'select').pop();
   assert.equal(filtersOf(sel).teacher_id, 'u1');
-  fillToolForm(app, 'اختبار قصير', '0.5', 'performance');
+  fillToolForm(app, 'اختبار قصير', '20', 'tests');
   await app.refreshCustomToolHint();
   assert.doesNotMatch(txt('custToolRoom'), /⚠/);
+  assert.match(txt('custToolRoom'), /بلا حد لعدد الاختبارات/);
 });
 
 test('تعديل الأداة لا يغيّر نوعها، والإخفاء والحذف باسم المعلم', async () => {
@@ -313,7 +321,8 @@ test('كشف لا فيه إلا عمود أداة: يُعرض "إنشاء الك
   const seed = { classroom_grade_columns: [{ id: 'CT', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, category: 'performance', max_score: 5, kind: 'manual', tool_id: 'TS', name: 'إحضار الكتاب' }] };
   const app = appWith(seed, log);
   const g = { sectionId: 'S', year: TERM.year, semester: 1, columns: seed.classroom_grade_columns, allColumns: seed.classroom_grade_columns, hiddenColumns: [], scores: [] };
-  assert.match(app.crmGradeSheetHtml(g), /إنشاء الكشف/);
+  assert.match(app.crmGradeSimpleHtml(g), /إنشاء الكشف/);
+  assert.match(app.crmGradeDetailHtml(g), /إنشاء الكشف/);
   runInAppContext(app, `crmGrades = ${JSON.stringify(g)}; renderCrmGrades = () => {}; previousGradeTerm = () => null;`);
   await app.createCrmGradeSheet();
   const rows = writes(log, 'classroom_grade_columns', 'insert')[0].rows;
