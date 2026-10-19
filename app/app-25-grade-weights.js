@@ -85,6 +85,7 @@ let crmWeightsDraft = null; /* { sectionId, components, saving } */
 function openCrmGradeSettings(){
   crmGradesSettingsOpen = true;
   crmGradesDetail = false;
+  resetCrmGradeStudent();
   renderCrmGrades();
 }
 

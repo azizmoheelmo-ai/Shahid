@@ -5,7 +5,8 @@
    - الاختبارات 20 = مجموع ما أخذه ÷ مجموع الدرجات الكاملة لما رُصد له × 20،
      بلا سقف ولا عدد محدد للاختبارات، وكل اختبار بأي درجة كاملة.
    - ما لم يُرصد لا يُحسب (لا صفر).
-   - الكشف المبسّط سطر لكل طالب، والتفاصيل بالضغط، ولا زر "نسخ لنور".
+   - الكشف المبسّط: قائمة أسماء بمجموع كل طالب (ملوّن حسب ما رُصد فقط)، والضغط على
+     الاسم يفتح صفحته (الأداء والاختبارات بأشرطة، والسابق/التالي)، ولا زر "نسخ لنور".
    ============================================================ */
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -63,20 +64,19 @@ function appWithSheet(extra){
 }
 const G = (cols, scores) => ({ sectionId: 'S', year: 'Y', semester: 1, columns: cols, allColumns: cols, hiddenColumns: [], scores });
 
-test('الكشف المبسّط — سطر لكل طالب بالأداء/الاختبارات/المجموع، و"لم يُرصد"، بلا "نسخ لنور"؛ والاختبارات في إعداد الدرجات', async () => {
-  const app = appWithSheet();
+test('الكشف المبسّط — قائمة أسماء بمجموع كل طالب ملوّن حسب ما رُصد، بلا "نسخ لنور"؛ والاختبارات في إعداد الدرجات', async () => {
+  const app = appWithSheet(`crmStudents.push({ id: 'c', full_name: 'خالد', section_id: 'S' });`);
   const scores = [S('p', 'a', 10), S('h', 'a', 7), S('t1', 'a', 17), S('t2', 'a', 19), S('t3', 'a', 9), S('p', 'b', 4)];
   const html = app.crmGradeSimpleHtml(G(COLS, scores));
-  assert.match(html, /الأداء<small>من 40<\/small>/);
-  assert.match(html, /الاختبارات<small>من 20<\/small>/);
-  assert.match(html, /المجموع<small>من 60<\/small>/);
-  assert.match(html, /<td class="crm-gs-tot">35<\/td>/, 'سامي: 17 + 18');
-  assert.match(html, /لم يُرصد/, 'فهد بلا اختبارات');
+  assert.match(html, /id="crmGsRow_a" onclick="openCrmGradeStudentDetail\('a'\)">\s*<span class="crm-gs-iname">سامي &lt;b&gt;علي&lt;\/b&gt;<\/span>\s*<span class="crm-gs-itot"><b class="gs-tone-hi">35<\/b> <small>من 60<\/small>/, 'سامي: 17 + 18 = 35، رُصد له 40 (أخضر)');
+  assert.match(html, /<b class="gs-tone-lo">4<\/b> <small>من 60<\/small>/, 'فهد: 4 من 10 مرصودة (أحمر) — الاختبارات لم تُرصد فلا تُحسب عليه');
+  assert.match(html, /id="crmGsRow_c"[\s\S]*?— لم يُرصد/, 'خالد بلا أي رصد');
+  assert.doesNotMatch(html, /crm-gs-table/, 'لا جدول أعمدة');
   assert.doesNotMatch(html, /نور/);
   const settings = app.crmGradeSettingsHtml(G(COLS, scores));
   assert.match(settings, /openCrmGradeColumnEditor\('tests', null\)/, '+ اختبار');
   assert.match(settings, /اختبار قصير ١<\/b> · من 20/);
-  assert.match(settings, /رُصد 1 من 2/);
+  assert.match(settings, /رُصد 1 من 3/);
   assert.match(html, /سامي &lt;b&gt;علي&lt;\/b&gt;/, 'الاسم مُهرَّب');
   assert.doesNotMatch(html, /<b>علي<\/b>/);
 });
@@ -86,22 +86,54 @@ test('الكشف المبسّط — الاختبارات مخفية من الت�
   const html = app.crmGradeSimpleHtml(G(COLS, [S('p', 'a', 10), S('t1', 'a', 20)]));
   assert.doesNotMatch(html, /الاختبارات<small>/);
   assert.doesNotMatch(html, /openCrmGradeColumnEditor\('tests'/);
-  assert.match(html, /المجموع<small>من 40<\/small>/);
-  assert.match(html, /<td class="crm-gs-tot">10<\/td>/);
+  assert.match(html, /<b class="gs-tone-hi">10<\/b> <small>من 40<\/small>/);
 });
 
-test('تفاصيل الطالب — كل اختبار ونسبته وطريقة الحساب، ومكوّنات الأداء، والاسم مُهرَّب', async () => {
-  const app = appWithSheet();
+test('صفحة الطالب — المجموع، والأداء والاختبارات بأشرطة ونِسَب وطريقة الحساب، والسابق/التالي، والاسم مُهرَّب', async () => {
+  const app = appWithSheet(`crmGradesSectionId = () => 'S';`);
   const g = G(COLS.concat([C('t4', 'tests', 10, { name: '<img src=x>' })]), [S('p', 'a', 10), S('h', 'a', 7), S('t1', 'a', 17), S('t2', 'a', 19), S('t3', 'a', 9)]);
   runInAppContext(app, `crmGrades = ${JSON.stringify(g)};`);
   app.openCrmGradeStudentDetail('a');
-  const html = runInAppContext(app, 'window.__modal[0]');
-  assert.match(html, /17 من 20 · <span class="crm-gs-chip">85%<\/span>/);
+  const html = runInAppContext(app, `document.getElementById('crmGradesBody').innerHTML`);
+  assert.match(html, /1 من 2/);
+  assert.match(html, /المجموع<\/span><span><b>35<\/b> <small>من 60<\/small>/);
+  assert.match(html, /اختبار قصير ١<\/span><span>17 من 20 · 85%<\/span>/);
+  assert.match(html, /<i class="gs-bg-hi" style="width:85%"><\/i>/);
   assert.match(html, /المحصلة: 45 من 50 = 90% × 20 = <b>18<\/b>/);
   assert.match(html, /مهام أدائية<\/span><span><span class="crm-gs-none">لم يُرصد بعد/);
+  assert.match(html, /<button type="button" class="btn btn-outline" disabled>‹ الطالب السابق/, 'الأول: لا سابق');
+  assert.match(html, /onclick="openCrmGradeStudentDetail\('b'\)">الطالب التالي/);
+  assert.doesNotMatch(html, /crmGradesSection"/, 'صفحة الطالب بلا قائمة الشعب');
+  app.openCrmGradeStudentDetail('b');
+  assert.match(runInAppContext(app, `document.getElementById('crmGradesBody').innerHTML`), /2 من 2[\s\S]*onclick="openCrmGradeStudentDetail\('a'\)">‹ الطالب السابق[\s\S]*disabled>الطالب التالي/);
+  app.closeCrmGradeStudent();
+  const list = runInAppContext(app, `document.getElementById('crmGradesBody').innerHTML`);
+  assert.match(list, /crmGsRow_a/, 'رجوع لقائمة الطلاب');
+  assert.equal(runInAppContext(app, 'crmGradeStudentId'), null);
+  app.openCrmGradeStudentDetail('a');
   assert.match(html, /&lt;img src=x&gt;/);
   assert.doesNotMatch(html, /<img src=x>/);
   assert.match(html, /سامي &lt;b&gt;علي/);
+});
+
+test('صفحة الطالب — طالب ليس في الشعبة لا تُفتح، وتغيير الشعبة أو التبويب يعيد قائمة الطلاب، و"ملخص الشعبة" ملغى', async () => {
+  const app = appWithSheet(`crmGradesSectionId = () => 'S'; renderCrmGrades = () => { window.__rendered = (window.__rendered || 0) + 1; };
+    renderCrmLinkBanner = () => {}; showCrmOverlayPane = () => {};
+    document.getElementById('crmLessonSheet').style.display = 'none'; document.getElementById('crmStudentProfile').style.display = 'none';`);
+  runInAppContext(app, `crmGrades = ${JSON.stringify(G(COLS, []))};`);
+  app.openCrmGradeStudentDetail('zz');
+  assert.equal(runInAppContext(app, 'crmGradeStudentId'), null);
+  app.openCrmGradeStudentDetail('a');
+  assert.equal(runInAppContext(app, 'crmGradeStudentId'), 'a');
+  app.onCrmGradesSectionChange('S2');
+  assert.equal(runInAppContext(app, 'crmGradeStudentId'), null);
+  app.openCrmGradeStudentDetail('a');
+  app.switchCrmTab('grades');
+  assert.equal(runInAppContext(app, 'crmGradeStudentId'), null);
+  assert.equal(runInAppContext(app, 'SECTION_SUMMARY_ON'), false);
+  assert.equal(app.crmGradesViewSwitchHtml(), '');
+  runInAppContext(app, `localStorage.setItem('crm_grades_view', 'summary');`);
+  assert.equal(app.crmGradesView(), 'sheet', 'ولو حُفظ "ملخص" سابقًا');
 });
 
 test('الكشف التفصيلي — خانة الاختبارات محصلة من 20 لا مجموع الأعمدة', async () => {

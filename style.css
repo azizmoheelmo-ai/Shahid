@@ -1532,3 +1532,35 @@
 html.booting .boot-splash{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:60vh;color:var(--navy);font-weight:700;font-size:15px;}
 html.booting .boot-splash img{border-radius:16px;}
 html.booting #authView{display:none !important;}
+
+/* الكشف: قائمة الأسماء مع المجموع، وصفحة الطالب عند الضغط على اسمه */
+.crm-gs-listhead{font-size:13px;font-weight:700;color:var(--navy);margin:12px 0 8px;}
+.crm-gs-listhead small{font-weight:400;color:var(--muted);font-size:11.5px;margin-right:4px;}
+.crm-gs-list{display:flex;flex-direction:column;gap:8px;}
+.crm-gs-item{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:right;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;font-family:inherit;cursor:pointer;color:inherit;}
+.crm-gs-item:hover{background:#FAF8F3;}
+.crm-gs-iname{font-weight:700;font-size:14.5px;color:var(--navy);overflow-wrap:anywhere;}
+.crm-gs-itot{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+.crm-gs-itot b{font-size:16px;font-weight:800;}
+.crm-gs-itot small{color:var(--muted);font-size:11.5px;}
+.crm-gs-chev{color:#B9B2A3;font-size:18px;margin-right:2px;}
+.gs-tone-lo{color:#8A2C2C;}.gs-tone-mid{color:#8A6D1F;}.gs-tone-hi{color:#2F6B3A;}.gs-tone-none{color:var(--navy);}
+.crm-gs-ptop{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--muted);margin-bottom:8px;}
+.crm-gs-pname{margin:6px 0 2px;font-size:18px;color:var(--navy);}
+.crm-gs-psub{font-size:12px;color:var(--muted);margin-bottom:12px;}
+.crm-gs-ptotal{display:flex;justify-content:space-between;align-items:center;background:var(--navy);color:#fff;border-radius:12px;padding:12px 16px;margin-bottom:12px;}
+.crm-gs-ptotal b{font-size:28px;}
+.crm-gs-ptotal small{opacity:.8;font-size:12.5px;}
+.crm-gs-pcard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+.crm-gs-phead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+.crm-gs-phead b{font-size:15px;color:var(--navy);}
+.crm-gs-phead span{font-size:18px;font-weight:800;}
+.crm-gs-phead small{font-size:12px;color:var(--muted);font-weight:400;}
+.crm-gs-prow{margin:9px 0;}
+.crm-gs-plabel{display:flex;justify-content:space-between;gap:8px;font-size:13px;margin-bottom:4px;}
+.crm-gs-bar{height:8px;background:#EEE9DE;border-radius:6px;overflow:hidden;}
+.crm-gs-bar i{display:block;height:100%;border-radius:6px;}
+.gs-bg-lo{background:#B23B3B;}.gs-bg-mid{background:#C9A227;}.gs-bg-hi{background:#2F6B3A;}
+.crm-gs-pnav{display:flex;gap:8px;margin-top:4px;}
+.crm-gs-pnav .btn{flex:1;justify-content:center;}
+.crm-gs-pnav .btn:disabled{opacity:.4;cursor:default;}
