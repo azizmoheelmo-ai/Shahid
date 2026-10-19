@@ -243,8 +243,9 @@ function renderAppCustomize(){
     ${APP_SECTIONS.map(s => customizeRowHtml('sections', s)).join('')}
     <h3 class="cust-h">أدوات إدارة الصف</h3>
     ${classroom ? APP_TOOLS.map(t => customizeRowHtml('tools', t)).join('') : '<p class="cust-note">فعّل قسم "إدارة الصف" لاختيار أدواته.</p>'}
-    ${classroom && typeof customToolsSectionHtml === 'function' ? customToolsSectionHtml() : ''}
-    ${classroom ? gradeCapsEditorHtml('cust') : ''}`;
+    ${classroom ? `<h3 class="cust-h">الدرجات</h3>
+      <p class="cust-note">توزيع الدرجات، ومكوّنات الأداء (مثل البحوث)، والاختبارات — كلها في مكان واحد:</p>
+      <button class="btn btn-outline crm-mini-btn" onclick="openGradeSettingsFromAnywhere()">⚙ إعداد الدرجات</button>` : ''}`;
   fillHiddenSavedCounts(++appCustomizeToken);
 }
 
@@ -361,6 +362,25 @@ function showGradeCapsMsg(prefix, text, ok){
   box.style.color = ok ? '#215C34' : '#8A2C2C';
 }
 
+/* يحفظ التوزيع بعد التأكد أن لا كشف قائمًا (أي فصل) يتجاوز وزن الأداء الجديد.
+   null = حُفظ، وإلا نص الخطأ للمعلم */
+async function persistGradeCaps(caps){
+  const uid = currentUser.id;
+  const { data: cols, error } = await sb.from('classroom_grade_columns').select('section_id, academic_year, semester, category, max_score').eq('teacher_id', uid);
+  if(error) return 'تعذّر الحفظ: ' + (error.message || '');
+  const conflicts = gradeCapsConflicts(cols, caps);
+  if(conflicts.length){
+    const label = c => (typeof crmSectionById === 'function' && crmSectionById(c.section_id) ? crmSectionLabel(c.section_id) : 'شعبة') + ' (' + c.academic_year + ')';
+    return 'كشوف قائمة تتجاوز السقف الجديد — قلّل أعمدتها أولًا: ' + conflicts.map(c => `${label(c)}: ${GRADE_CATEGORY_LABELS[c.category]} موزّع ${formatScore(c.total)} والسقف ${formatScore(caps[c.category])}`).join(' · ');
+  }
+  if(!currentUser || currentUser.id !== uid) return 'تغيّر الحساب';
+  appFeatures = Object.assign(normalizeFeatures(appFeatures), { grades: caps });
+  afterAppFeaturesChanged();
+  await saveAppFeatures();
+  if(!(appFeaturesSaved.grades && appFeaturesSaved.grades.performance === caps.performance && appFeaturesSaved.grades.tests === caps.tests)) return 'تعذّر حفظ التوزيع';
+  return null;
+}
+
 let gradeCapsSaving = false;
 async function saveGradeCaps(){
   if(gradeCapsSaving || !currentUser) return;
@@ -369,24 +389,11 @@ async function saveGradeCaps(){
   gradeCapsSaving = true;
   const btn = document.getElementById('custCapsSaveBtn');
   if(btn) btn.disabled = true;
-  const uid = currentUser.id;
   try{
-    const { data: cols, error } = await sb.from('classroom_grade_columns').select('section_id, academic_year, semester, category, max_score').eq('teacher_id', uid);
-    if(error) throw error;
-    const conflicts = gradeCapsConflicts(cols, r.caps);
-    if(conflicts.length){
-      const label = c => (typeof crmSectionById === 'function' && crmSectionById(c.section_id) ? crmSectionLabel(c.section_id) : 'شعبة') + ' (' + c.academic_year + ')';
-      showGradeCapsMsg('cust', 'كشوف قائمة تتجاوز السقف الجديد — قلّل أعمدتها أولًا: ' + conflicts.map(c => `${label(c)}: ${GRADE_CATEGORY_LABELS[c.category]} موزّع ${formatScore(c.total)} والسقف ${formatScore(r.caps[c.category])}`).join(' · '), false);
-      return;
-    }
-    if(!currentUser || currentUser.id !== uid) return;
-    appFeatures = Object.assign(normalizeFeatures(appFeatures), { grades: r.caps });
-    afterAppFeaturesChanged();
-    await saveAppFeatures();
-    if(appFeaturesSaved.grades && appFeaturesSaved.grades.performance === r.caps.performance && appFeaturesSaved.grades.tests === r.caps.tests){
-      showGradeCapsMsg('cust', 'حُفظ التوزيع ✓', true);
-      if(document.getElementById('crmTabGrades') && document.getElementById('crmTabGrades').style.display !== 'none' && typeof renderCrmGrades === 'function') renderCrmGrades();
-    }
+    const e = await persistGradeCaps(r.caps);
+    if(e){ showGradeCapsMsg('cust', e, false); return; }
+    showGradeCapsMsg('cust', 'حُفظ التوزيع ✓', true);
+    if(document.getElementById('crmTabGrades') && document.getElementById('crmTabGrades').style.display !== 'none' && typeof renderCrmGrades === 'function') renderCrmGrades();
   } catch(e){
     showGradeCapsMsg('cust', 'تعذّر الحفظ: ' + (e.message || ''), false);
   } finally {

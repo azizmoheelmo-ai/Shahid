@@ -262,39 +262,19 @@ test('customToolHintText — يشرح كيف يُحسب كل نوع بمثال �
   assert.equal(app.customToolHintText('score', 0, 'tests'), '');
 });
 
-test('toolCapRoom — أضيق كشف في الفئة، ويتجاهل عمود الأداة نفسها والفئة الأخرى', async () => {
-  const app = loadApp();
-  const cols = [
-    { section_id: 'S1', category: 'tests', name: 'الفترة الأولى', max_score: 10 }, { section_id: 'S1', category: 'tests', name: 'الفترة الثانية', max_score: 10 },
-    { section_id: 'S2', category: 'tests', name: 'اختبار', max_score: 5 },
-    { section_id: 'S2', category: 'performance', name: 'مشاركة', max_score: 40 },
-    { section_id: 'S2', category: 'tests', name: 'عمود أداتي', max_score: 5, tool_id: 'TG' },
-  ];
-  const r = app.toolCapRoom(cols, 'tests', 20, null);
-  assert.equal(r.remaining, 0);
-  assert.deepEqual([...r.names], ['الفترة الأولى', 'الفترة الثانية']);
-  assert.equal(app.toolCapRoom(cols, 'tests', 20, 'TG').remaining, 0);
-  assert.equal(app.toolCapRoom([cols[2], cols[4]], 'tests', 20, 'TG').remaining, 15);
-  assert.equal(app.toolCapRoom([], 'tests', 20, null).remaining, 20);
-});
-
-test('نافذة الأداة — الشرح يتبع النوع، وينبّه حين لا يتسع سقف الأداء بقراءة باسم المعلم، والاختبارات بلا سقف', async () => {
+test('نافذة المكوّن — الشرح يتبع النوع، ويدلّ على "إعداد الدرجات" لوزنه، بلا فئة اختبارات للجديد', async () => {
   const log = [];
-  const c = (name, max) => ({ section_id: 'S', category: 'performance', name, max_score: max, teacher_id: 'u1', academic_year: TERM.year, semester: TERM.semester });
-  const app = appWith({ classroom_grade_columns: [c('مشاركة', 10), c('واجبات', 10), c('مهام أدائية', 20)] }, log);
+  const app = appWith({}, log);
   app.openCustomToolEditor(null);
   app.pickCustomToolType('score');
   fillToolForm(app, 'قراءة', '10', 'performance');
-  await app.refreshCustomToolHint();
+  app.refreshCustomToolHint();
   const txt = id => runInAppContext(app, `document.getElementById('${id}').textContent`);
   assert.match(txt('custToolHint'), /متوسط درجات الطالب/);
-  assert.match(txt('custToolRoom'), /لا يتسع الكشف/);
-  assert.match(txt('custToolRoom'), /مهام أدائية/);
-  const sel = log.filter(l => l.table === 'classroom_grade_columns' && l.op === 'select').pop();
-  assert.equal(filtersOf(sel).teacher_id, 'u1');
+  assert.match(txt('custToolRoom'), /إعداد الدرجات/);
+  assert.equal(log.length, 0, 'لا قراءة للكشوف');
   fillToolForm(app, 'اختبار قصير', '20', 'tests');
-  await app.refreshCustomToolHint();
-  assert.doesNotMatch(txt('custToolRoom'), /⚠/);
+  app.refreshCustomToolHint();
   assert.match(txt('custToolRoom'), /بلا حد لعدد الاختبارات/);
 });
 

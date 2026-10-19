@@ -20,7 +20,12 @@ function fakeClient(seed, log, opts){
       let op = 'select', values = null, single = false, onConflict = null;
       const result = () => {
         if(opts.fail && opts.fail(table, op)) return { data: null, error: { message: 'boom' } };
-        if(op === 'insert'){ log.push({ table, op, rows: [values] }); return { data: single ? Object.assign({ id: 'NEW' }, values) : [values], error: null }; }
+        if(op === 'insert'){
+          const rows = Array.isArray(values) ? values : [values];
+          log.push({ table, op, rows });
+          const out = rows.map((r, i) => Object.assign({ id: 'NEW' + i }, r));
+          return { data: single ? out[0] : out, error: null };
+        }
         if(op === 'upsert'){ log.push({ table, op, rows: [values], onConflict }); return { data: null, error: null }; }
         if(op === 'delete'){ log.push({ table, op, filters: f.slice() }); return { data: null, error: null }; }
         log.push({ table, op: 'select', filters: f.slice() });
@@ -162,17 +167,34 @@ test('زر "حفظ" ينتظر حفظ خانات الاختبار المعلّق
 test('+ اختبار من الورقة — باسم المعلم في فئة الاختبارات للشعبة والفصل، ويُرفض الفارغ والأكبر من 40، ولا يتكرر بنقرتين', async () => {
   const log = [];
   const app = appWith({ classroom_grade_columns: [] }, log);
-  app.openCustomToolEditor && 0;
   app.openCrmSheetTestModal();
   const set = (n, m) => runInAppContext(app, `document.getElementById('crmSheetTestName').value = ${JSON.stringify(n)}; document.getElementById('crmSheetTestMax').value = ${JSON.stringify(m)};`);
   set('', '20'); await app.saveCrmSheetTest();
   set('نهائي', '50'); await app.saveCrmSheetTest();
   assert.equal(log.filter(l => l.op === 'insert').length, 0);
   set('الفترة الأولى', '٢٠');
+  runInAppContext(app, `{ const _g = document.getElementById; document.getElementById = id => id === 'crmSheetTestAll' ? { checked: false } : _g(id); }`);
   await Promise.all([app.saveCrmSheetTest(), app.saveCrmSheetTest()]);
   const ins = log.filter(l => l.op === 'insert');
   assert.equal(ins.length, 1);
+  assert.equal(ins[0].rows.length, 1, 'الشعبة الحالية فقط');
   const r = ins[0].rows[0];
   assert.deepEqual({ t: r.teacher_id, s: r.section_id, y: r.academic_year, sem: r.semester, c: r.category, k: r.kind, n: r.name, m: r.max_score },
     { t: 'u1', s: 'S', y: TERM.year, sem: 1, c: 'tests', k: 'manual', n: 'الفترة الأولى', m: 20 });
+});
+
+test('+ اختبار "لكل شعبي" — يُضاف لكل شعبة لها كشف هذا الفصل فقط (لا لشعبة بلا كشف ولا لمعلم آخر)', async () => {
+  const log = [];
+  const base = (id, s, extra) => Object.assign({ id, teacher_id: 'u1', section_id: s, academic_year: TERM.year, semester: 1, category: 'performance', kind: 'participation', tool_id: null, name: 'مشاركة', max_score: 10 }, extra || {});
+  /* S9: عمود أداة فقط (لا كشف بعد) — لا يُضاف لها */
+  const app = appWith({ classroom_grade_columns: [base('p1', 'S'), base('p2', 'S2'), base('px', 'S3', { teacher_id: 'u2' }), base('t9', 'S9', { kind: 'manual', tool_id: 'T' })] }, log);
+  runInAppContext(app, `crmSections = [{ id: 'S' }, { id: 'S2' }, { id: 'E' }, { id: 'S9' }];`);
+  app.openCrmSheetTestModal();
+  runInAppContext(app, `document.getElementById('crmSheetTestName').value = 'قصير'; document.getElementById('crmSheetTestMax').value = '10';
+    { const _g = document.getElementById; document.getElementById = id => id === 'crmSheetTestAll' ? { checked: true } : _g(id); }`);
+  await app.saveCrmSheetTest();
+  const rows = log.filter(l => l.op === 'insert')[0].rows;
+  assert.deepEqual([...rows].map(r => r.section_id).sort(), ['S', 'S2']);
+  assert.ok([...rows].every(r => r.teacher_id === 'u1'));
+  assert.match(runInAppContext(app, 'window.__toasts.join("|")'), /لـ2 شعب/);
 });

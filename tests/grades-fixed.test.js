@@ -63,7 +63,7 @@ function appWithSheet(extra){
 }
 const G = (cols, scores) => ({ sectionId: 'S', year: 'Y', semester: 1, columns: cols, allColumns: cols, hiddenColumns: [], scores });
 
-test('الكشف المبسّط — سطر لكل طالب بالأداء/الاختبارات/المجموع، و"لم يُرصد"، وبطاقة الاختبارات، بلا "نسخ لنور"', async () => {
+test('الكشف المبسّط — سطر لكل طالب بالأداء/الاختبارات/المجموع، و"لم يُرصد"، بلا "نسخ لنور"؛ والاختبارات في إعداد الدرجات', async () => {
   const app = appWithSheet();
   const scores = [S('p', 'a', 10), S('h', 'a', 7), S('t1', 'a', 17), S('t2', 'a', 19), S('t3', 'a', 9), S('p', 'b', 4)];
   const html = app.crmGradeSimpleHtml(G(COLS, scores));
@@ -72,10 +72,11 @@ test('الكشف المبسّط — سطر لكل طالب بالأداء/الا
   assert.match(html, /المجموع<small>من 60<\/small>/);
   assert.match(html, /<td class="crm-gs-tot">35<\/td>/, 'سامي: 17 + 18');
   assert.match(html, /لم يُرصد/, 'فهد بلا اختبارات');
-  assert.match(html, /openCrmGradeColumnEditor\('tests', null\)/, '+ اختبار');
-  assert.match(html, /اختبار قصير ١<\/b> · من 20/);
-  assert.match(html, /رُصد 1 من 2/);
   assert.doesNotMatch(html, /نور/);
+  const settings = app.crmGradeSettingsHtml(G(COLS, scores));
+  assert.match(settings, /openCrmGradeColumnEditor\('tests', null\)/, '+ اختبار');
+  assert.match(settings, /اختبار قصير ١<\/b> · من 20/);
+  assert.match(settings, /رُصد 1 من 2/);
   assert.match(html, /سامي &lt;b&gt;علي&lt;\/b&gt;/, 'الاسم مُهرَّب');
   assert.doesNotMatch(html, /<b>علي<\/b>/);
 });

@@ -88,22 +88,6 @@ function customToolHintText(type, max, category){
   return `الكشف يأخذ متوسط درجات الطالب. مثال: ${f(m)} و ${f(m / 2)} ← ${f(0.75 * m)} من ${f(m)}. من لم تُرصد له درجة لا يُحسب عليه.`;
 }
 
-/* أضيق مساحة متبقية في فئة عبر كشوف الفصل: أعمدة كل شعبة تُجمع (بدون أعمدة هذه الأداة نفسها) */
-function toolCapRoom(columns, category, cap, ownToolId){
-  const bySection = new Map();
-  (columns || []).forEach(c => {
-    if(c.category !== category || (ownToolId && c.tool_id === ownToolId)) return;
-    if(!bySection.has(c.section_id)) bySection.set(c.section_id, []);
-    bySection.get(c.section_id).push(c);
-  });
-  let worst = null;
-  bySection.forEach(cols => {
-    const used = cols.reduce((n, c) => n + Number(c.max_score), 0);
-    if(!worst || used > worst.used) worst = { used, names: cols.map(c => c.name) };
-  });
-  if(!worst) return { remaining: cap, names: [] };
-  return { remaining: Math.round((cap - worst.used) * 100) / 100, names: worst.names };
-}
 
 /* ============ التحميل ============ */
 async function loadCustomTools(uid){
@@ -185,8 +169,8 @@ async function syncToolColumn(column, tool, sectionId, term, studentIds){
 
 /* ============ ورقة الحصة: وضع أداة الحالة/الدرجة ============ */
 function toolCapMessage(tool, remaining){
-  return `لا متسع في "${escapeHtml(GRADE_CATEGORY_LABELS[tool.category])}" لـ"${escapeHtml(tool.name)}" (المتبقي ${formatScore(Math.max(0, remaining))} والأداة من ${formatScore(tool.max_score)}) — الرصد يُحفظ ولا يُحسب في الكشف حتى تعطيها وزنًا في توزيع الأداء.
-    <button class="btn btn-outline crm-mini-btn" onclick="openCrmWeightsFor(crmSheet && crmSheet.sectionId)">توزيع الأداء</button>`;
+  return `لا متسع في "${escapeHtml(GRADE_CATEGORY_LABELS[tool.category])}" لـ"${escapeHtml(tool.name)}" (المتبقي ${formatScore(Math.max(0, remaining))} والأداة من ${formatScore(tool.max_score)}) — الرصد يُحفظ ولا يُحسب في الكشف حتى تعطيها وزنًا في إعداد الدرجات.
+    <button class="btn btn-outline crm-mini-btn" onclick="openCrmWeightsFor(crmSheet && crmSheet.sectionId)">⚙ إعداد الدرجات</button>`;
 }
 
 async function renderCrmToolMode(students, tool){
@@ -399,22 +383,7 @@ async function markAllCrmToolDone(){
   try{ await bulk; } finally { crmToolBulkBusy = false; }
 }
 
-/* ============ تخصيص التطبيق ← أدواتك الخاصة ============ */
-function customToolsSectionHtml(){
-  const rows = crmCustomTools.map(t => `<div class="cust-row${t.hidden ? ' is-off' : ''}">
-    <div class="cust-text">
-      <b>🧩 ${escapeHtml(t.name)}</b>
-      <small>${CUSTOM_TOOL_TYPES[t.tool_type].label} · ${escapeHtml(GRADE_CATEGORY_LABELS[t.category])} · من ${formatScore(t.max_score)}</small>
-      ${t.hidden ? '<small class="cust-hidden">👁 مخفية — بياناتها محفوظة</small>' : ''}
-      <a href="#" style="font-size:11.5px;" onclick="event.preventDefault();openCustomToolEditor('${t.id}')">تعديل</a>
-    </div>
-    <button type="button" class="cust-switch${t.hidden ? '' : ' is-on'}" role="switch" aria-checked="${!t.hidden}" aria-label="${escapeHtml(t.name)}" onclick="toggleCustomToolHidden('${t.id}')"><span></span></button>
-  </div>`).join('');
-  return `<h3 class="cust-h">أدواتك الخاصة</h3>
-    ${rows || '<p class="cust-note">أضف أداة بنفسك تظهر في ورقة الحصة ولها عمود في الكشف.</p>'}
-    ${crmCustomTools.length < CUSTOM_TOOL_MAX ? '<button class="btn btn-outline crm-mini-btn" onclick="openCustomToolEditor(null)">+ أضف أداة</button>' : ''}`;
-}
-
+/* ============ المكوّنات الخاصة (من "⚙ إعداد الدرجات" ← + مكوّن) ============ */
 let customToolDraft = null; /* { id?, type, saving } */
 
 function openCustomToolEditor(id){
@@ -435,34 +404,32 @@ function renderCustomToolEditor(t){
   const catEl = document.getElementById('custToolCat');
   const keepCat = catEl ? catEl.value : (t ? t.category : 'performance');
   box.innerHTML = `
-    <h3 class="cust-wiz-h">${d.id ? 'تعديل الأداة' : 'أداة جديدة'}</h3>
-    <label class="crm-field-label">اسم الأداة (يظهر في ورقة الحصة والكشف)</label>
-    <input class="goal-input" id="custToolName" maxlength="40" placeholder="مثال: القراءة الجهرية" value="${escapeHtml(keepName)}" style="margin-bottom:8px;">
-    <label class="crm-field-label">النوع${d.id ? ' (لا يتغيّر بعد الإنشاء)' : ''}</label>
+    <h3 class="cust-wiz-h">${d.id ? 'تعديل المكوّن' : 'مكوّن جديد في الأداء'}</h3>
+    <label class="crm-field-label">الاسم (يظهر في ورقة الحصة والكشف)</label>
+    <input class="goal-input" id="custToolName" maxlength="40" placeholder="مثال: بحوث، القراءة الجهرية" value="${escapeHtml(keepName)}" style="margin-bottom:8px;">
+    <label class="crm-field-label">كيف ترصده؟${d.id ? ' (لا يتغيّر بعد الإنشاء)' : ''}</label>
     <div class="cust-cards" style="margin-bottom:8px;">
       ${Object.keys(CUSTOM_TOOL_TYPES).map(k => `<button type="button" class="cust-card${d.type === k ? ' is-on' : ''}"${d.id ? ' disabled' : ''} onclick="pickCustomToolType('${k}')">
         <b>${CUSTOM_TOOL_TYPES[k].icon} ${CUSTOM_TOOL_TYPES[k].label}</b><small>${CUSTOM_TOOL_TYPES[k].sub}</small></button>`).join('')}
     </div>
     <div style="display:flex;gap:8px;">
-      <div style="flex:1;"><label class="crm-field-label">${d.type === 'score' ? 'درجة كل رصد وعموده' : 'درجة العمود'}</label>
+      <div style="flex:1;"><label class="crm-field-label">${d.type === 'score' ? 'كل رصد من كم' : 'وزنه في الأداء'}</label>
         <input class="goal-input" id="custToolMax" inputmode="decimal" value="${escapeHtml(keepMax)}" oninput="refreshCustomToolHint()" style="margin-bottom:8px;"></div>
-      <div style="flex:1;"><label class="crm-field-label">تُحسب ضمن</label>
-        <select class="goal-input" id="custToolCat" onchange="refreshCustomToolHint()" style="margin-bottom:8px;"${d.id ? ' disabled' : ''}>
-          ${['performance', 'tests'].map(c => `<option value="${c}"${keepCat === c ? ' selected' : ''}>${escapeHtml(GRADE_CATEGORY_LABELS[c])}</option>`).join('')}
-        </select></div>
+      ${keepCat === 'tests' ? `<div style="flex:1;"><label class="crm-field-label">تُحسب ضمن</label>
+        <select class="goal-input" id="custToolCat" disabled style="margin-bottom:8px;"><option value="tests" selected>${escapeHtml(GRADE_CATEGORY_LABELS.tests)}</option></select></div>`
+        : '<input type="hidden" id="custToolCat" value="performance">'}
     </div>
-    ${d.id ? '<p class="cust-note" style="margin:0 0 6px;">تعديل الدرجة يُطبَّق على أعمدة الشعب الجديدة؛ عدّل الأعمدة القائمة من الكشف.</p>' : ''}
+    ${d.id ? '<p class="cust-note" style="margin:0 0 6px;">وزنه في الكشف يُعدَّل من "⚙ إعداد الدرجات".</p>' : ''}
     <p id="custToolHint" class="cust-note" style="margin:0 0 6px;"></p>
     <p id="custToolRoom" class="cust-note" style="margin:0 0 6px;"></p>
     <div id="custToolErr" class="cust-caps-msg" style="display:none;"></div>
-    <button class="btn btn-primary" id="custToolSaveBtn" style="width:100%;justify-content:center;margin-top:6px;" onclick="saveCustomTool()">${d.id ? 'حفظ التعديل' : 'إضافة الأداة'}</button>
+    <button class="btn btn-primary" id="custToolSaveBtn" style="width:100%;justify-content:center;margin-top:6px;" onclick="saveCustomTool()">${d.id ? 'حفظ التعديل' : 'إضافة المكوّن'}</button>
     ${d.id ? `<button class="btn btn-outline" id="custToolDeleteBtn" style="width:100%;justify-content:center;margin-top:8px;color:#8A2C2C;" onclick="deleteCustomTool('${d.id}')">حذف الأداة</button>` : ''}`;
   refreshCustomToolHint();
 }
 
-let customToolRoomSeq = 0;
-/* الشرح يتبع النوع والدرجة والفئة؛ ثم تنبيه السقف من كشوف المعلم (قراءة فقط، تُهمل إن تغيّرت النافذة) */
-async function refreshCustomToolHint(){
+/* الشرح يتبع النوع والدرجة والفئة، ومتى يدخل الكشف */
+function refreshCustomToolHint(){
   const d = customToolDraft;
   const hint = document.getElementById('custToolHint'), room = document.getElementById('custToolRoom');
   if(!d || !hint || !room || !currentUser) return;
@@ -472,22 +439,8 @@ async function refreshCustomToolHint(){
   const cap = gradeCap(category);
   room.style.color = '';
   if(category === 'tests'){ room.textContent = `تدخل محصلة الاختبارات (من ${formatScore(cap)}) — بلا حد لعدد الاختبارات.`; return; }
-  room.textContent = `المجموع المسموح في هذه الفئة: ${formatScore(cap)} درجة.`;
-  const seq = ++customToolRoomSeq;
-  const uid = currentUser.id;
-  let term;
-  try{ term = crmCurrentTerm(); } catch(e){ return; }
-  const { data, error } = await sb.from('classroom_grade_columns').select('section_id, category, name, max_score, tool_id')
-    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).eq('category', category);
-  if(error || seq !== customToolRoomSeq || customToolDraft !== d || !currentUser || currentUser.id !== uid) return;
-  const r = toolCapRoom(data, category, cap, d.id);
-  if(max > 0 && r.names.length && max > r.remaining){
-    room.style.color = '#8A2C2C';
-    const names = r.names.slice(0, 4).join('، ');
-    room.textContent = r.remaining <= 0
-      ? `⚠ لا يتسع الكشف لهذه الأداة: الأداء موزّع على (${names}). بعد إضافتها أعطها وزنًا من الكشف ← "تعديل توزيع الأداء" وأنقص غيرها. الرصد محفوظ.`
-      : `⚠ المتبقي في الكشف ${formatScore(r.remaining)} فقط والأداة من ${formatScore(max)}. عدّل وزنها من الكشف ← "تعديل توزيع الأداء" (${names}). الرصد محفوظ.`;
-  }
+  /* الوزن يُضبط في "إعداد الدرجات" مع بقية المكوّنات (مجموعها وزن الأداء) */
+  room.textContent = d.id ? '' : `بعد الإضافة يظهر في "⚙ إعداد الدرجات" بوزنه — احفظ هناك ليدخل الكشف (وإن تجاوز المجموع ${formatScore(cap)} أنقص غيره).`;
 }
 
 function pickCustomToolType(k){
@@ -506,7 +459,8 @@ async function saveCustomTool(){
   const category = document.getElementById('custToolCat').value === 'tests' ? 'tests' : 'performance';
   if(!name) return fail('اكتب اسم الأداة');
   if(name.length > 40) return fail('الاسم 40 حرفًا كحد أقصى');
-  if(crmCustomTools.some(t => t.id !== d.id && t.name.trim() === name)) return fail('لديك أداة بنفس الاسم');
+  if(crmCustomTools.some(t => t.id !== d.id && t.name.trim() === name)) return fail('لديك مكوّن بنفس الاسم');
+  if(!d.id && crmCustomTools.length >= CUSTOM_TOOL_MAX) return fail(`${CUSTOM_TOOL_MAX} مكوّنات خاصة كحد أقصى`);
   if(!(max > 0) || max > GRADE_COLUMN_MAX || Math.round(max * 2) !== max * 2) return fail(`الدرجة رقم بمنازل 0.5 أكبر من صفر وحتى ${GRADE_COLUMN_MAX}`);
   d.saving = true;
   const btns = ['custToolSaveBtn', 'custToolDeleteBtn'].map(i => document.getElementById(i)).filter(Boolean);
@@ -523,7 +477,7 @@ async function saveCustomTool(){
   }
   customToolDraft = null;
   closeCrmModal();
-  showToast(d.id ? 'عُدّلت الأداة' : 'أُضيفت الأداة — تجدها في ورقة الحصة', 'ok');
+  showToast(d.id ? 'عُدّل المكوّن' : 'أُضيف — راجع وزنه في إعداد الدرجات ثم احفظ', 'ok');
   await afterCustomToolsChanged(uid);
 }
 

@@ -1,5 +1,9 @@
 /* ============================================================
-   "توزيع الأداء" (الكشف الثابت — الدفعة 3)
+   "⚙ إعداد الدرجات" — المكان الواحد لضبط الدرجات
+   ------------------------------------------------------------
+   القاعدة: الإعداد هنا، والرصد في ورقة الحصة. شاشة من ثلاث خطوات:
+   ① التوزيع (الأداء + الاختبارات = 60)، ② مكوّنات الأداء وأوزانها و"+ مكوّن"،
+   ③ اختبارات الشعبة و"+ اختبار". الحفظ يُطبَّق على كل شعب المعلم لهذا الفصل.
    ------------------------------------------------------------
    - الأداء (40) مكوّنات: مشاركة، واجبات، مهام، وأدوات المعلم الخاصة في
      الأداء. وزن كل مكوّن = درجته في الكشف، والمجموع لا يتجاوز وزن الأداء.
@@ -74,30 +78,73 @@ function planSectionWeights(sectionColumns, desired){
   return { decrease, increase, create };
 }
 
-/* ============ الواجهة ============ */
+/* ============ الشاشة ============ */
+let crmGradesSettingsOpen = false;
 let crmWeightsDraft = null; /* { sectionId, components, saving } */
 
-function openCrmWeightsEditor(){
-  const g = crmGrades;
-  if(!g) return;
+function openCrmGradeSettings(){
+  crmGradesSettingsOpen = true;
+  crmGradesDetail = false;
+  renderCrmGrades();
+}
+
+function closeCrmGradeSettings(){
+  crmGradesSettingsOpen = false;
+  crmWeightsDraft = null;
+  renderCrmGrades();
+}
+
+function crmGradeSettingsHtml(g){
+  const back = `<p class="crm-gs-note" style="margin:0 0 8px;"><a href="#" onclick="event.preventDefault();closeCrmGradeSettings()">→ الكشف</a></p>`;
+  if(!hasBaseGradeColumns(g.allColumns || g.columns)) return back + crmGradeCreateCardHtml();
+  const caps = appGradeCaps();
   const comps = perfComponentsFor(g.allColumns || g.columns, typeof crmCustomTools !== 'undefined' ? crmCustomTools : []);
-  if(!comps.length) return;
   crmWeightsDraft = { sectionId: g.sectionId, components: comps, saving: false };
-  const cap = gradeCap('performance');
-  showInfoModal(`
-    <div style="text-align:right;">
-      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">توزيع الأداء (${formatScore(cap)})</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.7;">وزن كل مكوّن = درجته في الكشف. تغيير الوزن لا يغيّر نسبة الطالب: درجته تُحوَّل للوزن الجديد بنفس النسبة.${comps.some(c => c.tool) ? ' أعطِ أداتك الخاصة وزنًا لتدخل الكشف.' : ''}</div>
-      ${comps.map(c => `<div class="crm-gs-line">
-        <span>${escapeHtml(c.name)}${c.tool || (c.column && c.column.tool_id) ? ' 🧩' : ''}${c.tool ? ' <small style="color:var(--muted);">(ليست في الكشف بعد)</small>' : ''}</span>
-        <input class="goal-input crm-weight-input" inputmode="decimal" data-key="${c.key}" value="${formatScore(c.max)}" oninput="paintCrmWeightsTotal()" style="width:70px;margin:0;text-align:center;">
-      </div>`).join('')}
-      <div id="crmWeightsTotal" style="font-size:13px;font-weight:700;margin:8px 0;"></div>
-      <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="crmWeightsAll" checked> طبّقه على كل شعبي لهذا الفصل</label>
-      <div id="crmWeightsError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:8px;line-height:1.7;"></div>
-      <button class="btn btn-primary" id="crmWeightsSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmWeights()">حفظ التوزيع</button>
-    </div>`, '420px');
-  paintCrmWeightsTotal();
+  const hidden = new Set((g.hiddenColumns || []).map(c => c.id));
+  const typeOf = c => {
+    const tool = c.tool || (c.column && c.column.tool_id ? customToolById(c.column.tool_id) : null);
+    if(tool) return { tool, sub: CUSTOM_TOOL_TYPES[tool.tool_type] ? CUSTOM_TOOL_TYPES[tool.tool_type].label : '' };
+    return { tool: null, sub: { participation: '+1 بنقرة', homework: 'سلّم / لم يسلّم', task: 'درجة لكل مهمة' }[c.column.kind] || 'يدوي' };
+  };
+  const compRows = comps.map(c => {
+    const t = typeOf(c);
+    const value = c.tool ? formatScore(c.tool.max_score) : formatScore(c.max);
+    return `<div class="crm-gs-line">
+      <span>${escapeHtml(c.name)}${t.tool ? ' 🧩' : ''} <small style="color:var(--muted);">${escapeHtml(t.sub)}${c.column && hidden.has(c.column.id) ? ' · مخفي' : ''}${c.tool ? ' · جديد' : ''}</small>
+        ${t.tool ? `<a href="#" style="font-size:11px;" onclick="event.preventDefault();openCustomToolEditor('${t.tool.id}')">تعديل</a>` : ''}</span>
+      <input class="goal-input crm-weight-input" inputmode="decimal" data-key="${c.key}" value="${value}" oninput="paintCrmGradeSettings()" style="width:70px;margin:0;text-align:center;">
+    </div>`;
+  }).join('');
+  const testsOn = appToolOn('tests');
+  const ids = crmStudentsOfSection(g.sectionId).map(s => s.id);
+  const testRows = g.columns.filter(c => c.category === 'tests').map(c => {
+    const st = gradeColumnStats(c.id, g.scores, ids);
+    return `<div class="crm-lesson-row" style="cursor:pointer;" onclick="openCrmGradeColumnMenu('${c.id}')">
+      <span><b>${escapeHtml(c.name)}</b> · من ${formatScore(c.max_score)}${c.tool_id ? ' 🧩' : ''}</span>
+      <span style="font-size:11.5px;color:var(--muted);">رُصد ${ids.length - st.missing} من ${ids.length}</span></div>`;
+  }).join('');
+  return back + `<div class="crm-today-card">
+    <div class="crm-today-title">⚙ إعداد الدرجات</div>
+    <p class="crm-gs-note" style="margin:0 0 8px;">الإعداد هنا، والرصد في ورقة الحصة. الحفظ يُطبَّق على كل شعبك لهذا الفصل.</p>
+
+    <h4 class="crm-gs-step">① التوزيع (المجموع ${GRADE_CAPS_TOTAL})</h4>
+    <div class="crm-gs-line"><span>الأداء</span><input class="goal-input" id="gsCapPerf" inputmode="decimal" value="${formatScore(caps.performance)}" oninput="syncGradeCapInputs('gs', 'performance');paintCrmGradeSettings()" style="width:70px;margin:0;text-align:center;"></div>
+    <div class="crm-gs-line"><span>الاختبارات</span><input class="goal-input" id="gsCapTests" inputmode="decimal" value="${formatScore(caps.tests)}" oninput="syncGradeCapInputs('gs', 'tests');paintCrmGradeSettings()" style="width:70px;margin:0;text-align:center;"></div>
+    <p class="crm-gs-note">الرسمي ${GRADE_CAPS_DEFAULT.performance} و${GRADE_CAPS_DEFAULT.tests}. اكتب إحداهما والأخرى تُكمَل.</p>
+
+    <h4 class="crm-gs-step">② مكوّنات الأداء</h4>
+    ${compRows}
+    <div id="crmWeightsTotal" style="font-size:13px;font-weight:700;margin:8px 0;"></div>
+    ${(typeof crmCustomTools !== 'undefined' ? crmCustomTools.length : 0) < CUSTOM_TOOL_MAX ? '<button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="openCustomToolEditor(null)">+ مكوّن (مثل: بحوث، قراءة، مشروع)</button>' : ''}
+
+    ${testsOn ? `<h4 class="crm-gs-step">③ الاختبارات — ${escapeHtml(crmSectionLabel(g.sectionId))} (محصلتها من ${formatScore(caps.tests)})</h4>
+    ${testRows || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
+    <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:6px;" onclick="openCrmGradeColumnEditor('tests', null)">+ اختبار</button>
+    ${testRows ? '<p class="crm-gs-note">اضغط على اختبار لرصد درجاته أو تعديله أو حذفه.</p>' : ''}` : ''}
+
+    <div id="crmGradeSettingsError" style="display:none;color:#8A2C2C;font-size:12px;margin:10px 0 0;line-height:1.7;"></div>
+    <button class="btn btn-primary" id="crmGradeSettingsSaveBtn" style="width:100%;justify-content:center;margin-top:12px;" onclick="saveCrmGradeSettings()">حفظ — يُطبَّق على كل شعبي</button>
+  </div>`;
 }
 
 function readCrmWeightInputs(){
@@ -106,32 +153,22 @@ function readCrmWeightInputs(){
   return m;
 }
 
-function paintCrmWeightsTotal(){
+/* السطر الحي: مجموع المكوّنات من وزن الأداء الجديد */
+function paintCrmGradeSettings(){
   const d = crmWeightsDraft, el = document.getElementById('crmWeightsTotal');
   if(!d || !el) return;
-  const cap = gradeCap('performance');
+  const c = readGradeCapInputs('gs');
+  const cap = c.caps ? c.caps.performance : gradeCap('performance');
   const r = validatePerfWeights(d.components, readCrmWeightInputs(), cap);
   if(r.error){ el.textContent = r.error; el.style.color = '#8A2C2C'; return; }
   el.style.color = r.total === cap ? '#12796A' : 'var(--navy)';
   el.textContent = `المجموع ${formatScore(r.total)} من ${formatScore(cap)}` + (r.total < cap ? ` — الأداء سيكون من ${formatScore(r.total)}` : ' ✓');
 }
 
-async function saveCrmWeights(){
-  const d = crmWeightsDraft;
-  if(!d || d.saving || !currentUser) return;
-  const err = document.getElementById('crmWeightsError');
-  const fail = m => { err.textContent = m; err.style.display = 'block'; };
-  const cap = gradeCap('performance');
-  const r = validatePerfWeights(d.components, readCrmWeightInputs(), cap);
-  if(r.error) return fail(r.error);
-  const all = !!(document.getElementById('crmWeightsAll') || {}).checked;
-  const desired = d.components.map(c => ({ identity: perfComponentIdentity(c), tool: c.tool || (c.column && c.column.tool_id ? customToolById(c.column.tool_id) : null), max: r.weights.get(c.key) }));
-  d.saving = true;
-  const btn = document.getElementById('crmWeightsSaveBtn');
-  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الحفظ...'; }
+/* يطبّق أوزان المكوّنات على شعب المعلم (التي لها كشف هذا الفصل) */
+async function applyPerfWeightsToSections(desired, sectionIds){
   const uid = currentUser.id;
   const term = crmCurrentTerm();
-  const sectionIds = all ? crmSections.map(s => s.id) : [d.sectionId];
   const failed = [];
   let applied = 0;
   for(const sectionId of sectionIds){
@@ -145,16 +182,50 @@ async function saveCrmWeights(){
     } catch(e){
       failed.push(crmSectionLabel(sectionId) + ': ' + gradeDbErrorMessage(e));
     }
-    if(!currentUser || currentUser.id !== uid) return;
+    if(!currentUser || currentUser.id !== uid) return null;
   }
-  d.saving = false;
-  if(btn){ btn.disabled = false; btn.textContent = 'حفظ التوزيع'; }
-  if(failed.length) return fail('لم يكتمل في: ' + failed.join(' — ') + '. أعد الحفظ لإكماله.');
+  return { applied, failed };
+}
+
+async function saveCrmGradeSettings(){
+  const d = crmWeightsDraft;
+  if(!d || d.saving || !currentUser) return;
+  const err = document.getElementById('crmGradeSettingsError');
+  const fail = m => { err.textContent = m; err.style.display = 'block'; };
+  const c = readGradeCapInputs('gs');
+  if(c.error) return fail(c.error);
+  const r = validatePerfWeights(d.components, readCrmWeightInputs(), c.caps.performance);
+  if(r.error) return fail(r.error);
+  const desired = d.components.map(x => ({ identity: perfComponentIdentity(x), tool: x.tool || (x.column && x.column.tool_id ? customToolById(x.column.tool_id) : null), max: r.weights.get(x.key) }));
+  const old = appGradeCaps();
+  const capsChanged = old.performance !== c.caps.performance || old.tests !== c.caps.tests;
+  d.saving = true;
+  const btn = document.getElementById('crmGradeSettingsSaveBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الحفظ...'; }
+  const done = () => { d.saving = false; if(btn){ btn.disabled = false; btn.textContent = 'حفظ — يُطبَّق على كل شعبي'; } };
+  const uid = currentUser.id;
+  try{
+    /* وزن أداء أصغر: تُصغَّر المكوّنات أولًا ثم يُحفظ التوزيع؛ وأكبر: العكس — فلا يرفض السقف خطوة في الوسط */
+    if(capsChanged && c.caps.performance > old.performance){
+      const e = await persistGradeCaps(c.caps);
+      if(e){ done(); return fail(e); }
+    }
+    const res = await applyPerfWeightsToSections(desired, crmSections.map(s => s.id));
+    if(!res || !currentUser || currentUser.id !== uid) return;
+    if(res.failed.length){ done(); return fail('لم يكتمل في: ' + res.failed.join(' — ') + '. أعد الحفظ لإكماله.'); }
+    if(capsChanged && c.caps.performance <= old.performance){
+      const e = await persistGradeCaps(c.caps);
+      if(e){ done(); return fail(e); }
+    }
+  } catch(e){
+    done();
+    return fail('تعذّر الحفظ: ' + (e.message || ''));
+  }
+  done();
   crmWeightsDraft = null;
-  closeCrmModal();
-  showToast(applied > 1 ? `حُفظ التوزيع في ${applied} شعب` : 'حُفظ التوزيع', 'ok');
+  showToast('حُفظ إعداد الدرجات لكل شعبك ✓', 'ok');
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
-  renderCrmGrades();
+  closeCrmGradeSettings();
 }
 
 /* تنفيذ خطة شعبة. المحسوب: تُحذف درجاته ثم يُعاد حسابه بالوزن الجديد؛ اليدوي: تُحوَّل درجاته بالنسبة */
@@ -204,12 +275,20 @@ async function applySectionWeights(sectionId, term, cols, plan){
   if(plan.decrease.length || plan.increase.length || plan.create.length) await loadCrmGradeSheet(sectionId);
 }
 
-/* من ورقة الحصة (رسالة "لا متسع") إلى توزيع الأداء لنفس الشعبة */
+/* من ورقة الحصة (رسالة "لا متسع") إلى إعداد الدرجات لنفس الشعبة */
 async function openCrmWeightsFor(sectionId){
   try{ localStorage.setItem('crm_grades_section', sectionId); localStorage.setItem('crm_grades_view', 'sheet'); } catch(e){}
-  crmGradesDetail = false;
   if(crmSheet) closeCrmLessonSheet();
+  crmGradesSettingsOpen = true;
+  crmGradesDetail = false;
   switchCrmTab('grades');
-  await renderCrmGrades();
-  if(crmGrades && crmGrades.sectionId === sectionId && hasBaseGradeColumns(crmGrades.allColumns || crmGrades.columns)) openCrmWeightsEditor();
+}
+
+/* من أي شاشة (مثل تخصيص التطبيق) إلى إعداد الدرجات */
+async function openGradeSettingsFromAnywhere(){
+  crmGradesSettingsOpen = true;
+  crmGradesDetail = false;
+  try{ localStorage.setItem('crm_grades_view', 'sheet'); } catch(e){}
+  if(document.getElementById('classroomView').style.display === 'none') await showClassroomManagement();
+  switchCrmTab('grades');
 }

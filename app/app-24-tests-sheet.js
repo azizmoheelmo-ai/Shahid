@@ -153,6 +153,7 @@ function openCrmSheetTestModal(){
       <input class="goal-input" id="crmSheetTestName" maxlength="60" placeholder="مثال: الفترة الأولى، اختبار قصير 1" style="margin-bottom:8px;">
       <label class="crm-field-label">الدرجة الكاملة</label>
       <input class="goal-input" id="crmSheetTestMax" inputmode="decimal" value="${GRADE_TEST_DEFAULT_MAX}" style="margin-bottom:8px;">
+      <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="crmSheetTestAll" checked> أضفه لكل شعبي (لها كشف هذا الفصل)</label>
       <div id="crmSheetTestError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:8px;"></div>
       <button class="btn btn-primary" id="crmSheetTestSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmSheetTest()">إضافة الاختبار</button>
     </div>`, '400px');
@@ -171,10 +172,13 @@ async function saveCrmSheetTest(){
   const btn = document.getElementById('crmSheetTestSaveBtn');
   if(btn) btn.disabled = true;
   const uid = currentUser.id;
-  const { data, error } = await sb.from('classroom_grade_columns').insert({
-    teacher_id: uid, section_id: d.sectionId, academic_year: d.term.year, semester: d.term.semester,
+  const allEl = document.getElementById('crmSheetTestAll');
+  const sectionIds = allEl && allEl.checked ? await gradeSheetSectionIds(d.term.year, d.term.semester, d.sectionId) : [d.sectionId];
+  const { data: rows, error } = await sb.from('classroom_grade_columns').insert(sectionIds.map(sectionId => ({
+    teacher_id: uid, section_id: sectionId, academic_year: d.term.year, semester: d.term.semester,
     category: 'tests', kind: 'manual', name: draft.name, max_score: Number(draft.max_score), position: d.position
-  }).select('id').single();
+  }))).select('id, section_id');
+  const data = (rows || []).find(r => r.section_id === d.sectionId);
   if(error || !data){
     d.saving = false;
     if(btn) btn.disabled = false;
@@ -182,7 +186,7 @@ async function saveCrmSheetTest(){
   }
   crmSheetTestDraft = null;
   closeCrmModal();
-  showToast('أُضيف الاختبار — اكتب الدرجات', 'ok');
+  showToast(sectionIds.length > 1 ? `أُضيف الاختبار لـ${sectionIds.length} شعب — اكتب الدرجات` : 'أُضيف الاختبار — اكتب الدرجات', 'ok');
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   /* الورقة ما زالت على نفس الشعبة ووضع الاختبار: تُفتح على الاختبار الجديد */
   if(crmSheet && crmSheet.sectionId === d.sectionId && crmSheet.mode === 'test') renderCrmTestMode(crmStudentsOfSection(d.sectionId), data.id);

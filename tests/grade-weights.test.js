@@ -86,7 +86,17 @@ test('scaleGradeScore و planSectionWeights — نفس النسبة، والخف
   assert.deepEqual([...plan.create].map(x => x.tool.id + ':' + x.max), ['T:5'], 'وزن 0 = لا عمود');
 });
 
-test('saveCrmWeights — على كل الشعب باسم المعلم: المشاركة تُحوَّل بالنسبة قبل خفض حدها، ويُنشأ عمود الأداة، ويُعاد الحساب', async () => {
+/* حقول شاشة الإعداد في DOM الاختبارات الوهمي */
+function settingsInputs(app, perf, tests, weights){
+  runInAppContext(app, `
+    window.__els = { gsCapPerf: { value: ${JSON.stringify(perf)} }, gsCapTests: { value: ${JSON.stringify(tests)} },
+      crmGradeSettingsSaveBtn: { disabled: false, textContent: '' }, crmGradeSettingsError: { style: {}, textContent: '' }, crmWeightsTotal: { style: {}, textContent: '' } };
+    document.getElementById = id => window.__els[id] || null;
+    document.querySelectorAll = () => ${JSON.stringify(weights)}.map(([key, value]) => ({ dataset: { key }, value }));`);
+}
+const sheetG = (seed, s) => ({ sectionId: s, columns: seed.filter(c => c.section_id === s && c.teacher_id === 'u1'), allColumns: seed.filter(c => c.section_id === s && c.teacher_id === 'u1'), hiddenColumns: [], scores: [] });
+
+test('إعداد الدرجات — حفظ واحد لكل الشعب باسم المعلم: المشاركة تُحوَّل بالنسبة قبل خفض حدها، ويُنشأ عمود المكوّن، ويُعاد الحساب', async () => {
   const log = [];
   const seed = {
     /* عمود لمعلم آخر بنفس معرّف الشعبة: لا يُقرأ ولا يُكتب */
@@ -94,35 +104,56 @@ test('saveCrmWeights — على كل الشعب باسم المعلم: المش�
     classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'Sp', student_id: 'a', score: 8 }, { teacher_id: 'u1', column_id: 'S2p', student_id: 'b', score: 3 }],
   };
   const app = appWith(seed, log);
-  runInAppContext(app, `crmGrades = { sectionId: 'S', columns: ${JSON.stringify(seed.classroom_grade_columns.filter(c => c.section_id === 'S' && c.teacher_id === 'u1'))} };`);
-  app.openCrmWeightsEditor();
-  runInAppContext(app, `document.querySelectorAll = () => [{ dataset: { key: 'c:Sp' }, value: '5' }, { dataset: { key: 't:T' }, value: '5' }];
-    document.getElementById = id => id === 'crmWeightsAll' ? { checked: true } : { style: {}, textContent: '', disabled: false };`);
-  await Promise.all([app.saveCrmWeights(), app.saveCrmWeights()]);
+  runInAppContext(app, `crmStudents = []; renderCrmGrades = () => {};`);
+  const html = app.crmGradeSettingsHtml(sheetG(seed.classroom_grade_columns, 'S'));
+  assert.match(html, /① التوزيع/);
+  assert.match(html, /② مكوّنات الأداء/);
+  assert.match(html, /data-key="t:T" value="1"/, 'المكوّن الجديد بوزنه المبدئي');
+  settingsInputs(app, '40', '20', [['c:Sp', '5'], ['c:Sh', '10'], ['c:Sk', '20'], ['t:T', '5']]);
+  await Promise.all([app.saveCrmGradeSettings(), app.saveCrmGradeSettings()]);
   const w = log.filter(l => l.op !== 'select');
   assert.ok(w.every(x => x.op === 'insert' ? x.values.teacher_id === 'u1' : x.op === 'upsert' ? [...x.values].every(r => r.teacher_id === 'u1') : x.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1')), 'كل كتابة باسم المعلم');
   const seq = w.map(x => x.table.replace('classroom_grade_', '') + ':' + x.op);
-  assert.deepEqual(seq, ['scores:upsert', 'columns:update', 'columns:insert', 'scores:upsert', 'columns:update', 'columns:insert'], 'شعبتان، مرة واحدة رغم النقرتين، والدرجات قبل خفض الحد');
+  assert.deepEqual(seq, ['scores:upsert', 'columns:update', 'columns:insert', 'scores:upsert', 'columns:update', 'columns:insert'], 'شعبتان، مرة واحدة رغم النقرتين، والدرجات قبل خفض الحد، ولا حفظ للتوزيع بلا تغيير');
   assert.deepEqual(JSON.parse(JSON.stringify(w[0].values)), [{ teacher_id: 'u1', column_id: 'Sp', student_id: 'a', score: 4 }]);
   assert.equal(w[1].values.max_score, 5);
   assert.deepEqual({ tool: w[2].values.tool_id, max: w[2].values.max_score, cat: w[2].values.category, sec: w[2].values.section_id }, { tool: 'T', max: 5, cat: 'performance', sec: 'S' });
   assert.deepEqual([...get(app, 'window.__synced')], ['S', 'S2'], 'إعادة حساب المحسوب في الشعبتين، والشعبة بلا كشف تُتجاوز');
-  assert.match(get(app, 'window.__toasts.join("|")'), /حُفظ التوزيع في 2 شعب/);
+  assert.match(get(app, 'window.__toasts.join("|")'), /حُفظ إعداد الدرجات/);
 });
 
-test('saveCrmWeights — مجموع يتجاوز الوزن لا يكتب شيئًا', async () => {
+test('إعداد الدرجات — مجموع المكوّنات أكبر من وزن الأداء الجديد لا يكتب شيئًا، وتوزيع ليس 60 يُرفض', async () => {
   const log = [];
   const app = appWith({ classroom_grade_columns: baseCols('S') }, log);
-  runInAppContext(app, `crmGrades = { sectionId: 'S', columns: ${JSON.stringify(baseCols('S'))} };`);
-  app.openCrmWeightsEditor();
-  runInAppContext(app, `document.querySelectorAll = () => [{ dataset: { key: 't:T' }, value: '5' }];`);
-  await app.saveCrmWeights();
+  app.crmGradeSettingsHtml(sheetG(baseCols('S'), 'S'));
+  settingsInputs(app, '35', '25', [['t:T', '0']]);
+  await app.saveCrmGradeSettings();
   assert.equal(log.length, 0);
+  assert.match(get(app, 'window.__els.crmGradeSettingsError.textContent'), /يتجاوز وزن الأداء \(35\)/);
+  settingsInputs(app, '40', '30', []);
+  await app.saveCrmGradeSettings();
+  assert.equal(log.length, 0);
+  assert.match(get(app, 'window.__els.crmGradeSettingsError.textContent'), /مجموعهما 60/);
 });
 
-test('الكشف المبسّط — رابط "تعديل توزيع الأداء" ويذكر الأدوات التي ليست فيه بعد', async () => {
+test('إعداد الدرجات — وزن أداء أكبر: يُحفظ التوزيع أولًا ثم تُرفع المكوّنات', async () => {
+  const log = [];
+  const app = appWith({ classroom_grade_columns: baseCols('S') }, log);
+  runInAppContext(app, `window.__order = []; persistGradeCaps = async caps => { window.__order.push('caps:' + caps.performance); appFeatures = { sections: {}, tools: {}, grades: caps }; return null; }; renderCrmGrades = () => {};`);
+  app.crmGradeSettingsHtml(sheetG(baseCols('S'), 'S'));
+  settingsInputs(app, '45', '15', [['c:Sk', '25'], ['t:T', '0']]);
+  await app.saveCrmGradeSettings();
+  const firstWrite = log.findIndex(l => l.op !== 'select');
+  assert.deepEqual([...get(app, 'window.__order')], ['caps:45']);
+  assert.ok(firstWrite >= 0);
+  assert.equal(log[firstWrite].values.max_score, 25);
+});
+
+test('الكشف المبسّط — زر "⚙ إعداد الدرجات" ولا بطاقة اختبارات (الإعداد في مكان واحد)', async () => {
   const app = appWith({}, []);
   runInAppContext(app, `crmStudents = [{ id: 'a', full_name: 'أ', section_id: 'S' }];`);
   const g = { sectionId: 'S', columns: baseCols('S'), allColumns: baseCols('S'), hiddenColumns: [], scores: [] };
-  assert.match(app.crmGradeSimpleHtml(g), /openCrmWeightsEditor\(\)">تعديل توزيع الأداء \(وإدخال أدواتك الخاصة\)/);
+  const html = app.crmGradeSimpleHtml(g);
+  assert.match(html, /openCrmGradeSettings\(\)">⚙ إعداد الدرجات/);
+  assert.doesNotMatch(html, /openCrmGradeColumnEditor\('tests'/);
 });
