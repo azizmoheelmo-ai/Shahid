@@ -208,14 +208,15 @@ test('buildStudentReportHtml — تقرير صفحة واحدة للاجتماع
     assert.doesNotMatch(html, /<b>سعد<\/b>/);
     assert.match(html, /خالد &lt;b&gt;سعد&lt;\/b&gt;/);
   });
-  await t.test('الأقسام: الحضور، الدرجات مع متوسط الشعبة، المواقف، الإيجابية، المتابعات', () => {
+  await t.test('الأقسام: الحضور، الدرجات مع متوسط الشعبة، المواقف، الإيجابية (والمتابعات مخفية حتى إشعار آخر)', () => {
     assert.match(html, /غاب 1 · تأخر 0 · مستأذن 0 — من 18 حصة مرصودة/);
     assert.match(html, /مشاركة/);
     assert.match(html, /7 من 10/);
     assert.match(html, /متوسط الشعبة 6/);
     assert.match(html, /إعاقة سير الحصة/);
     assert.match(html, /شارك بحل مسألة/);
-    assert.match(html, /قبل: غاب 3 من 8 حصص · بعد: غاب 1 من 7 حصص/);
+    assert.doesNotMatch(html, /قبل: غاب 3 من 8 حصص/, 'المتابعات مخفية (FOLLOWUPS_ON)');
+    assert.doesNotMatch(html, />المتابعات</);
   });
   await t.test('مساحة "الخطوة التالية المتفق عليها" والتوقيعات', () => {
     assert.match(html, /الخطوة التالية المتفق عليها/);

@@ -287,7 +287,7 @@ async function renderCrmToday(){
         const label = escapeHtml(crmSectionLabel(r.section_id));
         const isNext = i === plan.nextIndex;
         const action = r.recorded
-          ? `<span class="crm-lesson-done">الحضور ✓</span><button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">تعديل</button>`
+          ? `<span class="crm-lesson-done">الحضور ✓</span><button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">أكمل الرصد ←</button>`
           : r.skip
             ? `<button class="btn btn-outline crm-mini-btn" onclick="undoCrmLessonSkip('${r.skip.id}')">تراجع</button>`
             : `<button class="crm-skip-btn" onclick="openCrmSkipModal('${r.section_id}','${todayIso}',${r.period})">لم أحضر</button><button class="btn ${isNext ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">رصد</button>`;
@@ -588,7 +588,9 @@ function renderCrmLessonSheet(students, draftRestored){
     return;
   }
   const notes = [];
-  if(s.lessonId){
+  if(s.justSaved){
+    notes.push('حُفظ الحضور ✓ — أكمل المشاركة والواجب وغيرها من التبويبات أعلاه، أو "رجوع" لقائمة الحصص.');
+  } else if(s.lessonId){
     let when = '';
     try{ when = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { weekday: 'long', hour: 'numeric', minute: '2-digit' }).format(new Date(s.updatedAt)); } catch(e){}
     notes.push(`رُصدت هذه الحصة سابقًا${when ? ' — آخر تعديل ' + escapeHtml(when) : ''}. أي تغيير هنا يُحفظ فوقها.`);
@@ -683,8 +685,8 @@ function crmSheetPendingWrites(s){
   return [s.part, s.hw, s.tool, s.task, s.test].filter(x => x && x.queue).flatMap(x => [...x.queue.values()]);
 }
 
-/* زر "حفظ" في شريط أوضاع الأدوات: يؤكد اكتمال ما أُرسل — ينتظره ويتأكد من نجاحه ثم
-   يُغلق الورقة. لا يمسّ حضور الحصة. */
+/* زر "حفظ" في شريط أوضاع الأدوات: يؤكد اكتمال ما أُرسل — ينتظره ويتأكد من نجاحه،
+   ويبقى المعلم في مكانه (لا تُغلق الورقة). لا يمسّ حضور الحصة. */
 let crmSheetFinishing = false;
 async function finishCrmLessonSheet(){
   const s = crmSheet;
@@ -701,8 +703,7 @@ async function finishCrmLessonSheet(){
     await Promise.allSettled(crmSheetPendingWrites(s));
     if(crmSheet !== s) return;
     if(s.failed){ showToast('لم يكتمل الحفظ — راجع الرسالة الحمراء ثم أعد المحاولة', 'error'); return; }
-    showToast('تم الحفظ ✓', 'ok');
-    closeCrmLessonSheet();
+    showToast('تم الحفظ ✓', 'ok'); /* يبقى في مكانه — الخروج بـ"رجوع" */
   } finally {
     crmSheetFinishing = false;
     if(btn && btn.isConnected){ btn.disabled = false; btn.textContent = label; }
@@ -717,7 +718,7 @@ async function saveCrmLessonSheet(){
   const labels = btns.map(b => b.textContent);
   btns.forEach(b => { b.disabled = true; b.textContent = 'جارٍ الحفظ...'; });
   try{
-    const { error } = await sb.rpc('save_lesson_attendance', {
+    const { data: lessonId, error } = await sb.rpc('save_lesson_attendance', {
       p_section_id: sheet.sectionId,
       p_lesson_date: sheet.dateIso,
       p_period: sheet.period,
@@ -728,8 +729,16 @@ async function saveCrmLessonSheet(){
     sheet.dirty = false;
     invalidateAttention();
     refreshAttention();
-    showToast('تم رصد الحصة ✓', 'ok');
-    if(crmSheet === sheet) closeCrmLessonSheet();
+    showToast('تم حفظ الحضور ✓', 'ok');
+    /* يبقى في الورقة (لا يعود للقائمة) — ليكمل المشاركة والواجب وغيرها بنقرة؛ الخروج بـ"رجوع" */
+    if(crmSheet === sheet){
+      if(lessonId) sheet.lessonId = lessonId;
+      sheet.updatedAt = new Date().toISOString();
+      sheet.justSaved = true;
+      crmSheetSaving = false;
+      renderCrmLessonSheet(crmStudentsOfSection(sheet.sectionId), false);
+      return;
+    }
   } catch(e){
     /* المسودة باقية على الجهاز — لا يضيع الرصد */
     showToast('لم يُحفظ الرصد (' + (e.message || 'خطأ بالاتصال') + ') — تغييراتك محفوظة على جهازك، أعد المحاولة.', 'error');

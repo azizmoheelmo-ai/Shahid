@@ -548,6 +548,11 @@ function crmAttentionTerm(){
    وإعادتها = true هنا. المتابعات المفتوحة تبقى كما هي. */
 const ATTENTION_ALERTS_ON = false;
 
+/* المتابعات (التبويب، وقسمها وزرّها في ملف الطالب وتقريره، وأثرها في ملخص الشعبة)
+   مخفية حتى إشعار آخر بطلب صاحب التطبيق — البيانات باقية، وإعادتها = true هنا */
+const FOLLOWUPS_ON = false;
+function followupsOn(){ return FOLLOWUPS_ON; }
+
 /* يحسب البطاقات ويحدّث الشارة. null عند الفشل — المستدعي لا يعرض "لا شيء ✓"
    كاذبة بناءً على فحص فاشل */
 async function refreshAttention(){
