@@ -1603,3 +1603,15 @@ html.booting #authView{display:none !important;}
 .crm-struct-chip.is-add{border-style:dashed;background:#fff;color:var(--navy);font-weight:700;cursor:pointer;}
 .crm-struct-add{display:flex;gap:6px;align-items:center;margin-top:8px;}
 .crm-struct-add .goal-input{margin:0;flex:1;}
+
+/* المشاركة/العدّاد: زرّا + و − داخل مستطيل الطالب، والدرجة بينهما */
+.crm-part-tile{cursor:default;align-items:stretch;gap:6px;}
+.crm-part-chip .crm-part-today{margin-right:6px;border-radius:8px;}
+.crm-part-step{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.crm-part-step button{width:40px;flex-shrink:0;min-height:38px;border:0;font-family:inherit;font-size:22px;font-weight:800;line-height:1;cursor:pointer;padding:0;}
+.crm-part-plus{background:#E8F3EA;color:#2F6B3A;}
+.crm-part-minus{background:#FBEDED;color:#8A2C2C;}
+.crm-part-plus:active{background:#CFE6D4;}
+.crm-part-minus:active{background:#F3D3D3;}
+.crm-part-step .crm-part-val{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:2px;background:#fff;white-space:nowrap;font-size:11px;}
+.crm-part-step .crm-part-val b{font-size:16px;}
