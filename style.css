@@ -1499,3 +1499,4 @@
 .crm-gs-big{font-size:20px;font-weight:700;color:var(--navy);}
 .crm-gs-big small{font-size:12px;color:var(--muted);font-weight:600;}
 .crm-gs-chip{display:inline-block;background:#E3F1EE;color:#12796A;border-radius:12px;padding:0 8px;font-size:11px;}
+.crm-gs-step{font-size:13.5px;color:var(--navy);margin:14px 0 4px;padding-right:8px;border-right:3px solid var(--gold);}
