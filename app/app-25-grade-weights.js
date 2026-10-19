@@ -106,12 +106,14 @@ function crmGradeSettingsHtml(g){
     if(tool) return { tool, sub: CUSTOM_TOOL_TYPES[tool.tool_type] ? CUSTOM_TOOL_TYPES[tool.tool_type].label : '' };
     return { tool: null, sub: { participation: '+1 بنقرة', homework: 'سلّم / لم يسلّم', task: 'درجة لكل مهمة' }[c.column.kind] || 'يدوي' };
   };
+  const startKeyOf = c => c.tool ? 'tool:' + c.tool.id : startFullKeyOfColumn(c.column);
   const compRows = comps.map(c => {
     const t = typeOf(c);
     const value = c.tool ? formatScore(c.tool.max_score) : formatScore(c.max);
     return `<div class="crm-gs-line">
       <span>${escapeHtml(c.name)}${t.tool ? ' 🧩' : ''} <small style="color:var(--muted);">${escapeHtml(t.sub)}${c.column && hidden.has(c.column.id) ? ' · مخفي' : ''}${c.tool ? ' · جديد' : ''}</small>
-        ${t.tool ? `<a href="#" style="font-size:11px;" onclick="event.preventDefault();openCustomToolEditor('${t.tool.id}')">تعديل</a>` : ''}</span>
+        ${t.tool ? `<a href="#" style="font-size:11px;" onclick="event.preventDefault();openCustomToolEditor('${t.tool.id}')">تعديل</a>` : ''}
+        ${startKeyOf(c) ? startModeToggleHtml(startKeyOf(c)) : ''}</span>
       <span class="gs-cell"><input class="goal-input gs-num crm-weight-input" inputmode="decimal" data-key="${c.key}" value="${value}" oninput="paintCrmGradeSettings()">
         <button type="button" class="gs-del" title="حذف" aria-label="حذف ${escapeHtml(c.name)}" onclick="deleteGradeComponent('${c.key}')">🗑</button></span>
     </div>`;
@@ -413,6 +415,164 @@ function deleteGradeTestEverywhere(columnId){
     const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', currentUser.id).in('id', cols.map(c => c.id));
     if(error) throw error;
     showToast(`حُذف "${t.name}"`, 'ok');
+    if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
+    renderCrmGrades();
+  });
+}
+
+/* ============ "يبدأ من": 0 (الأصل) أو الكاملة ============ */
+/* مفتاح الخيار لعمود أداء: المشاركة، والواجبات، والمهام، وكل مكوّن خاص (عدّاد/حالة/درجة) */
+function startFullKeyOfColumn(c){
+  if(!c) return null;
+  if(c.tool_id){
+    const t = typeof customToolById === 'function' ? customToolById(c.tool_id) : null;
+    return t ? 'tool:' + t.id : null;
+  }
+  return c.kind === 'participation' || c.kind === 'homework' || c.kind === 'task' ? c.kind : null;
+}
+
+/* عمود تُكتب فيه الكاملة مباشرة (المشاركة والعدّاد). المحسوب (واجبات/مهام/حالة/درجة)
+   يمتلئ من رصده نفسه — الكتابة فيه مباشرة تُمحى عند المزامنة وتعطي من لا رصد له الكاملة */
+function directStartFullKey(c){
+  return c && !isComputedGradeColumn(c) ? startFullKeyOfColumn(c) : null;
+}
+
+/* قيمة "الكاملة" لرصد أداة حالة/درجة في حصة */
+function toolFullValue(tool){
+  return tool.tool_type === 'status' ? 1 : Number(tool.max_score);
+}
+
+function startModeToggleHtml(key){
+  const full = gradeStartsFull(key);
+  return `<span class="gs-start" role="group" aria-label="تبدأ الدرجة من">يبدأ من
+    <button type="button" class="${full ? '' : 'is-on'}" onclick="setGradeStartMode('${key}', false)">0</button><button type="button" class="${full ? 'is-on' : ''}" onclick="setGradeStartMode('${key}', true)">الكاملة</button></span>`;
+}
+
+/* نص تأكيد تغيير "يبدأ من" — يقول بوضوح ما يُمسح وما يصير */
+function startModeConfirmText(key, full){
+  const toolId = key.indexOf('tool:') === 0 ? key.slice(5) : null;
+  const tool = toolId ? customToolById(toolId) : null;
+  const kind = toolId ? (tool ? tool.tool_type : 'counter') : key;
+  const name = toolId ? ((tool || {}).name || 'المكوّن') : { participation: 'المشاركة', homework: 'الواجبات', task: 'المهام الأدائية' }[key];
+  const where = 'في كل شعبك لهذا الفصل';
+  const text = {
+    homework: full ? `يصير كل الطلاب "سلّم" في كل الواجبات ${where}، ويُمسح ما رصدته من تسليم. بعدها تضغط على من لم يسلّم.`
+                   : `يصير كل الطلاب "لم يسلّم" في كل الواجبات ${where}، ويُمسح ما رصدته من تسليم.`,
+    task: full ? `يأخذ كل المكلَّفين الدرجة الكاملة في كل المهام ${where}، ويُمسح ما رصدته. وكل مهمة جديدة تبدأ كاملة، فتُنقص للمقصّر فقط.`
+               : `يرجع كل المكلَّفين "لم يُقيَّم" في كل المهام ${where}، ويُمسح ما رصدته.`,
+    status: full ? `يصير كل الطلاب "تمّ" في كل حصة رُصدت ${where}، ويُمسح ما رصدته. وكل حصة جديدة تبدأ "تمّ" للجميع، فتضغط على من لم يتمّ فقط.`
+                 : `يرجع كل الطلاب "لم يُرصد" في كل الحصص ${where}، ويُمسح ما رصدته.`,
+    score: full ? `يأخذ كل الطلاب الدرجة الكاملة في كل حصة رُصدت ${where}، ويُمسح ما رصدته. وكل حصة جديدة تبدأ كاملة، فتُنقص للمقصّر فقط.`
+                : `يرجع كل الطلاب "لم يُرصد" في كل الحصص ${where}، ويُمسح ما رصدته.`
+  }[kind] || (full ? `يأخذ كل الطلاب الدرجة الكاملة الآن ${where}، ويُمسح ما رصدته حتى الآن. بعدها كل نقرة تُنقص درجة.`
+                   : `يرجع كل الطلاب بلا درجة الآن ${where}، ويُمسح ما رصدته حتى الآن. بعدها كل نقرة تزيد درجة.`);
+  return { name, text: `"${name}" تبدأ من ${full ? 'الكاملة' : '0'}؟ ${text}` };
+}
+
+async function resetHomeworkStart(uid, term, sectionIds, full){
+  const { data: hws, error } = await sb.from('classroom_homework').select('id, section_id')
+    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).in('section_id', sectionIds);
+  if(error) throw error;
+  const hwIds = (hws || []).map(h => h.id);
+  for(const ids of chunkArray(hwIds, 100)){
+    const { error: dErr } = await sb.from('classroom_homework_status').delete().eq('teacher_id', uid).in('homework_id', ids);
+    if(dErr) throw dErr;
+  }
+  if(!full) return;
+  const rows = [];
+  (hws || []).forEach(h => crmStudentsOfSection(h.section_id).forEach(st => rows.push({ teacher_id: uid, homework_id: h.id, student_id: st.id, status: 'submitted', updated_at: new Date().toISOString() })));
+  for(const part of chunkArray(rows, 500)){
+    const { error: uErr } = await sb.from('classroom_homework_status').upsert(part, { onConflict: 'homework_id,student_id' });
+    if(uErr) throw uErr;
+  }
+}
+
+/* المهام: درجة كل المكلَّفين = كاملة المهمة (أو "لم يُقيَّم")، مجمّعة حسب درجة المهمة */
+async function resetTaskStart(uid, term, sectionIds, full){
+  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, max_score')
+    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).in('section_id', sectionIds);
+  if(error) throw error;
+  const byScore = new Map();
+  (tasks || []).forEach(t => {
+    const k = full ? Number(t.max_score) : null;
+    if(!byScore.has(k)) byScore.set(k, []);
+    byScore.get(k).push(t.id);
+  });
+  for(const [score, ids] of byScore){
+    for(const part of chunkArray(ids, 100)){
+      const { error: uErr } = await sb.from('classroom_task_students').update({ score }).eq('teacher_id', uid).in('task_id', part);
+      if(uErr) throw uErr;
+    }
+  }
+}
+
+/* أداة حالة/درجة: يُمسح رصدها؛ ومن الكاملة يأخذ كل طلاب الشعبة الكاملة في كل حصة سبق رصدها */
+async function resetToolMarksStart(uid, term, sectionIds, tool, full){
+  const { data: marks, error } = await fetchAllRows((from, to) => sb.from('classroom_tool_marks').select('id, section_id, mark_date, period')
+    .eq('teacher_id', uid).eq('tool_id', tool.id).eq('academic_year', term.year).eq('semester', term.semester).in('section_id', sectionIds)
+    .order('id', { ascending: true }).range(from, to));
+  if(error) throw error;
+  const lessons = new Map();
+  (marks || []).forEach(m => lessons.set(m.section_id + '|' + m.mark_date + '|' + m.period, m));
+  for(const ids of chunkArray((marks || []).map(m => m.id), 200)){
+    const { error: dErr } = await sb.from('classroom_tool_marks').delete().eq('teacher_id', uid).eq('tool_id', tool.id).in('id', ids);
+    if(dErr) throw dErr;
+  }
+  if(!full) return;
+  const rows = [];
+  lessons.forEach(m => crmStudentsOfSection(m.section_id).forEach(st => rows.push({
+    teacher_id: uid, tool_id: tool.id, student_id: st.id, section_id: m.section_id, academic_year: term.year, semester: term.semester,
+    mark_date: m.mark_date, period: m.period, value: toolFullValue(tool)
+  })));
+  for(const part of chunkArray(rows, 500)){
+    const { error: uErr } = await sb.from('classroom_tool_marks').upsert(part, { onConflict: 'tool_id,student_id,mark_date,period' });
+    if(uErr) throw uErr;
+  }
+}
+
+/* المشاركة والعدّاد: الدرجة نفسها تُمسح، ومن الكاملة تُكتب الكاملة */
+async function resetDirectScoresStart(uid, key, full){
+  const cols = await termColumnsMatching(c => directStartFullKey(c) === key);
+  if(cols.length){
+    const { error: dErr } = await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).in('column_id', cols.map(c => c.id));
+    if(dErr) throw dErr;
+  }
+  if(!full) return;
+  const rows = [];
+  cols.forEach(c => crmStudentsOfSection(c.section_id).forEach(st => rows.push({ teacher_id: uid, column_id: c.id, student_id: st.id, score: Number(c.max_score) })));
+  for(const part of chunkArray(rows, 500)){
+    const { error: uErr } = await sb.from('classroom_grade_scores').upsert(part, { onConflict: 'column_id,student_id' });
+    if(uErr) throw uErr;
+  }
+}
+
+/* تغيير "يبدأ من" يعيد كل الطلاب لنقطة البداية في كل الشعب لهذا الفصل — بعد تأكيد صريح */
+function setGradeStartMode(key, full){
+  if(!isStartFullKey(key) || gradeStartsFull(key) === full) return;
+  return withGradeComponentBusy(async () => {
+    const toolId = key.indexOf('tool:') === 0 ? key.slice(5) : null;
+    const tool = toolId ? customToolById(toolId) : null;
+    if(toolId && !tool) return;
+    const { name, text } = startModeConfirmText(key, full);
+    if(!(await showConfirm(text))) return;
+    const uid = currentUser.id;
+    const term = crmCurrentTerm();
+    const sectionIds = crmSections.map(s => s.id);
+    if(key === 'homework') await resetHomeworkStart(uid, term, sectionIds, full);
+    else if(key === 'task') await resetTaskStart(uid, term, sectionIds, full);
+    else if(tool && tool.tool_type !== 'counter') await resetToolMarksStart(uid, term, sectionIds, tool, full);
+    else await resetDirectScoresStart(uid, key, full);
+    if(!currentUser || currentUser.id !== uid) return;
+    const next = normalizeFeatures(appFeatures);
+    const sf = Object.assign({}, next.startFull);
+    if(full) sf[key] = true; else delete sf[key];
+    next.startFull = sf;
+    appFeatures = next;
+    afterAppFeaturesChanged();
+    await saveAppFeatures();
+    /* إعادة حساب الأعمدة المحسوبة (والملء للكاملة) في كل شعبة */
+    for(const id of sectionIds){ try{ await loadCrmGradeSheet(id); } catch(e){} }
+    showToast(`"${name}" تبدأ الآن من ${full ? 'الكاملة' : '0'} ✓`, 'ok');
     if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
     renderCrmGrades();
   });

@@ -264,6 +264,16 @@ async function loadCrmGradeSheet(sectionId){
     if(sErr) return { error: sErr };
     scores = data || [];
   }
+  /* "يبدأ من الكاملة" (إعداد الدرجات): من لا درجة له — طالب جديد مثلًا — يأخذ الكاملة */
+  for(const c of visible){
+    const key = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
+    if(!key || !gradeStartsFull(key)) continue;
+    const have = new Set(scores.filter(x => x.column_id === c.id).map(x => x.student_id));
+    try{
+      (await fillStartFullScores(c, crmStudentsOfSection(sectionId).map(st => st.id), have))
+        .forEach(id => scores.push({ column_id: c.id, student_id: id, score: Number(c.max_score) }));
+    } catch(e){}
+  }
   return {
     sectionId, year, semester, scores,
     columns: sortGradeColumns(visible),
