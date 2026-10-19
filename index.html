@@ -36,6 +36,22 @@
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="style.css">
+<script>
+/* دخول مباشر: من له جلسة محفوظة (أو عائد من Google) لا تظهر له شاشة الدخول أثناء
+   التحقق منها وتحميل بياناته — يظهر "جارٍ الدخول…" بدلها. يُزال بعد الدخول، أو إن
+   لم تصلح الجلسة (endBoot)، أو بعد 12 ثانية احتياطًا كي لا يعلق أحد. */
+(function(){
+  try{
+    var h = location.hash || '';
+    if(/type=recovery/.test(h)) return;
+    var found = /access_token=/.test(h);
+    for(var i = 0; !found && i < localStorage.length; i++) found = /^sb-.+-auth-token$/.test(localStorage.key(i));
+    if(!found) return;
+    document.documentElement.classList.add('booting');
+    setTimeout(function(){ document.documentElement.classList.remove('booting'); }, 12000);
+  } catch(e){}
+})();
+</script>
 </head>
 <body>
 
@@ -121,6 +137,9 @@
     <button type="button" aria-label="إغلاق" onclick="document.getElementById('signupReturnBar').style.display='none'" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;min-width:32px;min-height:32px;">✕</button>
   </span>
 </div>
+
+<!-- ============ "جارٍ الدخول…" لمن له جلسة محفوظة ============ -->
+<div id="bootSplash" class="boot-splash" role="status"><img src="icon-192.png" alt="" width="72" height="72"><div>جارٍ الدخول…</div></div>
 
 <!-- ============ شاشة تسجيل الدخول ============ -->
 <div id="authView" class="wrap">
