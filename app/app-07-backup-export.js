@@ -1324,26 +1324,29 @@ create table if not exists public.classroom_grade_scores (
 );
 create index if not exists classroom_grade_scores_student_idx on public.classroom_grade_scores(student_id);
 
--- حماية مكررة بالقاعدة: سقف الفئة، والدرجة لا تتجاوز القصوى، ولا تُخفض القصوى تحت درجة مرصودة
+-- حماية مكررة بالقاعدة: سقف الأداء، والدرجة لا تتجاوز القصوى، ولا تُخفض القصوى تحت درجة مرصودة.
+-- الاختبارات بلا سقف: كل عمود فيها اختبار، والمحصلة متوسط ما رُصد × وزن الاختبارات (تُحسب بالواجهة).
 create or replace function public.check_grade_column() returns trigger
 language plpgsql set search_path = '' as $b$
 declare v_sum numeric; v_cap numeric; v_over int; v_g jsonb; v_perf numeric; v_tests numeric;
 begin
-  -- سقف الفئة من توزيع المعلم (user_app_settings.features.grades، المجموع 60)، وإلا الرسمي 40/20
-  select features->'grades' into v_g from public.user_app_settings where user_id = new.teacher_id;
-  if v_g is not null and jsonb_typeof(v_g->'performance') = 'number' and jsonb_typeof(v_g->'tests') = 'number' then
-    v_perf := (v_g->>'performance')::numeric; v_tests := (v_g->>'tests')::numeric;
-    if v_perf < 0 or v_tests < 0 or v_perf + v_tests <> 60 then v_perf := 40; v_tests := 20; end if;
-  else
-    v_perf := 40; v_tests := 20;
-  end if;
-  v_cap := case new.category when 'performance' then v_perf else v_tests end;
-  select coalesce(sum(max_score), 0) into v_sum from public.classroom_grade_columns
-    where teacher_id = new.teacher_id and section_id = new.section_id
-      and academic_year = new.academic_year and semester = new.semester
-      and category = new.category and id <> new.id;
-  if v_sum + new.max_score > v_cap then
-    raise exception 'grade_cap_exceeded' using errcode = 'P0001', hint = v_cap::text;
+  if new.category = 'performance' then
+    -- وزن الأداء من توزيع المعلم (user_app_settings.features.grades، المجموع 60)، وإلا الرسمي 40
+    select features->'grades' into v_g from public.user_app_settings where user_id = new.teacher_id;
+    if v_g is not null and jsonb_typeof(v_g->'performance') = 'number' and jsonb_typeof(v_g->'tests') = 'number' then
+      v_perf := (v_g->>'performance')::numeric; v_tests := (v_g->>'tests')::numeric;
+      if v_perf < 0 or v_tests < 0 or v_perf + v_tests <> 60 then v_perf := 40; v_tests := 20; end if;
+    else
+      v_perf := 40; v_tests := 20;
+    end if;
+    v_cap := v_perf;
+    select coalesce(sum(max_score), 0) into v_sum from public.classroom_grade_columns
+      where teacher_id = new.teacher_id and section_id = new.section_id
+        and academic_year = new.academic_year and semester = new.semester
+        and category = 'performance' and id <> new.id;
+    if v_sum + new.max_score > v_cap then
+      raise exception 'grade_cap_exceeded' using errcode = 'P0001', hint = v_cap::text;
+    end if;
   end if;
   if tg_op = 'UPDATE' and new.max_score < old.max_score then
     select count(*) into v_over from public.classroom_grade_scores where column_id = new.id and score > new.max_score;

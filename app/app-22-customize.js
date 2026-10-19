@@ -72,10 +72,11 @@ function appGradeCaps(){
   return (appFeatures && validGradeCaps(appFeatures.grades)) ? appFeatures.grades : GRADE_CAPS_DEFAULT;
 }
 
-/* أعمدة تتجاوز فئتها السقف الجديد (أي فصل) — لا يُحفظ توزيع يجعل كشفًا قائمًا مخالفًا */
+/* أعمدة أداء تتجاوز وزنه الجديد (أي فصل) — لا يُحفظ توزيع يجعل كشفًا قائمًا مخالفًا.
+   الاختبارات بلا سقف (محصلتها متوسط يُقاس على وزنها) فلا تتعارض أبدًا */
 function gradeCapsConflicts(columns, caps){
   const totals = new Map();
-  (columns || []).forEach(c => {
+  (columns || []).filter(c => c.category === 'performance').forEach(c => {
     const k = [c.section_id, c.academic_year, c.semester, c.category].join('|');
     totals.set(k, (totals.get(k) || 0) + Number(c.max_score));
   });
