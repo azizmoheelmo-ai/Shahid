@@ -338,6 +338,7 @@ async function onLoggedIn(user){
     if(profile && profile.disabled){
       await sb.auth.signOut();
       currentUser = null;
+      endBoot();
       showAuthMsg('تم تعطيل هذا الحساب من قبل الإدارة. تواصل مع المسؤول لمزيد من المعلومات.', 'error');
       return;
     }
@@ -352,6 +353,7 @@ async function onLoggedIn(user){
 
   document.getElementById('authView').style.display = 'none';
   document.getElementById('appView').style.display = 'block';
+  endBoot();
   const meta = user.user_metadata || {};
   document.getElementById('whoName').textContent = meta.full_name || user.email;
   checkAdminStatus();
@@ -505,8 +507,9 @@ async function handleLogout(){
 function checkExistingSession(){
   if(isRecoveryFlow) return;
   (async () => {
-    const { data } = await sb.auth.getSession();
-    if(data.session){
+    let data = null;
+    try{ ({ data } = await sb.auth.getSession()); } catch(e){}
+    if(data && data.session){
       /* جاء من رابط «أنشئ حساب» وهو مسجَّل الدخول أصلًا: لا نُنشئ حسابًا ثانيًا، بل نعرض له حسابه ونعيده لمُصحّح */
       const link = parseSignupLink(location.hash);
       try{ history.replaceState(null, '', location.pathname + location.search); } catch(e){}
@@ -516,6 +519,7 @@ function checkExistingSession(){
         showSignupReturnBar('already', data.session.user.email || '');
       }
     } else {
+      endBoot(); /* لا جلسة صالحة: شاشة الدخول */
       applySignupLink();
     }
   })();

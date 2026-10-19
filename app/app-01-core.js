@@ -619,8 +619,14 @@ function computeEffectiveElements(rawElements, forDutyType){
     });
 }
 
+/* انتهاء "جارٍ الدخول…" (index.html): يظهر ما تقرر — التطبيق أو شاشة الدخول */
+function endBoot(){
+  document.documentElement.classList.remove('booting');
+}
+
 /* ============ فحص مباشر لرابط استعادة كلمة المرور (لا نعتمد فقط على حدث Supabase) ============ */
 function showRecoveryUI(){
+  endBoot();
   document.getElementById('authTabs').style.display = 'none';
   document.getElementById('authBody').style.display = 'none';
   document.getElementById('recoveryBody').style.display = 'block';

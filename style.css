@@ -1526,3 +1526,9 @@
 .gs-seg button:disabled{opacity:.55;cursor:wait;}
 .gs-start-busy{color:#8A6D1F;font-weight:700;flex-basis:100%;}
 .crm-part-today.is-minus{background:#FBEFEF;color:#8A2C2C;}
+
+/* "جارٍ الدخول…" بدل شاشة الدخول لمن له جلسة محفوظة (index.html) */
+.boot-splash{display:none;}
+html.booting .boot-splash{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:60vh;color:var(--navy);font-weight:700;font-size:15px;}
+html.booting .boot-splash img{border-radius:16px;}
+html.booting #authView{display:none !important;}
