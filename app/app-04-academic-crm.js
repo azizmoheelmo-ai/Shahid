@@ -2437,7 +2437,7 @@ async function loadAndRenderHomeDashboardExtras(){
   ]);
   if(!stillOnHome()) return;
   /* معلم بلا فصل (دور مستقل) = لا شيء من إدارة الصف (0)؛ فشل الفحص = null */
-  const classroomUrgent = !hasClassroom ? 0 : (attention ? attentionUrgentCount(attention.cards) : null);
+  const classroomUrgent = (!hasClassroom || (typeof ATTENTION_ALERTS_ON !== 'undefined' && !ATTENTION_ALERTS_ON)) ? 0 : (attention ? attentionUrgentCount(attention.cards) : null);
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const cutoffIso = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);

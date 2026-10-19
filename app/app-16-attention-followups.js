@@ -543,10 +543,16 @@ function crmAttentionTerm(){
   };
 }
 
+/* التنبيهات ("يحتاج انتباهي"، شارة إدارة الصف، علامات ورقة الحصة، عاجل الرئيسية)
+   موقوفة مؤقتًا بطلب صاحب التطبيق للتركيز على الدرجات — المحرك والبيانات باقيان،
+   وإعادتها = true هنا. المتابعات المفتوحة تبقى كما هي. */
+const ATTENTION_ALERTS_ON = false;
+
 /* يحسب البطاقات ويحدّث الشارة. null عند الفشل — المستدعي لا يعرض "لا شيء ✓"
    كاذبة بناءً على فحص فاشل */
 async function refreshAttention(){
   if(!currentUser) return null;
+  if(!ATTENTION_ALERTS_ON){ renderAttentionBadge([]); return null; }
   if(typeof STANDALONE_ROLES !== 'undefined' && STANDALONE_ROLES.includes(dutyType)) return null;
   if(!appSectionOn('classroom')) return null; /* إدارة الصف مخفية */
   /* تحميل جارٍ بدأ قبل آخر تعديل قد يقرأ بيانات ما قبل التعديل — لا نعيد
@@ -749,6 +755,7 @@ async function refreshAttentionViews(){
 
 /* جزء "يحتاج انتباهي" داخل تبويب اليوم (أعلى 5) — يُستدعى من renderCrmToday */
 function attentionTodaySectionHtml(cache){
+  if(!ATTENTION_ALERTS_ON) return '';
   if(!cache) return '<div class="crm-today-card"><div class="crm-today-title">يحتاج انتباهي</div><div class="crm-today-empty">تعذّر الفحص الآن. <a href="#" onclick="event.preventDefault();refreshAttentionViews()">إعادة المحاولة</a></div></div>';
   const cards = cache.cards;
   if(!cards.length) return '<div class="crm-today-card"><div class="crm-today-title">يحتاج انتباهي</div><div class="crm-today-empty">لا شيء يستدعي انتباهك الآن ✓</div></div>';
@@ -779,11 +786,13 @@ async function renderCrmFollowups(){
   const todayIso = localIsoDate();
   let html = '';
 
-  html += '<div class="crm-today-card"><div class="crm-today-title">يحتاج انتباهي' + (cache ? ` (${cache.cards.length})` : '') + '</div>';
-  if(!cache) html += '<div class="crm-today-empty">تعذّر الفحص الآن. <a href="#" onclick="event.preventDefault();renderCrmFollowups()">إعادة المحاولة</a></div>';
-  else if(!cache.cards.length) html += '<div class="crm-today-empty">لا شيء يستدعي انتباهك الآن ✓ — تظهر هنا البطاقات عند غياب أو تأخر متكرر، أو خطاب معلّق، أو متابعة حان موعدها.</div>';
-  else html += cache.cards.map(attentionCardHtml).join('');
-  html += '</div>';
+  if(ATTENTION_ALERTS_ON){
+    html += '<div class="crm-today-card"><div class="crm-today-title">يحتاج انتباهي' + (cache ? ` (${cache.cards.length})` : '') + '</div>';
+    if(!cache) html += '<div class="crm-today-empty">تعذّر الفحص الآن. <a href="#" onclick="event.preventDefault();renderCrmFollowups()">إعادة المحاولة</a></div>';
+    else if(!cache.cards.length) html += '<div class="crm-today-empty">لا شيء يستدعي انتباهك الآن ✓ — تظهر هنا البطاقات عند غياب أو تأخر متكرر، أو خطاب معلّق، أو متابعة حان موعدها.</div>';
+    else html += cache.cards.map(attentionCardHtml).join('');
+    html += '</div>';
+  }
 
   html += '<div class="crm-today-card"><div class="crm-today-title">متابعات مفتوحة</div>';
   if(openRes.error) html += '<div class="crm-today-empty">تعذّر التحميل.</div>';
