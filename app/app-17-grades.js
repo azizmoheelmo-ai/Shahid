@@ -306,11 +306,12 @@ async function renderCrmGrades(){
   }
   crmGrades = res;
   if(typeof crmGradesSettingsOpen !== 'undefined' && crmGradesSettingsOpen){ box.innerHTML = head + crmGradeSettingsHtml(res); paintCrmGradeSettings(); return; }
-  box.innerHTML = head + (crmGradesDetail ? crmGradeDetailHtml(res) : crmGradeSimpleHtml(res));
+  box.innerHTML = crmGradesPageHtml(res);
 }
 
 function setCrmGradesDetail(on){
   crmGradesDetail = !!on;
+  crmGradeStudentId = null;
   renderCrmGrades();
 }
 
@@ -341,47 +342,113 @@ function crmGradeSimpleHtml(g){
   if(!g.columns.length && !testsOn) return html + '<div class="empty-state">كل أعمدة هذا الكشف لأدوات مخفية.</div>';
   if(!students.length) return html + '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>';
 
-  html += `<table class="crm-gs-table"><thead><tr><th class="crm-gs-name">الطالب</th><th>الأداء<small>من ${formatScore(perfMax)}</small></th>${testsOn ? `<th>الاختبارات<small>من ${formatScore(caps.tests)}</small></th>` : ''}<th class="crm-gs-tot">المجموع<small>من ${formatScore(totalMax)}</small></th></tr></thead><tbody>`;
+  html += `<div class="crm-gs-listhead">الطلاب <small>اضغط على الاسم لترى درجاته</small></div><div class="crm-gs-list">`;
   students.forEach(st => {
     const r = studentGradeResult(g.columns, g.scores, st.id, caps);
-    const parts = r.performance.parts.map(x => `${escapeHtml(x.name)} ${x.score === null ? '—' : formatScore(x.score)}`).join(' · ');
-    const total = testsOn ? r.total : r.performance.points;
-    html += `<tr onclick="openCrmGradeStudentDetail('${st.id}')"><td class="crm-gs-name"><b>${escapeHtml(st.full_name)}</b>${parts ? `<small>${parts}</small>` : ''}</td>
-      <td>${r.performance.points === null ? '<span class="crm-grade-empty">—</span>' : formatScore(r.performance.points)}</td>
-      ${testsOn ? `<td>${r.tests.points === null ? '<span class="crm-gs-none">لم يُرصد</span>' : formatScore(r.tests.points)}</td>` : ''}
-      <td class="crm-gs-tot">${total === null ? '<span class="crm-grade-empty">—</span>' : formatScore(total)}</td></tr>`;
+    const t = studentGradeTotal(r, testsOn, caps);
+    html += `<button type="button" class="crm-gs-item" id="crmGsRow_${st.id}" onclick="openCrmGradeStudentDetail('${st.id}')">
+      <span class="crm-gs-iname">${escapeHtml(st.full_name)}</span>
+      <span class="crm-gs-itot">${t.points === null ? '<span class="crm-gs-none">— لم يُرصد</span>' : `<b class="gs-tone-${gradeTone(t.points, t.recordedMax)}">${formatScore(t.points)}</b> <small>من ${formatScore(totalMax)}</small>`}<span class="crm-gs-chev" aria-hidden="true">‹</span></span>
+    </button>`;
   });
-  html += '</tbody></table>';
-  html += '<p class="crm-gs-note">اضغط على أي طالب لترى تفاصيل درجاته وكيف حُسبت. "—" = لم يُرصد بعد (لا يُحسب صفرًا). الرصد من ورقة الحصة، والإعداد من "⚙ إعداد الدرجات".</p>';
+  html += '</div>';
+  html += '<p class="crm-gs-note">"—" = لم يُرصد له شيء بعد. اللون حسب ما رُصد فقط (ما لم يُرصد لا يُحسب عليه). الرصد من ورقة الحصة، والإعداد من "⚙ إعداد الدرجات".</p>';
   html += `<p class="crm-gs-note" style="text-align:center;margin-top:14px;"><a href="#" onclick="event.preventDefault();setCrmGradesDetail(true)">الكشف التفصيلي (كل الأعمدة، والتعديل اليدوي، والاستيراد من Excel)</a></p>`;
   return html;
 }
 
-/* تفاصيل طالب: كل اختبار ودرجته ونسبته، وطريقة الحساب، ومكوّنات الأداء */
+/* مجموع الطالب، ومن كم رُصد فعلًا (لتلوين عادل: ما لم يُرصد لا يُحسب عليه) */
+function studentGradeTotal(r, testsOn, caps){
+  const perfRecMax = r.performance.parts.filter(x => x.score !== null).reduce((a, x) => a + x.max, 0);
+  const testsRec = testsOn && r.tests.points !== null;
+  const points = testsOn ? r.total : r.performance.points;
+  return { points, recordedMax: perfRecMax + (testsRec ? Number(caps.tests) : 0) };
+}
+
+/* أحمر دون النصف، ذهبي دون 80%، أخضر فما فوق */
+function gradeTone(points, max){
+  if(points === null || !(max > 0)) return 'none';
+  const pct = points / max;
+  return pct < 0.5 ? 'lo' : pct < 0.8 ? 'mid' : 'hi';
+}
+
+/* ============ صفحة الطالب (من الضغط على اسمه في الكشف) ============ */
+let crmGradeStudentId = null;
+
+function resetCrmGradeStudent(){ crmGradeStudentId = null; }
+
 function openCrmGradeStudentDetail(studentId){
   const g = crmGrades;
-  const st = crmStudents.find(x => x.id === studentId);
-  if(!g || !st) return;
+  if(!g || !crmStudentsOfSection(g.sectionId).some(x => x.id === studentId)) return;
+  crmGradeStudentId = studentId;
+  paintCrmGradesCached();
+  const box = document.getElementById('crmGradesBody');
+  if(box && box.scrollIntoView) box.scrollIntoView({ block: 'start' });
+}
+
+function closeCrmGradeStudent(){
+  const id = crmGradeStudentId;
+  crmGradeStudentId = null;
+  paintCrmGradesCached();
+  const row = id && document.getElementById('crmGsRow_' + id);
+  if(row && row.scrollIntoView) row.scrollIntoView({ block: 'center' });
+}
+
+/* إعادة الرسم من الكشف المحمّل (بلا إعادة تحميل) — وإلا تحميل كامل */
+function paintCrmGradesCached(){
+  const box = document.getElementById('crmGradesBody');
+  const g = crmGrades;
+  if(!box || !g || g.sectionId !== crmGradesSectionId()) return renderCrmGrades();
+  box.innerHTML = crmGradesPageHtml(g);
+}
+
+function crmGradesPageHtml(g){
+  if(crmGradeStudentId){
+    const page = crmGradeStudentPageHtml(g, crmGradeStudentId);
+    if(page) return page;
+    crmGradeStudentId = null;
+  }
+  return crmGradesSectionPickerHtml(g.sectionId) + crmGradesViewSwitchHtml() + (crmGradesDetail ? crmGradeDetailHtml(g) : crmGradeSimpleHtml(g));
+}
+
+function crmGradeBarHtml(score, max){
+  if(score === null || !(max > 0)) return '<div class="crm-gs-bar"></div>';
+  const pct = Math.max(0, Math.min(100, Math.round(100 * score / max)));
+  return `<div class="crm-gs-bar"><i class="gs-bg-${gradeTone(score, max)}" style="width:${pct}%"></i></div>`;
+}
+
+function crmGradeStudentPageHtml(g, studentId){
+  const students = crmStudentsOfSection(g.sectionId);
+  const idx = students.findIndex(x => x.id === studentId);
+  if(idx === -1) return null;
+  const st = students[idx];
+  const testsOn = appToolOn('tests');
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
   const r = studentGradeResult(g.columns, g.scores, studentId, caps);
-  const pct = x => Math.round(100 * x.score / x.max);
-  const line = (a, b) => `<div class="crm-gs-line"><span>${a}</span><span>${b}</span></div>`;
-  let testsHtml = '';
-  if(appToolOn('tests')){
-    const rec = r.tests.list.filter(x => x.score !== null);
-    testsHtml = `<div class="crm-today-card"><div class="crm-gs-line"><b>الاختبارات</b><span class="crm-gs-big">${r.tests.points === null ? '—' : formatScore(r.tests.points)} <small>من ${formatScore(caps.tests)}</small></span></div>
-      ${r.tests.list.length ? r.tests.list.map(x => line(escapeHtml(x.name), x.score === null ? '<span class="crm-gs-none">لم يُرصد</span>' : `${formatScore(x.score)} من ${formatScore(x.max)} · <span class="crm-gs-chip">${pct(x)}%</span>`)).join('') : '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
-      ${rec.length ? `<p class="crm-gs-note">المحصلة: ${formatScore(r.tests.earned)} من ${formatScore(r.tests.possible)} = ${r.tests.pct}% × ${formatScore(caps.tests)} = <b>${formatScore(r.tests.points)}</b></p>` : ''}</div>`;
-  }
-  const perfHtml = `<div class="crm-today-card"><div class="crm-gs-line"><b>الأداء</b><span class="crm-gs-big">${r.performance.points === null ? '—' : formatScore(r.performance.points)} <small>من ${formatScore(r.performance.max)}</small></span></div>
-    ${r.performance.parts.map(x => line(escapeHtml(x.name), x.score === null ? '<span class="crm-gs-none">لم يُرصد بعد</span>' : `${formatScore(x.score)} من ${formatScore(x.max)}`)).join('')}
-    <p class="crm-gs-note">ما لم يُرصد لا يُحسب على الطالب.</p></div>`;
-  showInfoModal(`<div style="text-align:right;">
-    <h3 style="margin:0 0 2px;font-size:16px;color:var(--navy);">${escapeHtml(st.full_name)}</h3>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">تفاصيل الدرجات — ${escapeHtml(crmSectionLabel(g.sectionId))}</div>
-    ${testsHtml}${perfHtml}
-    <button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="closeCrmModal();openCrmStudentProfile('${st.id}', { type: 'tab', tab: 'grades' })">ملف الطالب</button>
-  </div>`, '440px');
+  const t = studentGradeTotal(r, testsOn, caps);
+  const totalMax = r.performance.max + (testsOn ? Number(caps.tests) : 0);
+  const none = txt => `<span class="crm-gs-none">${txt}</span>`;
+  const row = (name, score, max, extra) => `<div class="crm-gs-prow">
+      <div class="crm-gs-plabel"><span>${escapeHtml(name)}</span><span>${score === null ? none('لم يُرصد بعد') : `${formatScore(score)} من ${formatScore(max)}${extra || ''}`}</span></div>
+      ${crmGradeBarHtml(score, max)}</div>`;
+  const prev = students[idx - 1], next = students[idx + 1];
+  const perf = `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الأداء</b><span>${r.performance.points === null ? '—' : formatScore(r.performance.points)} <small>من ${formatScore(r.performance.max)}</small></span></div>
+    ${r.performance.parts.map(x => row(x.name, x.score, x.max)).join('') || '<div class="crm-today-empty">لا مكوّنات أداء.</div>'}</div>`;
+  const rec = r.tests.list.filter(x => x.score !== null);
+  const tests = testsOn ? `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الاختبارات</b><span>${r.tests.points === null ? '—' : formatScore(r.tests.points)} <small>من ${formatScore(caps.tests)}</small></span></div>
+    ${r.tests.list.map(x => row(x.name, x.score, x.max, x.score === null ? '' : ` · ${Math.round(100 * x.score / x.max)}%`)).join('') || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
+    ${rec.length ? `<p class="crm-gs-note">المحصلة: ${formatScore(r.tests.earned)} من ${formatScore(r.tests.possible)} = ${r.tests.pct}% × ${formatScore(caps.tests)} = <b>${formatScore(r.tests.points)}</b></p>` : ''}</div>` : '';
+  return `<div class="crm-gs-ptop"><button type="button" class="btn btn-outline crm-mini-btn" onclick="closeCrmGradeStudent()">→ قائمة الطلاب</button><span>${idx + 1} من ${students.length}</span></div>
+    <h3 class="crm-gs-pname">${escapeHtml(st.full_name)}</h3>
+    <div class="crm-gs-psub">${escapeHtml(crmSectionLabel(g.sectionId))}</div>
+    <div class="crm-gs-ptotal"><span>المجموع</span><span><b>${t.points === null ? '—' : formatScore(t.points)}</b> <small>من ${formatScore(totalMax)}</small></span></div>
+    ${perf}${tests}
+    <p class="crm-gs-note">ما لم يُرصد لا يُحسب على الطالب.</p>
+    <div class="crm-gs-pnav">
+      <button type="button" class="btn btn-outline"${prev ? ` onclick="openCrmGradeStudentDetail('${prev.id}')"` : ' disabled'}>‹ الطالب السابق</button>
+      <button type="button" class="btn btn-outline"${next ? ` onclick="openCrmGradeStudentDetail('${next.id}')"` : ' disabled'}>الطالب التالي ›</button>
+    </div>
+    <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openCrmStudentProfile('${st.id}', { type: 'tab', tab: 'grades' })">ملف الطالب</button>`;
 }
 
 function crmGradesSectionPickerHtml(sectionId){
@@ -393,6 +460,7 @@ function crmGradesSectionPickerHtml(sectionId){
 
 function onCrmGradesSectionChange(id){
   try{ localStorage.setItem('crm_grades_section', id); } catch(e){}
+  crmGradeStudentId = null;
   renderCrmGrades();
 }
 

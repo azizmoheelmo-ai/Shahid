@@ -147,7 +147,12 @@ function incidentPattern(incidents, types){
 /* ============ العرض ============ */
 let crmSummaryToken = 0;
 
+/* "ملخص الشعبة" ملغى بطلب صاحب التطبيق (الكشف وحده: الأسماء، والضغط على الاسم يفتح
+   درجاته). الكود باقٍ، وإعادته = true هنا */
+const SECTION_SUMMARY_ON = false;
+
 function crmGradesView(){
+  if(!SECTION_SUMMARY_ON) return 'sheet';
   let v = null;
   try{ v = localStorage.getItem('crm_grades_view'); } catch(e){}
   return v === 'summary' ? 'summary' : 'sheet';
@@ -159,6 +164,7 @@ function setCrmGradesView(v){
 }
 
 function crmGradesViewSwitchHtml(){
+  if(!SECTION_SUMMARY_ON) return '';
   const v = crmGradesView();
   return `<div class="crm-seg">
     <button class="${v === 'sheet' ? 'is-on' : ''}" onclick="setCrmGradesView('sheet')">الكشف</button>

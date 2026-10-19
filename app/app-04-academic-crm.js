@@ -960,7 +960,10 @@ function switchCrmTab(tab){
   });
   if(tab === 'today') renderCrmToday();
   if(tab === 'followups') renderCrmFollowups();
-  if(tab === 'grades') renderCrmGrades();
+  if(tab === 'grades'){
+    if(typeof resetCrmGradeStudent === 'function') resetCrmGradeStudent(); /* العودة للتبويب = قائمة الطلاب */
+    renderCrmGrades();
+  }
 }
 
 function collapseAllCrmSections(){
