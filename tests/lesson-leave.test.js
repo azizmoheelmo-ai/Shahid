@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { loadApp, runInAppContext } = require('./load-app');
 
-function fakeClient(log){
+function fakeClient(log, failRpc){
   const api = () => {
     const a = { select: () => a, eq: () => a, in: () => a, order: () => a, limit: () => a,
       insert: () => a, upsert: () => a, update: () => a, delete: () => a,
@@ -13,12 +13,12 @@ function fakeClient(log){
       then: (res, rej) => Promise.resolve({ data: [], error: null }).then(res, rej) };
     return a;
   };
-  return { from: () => api(), rpc(name, args){ log.push({ name, args }); return Promise.resolve({ data: 1, error: null }); },
+  return { from: () => api(), rpc(name, args){ log.push({ name, args }); return Promise.resolve(failRpc === name ? { data: null, error: { message: 'boom' } } : { data: 1, error: null }); },
     auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }, storage: { from: () => ({}) } };
 }
 
-function appWith(log, extra){
-  const app = loadApp({ supabaseClient: fakeClient(log || []), currentUser: { id: 'u1' } });
+function appWith(log, extra, failRpc){
+  const app = loadApp({ supabaseClient: fakeClient(log || [], failRpc), currentUser: { id: 'u1' } });
   runInAppContext(app, `
     window.__closed = 0; window.__modal = []; window.__toasts = [];
     closeCrmLessonSheet = () => { window.__closed++; crmSheet = null; };
@@ -108,4 +108,62 @@ test('saveCrmLessonSheet — يعمل من وضع أداة (بلا زر الحض
   assert.deepEqual(JSON.parse(JSON.stringify(call.args.p_exceptions)), [{ student_id: 'b', status: 'absent' }]);
   assert.equal(get(app, 'window.__closed'), 1);
   assert.match(get(app, 'window.__toasts.join("|")'), /تم رصد الحصة/);
+});
+
+const later = (ms, fn) => new Promise(r => setTimeout(() => { if(fn) fn(); r(); }, ms));
+
+test('زر "حفظ" في أوضاع الأدوات: ينتظر اكتمال الحفظ المعلّق قبل أن يُنهي، وحصة محفوظة لا تُعاد', async () => {
+  const log = [];
+  const app = appWith(log);
+  sheet(app, { mode: 'participation', lessonId: 'L1', activity: true });
+  runInAppContext(app, `window.__done = false; crmSheet.part = { queue: new Map([['a', new Promise(r => setTimeout(() => { window.__done = true; r(); }, 30))]]) };`);
+  const p = app.finishCrmLessonSheet();
+  assert.equal(get(app, 'window.__closed'), 0);
+  await p;
+  assert.equal(get(app, 'window.__done'), true);
+  assert.equal(get(app, 'window.__closed'), 1);
+  assert.match(get(app, 'window.__toasts.join("|")'), /ok:تم الحفظ/);
+  assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 0);
+});
+
+test('زر "حفظ" في حصة لم يُحفظ حضورها: يحفظ الحضور بعد المعلّق مرة واحدة ولو نُقر مرتين', async () => {
+  const log = [];
+  const app = appWith(log);
+  sheet(app, { mode: 'homework', activity: true });
+  runInAppContext(app, `crmSheet.hw = { queue: new Map([['a', new Promise(r => setTimeout(r, 20))]]) };`);
+  const p1 = app.finishCrmLessonSheet();
+  const p2 = app.finishCrmLessonSheet();
+  await Promise.all([p1, p2]);
+  assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 1);
+  assert.equal(get(app, 'window.__closed'), 1);
+});
+
+test('زر "حفظ": فشل أثناء الانتظار = لا يُغلق ولا يحفظ الحضور ويُنبّه', async () => {
+  const log = [];
+  const app = appWith(log);
+  sheet(app, { mode: 'participation', activity: true });
+  runInAppContext(app, `crmSheet.part = { queue: new Map([['a', new Promise(r => setTimeout(() => { markCrmSheetFailure(); r(); }, 20))]]) };`);
+  await app.finishCrmLessonSheet();
+  assert.equal(get(app, 'window.__closed'), 0);
+  assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 0);
+  assert.match(get(app, 'window.__toasts.join("|")'), /error:لم يكتمل الحفظ/);
+});
+
+test('نقرة مشاركة فشل حفظها تُعلّم الورقة "فشل" (حتى لا يقول زر حفظ: تم)', async () => {
+  const app = appWith([], '', 'increment_grade_score');
+  sheet(app, {});
+  runInAppContext(app, `crmSheet.part = { column: { id: 'c', max_score: 10, name: 'مشاركة' }, scores: new Map(), today: {}, undo: [], queue: new Map(), toolId: null };
+    paintCrmParticipation = () => {}; writeParticipationState = () => {};`);
+  app.tapCrmParticipation('a');
+  await get(app, 'crmSheet.part.queue.get("a")');
+  assert.equal(get(app, 'crmSheet.failed'), true);
+});
+
+test('كل أوضاع الأدوات فيها زر "حفظ" في شريطها السفلي', async () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const count = f => (fs.readFileSync(path.join(__dirname, '..', 'app', f), 'utf8').match(/crmSheetFinishBtnHtml\(\)/g) || []).length;
+  assert.equal(count('app-20-participation-homework.js'), 2); /* مشاركة + واجب */
+  assert.equal(count('app-21-performance-tasks.js'), 1);
+  assert.equal(count('app-23-custom-tools.js'), 1);
+  assert.match(loadApp().crmSheetFinishBtnHtml(), /finishCrmLessonSheet\(\)/);
 });

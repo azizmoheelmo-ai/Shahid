@@ -226,6 +226,7 @@ async function renderCrmToolMode(students, tool){
       </div>`).join('')}
     </div>
     <div class="crm-sheet-bar">
+      ${crmSheetFinishBtnHtml()}
       ${status ? '<button class="btn btn-outline" style="flex:1;" onclick="markAllCrmToolDone()">الكل تمّ</button>' : ''}
       <button class="btn btn-outline"${status ? '' : ' style="flex:1;"'} onclick="leaveCrmLessonSheet()">رجوع</button>
     </div>`;
@@ -353,11 +354,12 @@ function setCrmToolValue(studentId, value){
         paintCrmTool(studentId);
         paintCrmToolCounts();
       }
+      markCrmSheetFailure();
       showToast('لم يُحفظ الرصد: ' + toolDbErrorMessage(e), 'error');
       return;
     }
     try{ await syncToolColumn(t.column, t.tool, s.sectionId, t.term, [studentId]); }
-    catch(e){ showToast('حُفظ الرصد، وتعذّر تحديث عموده — يُحدَّث عند فتح الكشف', 'error'); }
+    catch(e){ markCrmSheetFailure(); showToast('حُفظ الرصد، وتعذّر تحديث عموده — يُحدَّث عند فتح الكشف', 'error'); }
   });
   t.queue.set(studentId, next);
   return next;
@@ -388,6 +390,7 @@ async function markAllCrmToolDone(){
       await syncToolColumn(t.column, t.tool, s.sectionId, t.term, ids);
       showToast('سُجّل "تمّ" للباقين — اضغط على من لم يتمّ لتعديله', 'ok');
     } catch(e){
+      markCrmSheetFailure();
       showToast('تعذّر الحفظ: ' + toolDbErrorMessage(e), 'error');
       if(crmSheet === s) setCrmSheetMode('tool:' + t.tool.id);
     }

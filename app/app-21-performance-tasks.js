@@ -300,7 +300,7 @@ async function renderCrmTasks(students, selectId){
     </div>`).join('')}
     ${ungrouped.length ? `${glist.length ? '<div class="crm-tl-meta" style="margin:4px 0;">بلا مجموعة</div>' : ''}<div class="crm-att-grid">${ungrouped.map(crmTaskCellHtml).join('')}</div>` : ''}
     ${assigned.length ? '' : '<div class="empty-state">لا أحد من طلاب الشعبة مكلّف بهذه المهمة — اضغط "✎ تعديل" لاختيار الطلاب.</div>'}
-    <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="leaveCrmLessonSheet()">رجوع</button></div>`;
+    <div class="crm-sheet-bar">${crmSheetFinishBtnHtml()}<button class="btn btn-outline" style="flex:1;" onclick="leaveCrmLessonSheet()">رجوع</button></div>`;
   paintCrmTaskAll(assigned.map(st => st.id));
   paintCrmTaskCounts();
 }
@@ -454,17 +454,19 @@ function persistCrmTaskScores(ids, score, prev){
       if(!saved.length) throw new Error((ids.length === 1 ? 'الطالب لم يعد مكلّفًا' : 'الطلاب لم يعودوا مكلّفين') + ' بهذه المهمة — ربما عُدّلت من جهاز آخر');
     } catch(e){
       revert(ids);
+      markCrmSheetFailure();
       showToast('لم تُحفظ الدرجة: ' + taskDbErrorMessage(e), 'error');
       return;
     }
     const missing = ids.filter(id => !saved.includes(id));
     if(missing.length){
       revert(missing);
+      markCrmSheetFailure();
       showToast(`لم تُحفظ درجة ${missing.length} — لم يعودوا مكلّفين بهذه المهمة. حدّث الورقة.`, 'error');
     }
     t.data.rows.forEach(r => { if(r.task_id === taskId && saved.includes(r.student_id)) r.score = score; });
     try{ await syncTaskColumn(t.column, s.sectionId, t.term, saved); }
-    catch(e){ showToast('حُفظت الدرجة، وتعذّر تحديث عمود المهام — يُحدَّث عند فتح الكشف', 'error'); }
+    catch(e){ markCrmSheetFailure(); showToast('حُفظت الدرجة، وتعذّر تحديث عمود المهام — يُحدَّث عند فتح الكشف', 'error'); }
   });
   ids.forEach(id => t.queue.set(id, next));
   return next;

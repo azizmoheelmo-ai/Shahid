@@ -700,6 +700,46 @@ function leaveCrmLessonSheet(){
   </div>`, '420px');
 }
 
+function markCrmSheetFailure(){
+  if(crmSheet) crmSheet.failed = true;
+}
+
+function crmSheetFinishBtnHtml(){
+  return '<button class="btn btn-primary" id="crmModeFinishBtn" onclick="finishCrmLessonSheet()">حفظ</button>';
+}
+
+/* كل ما أُرسل ولم يكتمل بعد من أوضاع الأدوات (طوابير الحفظ لكل طالب) */
+function crmSheetPendingWrites(s){
+  return [s.part, s.hw, s.tool, s.task].filter(x => x && x.queue).flatMap(x => [...x.queue.values()]);
+}
+
+/* زر "حفظ" في شريط أوضاع الأدوات: ينتظر اكتمال ما أُرسل ويتأكد من نجاحه، ثم يحفظ
+   حضور الحصة إن لم يُحفظ (بطلب صريح من المعلم)، ويُغلق الورقة */
+let crmSheetFinishing = false;
+async function finishCrmLessonSheet(){
+  const s = crmSheet;
+  if(!s || crmSheetFinishing || crmSheetSaving) return;
+  crmSheetFinishing = true;
+  const btn = document.getElementById('crmModeFinishBtn');
+  const label = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الحفظ...'; }
+  try{
+    s.failed = false;
+    for(let i = 0; i < 100 && ((typeof crmHwBulkBusy !== 'undefined' && crmHwBulkBusy) || (typeof crmToolBulkBusy !== 'undefined' && crmToolBulkBusy)); i++){
+      await new Promise(r => setTimeout(r, 50));
+    }
+    await Promise.allSettled(crmSheetPendingWrites(s));
+    if(crmSheet !== s) return;
+    if(s.failed){ showToast('لم يكتمل الحفظ — راجع الرسالة الحمراء ثم أعد المحاولة', 'error'); return; }
+    if(crmSheetNeedsAttendanceSave(s)){ await saveCrmLessonSheet(); return; }
+    showToast('تم الحفظ ✓', 'ok');
+    closeCrmLessonSheet();
+  } finally {
+    crmSheetFinishing = false;
+    if(btn && btn.isConnected){ btn.disabled = false; btn.textContent = label; }
+  }
+}
+
 async function saveCrmLessonSheet(){
   if(!crmSheet || crmSheetSaving) return;
   const sheet = crmSheet;
