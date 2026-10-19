@@ -995,9 +995,7 @@ async function showClassroomManagement(){
     loadCrmStudents()
   ]);
 
-  renderCrmGradesList();
-  populateNewStudentGradeSelect();
-  populateCrmImportSectionSelect();
+  crmStuView = { mode: 'home', sectionId: null };
   renderCrmStudentsList();
   renderCrmLinkBanner();
   document.getElementById('crmLinkReviewBox').style.display = 'none';
@@ -1044,6 +1042,8 @@ function getCrmSemesterLabel(){
 function toggleAddStudentForm(){
   const box = document.getElementById('addStudentBox');
   box.style.display = (box.style.display === 'none') ? 'block' : 'none';
+  document.getElementById('crmImportBox').style.display = 'none';
+  if(box.style.display === 'block') document.getElementById('newStudentName').focus();
 }
 
 let crmIncidentTypes = [];
@@ -1069,62 +1069,141 @@ async function loadCrmStudents(){
   crmArchivedStudents = archived || [];
 }
 
+/* ============ تبويب الطلاب: "شعبي" ← صفحة الشعبة، و"⚙ المراحل والشعب" ============ */
+let crmStuView = { mode: 'home', sectionId: null }; /* mode: home | section | structure */
+const CRM_UNLINKED = '__unlinked'; /* طلاب بلا شعبة (حُذفت شعبتهم مثلًا) */
+
+const crmByArabic = (a, b) => String(a).localeCompare(String(b), 'ar', { numeric: true });
+
+/* ترتيب المراحل بمعناها لا أبجديًا (أبجديًا "ثالث" قبل "ثاني"): المرحلة الدراسية ثم الصف */
+const CRM_GRADE_ORDINALS = ['أول', 'ثاني', 'ثالث', 'رابع', 'خامس', 'سادس'];
+const CRM_GRADE_STAGES = ['ابتدائ', 'متوسط', 'ثانو'];
+function crmGradeOrderKey(name){
+  const n = String(name || '').replace(/[أإآ]/g, 'ا');
+  const stage = CRM_GRADE_STAGES.findIndex(w => n.includes(w.replace(/[أإآ]/g, 'ا')));
+  const ord = CRM_GRADE_ORDINALS.findIndex(w => n.includes(w.replace(/[أإآ]/g, 'ا')));
+  return [stage === -1 ? 9 : stage, ord === -1 ? 9 : ord];
+}
+function crmCompareGrades(a, b){
+  const ka = crmGradeOrderKey(a.name), kb = crmGradeOrderKey(b.name);
+  return (ka[0] - kb[0]) || (ka[1] - kb[1]) || crmByArabic(a.name, b.name);
+}
+
+function crmSectionsOfGrade(gradeId){
+  return crmSections.filter(s => s.grade_level_id === gradeId).sort((a, b) => crmByArabic(a.name, b.name));
+}
+
+function crmUnlinkedStudents(){
+  const ids = new Set(crmSections.map(s => s.id));
+  return crmStudents.filter(s => !s.section_id || !ids.has(s.section_id));
+}
+
+function openCrmStuSection(sectionId){
+  crmStuView = { mode: 'section', sectionId };
+  ['addStudentBox', 'crmImportBox'].forEach(id => { document.getElementById(id).style.display = 'none'; });
+  renderCrmStudentsList();
+  const box = document.getElementById('crmStuSection');
+  if(box && box.scrollIntoView) box.scrollIntoView({ block: 'start' });
+}
+
+function closeCrmStuSection(){
+  crmStuView = { mode: 'home', sectionId: null };
+  renderCrmStudentsList();
+}
+
+function openCrmStructure(){
+  crmStuView = { mode: 'structure', sectionId: null };
+  crmStructAdd = null;
+  renderCrmStudentsList();
+}
+
+function closeCrmStructure(){ closeCrmStuSection(); }
+
+/* سطر طالب: الاسم يفتح ملفه، و⋯ للنقل والحذف (بعيدًا عن النقرة الخاطئة) */
+function crmStudentRowHtml(s, sub){
+  return `<div class="crm-stu-row">
+    <button type="button" class="crm-stu-name" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">${escapeHtml(s.full_name)}${s.student_number ? ` <span class="crm-stu-num">#${escapeHtml(s.student_number)}</span>` : ''}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</button>
+    <button type="button" class="crm-stu-more" aria-label="خيارات ${escapeHtml(s.full_name)}" onclick="openCrmStudentMenu('${s.id}')">⋯</button>
+  </div>`;
+}
+
+function openCrmStudentMenu(studentId){
+  const s = crmStudents.find(x => x.id === studentId);
+  if(!s) return;
+  showInfoModal(`<div style="text-align:right;">
+    <h3 style="margin:0 0 12px;font-size:15px;color:var(--navy);">${escapeHtml(s.full_name)}</h3>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">ملف الطالب</button>
+      <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmTransferModal('${s.id}')">⇄ نقل لشعبة أخرى</button>
+      <button class="btn btn-outline" style="justify-content:center;color:#8A2C2C;" onclick="closeCrmModal();deleteCrmStudent('${s.id}')">🗑 حذف الطالب</button>
+    </div>
+  </div>`, '360px');
+}
+
 function renderCrmStudentsList(){
+  const v = crmStuView;
+  /* شعبة الصفحة حُذفت أو تغيّرت السنة، أو لم يبقَ غير مربوط: العودة لشعبي */
+  if(v.mode === 'section' && (v.sectionId === CRM_UNLINKED ? !crmUnlinkedStudents().length : !crmSectionById(v.sectionId))){
+    crmStuView = { mode: 'home', sectionId: null };
+  }
+  const mode = crmStuView.mode;
+  document.getElementById('crmStuHome').style.display = mode === 'home' ? 'block' : 'none';
+  document.getElementById('crmStuSection').style.display = mode === 'section' ? 'block' : 'none';
+  document.getElementById('crmStuStructure').style.display = mode === 'structure' ? 'block' : 'none';
+  if(mode === 'section') return renderCrmStuSectionPage();
+  if(mode === 'structure') return renderCrmGradesList();
+  renderCrmStuHome();
+}
+
+function renderCrmStuHome(){
   const box = document.getElementById('crmStudentsList');
   const query = (document.getElementById('crmStudentSearch').value || '').trim();
-  let list = crmStudents;
-  if(query){ list = list.filter(s => s.full_name.includes(query)); }
   const archived = query ? crmArchivedStudents.filter(s => s.full_name.includes(query)) : crmArchivedStudents;
-  if(!list.length){ box.innerHTML = '<div class="empty-state">لا يوجد طلاب مطابقون.</div>' + crmArchivedListHtml(archived, query); return; }
-
-  const groups = {};
-  list.forEach(s => {
-    const label = studentClassLabel(s, crmGradeLevels, crmSections);
-    const g = label.linked ? label.grade : (label.grade + ' (غير مربوط بشعبة)');
-    const sec = label.section;
-    groups[g] = groups[g] || {};
-    groups[g][sec] = groups[g][sec] || [];
-    groups[g][sec].push(s);
-  });
-
-  const byArabic = (a, b) => a.localeCompare(b, 'ar', { numeric: true });
-  const gradeKeys = Object.keys(groups).sort(byArabic);
+  if(query){
+    const found = crmStudents.filter(s => s.full_name.includes(query)).sort((a, b) => crmByArabic(a.full_name, b.full_name));
+    const labelOf = s => { const sec = crmSectionById(s.section_id); return sec ? crmSectionOptionLabel(sec) : 'غير مربوط بشعبة'; };
+    box.innerHTML = (found.length
+      ? `<div class="crm-stu-gh">${arabicCountPhrase(found.length, CRM_STUDENT_COUNT_FORMS)}</div><div class="crm-stu-list">${found.map(s => crmStudentRowHtml(s, labelOf(s))).join('')}</div>`
+      : '<div class="empty-state">لا يوجد طلاب مطابقون.</div>') + crmArchivedListHtml(archived, query);
+    return;
+  }
+  if(!crmGradeLevels.length){
+    box.innerHTML = `<div class="crm-stu-empty"><b>ابدأ من هنا</b>أضف مراحلك وشعبك، ثم طلاب كل شعبة.
+      <button type="button" class="btn btn-primary" onclick="openCrmStructure()">⚙ إضافة المراحل والشعب</button></div>` + crmArchivedListHtml(archived, query);
+    return;
+  }
   let html = '';
-  gradeKeys.forEach((g, gi) => {
-    const gradeId = 'crmGrade' + gi;
-    const startOpen = query.length > 0;
-    html += `<div style="border:1px solid var(--line);margin-top:10px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:#F0EEE6;cursor:pointer;" onclick="toggleCrmGroup('${gradeId}')">
-        <span style="font-weight:700;font-size:13px;">${escapeHtml(g)}</span>
-        <span id="${gradeId}_arrow" style="font-size:11px;color:var(--muted);">${startOpen ? '▾' : '▸'}</span>
-      </div>
-      <div id="${gradeId}" style="display:${startOpen ? 'block' : 'none'};padding:8px 10px;">`;
-
-    Object.keys(groups[g]).sort(byArabic).forEach((sec, si) => {
-      const sectionId = gradeId + '_sec' + si;
-      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;cursor:pointer;background:#FAF9F6;margin-top:6px;" onclick="toggleCrmGroup('${sectionId}')">
-        <span style="font-size:11px;color:var(--muted);font-weight:700;">الشعبة ${escapeHtml(sec)} <span style="font-weight:400;">(${groups[g][sec].length})</span></span>
-        <span id="${sectionId}_arrow" style="font-size:10px;color:var(--muted);">▸</span>
-      </div>
-      <div id="${sectionId}" style="display:none;">`;
-      groups[g][sec].forEach(s => {
-        html += `
-          <div style="border-bottom:1px solid var(--line);">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 4px;cursor:pointer;" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">
-              <span style="font-size:12.5px;">${escapeHtml(s.full_name)}${s.student_number ? ' <span style="color:var(--muted);font-size:11px;">#' + escapeHtml(s.student_number) + '</span>' : ''}</span>
-              <span style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
-                <button class="crm-transfer-btn" onclick="event.stopPropagation();openCrmTransferModal('${s.id}')" title="نقل الطالب بسجله">⇄ نقل</button>
-                <button style="border:none;background:none;color:var(--muted);font-size:13px;padding:0;" onclick="event.stopPropagation();deleteCrmStudent('${s.id}')" title="حذف الطالب">🗑</button>
-              </span>
-            </div>
-          </div>`;
-      });
-      html += `</div>`;
+  crmGradeLevels.slice().sort(crmCompareGrades).forEach(g => {
+    const secs = crmSectionsOfGrade(g.id);
+    html += `<div class="crm-stu-gh">${escapeHtml(g.name)}</div>`;
+    if(!secs.length){ html += '<div class="crm-stu-none">لا شعب بعد — أضفها من "⚙ المراحل والشعب" أدناه.</div>'; return; }
+    secs.forEach(sec => {
+      const n = crmStudents.filter(s => s.section_id === sec.id).length;
+      html += `<button type="button" class="crm-stu-card" onclick="openCrmStuSection('${sec.id}')">
+        <span><b>الشعبة ${escapeHtml(sec.name)}</b> <small>· ${n ? arabicCountPhrase(n, CRM_STUDENT_COUNT_FORMS) : 'لا طلاب بعد — أضفهم'}</small></span><span class="crm-stu-chev" aria-hidden="true">‹</span></button>`;
     });
-
-    html += `</div></div>`;
   });
+  const unlinked = crmUnlinkedStudents();
+  if(unlinked.length){
+    html += `<button type="button" class="crm-stu-card is-warn" onclick="openCrmStuSection('${CRM_UNLINKED}')">
+      <span><b>غير مربوطين بشعبة</b> <small>· ${arabicCountPhrase(unlinked.length, CRM_STUDENT_COUNT_FORMS)}</small></span><span class="crm-stu-chev" aria-hidden="true">‹</span></button>`;
+  }
   box.innerHTML = html + crmArchivedListHtml(archived, query);
+}
+
+function renderCrmStuSectionPage(){
+  const id = crmStuView.sectionId;
+  const unlinked = id === CRM_UNLINKED;
+  const sec = unlinked ? null : crmSectionById(id);
+  const list = (unlinked ? crmUnlinkedStudents() : crmStudents.filter(s => s.section_id === id)).slice().sort((a, b) => crmByArabic(a.full_name, b.full_name));
+  document.getElementById('crmStuSectionTitle').textContent = unlinked ? 'طلاب غير مربوطين بشعبة' : crmSectionOptionLabel(sec);
+  document.getElementById('crmStuSectionCount').textContent = list.length ? arabicCountPhrase(list.length, CRM_STUDENT_COUNT_FORMS) : '';
+  /* الإضافة والاستيراد لشعبة حقيقية فقط */
+  document.getElementById('crmStuSectionActions').style.display = unlinked ? 'none' : 'flex';
+  const box = document.getElementById('crmSectionStudentsList');
+  box.innerHTML = list.length
+    ? (unlinked ? '<div class="crm-stu-none">حُذفت شعبتهم أو لم تُحدَّد — انقل كل طالب لشعبته من ⋯.</div>' : '') + `<div class="crm-stu-list">${list.map(s => crmStudentRowHtml(s)).join('')}</div>`
+    : '<div class="empty-state">لا طلاب في هذه الشعبة بعد — أضفهم بـ"+ طالب" أو "استيراد Excel".</div>';
 }
 
 /* الطلاب المنقولون خارج المدرسة: قائمة مطوية أسفل الطلاب، مع "إعادة" لمن عاد */
@@ -1291,14 +1370,14 @@ function renderCrmLinkReview(){
   crmLinkGroups = proposeSectionLinks(crmStudents, crmGradeLevels, crmSections);
   if(!crmLinkGroups.length){ box.innerHTML = '<div class="empty-state">كل الطلاب مربوطون بشعبهم ✓</div>'; return; }
   if(!crmSections.length){
-    box.innerHTML = '<div class="empty-state">أضف المراحل والشعب أولًا (القسم 1 أدناه)، ثم ارجع هنا لربط الطلاب بها.</div>';
+    box.innerHTML = '<div class="empty-state">أضف المراحل والشعب أولًا من "⚙ المراحل والشعب" أدناه، ثم ارجع هنا لربط الطلاب بها.</div>';
     return;
   }
   const sortedSections = crmSections.slice().sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar', { numeric: true }));
   const rows = crmLinkGroups.map((g, i) => {
     const note = g.proposedSectionId ? ''
       : (g.candidateCount > 1 ? 'أكثر من شعبة تطابق هذا الاسم — اختر الصحيحة'
-        : 'لا توجد شعبة بهذا الاسم — اخترها، أو أضفها من القسم 1 أولًا');
+        : 'لا توجد شعبة بهذا الاسم — اخترها، أو أضفها من "⚙ المراحل والشعب" أولًا');
     const sample = g.names.slice(0, 3).map(escapeHtml).join('، ') + (g.names.length > 3 ? '…' : '');
     return `<div style="border-bottom:1px solid var(--line);padding:10px 0;">
       <div style="font-size:12.5px;font-weight:700;">مكتوب: ${escapeHtml(g.gradeText || 'بلا مرحلة')} / ${escapeHtml(g.sectionText || 'بلا شعبة')}
@@ -1386,47 +1465,74 @@ async function loadCrmGradesAndSections(){
   crmSections = sections || [];
 }
 
-function renderCrmGradesList(){
-  const box = document.getElementById('crmGradesList');
-  if(!crmGradeLevels.length){ box.innerHTML = '<div class="empty-state">لا توجد مراحل مضافة بعد لهذه السنة — ابدأ بإضافة مرحلة.</div>'; return; }
+/* "⚙ المراحل والشعب": كل مرحلة بطاقة، وشعبها أزرار، والإضافة بخانة داخل الصفحة */
+let crmStructAdd = null; /* { kind: 'grade' } أو { kind: 'section', gradeId } */
+let crmStructBusy = false;
 
-  box.innerHTML = crmGradeLevels.map((g, gi) => {
-    const gSections = crmSections.filter(s => s.grade_level_id === g.id);
-    const bodyId = 'crmGradeBody' + gi;
-    return `
-      <div style="border:1px solid var(--line);margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:#F0EEE6;cursor:pointer;" onclick="toggleCrmGroup('${bodyId}')">
-          <span style="font-weight:700;font-size:13px;">${escapeHtml(g.name)} <span style="font-weight:400;color:var(--muted);font-size:11.5px;">(${gSections.length} ${gSections.length === 1 ? 'شعبة' : 'شعب'})</span></span>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <button style="border:none;background:none;color:var(--muted);font-size:13px;padding:0;" onclick="event.stopPropagation();deleteCrmGradeLevel('${g.id}')" title="حذف المرحلة">🗑</button>
-            <span id="${bodyId}_arrow" style="font-size:11px;color:var(--muted);">▸</span>
-          </div>
-        </div>
-        <div id="${bodyId}" style="display:none;padding:10px 12px;">
-          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-            ${gSections.map(s => `
-              <span style="display:inline-flex;align-items:center;gap:5px;background:#F7F5F0;border:1px solid var(--line);padding:4px 8px;font-size:11.5px;">
-                الشعبة ${escapeHtml(s.name)}
-                <span onclick="deleteCrmSection('${s.id}')" style="cursor:pointer;color:var(--muted);">✕</span>
-              </span>
-            `).join('') || '<span style="font-size:11.5px;color:var(--muted);">لا توجد شعب بعد</span>'}
-          </div>
-          <button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" onclick="addCrmSection('${g.id}')">+ إضافة شعبة</button>
-        </div>
-      </div>
-    `;
-  }).join('');
+function crmStructAddFormHtml(placeholder){
+  return `<div class="crm-struct-add">
+    <input class="goal-input" id="crmStructAddInput" maxlength="60" placeholder="${placeholder}" onkeydown="if(event.key==='Enter')saveCrmStructAdd();if(event.key==='Escape')setCrmStructAdd(null)">
+    <button type="button" class="btn btn-primary crm-mini-btn" id="crmStructAddBtn" onclick="saveCrmStructAdd()">حفظ</button>
+    <button type="button" class="btn btn-outline crm-mini-btn" onclick="setCrmStructAdd(null)">إلغاء</button>
+  </div>`;
 }
 
-async function addCrmGradeLevel(){
-  const name = prompt('اسم المرحلة (مثال: أول ثانوي):');
-  if(!name || !name.trim()) return;
+function renderCrmGradesList(){
+  const box = document.getElementById('crmGradesList');
+  const a = crmStructAdd;
+  const grades = crmGradeLevels.slice().sort(crmCompareGrades);
+  const cards = grades.map(g => {
+    const secs = crmSectionsOfGrade(g.id);
+    const adding = a && a.kind === 'section' && a.gradeId === g.id;
+    return `<div class="crm-struct-card">
+      <div class="crm-struct-head"><b>${escapeHtml(g.name)}</b>
+        <button type="button" class="crm-struct-del" onclick="deleteCrmGradeLevel('${g.id}')">🗑 حذف المرحلة</button></div>
+      <div class="crm-struct-chips">
+        ${secs.map(s => `<span class="crm-struct-chip">الشعبة ${escapeHtml(s.name)}<button type="button" aria-label="حذف الشعبة ${escapeHtml(s.name)}" onclick="deleteCrmSection('${s.id}')">✕</button></span>`).join('')}
+        ${adding ? '' : `<button type="button" class="crm-struct-chip is-add" onclick="setCrmStructAdd({ kind: 'section', gradeId: '${g.id}' })">+ شعبة</button>`}
+      </div>
+      ${adding ? crmStructAddFormHtml('رقم الشعبة، مثل: 8') : ''}
+    </div>`;
+  }).join('');
+  const addingGrade = a && a.kind === 'grade';
+  box.innerHTML = (grades.length ? cards : '<div class="crm-stu-none">لا مراحل بعد لهذه السنة — ابدأ بإضافة مرحلة.</div>') +
+    (addingGrade
+      ? `<div class="crm-struct-card">${crmStructAddFormHtml('مثل: أول ثانوي')}</div>`
+      : `<button type="button" class="crm-struct-card is-add" onclick="setCrmStructAdd({ kind: 'grade' })">+ مرحلة جديدة</button>`);
+  const input = document.getElementById('crmStructAddInput');
+  if(a && input && input.focus) input.focus();
+}
+
+function setCrmStructAdd(v){
+  if(crmStructBusy) return;
+  crmStructAdd = v;
+  renderCrmGradesList();
+}
+
+/* حفظ مرحلة/شعبة جديدة — معطّل أثناء الحفظ (لا تُضاف مرتين بنقرتين أو Enter مزدوج) */
+async function saveCrmStructAdd(){
+  const a = crmStructAdd;
+  const input = document.getElementById('crmStructAddInput');
+  if(!a || crmStructBusy || !input) return;
+  const name = (input.value || '').trim();
+  if(!name){ showToast(a.kind === 'grade' ? 'اكتب اسم المرحلة' : 'اكتب رقم الشعبة', 'error'); return; }
   const year = document.getElementById('crmYearInput').value;
-  const { error } = await sb.from('classroom_grade_levels').insert({
-    teacher_id: currentUser.id, academic_year: year, name: name.trim()
-  });
-  if(error){ showToast('تعذّر الإضافة: ' + error.message, 'error'); return; }
-  showToast('تمت إضافة المرحلة', 'ok');
+  crmStructBusy = true;
+  const btn = document.getElementById('crmStructAddBtn');
+  if(btn) btn.disabled = true;
+  let ok = false;
+  try{
+    const { error } = a.kind === 'grade'
+      ? await sb.from('classroom_grade_levels').insert({ teacher_id: currentUser.id, academic_year: year, name })
+      : await sb.from('classroom_sections').insert({ teacher_id: currentUser.id, grade_level_id: a.gradeId, academic_year: year, name });
+    if(error){ showToast('تعذّر الإضافة: ' + error.message, 'error'); return; }
+    ok = true;
+    showToast(a.kind === 'grade' ? 'تمت إضافة المرحلة' : 'تمت إضافة الشعبة', 'ok');
+    crmStructAdd = null;
+  } finally {
+    crmStructBusy = false;
+    if(!ok && btn) btn.disabled = false;
+  }
   await refreshCrmStructureAndStudents();
 }
 
@@ -1443,18 +1549,6 @@ async function deleteCrmGradeLevel(id){
   await refreshCrmStructureAndStudents();
 }
 
-async function addCrmSection(gradeLevelId){
-  const name = prompt('اسم/رقم الشعبة (مثال: 6):');
-  if(!name || !name.trim()) return;
-  const year = document.getElementById('crmYearInput').value;
-  const { error } = await sb.from('classroom_sections').insert({
-    teacher_id: currentUser.id, grade_level_id: gradeLevelId, academic_year: year, name: name.trim()
-  });
-  if(error){ showToast('تعذّر الإضافة: ' + error.message, 'error'); return; }
-  showToast('تمت إضافة الشعبة', 'ok');
-  await refreshCrmStructureAndStudents();
-}
-
 /* شعبة لها حصص مرصودة لا تُحذف (قيد بالقاعدة): حذفها كان سيمسح سجل حضور
    فصل كامل بنقرة خاطئة واحدة */
 function crmDeleteErrorMessage(error){
@@ -1466,9 +1560,6 @@ function crmDeleteErrorMessage(error){
    (on delete set null)، فنعيد تحميل الطلاب أيضًا لا الشعب وحدها */
 async function refreshCrmStructureAndStudents(){
   await Promise.all([loadCrmGradesAndSections(), loadCrmStudents()]);
-  renderCrmGradesList();
-  populateNewStudentGradeSelect();
-  populateCrmImportSectionSelect();
   renderCrmStudentsList();
   renderCrmLinkBanner();
   if(document.getElementById('crmLinkReviewBox').style.display !== 'none') renderCrmLinkReview();
@@ -1486,81 +1577,62 @@ async function deleteCrmSection(id){
   await refreshCrmStructureAndStudents();
 }
 
-function populateNewStudentGradeSelect(){
-  const sel = document.getElementById('newStudentGradeSelect');
-  if(!sel) return;
-  sel.innerHTML = '<option value="">اختر المرحلة</option>' +
-    crmGradeLevels.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('');
-  onNewStudentGradeChange();
-}
-
-function onNewStudentGradeChange(){
-  const gradeId = document.getElementById('newStudentGradeSelect').value;
-  const sectionSel = document.getElementById('newStudentSectionSelect');
-  const relevant = crmSections.filter(s => s.grade_level_id === gradeId);
-  sectionSel.innerHTML = '<option value="">اختر الشعبة</option>' +
-    relevant.map(s => `<option value="${s.id}">الشعبة ${escapeHtml(s.name)}</option>`).join('');
-}
-
 function toggleCrmImportBox(){
   const box = document.getElementById('crmImportBox');
   box.style.display = (box.style.display === 'none') ? 'block' : 'none';
-  if(box.style.display === 'block') populateCrmImportSectionSelect();
-}
-
-function populateCrmImportSectionSelect(){
-  const sel = document.getElementById('crmImportSectionSelect');
-  if(!sel) return;
-  const current = sel.value;
-  const sorted = crmSections.slice().sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar', { numeric: true }));
-  sel.innerHTML = '<option value="">اختر الشعبة التي تستورد إليها</option>' +
-    sorted.map(sec => `<option value="${sec.id}">${escapeHtml(crmSectionOptionLabel(sec))}</option>`).join('');
-  if(current && crmSections.some(s => s.id === current)) sel.value = current;
+  document.getElementById('addStudentBox').style.display = 'none';
 }
 
 /* استيراد ثانٍ يبدأ قبل اكتمال الأول يقارن بقائمة طلاب قديمة لم تتضمن
    دفعة الأول بعد، فيُدرج نفس الأسماء مرتين — نمنعه طوال العملية */
 let crmImportBusy = false;
 
+/* الشعبة = صفحة الشعبة المفتوحة، تُثبَّت عند اختيار الملف (لا تتغيّر لو تنقّل المعلم أثناء القراءة) */
+let crmImportTargetSectionId = null;
 function startCrmImport(){
   if(crmImportBusy){ showToast('جارٍ استيراد ملف سابق — انتظر اكتماله', 'error'); return; }
-  if(!document.getElementById('crmImportSectionSelect').value){
-    showToast(crmSections.length ? 'اختر الشعبة أولًا' : 'أضف المراحل والشعب أولًا (القسم 1)', 'error');
-    return;
-  }
+  const sec = crmStuView.mode === 'section' ? crmSectionById(crmStuView.sectionId) : null;
+  if(!sec){ showToast('افتح الشعبة التي تستورد إليها أولًا', 'error'); return; }
+  crmImportTargetSectionId = sec.id;
   document.getElementById('crmExcelInput').click();
 }
 
 /* ============ إدارة الطلاب ============ */
+/* يُضاف لشعبة الصفحة المفتوحة — الزر معطّل أثناء الحفظ (لا يتكرر بنقرتين) */
+let crmAddStudentBusy = false;
 async function addClassroomStudent(){
+  if(crmAddStudentBusy) return;
   const name = document.getElementById('newStudentName').value.trim();
-  const gradeId = document.getElementById('newStudentGradeSelect').value;
-  const sectionId = document.getElementById('newStudentSectionSelect').value;
   const num = document.getElementById('newStudentNumber').value.trim();
-  if(!name || !gradeId || !sectionId){ showToast('أدخل الاسم واختر المرحلة والشعبة', 'error'); return; }
-
-  const grade = crmGradeLevels.find(g => g.id === gradeId);
-  const section = crmSections.find(s => s.id === sectionId);
-
-  const { error } = await sb.from('classroom_students').insert({
-    teacher_id: currentUser.id,
-    full_name: name,
-    grade_level: grade ? grade.name : '',
-    section_number: section ? section.name : '',
-    section_id: section ? section.id : null,
-    student_number: num || null,
-    academic_year: document.getElementById('crmYearInput').value
-  });
-  if(error){ showToast('تعذّر الحفظ: ' + error.message, 'error'); return; }
-  document.getElementById('newStudentName').value = '';
-  document.getElementById('newStudentNumber').value = '';
-  document.getElementById('newStudentGradeSelect').value = '';
-  onNewStudentGradeChange();
-  document.getElementById('addStudentBox').style.display = 'none';
-  showToast('تم إضافة الطالب', 'ok');
-  await loadCrmStudents();
-  renderCrmStudentsList();
-  renderCrmLinkBanner();
+  const section = crmStuView.mode === 'section' ? crmSectionById(crmStuView.sectionId) : null;
+  if(!section){ showToast('افتح شعبة الطالب أولًا', 'error'); return; }
+  if(!name){ showToast('اكتب اسم الطالب', 'error'); return; }
+  const grade = crmGradeLevels.find(g => g.id === section.grade_level_id);
+  crmAddStudentBusy = true;
+  const btn = document.getElementById('newStudentSaveBtn');
+  if(btn) btn.disabled = true;
+  try{
+    const { error } = await sb.from('classroom_students').insert({
+      teacher_id: currentUser.id,
+      full_name: name,
+      grade_level: grade ? grade.name : '',
+      section_number: section.name,
+      section_id: section.id,
+      student_number: num || null,
+      academic_year: document.getElementById('crmYearInput').value
+    });
+    if(error){ showToast('تعذّر الحفظ: ' + error.message, 'error'); return; }
+    document.getElementById('newStudentName').value = '';
+    document.getElementById('newStudentNumber').value = '';
+    showToast('تمت إضافة "' + name + '" — أضف التالي أو أغلق النموذج', 'ok');
+    await loadCrmStudents();
+    renderCrmStudentsList();
+    renderCrmLinkBanner();
+    document.getElementById('newStudentName').focus();
+  } finally {
+    crmAddStudentBusy = false;
+    if(btn) btn.disabled = false;
+  }
 }
 
 async function deleteCrmStudent(id){
@@ -1695,9 +1767,9 @@ async function importStudentsExcelInner(event, file){
   /* الشعبة تُختار من القائمة لا من الملف: نص "المرحلة/الشعبة" داخل ملفات
      Excel يختلف بين ملف وآخر ("ثاني" مقابل "ثاني ثانوي") فيُنشئ مجموعات
      منفصلة لنفس الصف — هذا بالضبط ما حصل فعليًا قبل هذا التعديل. */
-  const sectionId = document.getElementById('crmImportSectionSelect').value;
+  const sectionId = crmImportTargetSectionId;
   const section = crmSections.find(s => s.id === sectionId);
-  if(!section){ showToast('اختر الشعبة أولًا', 'error'); event.target.value = ''; return; }
+  if(!section){ showToast('افتح الشعبة التي تستورد إليها أولًا', 'error'); event.target.value = ''; return; }
   const grade = crmGradeLevels.find(g => g.id === section.grade_level_id);
   const label = crmSectionOptionLabel(section);
   try{
