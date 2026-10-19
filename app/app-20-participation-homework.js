@@ -251,7 +251,8 @@ async function renderCrmParticipation(students, tool){
       </div>`).join('')}
     </div>
     <div class="crm-sheet-bar">
-      <button class="btn btn-outline" id="crmPartUndoBtn" style="flex:1;" onclick="undoCrmParticipation()" disabled>↶ تراجع عن آخر نقرة</button>
+      ${crmSheetFinishBtnHtml()}
+      <button class="btn btn-outline" id="crmPartUndoBtn" style="flex:1;" onclick="undoCrmParticipation()" disabled>↶ تراجع</button>
       <button class="btn btn-outline" onclick="leaveCrmLessonSheet()">رجوع</button>
     </div>`;
   students.forEach(st => paintCrmParticipation(st.id));
@@ -285,6 +286,7 @@ function queueCrmParticipation(studentId, delta){
       paintCrmParticipation(studentId);
     }
   }).catch(e => {
+    markCrmSheetFailure();
     showToast((delta > 0 ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + (e.message || 'خطأ بالاتصال'), 'error');
     /* إرجاع كل أثر العرض المتفائل: الدرجة والعدّاد وسجل التراجع. لو بقيت نقرة
        فاشلة في السجل، أنقص "تراجع" لاحقًا درجة حقيقية لم تُضف أصلًا */
@@ -376,6 +378,7 @@ async function renderCrmHomework(students, selectId){
       </div>`).join('')}
     </div>
     <div class="crm-sheet-bar">
+      ${crmSheetFinishBtnHtml()}
       <button class="btn btn-outline" style="flex:1;" onclick="markAllCrmHomeworkSubmitted()">الكل سلّم</button>
       <button class="btn btn-outline" onclick="leaveCrmLessonSheet()">رجوع</button>
     </div>`;
@@ -417,7 +420,7 @@ function persistCrmHomework(studentId, state){
     h.data.statusRows = h.data.statusRows.filter(r => !(r.homework_id === hwId && r.student_id === studentId));
     if(state !== 'missing') h.data.statusRows.push({ homework_id: hwId, student_id: studentId, status: state });
     await syncHomeworkColumn(h.column, s.sectionId, h.data, [studentId]);
-  }).catch(e => showToast('لم يُحفظ الواجب: ' + (e.message || 'خطأ بالاتصال') + ' — أعد النقر', 'error'));
+  }).catch(e => { markCrmSheetFailure(); showToast('لم يُحفظ الواجب: ' + (e.message || 'خطأ بالاتصال') + ' — أعد النقر', 'error'); });
   h.queue.set(studentId, next);
   return next;
 }
@@ -453,6 +456,7 @@ async function markAllCrmHomeworkSubmitted(){
     await syncHomeworkColumn(s.hw.column, s.sectionId, s.hw.data, ids);
     showToast('سُجّل "سلّم" للباقين — اضغط على المقصّرين لتعديلهم', 'ok');
   } catch(e){
+    markCrmSheetFailure();
     showToast('تعذّر الحفظ: ' + (e.message || '') , 'error');
     if(crmSheet === s) setCrmSheetMode('homework');
   } finally {
