@@ -326,7 +326,7 @@ function crmGradeSimpleHtml(g){
   const totalMax = perfMax + (testsOn ? caps.tests : 0);
 
   let html = `<div class="crm-today-card crm-gs-dist">التوزيع: <b>الأداء ${formatScore(perfMax)}</b>${perfCols.length ? ' = ' + perfCols.map(c => `${escapeHtml(c.name)} ${formatScore(c.max_score)}`).join(' + ') : ''}${testsOn ? ` &nbsp;|&nbsp; <b>الاختبارات ${formatScore(caps.tests)}</b> = محصلة كل الاختبارات` : ''}
-    <button class="btn btn-outline crm-mini-btn" style="margin-top:6px;" onclick="openCrmGradeSettings()">⚙ إعداد الدرجات</button></div>`;
+    <button class="gs-open" onclick="openCrmGradeSettings()">⚙ إعداد الدرجات</button></div>`;
   html += hiddenGradeColumnsLineHtml(g.hiddenColumns);
   if(!g.columns.length && !testsOn) return html + '<div class="empty-state">كل أعمدة هذا الكشف لأدوات مخفية.</div>';
   if(!students.length) return html + '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>';
