@@ -228,7 +228,7 @@ async function renderCrmToolMode(students, tool){
     <div class="crm-sheet-bar">
       ${crmSheetFinishBtnHtml()}
       ${status ? '<button class="btn btn-outline" style="flex:1;" onclick="markAllCrmToolDone()">الكل تمّ</button>' : ''}
-      <button class="btn btn-outline"${status ? '' : ' style="flex:1;"'} onclick="leaveCrmLessonSheet()">رجوع</button>
+      <button class="btn btn-outline"${status ? '' : ' style="flex:1;"'} onclick="closeCrmLessonSheet()">رجوع</button>
     </div>`;
   students.forEach(st => paintCrmTool(st.id));
   paintCrmToolCounts();
@@ -331,7 +331,6 @@ function setCrmToolValue(studentId, value){
   if(!t) return;
   const prev = t.values.has(studentId) ? t.values.get(studentId) : null;
   if(prev === value) return;
-  markCrmSheetActivity();
   if(value === null) t.values.delete(studentId); else t.values.set(studentId, value);
   paintCrmTool(studentId);
   paintCrmToolCounts();
@@ -373,7 +372,6 @@ async function markAllCrmToolDone(){
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !t.values.has(id));
   if(!ids.length) return;
   crmToolBulkBusy = true;
-  markCrmSheetActivity();
   ids.forEach(id => { t.values.set(id, 1); paintCrmTool(id); });
   paintCrmToolCounts();
   const uid = currentUser.id;
