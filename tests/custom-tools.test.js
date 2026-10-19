@@ -108,7 +108,7 @@ test('عمود الأداة يتبع إخفاءها؛ والاختبارات ت�
 test('ورقة الحصة — الأدوات الظاهرة أوضاع، واسم الأداة مُهرَّب', async () => {
   const app = appWith();
   runInAppContext(app, `crmCustomTools[0].name = '<img src=x onerror=alert(1)>'; crmCustomTools[1].hidden = true; crmSheet = { mode: 'attendance' };`);
-  assert.deepEqual([...app.enabledSheetModes()], ['attendance', 'participation', 'homework', 'task', 'tool:TC', 'tool:TG']);
+  assert.deepEqual([...app.enabledSheetModes()], ['attendance', 'participation', 'homework', 'task', 'test', 'tool:TC', 'tool:TG']);
   const html = app.crmSheetModeSwitchHtml();
   assert.ok(!/<img/.test(html));
   assert.match(html, /&lt;img/);

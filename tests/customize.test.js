@@ -90,7 +90,9 @@ test('gradeColumnVisible — الاختبارات بفئتها، والمحسو�
 test('enabledSheetModes و followupVisible', async () => {
   const app = loadApp();
   setFeatures(app, { sections: {}, tools: { attendance: false, homework: false } });
-  assert.deepEqual([...app.enabledSheetModes()], ['participation', 'task']);
+  assert.deepEqual([...app.enabledSheetModes()], ['participation', 'task', 'test']);
+  setFeatures(app, { sections: {}, tools: { attendance: false, homework: false, tests: false } });
+  assert.deepEqual([...app.enabledSheetModes()], ['participation', 'task'], 'الاختبارات مخفية = لا تبويب اختبار');
   assert.equal(app.followupVisible({ reason_type: 'absence' }), false);
   assert.equal(app.followupVisible({ reason_type: 'grades' }), true);
   setFeatures(app, { sections: {}, tools: { behavior: false } });
@@ -224,7 +226,7 @@ test('ورقة الحصة — المفتاح يعرض الأدوات المفع�
   assert.match(html, /مشاركة/);
   app.setCrmSheetMode('homework');
   assert.equal(runInAppContext(app, 'crmSheet.mode'), 'participation');
-  setFeatures(app, { sections: {}, tools: { attendance: false, homework: false, tasks: false } });
+  setFeatures(app, { sections: {}, tools: { attendance: false, homework: false, tasks: false, tests: false } });
   assert.equal(app.crmSheetModeSwitchHtml(), '', 'أداة واحدة = لا مفتاح');
 });
 

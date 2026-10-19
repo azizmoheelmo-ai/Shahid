@@ -674,7 +674,7 @@ function crmSheetFinishBtnHtml(){
 
 /* كل ما أُرسل ولم يكتمل بعد من أوضاع الأدوات (طوابير الحفظ لكل طالب) */
 function crmSheetPendingWrites(s){
-  return [s.part, s.hw, s.tool, s.task].filter(x => x && x.queue).flatMap(x => [...x.queue.values()]);
+  return [s.part, s.hw, s.tool, s.task, s.test].filter(x => x && x.queue).flatMap(x => [...x.queue.values()]);
 }
 
 /* زر "حفظ" في شريط أوضاع الأدوات: يؤكد اكتمال ما أُرسل — ينتظره ويتأكد من نجاحه ثم
