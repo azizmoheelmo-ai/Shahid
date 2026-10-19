@@ -940,6 +940,7 @@ function switchCrmTab(tab){
   const tabs = CRM_TAB_PANES;
   if(!tabs[tab]) tab = 'today';
   if(tab === 'record' && typeof appToolOn === 'function' && !appToolOn('behavior')) tab = 'today'; /* السلوك مخفي */
+  if(tab === 'followups' && typeof followupsOn === 'function' && !followupsOn()) tab = 'today'; /* المتابعات مخفية */
   /* ورقة رصد مفتوحة تُغلق عند الانتقال لأي تبويب (المسودة تبقى محفوظة) */
   const sheet = document.getElementById('crmLessonSheet');
   if(sheet && sheet.style.display !== 'none' && typeof closeCrmLessonSheet === 'function' && tab !== 'today'){

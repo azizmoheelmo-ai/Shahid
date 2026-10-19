@@ -21,7 +21,7 @@ const APP_SECTIONS = [
   { key: 'shahid', icon: '📑', label: 'الشواهد', sub: 'توثيق الشواهد وملف الإنجاز' },
   { key: 'plan', icon: '📋', label: 'أدائي', sub: 'خطة الأداء والتقييم الذاتي' },
   { key: 'work', icon: '✅', label: 'أعمالي', sub: 'المهام والبرامج' },
-  { key: 'classroom', icon: '🏫', label: 'إدارة الصف', sub: 'الطلاب والحصص والدرجات والمتابعات' }
+  { key: 'classroom', icon: '🏫', label: 'إدارة الصف', sub: 'الطلاب والحصص والدرجات' }
 ];
 const APP_TOOLS = [
   { key: 'attendance', icon: '🙋', label: 'الحضور', sub: 'الغياب والتأخر والاستئذان في ورقة الحصة وتنبيهاتها' },
@@ -214,6 +214,7 @@ function applyAppFeatures(){
   setShown(document.getElementById('homeTiles'), plan || work || (classroom && !shahid));
   if(!shahid) setShown(document.getElementById('homeProgressCard'), false);
   setShown(document.getElementById('crmTabBtnRecord'), appToolOn('behavior'));
+  setShown(document.getElementById('crmTabBtnFollowups'), typeof followupsOn !== 'function' || followupsOn());
   if(!classroom){
     const badge = document.getElementById('classroomNavBadge');
     if(badge) badge.style.display = 'none';
@@ -469,7 +470,7 @@ function renderCustomizeWizard(){
       <div class="cust-cards">${APP_SECTIONS.map(s => wizardCardHtml('sections', s, w.sections.has(s.key))).join('')}</div>`;
   } else if(w.step === 'tools'){
     body = `<h3 class="cust-wiz-h">ما أدواتك في إدارة الصف؟</h3>
-      <p class="cust-note">الطلاب والحصص والمتابعات موجودة دائمًا؛ اختر الأدوات التي ترصدها. <a href="#" onclick="event.preventDefault();pickAllWizardTools()">اختر الكل</a></p>
+      <p class="cust-note">الطلاب والحصص موجودة دائمًا؛ اختر الأدوات التي ترصدها. <a href="#" onclick="event.preventDefault();pickAllWizardTools()">اختر الكل</a></p>
       <div class="cust-cards">${APP_TOOLS.map(t => wizardCardHtml('tools', t, w.tools.has(t.key))).join('')}</div>`;
   } else {
     body = `<h3 class="cust-wiz-h">كيف توزّع درجاتك؟</h3>${gradeCapsEditorHtml('wiz')}`;

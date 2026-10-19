@@ -274,22 +274,24 @@ function crmSectionSummaryHtml(sectionId, d){
           <span class="crm-tl-meta">${x.before}% ← ${x.after}%</span></div>`).join('');
     }
     if(decliners){
-      html += `<div style="font-size:12px;margin-top:6px;">${arabicCountPhrase(decliners, CRM_STUDENT_COUNT_FORMS)} في تراجع ← <a href="#" onclick="event.preventDefault();switchCrmTab('followups')">يحتاج انتباهي</a></div>`;
+      html += `<div style="font-size:12px;margin-top:6px;">${arabicCountPhrase(decliners, CRM_STUDENT_COUNT_FORMS)} في تراجع${followupsOn() ? ` ← <a href="#" onclick="event.preventDefault();switchCrmTab('followups')">يحتاج انتباهي</a>` : ''}</div>`;
     }
     html += '</div>';
   }
 
-  /* 5) أثر المتابعات */
+  /* 5) أثر المتابعات (حين تكون المتابعات ظاهرة) */
   const impact = followupImpact(d.fus, d.firstAction);
-  html += '<div class="crm-today-card"><div class="crm-today-title">أثر متابعاتي في هذه الشعبة</div>';
-  if(!impact) html += '<div class="crm-today-empty">لا متابعات مغلقة بعد.</div>';
-  else {
-    html += `<div style="font-size:12.5px;margin-bottom:6px;">${escapeHtml(impact.text)}</div>` +
-      impact.byAction.map(a => `<div class="crm-lesson-row"><span>${escapeHtml(FOLLOWUP_ACTIONS[a.action] || 'أخرى')}</span>
-        <span class="crm-tl-meta">${a.improved} من ${a.total} تحسّن (${Math.round(100 * a.improved / a.total)}%)</span></div>`).join('') +
-      '<div style="font-size:10.5px;color:var(--muted);margin-top:4px;">تغيّر بعد التدخل — لا يثبت أنه سببه.</div>';
+  if(followupsOn()){
+    html += '<div class="crm-today-card"><div class="crm-today-title">أثر متابعاتي في هذه الشعبة</div>';
+    if(!impact) html += '<div class="crm-today-empty">لا متابعات مغلقة بعد.</div>';
+    else {
+      html += `<div style="font-size:12.5px;margin-bottom:6px;">${escapeHtml(impact.text)}</div>` +
+        impact.byAction.map(a => `<div class="crm-lesson-row"><span>${escapeHtml(FOLLOWUP_ACTIONS[a.action] || 'أخرى')}</span>
+          <span class="crm-tl-meta">${a.improved} من ${a.total} تحسّن (${Math.round(100 * a.improved / a.total)}%)</span></div>`).join('') +
+        '<div style="font-size:10.5px;color:var(--muted);margin-top:4px;">تغيّر بعد التدخل — لا يثبت أنه سببه.</div>';
+    }
+    html += '</div>';
   }
-  html += '</div>';
 
   /* 6) نمطا الحضور والمواقف — يظهران فقط عند وجودهما */
   const att = attendancePattern(d.lessons, d.attendance);

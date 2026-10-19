@@ -160,8 +160,8 @@ test('زر "حفظ" ينتظر حفظ خانات الاختبار المعلّق
   const a = input('a'); a.value = '20';
   app.saveCrmTestInput(a);
   await app.finishCrmLessonSheet();
-  assert.equal(writes(log, 'upsert').length, 1, 'اكتمل الحفظ قبل الإغلاق');
-  assert.equal(get(app, 'window.__closed'), 1);
+  assert.equal(writes(log, 'upsert').length, 1, 'اكتمل الحفظ قبل "تم الحفظ"');
+  assert.equal(get(app, 'window.__closed'), 0, 'يبقى في مكانه');
 });
 
 test('+ اختبار من الورقة — باسم المعلم في فئة الاختبارات للشعبة والفصل، ويُرفض الفارغ والأكبر من 40، ولا يتكرر بنقرتين', async () => {

@@ -295,7 +295,7 @@ async function renderCrmStudentProfile(){
       ${appToolOn('attendance') ? `<div class="crm-status-line"><span class="crm-status-key">الحضور</span><span>${lines.attendanceLine}</span></div>` : ''}
       <div class="crm-status-line"><span class="crm-status-key">الدرجات</span><span>${escapeHtml(lines.gradesLine)}</span></div>
       ${appToolOn('behavior') ? `<div class="crm-status-line"><span class="crm-status-key">المواقف</span><span>${escapeHtml(lines.behaviorLine)}</span></div>` : ''}
-      <div class="crm-status-line"><span class="crm-status-key">المتابعة</span><span>${escapeHtml(lines.followupLine)}</span></div>
+      ${followupsOn() ? `<div class="crm-status-line"><span class="crm-status-key">المتابعة</span><span>${escapeHtml(lines.followupLine)}</span></div>` : ''}
     </div>
 
     ${student.is_active === false ? `<div class="crm-today-card" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
@@ -304,14 +304,14 @@ async function renderCrmStudentProfile(){
     </div>` : `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">
       ${appToolOn('behavior') ? `<button class="btn btn-outline crm-mini-btn" onclick="openCrmIncidentModal('${student.id}')">موقف رسمي</button>` : ''}
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmPositiveModal('${student.id}')">⭐ ملاحظة إيجابية</button>
-      <button class="btn btn-outline crm-mini-btn" onclick="openCrmFollowupModal('${student.id}')">فتح متابعة</button>
+      ${followupsOn() ? `<button class="btn btn-outline crm-mini-btn" onclick="openCrmFollowupModal('${student.id}')">فتح متابعة</button>` : ''}
     </div>`}
 
     ${appToolOn('attendance') ? crmProfileSection('crmProfAtt', 'الحضور (الاستثناءات فقط)', attendanceRows) : ''}
     ${crmProfileSection('crmProfGrades', 'الدرجات', gradeRows)}
     ${(data.tasks || []).length ? crmProfileSection('crmProfTasks', 'المهام الأدائية', studentTaskLines(data.tasks).map(l => `<div class="crm-tl-row"><span>${escapeHtml(l.title)}</span><span class="crm-tl-meta">${escapeHtml(l.result)}</span></div>`).join('')) : ''}
     ${appToolOn('behavior') ? crmProfileSection('crmProfBeh', 'المواقف', timeline) : ''}
-    ${crmProfileSection('crmProfFu', 'المتابعات', followupsHtml)}
+    ${followupsOn() ? crmProfileSection('crmProfFu', 'المتابعات', followupsHtml) : ''}
     ${crmProfileSection('crmProfPriv', 'ملاحظاتي', `
       <p style="font-size:11px;color:var(--muted);margin:0 0 8px;line-height:1.7;">رأيك أنت لا واقعة — لا يراها غيرك (ولا المسؤول)، ولا تدخل في أي حساب أو تقرير.</p>
       <textarea class="goal-input" id="crmPrivateNoteInput" maxlength="2000" rows="2" placeholder="اكتب ملاحظة خاصة..." style="margin-bottom:6px;"></textarea>
@@ -761,7 +761,7 @@ function buildStudentReportHtml(data, ctx){
     ${(data.tasks || []).length ? sec('المهام الأدائية', `<table class="srep-t">${studentTaskLines(data.tasks).map(l => `<tr><td>${e(l.title)}</td><td>${e(l.result)}</td></tr>`).join('')}</table>`) : ''}
     ${appToolOn('behavior') ? sec('المواقف الرسمية', inc ? `<table class="srep-t">${inc}</table>` : empty('لا مواقف رسمية.')) : ''}
     ${sec('الملاحظات الإيجابية', pos ? `<ul class="srep-ul">${pos}</ul>` : empty('لا ملاحظات إيجابية.'))}
-    ${sec('المتابعات', fus ? `<table class="srep-t">${fus}</table>` : empty('لا متابعات.'))}
+    ${followupsOn() ? sec('المتابعات', fus ? `<table class="srep-t">${fus}</table>` : empty('لا متابعات.')) : ''}
     ${sec('الخطوة التالية المتفق عليها', '<div class="srep-lines"><div></div><div></div><div></div></div>')}
     <table class="srep-sign"><tr><td>المعلم<br><br>..................</td><td>الموجه الطلابي<br><br>..................</td><td>وكيل شؤون الطلاب<br><br>..................</td></tr></table>
     <div class="srep-note">الأرقام وقائع من الرصد داخل الحصة. التغيّر بعد أي متابعة لا يثبت أنها سببه وحده.</div>

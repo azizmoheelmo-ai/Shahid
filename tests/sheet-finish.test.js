@@ -32,7 +32,7 @@ const get = (app, expr) => runInAppContext(app, expr);
 
 const later = (ms, fn) => new Promise(r => setTimeout(() => { if(fn) fn(); r(); }, ms));
 
-test('زر "حفظ" في أوضاع الأدوات: ينتظر اكتمال الحفظ المعلّق قبل أن يُنهي', async () => {
+test('زر "حفظ" في أوضاع الأدوات: ينتظر اكتمال الحفظ المعلّق، ثم "تم الحفظ" ويبقى في الورقة', async () => {
   const log = [];
   const app = appWith(log);
   sheet(app, { mode: 'participation', lessonId: 'L1' });
@@ -41,7 +41,7 @@ test('زر "حفظ" في أوضاع الأدوات: ينتظر اكتمال ال
   assert.equal(get(app, 'window.__closed'), 0);
   await p;
   assert.equal(get(app, 'window.__done'), true);
-  assert.equal(get(app, 'window.__closed'), 1);
+  assert.equal(get(app, 'window.__closed'), 0, 'يبقى في مكانه');
   assert.match(get(app, 'window.__toasts.join("|")'), /ok:تم الحفظ/);
   assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 0);
 });
@@ -53,7 +53,7 @@ test('زر "حفظ" لا يمسّ الحضور حتى لو الحصة غير م�
   runInAppContext(app, `crmSheet.hw = { queue: new Map([['a', new Promise(r => setTimeout(r, 20))]]) };`);
   await Promise.all([app.finishCrmLessonSheet(), app.finishCrmLessonSheet()]);
   assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 0);
-  assert.equal(get(app, 'window.__closed'), 1);
+  assert.equal(get(app, 'window.__closed'), 0);
   assert.equal(get(app, 'window.__toasts.filter(t => t.startsWith("ok:تم الحفظ")).length'), 1);
 });
 
