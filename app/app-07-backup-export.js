@@ -1644,6 +1644,25 @@ begin
 end $b$;
 revoke execute on function public.increment_grade_score(uuid, uuid, numeric) from public, anon;
 grant execute on function public.increment_grade_score(uuid, uuid, numeric) to authenticated;
+-- "يبدأ من الكاملة" (إعداد الدرجات): النقرة −1 والصفر درجة حقيقية تبقى (p_keep_zero)
+create or replace function public.increment_grade_score(p_column_id uuid, p_student_id uuid, p_delta numeric, p_keep_zero boolean)
+returns numeric language plpgsql security invoker set search_path = '' as $b$
+declare v_uid uuid := auth.uid(); v_max numeric; v_new numeric;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  select max_score into v_max from public.classroom_grade_columns where id = p_column_id and teacher_id = v_uid;
+  if v_max is null then raise exception 'column not found'; end if;
+  insert into public.classroom_grade_scores as g (teacher_id, column_id, student_id, score)
+    values (v_uid, p_column_id, p_student_id, greatest(0, least(v_max, p_delta)))
+    on conflict (column_id, student_id) do update set score = greatest(0, least(v_max, g.score + p_delta))
+    returning score into v_new;
+  if v_new = 0 and p_delta < 0 and not coalesce(p_keep_zero, false) then
+    delete from public.classroom_grade_scores where column_id = p_column_id and student_id = p_student_id and teacher_id = v_uid;
+  end if;
+  return v_new;
+end $b$;
+revoke execute on function public.increment_grade_score(uuid, uuid, numeric, boolean) from public, anon;
+grant execute on function public.increment_grade_score(uuid, uuid, numeric, boolean) to authenticated;
 
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,

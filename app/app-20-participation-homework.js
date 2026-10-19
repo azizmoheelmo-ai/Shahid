@@ -13,13 +13,27 @@
    ============================================================ */
 
 const HOMEWORK_CYCLE = ['missing', 'submitted', 'partial', 'late'];
+/* "يبدأ من الكاملة" (إعداد الدرجات): الكل سلّم، والنقرة الأولى = لم يسلّم */
+const HOMEWORK_CYCLE_FULL = ['submitted', 'missing', 'partial', 'late'];
 const HOMEWORK_LABELS = { missing: 'لم يسلّم', submitted: 'سلّم', partial: 'ناقص', late: 'متأخر' };
 const HOMEWORK_CREDIT = { submitted: 1, late: 0.75, partial: 0.5, missing: 0 };
 
 /* ============ دوال صرفة ============ */
-function nextHomeworkState(state){
-  const i = HOMEWORK_CYCLE.indexOf(state || 'missing');
-  return HOMEWORK_CYCLE[(i + 1) % HOMEWORK_CYCLE.length];
+function nextHomeworkState(state, full){
+  const cycle = full ? HOMEWORK_CYCLE_FULL : HOMEWORK_CYCLE;
+  const i = cycle.indexOf(state || 'missing');
+  return cycle[(i + 1) % cycle.length];
+}
+
+/* "يبدأ من الكاملة": من لا درجة له في العمود يأخذ الكاملة (لا يكتب فوق رصد قائم أو متزامن) */
+async function fillStartFullScores(column, studentIds, existing){
+  const missing = (studentIds || []).filter(id => !existing.has(id));
+  if(!missing.length) return [];
+  const { error } = await sb.from('classroom_grade_scores').upsert(
+    missing.map(id => ({ teacher_id: currentUser.id, column_id: column.id, student_id: id, score: Number(column.max_score) })),
+    { onConflict: 'column_id,student_id', ignoreDuplicates: true });
+  if(error) throw error;
+  return missing;
 }
 
 function homeworkStatusIndex(rows){
@@ -164,7 +178,9 @@ function crmSheetHeaderText(s){
 /* ============ وضع المشاركة ============ */
 /* toolId: أداة "عدّاد" خاصة (app-23) — لكل أداة سجلها؛ المفتاح ينتهي دومًا بـ شعبة|تاريخ|حصة */
 function participationTodayKey(s, toolId){
-  return 'crm_part:' + (currentUser && currentUser.id) + ':' + (toolId ? toolId + ':' : '') + lessonKey(s.sectionId, s.dateIso, s.period);
+  /* "يبدأ من الكاملة" له سجل نقرات وتراجع مستقل (اتجاه النقرة مختلف) */
+  const full = gradeStartsFull(toolId ? 'tool:' + toolId : 'participation') ? 'full:' : '';
+  return 'crm_part:' + (currentUser && currentUser.id) + ':' + full + (toolId ? toolId + ':' : '') + lessonKey(s.sectionId, s.dateIso, s.period);
 }
 
 /* حالة المشاركة لكل حصة على هذا الجهاز: عدّاد اليوم + سجل التراجع، فيبقى
@@ -223,6 +239,9 @@ async function renderCrmParticipation(students, tool){
         .eq('teacher_id', currentUser.id).eq('column_id', column.id);
       if(error) throw error;
       scores = new Map((data || []).map(r => [r.student_id, Number(r.score)]));
+      if(gradeStartsFull(tool ? 'tool:' + tool.id : 'participation')){
+        (await fillStartFullScores(column, students.map(st => st.id), scores)).forEach(id => scores.set(id, Number(column.max_score)));
+      }
     }
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== mode) return;
@@ -241,9 +260,12 @@ async function renderCrmParticipation(students, tool){
     return;
   }
   const saved = readParticipationState(s, tool ? tool.id : null);
-  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null };
+  const full = gradeStartsFull(tool ? 'tool:' + tool.id : 'participation');
+  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full, step: full ? -1 : 1 };
   body.innerHTML = head + `
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">نقرة = +1 في عمود "${escapeHtml(column.name)}" (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${full
+      ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}) — نقرة = <b style="color:#8A2C2C;">−1</b> من "${escapeHtml(column.name)}". تُحفظ فورًا.`
+      : `نقرة = +1 في عمود "${escapeHtml(column.name)}" (من ${formatScore(column.max_score)}) — تُحفظ فورًا.`}</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn${s.states[st.id] === 'absent' ? ' is-absent' : ''}" id="crmPart_${st.id}" onclick="tapCrmParticipation('${st.id}')">
@@ -264,9 +286,10 @@ function paintCrmParticipation(studentId){
   if(!btn || !s || !s.part) return;
   const score = s.part.scores.has(studentId) ? s.part.scores.get(studentId) : null;
   const today = s.part.today[studentId] || 0;
+  const minus = (s.part.step || 1) < 0;
   btn.querySelector('.crm-part-val').innerHTML =
-    `${score === null ? '—' : formatScore(score)}<span class="crm-grade-max"> / ${formatScore(s.part.column.max_score)}</span>${today ? `<b class="crm-part-today">+${today}</b>` : ''}`;
-  btn.classList.toggle('is-full', score !== null && score >= Number(s.part.column.max_score));
+    `${score === null ? '—' : formatScore(score)}<span class="crm-grade-max"> / ${formatScore(s.part.column.max_score)}</span>${today ? `<b class="crm-part-today${minus ? ' is-minus' : ''}">${minus ? '−' : '+'}${today}</b>` : ''}`;
+  btn.classList.toggle('is-full', !minus && score !== null && score >= Number(s.part.column.max_score));
   const undo = document.getElementById('crmPartUndoBtn');
   if(undo) undo.disabled = !s.part.undo.length;
 }
@@ -277,24 +300,28 @@ function queueCrmParticipation(studentId, delta){
   const p = s.part;
   const prev = p.queue.get(studentId) || Promise.resolve();
   const next = prev.then(async () => {
-    const { data, error } = await sb.rpc('increment_grade_score', { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta });
+    /* "يبدأ من الكاملة": الصفر درجة حقيقية لا "لم تُرصد" (وإلا أُعيد للكاملة) */
+    const { data, error } = await sb.rpc('increment_grade_score', p.full
+      ? { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta, p_keep_zero: true }
+      : { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta });
     if(error) throw error;
     if(typeof invalidateAttention === 'function') invalidateAttention(); /* الدرجة تغيّرت: بطاقات الدرجات تُحسب من جديد عند الحاجة */
     if(crmSheet === s && s.part === p){
       const v = Number(data);
-      if(v === 0 && delta < 0) p.scores.delete(studentId); else p.scores.set(studentId, v);
+      if(v === 0 && delta < 0 && !p.full) p.scores.delete(studentId); else p.scores.set(studentId, v);
       paintCrmParticipation(studentId);
     }
   }).catch(e => {
     markCrmSheetFailure();
-    showToast((delta > 0 ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + (e.message || 'خطأ بالاتصال'), 'error');
+    const isTap = delta === (p.step || 1); /* نقرة (±1 حسب الوضع) أم تراجع عنها */
+    showToast((isTap ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + (e.message || 'خطأ بالاتصال'), 'error');
     /* إرجاع كل أثر العرض المتفائل: الدرجة والعدّاد وسجل التراجع. لو بقيت نقرة
        فاشلة في السجل، أنقص "تراجع" لاحقًا درجة حقيقية لم تُضف أصلًا */
     const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
     const back = cur - delta;
-    if(back <= 0 && delta > 0) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, back));
-    p.today[studentId] = Math.max(0, (p.today[studentId] || 0) - delta);
-    if(delta > 0){
+    if(back <= 0 && delta > 0 && !p.full) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, Math.min(Number(p.column.max_score), back)));
+    p.today[studentId] = Math.max(0, (p.today[studentId] || 0) + (isTap ? -1 : 1));
+    if(isTap){
       const i = p.undo.lastIndexOf(studentId);
       if(i !== -1) p.undo.splice(i, 1);
     } else {
@@ -311,14 +338,17 @@ function tapCrmParticipation(studentId){
   const s = crmSheet;
   if(!s || !s.part) return;
   const p = s.part;
-  const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
-  if(cur >= Number(p.column.max_score)){ showToast(`اكتملت درجة "${p.column.name}" لهذا الطالب`, 'ok'); return; }
-  p.scores.set(studentId, Math.min(Number(p.column.max_score), cur + 1)); /* عرض فوري */
+  const max = Number(p.column.max_score);
+  const step = p.step || 1; /* +1 (يبدأ من 0) أو −1 (يبدأ من الكاملة) */
+  const cur = p.scores.has(studentId) ? p.scores.get(studentId) : (p.full ? max : 0);
+  if(step > 0 && cur >= max){ showToast(`اكتملت درجة "${p.column.name}" لهذا الطالب`, 'ok'); return; }
+  if(step < 0 && cur <= 0){ showToast(`درجة "${p.column.name}" لهذا الطالب صفر`, 'ok'); return; }
+  p.scores.set(studentId, Math.max(0, Math.min(max, cur + step))); /* عرض فوري */
   p.today[studentId] = (p.today[studentId] || 0) + 1;
   p.undo.push(studentId);
   writeParticipationState(s, p);
   paintCrmParticipation(studentId);
-  queueCrmParticipation(studentId, 1);
+  queueCrmParticipation(studentId, step);
 }
 
 function undoCrmParticipation(){
@@ -326,12 +356,14 @@ function undoCrmParticipation(){
   if(!s || !s.part || !s.part.undo.length) return;
   const p = s.part;
   const studentId = p.undo.pop();
+  const step = p.step || 1;
   const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
-  if(cur - 1 <= 0) p.scores.delete(studentId); else p.scores.set(studentId, cur - 1);
+  const back = cur - step;
+  if(back <= 0 && step > 0) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, Math.min(Number(p.column.max_score), back)));
   p.today[studentId] = Math.max(0, (p.today[studentId] || 0) - 1);
   writeParticipationState(s, p);
   paintCrmParticipation(studentId);
-  queueCrmParticipation(studentId, -1);
+  queueCrmParticipation(studentId, -step);
 }
 
 /* ============ وضع الواجب ============ */
@@ -369,7 +401,7 @@ async function renderCrmHomework(students, selectId){
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${gradeStartsFull('homework') ? 'الأصل "سلّم" — اضغط: <b style="color:#8A2C2C;">لم يسلّم</b> ← ناقص ← متأخر ← سلّم' : 'الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم'}. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">
@@ -427,7 +459,7 @@ function persistCrmHomework(studentId, state){
 function tapCrmHomework(studentId){
   const s = crmSheet;
   if(!s || !s.hw || !s.hw.selectedId) return;
-  const st = nextHomeworkState(s.hw.statuses.get(studentId) || 'missing');
+  const st = nextHomeworkState(s.hw.statuses.get(studentId) || 'missing', gradeStartsFull('homework'));
   if(st === 'missing') s.hw.statuses.delete(studentId); else s.hw.statuses.set(studentId, st);
   paintCrmHomework(studentId);
   paintCrmHomeworkCounts();
@@ -533,6 +565,16 @@ async function saveCrmHomework(){
     return;
   }
   const id = d.editId || (res.data && res.data.id);
+  /* "يبدأ من الكاملة": كل طلاب الشعبة "سلّم" في الواجب الجديد */
+  if(!d.editId && id && gradeStartsFull('homework')){
+    const ids = crmStudentsOfSection(d.sectionId).map(st => st.id);
+    if(ids.length){
+      const { error: sErr } = await sb.from('classroom_homework_status').upsert(
+        ids.map(sid => ({ teacher_id: currentUser.id, homework_id: id, student_id: sid, status: 'submitted', updated_at: new Date().toISOString() })),
+        { onConflict: 'homework_id,student_id' });
+      if(sErr) showToast('أُضيف الواجب، وتعذّر تسجيل "سلّم" للكل — استخدم "الكل سلّم"', 'error');
+    }
+  }
   crmHomeworkDraft = null;
   closeCrmModal();
   showToast(d.editId ? 'عُدّل الواجب' : 'أُضيف الواجب', 'ok');
