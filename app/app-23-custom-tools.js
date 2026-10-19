@@ -185,7 +185,8 @@ async function syncToolColumn(column, tool, sectionId, term, studentIds){
 
 /* ============ ورقة الحصة: وضع أداة الحالة/الدرجة ============ */
 function toolCapMessage(tool, remaining){
-  return `لا متسع في سقف "${escapeHtml(GRADE_CATEGORY_LABELS[tool.category])}" لعمود "${escapeHtml(tool.name)}" (المتبقي ${formatScore(Math.max(0, remaining))} والأداة من ${formatScore(tool.max_score)}) — الرصد يُحفظ ولا يُحسب في الكشف حتى تعدّل الأعمدة أو درجة الأداة.`;
+  return `لا متسع في "${escapeHtml(GRADE_CATEGORY_LABELS[tool.category])}" لـ"${escapeHtml(tool.name)}" (المتبقي ${formatScore(Math.max(0, remaining))} والأداة من ${formatScore(tool.max_score)}) — الرصد يُحفظ ولا يُحسب في الكشف حتى تعطيها وزنًا في توزيع الأداء.
+    <button class="btn btn-outline crm-mini-btn" onclick="openCrmWeightsFor(crmSheet && crmSheet.sectionId)">توزيع الأداء</button>`;
 }
 
 async function renderCrmToolMode(students, tool){
@@ -484,8 +485,8 @@ async function refreshCustomToolHint(){
     room.style.color = '#8A2C2C';
     const names = r.names.slice(0, 4).join('، ');
     room.textContent = r.remaining <= 0
-      ? `⚠ لا يتسع الكشف لهذه الأداة: الفئة ممتلئة بـ (${names}). احذف أو صغّر أحد هذه الأعمدة وإلا لن يظهر عمود الأداة. الرصد محفوظ.`
-      : `⚠ المتبقي في الكشف ${formatScore(r.remaining)} فقط والأداة من ${formatScore(max)}. صغّر أحد الأعمدة (${names}) أو درجة الأداة. الرصد محفوظ.`;
+      ? `⚠ لا يتسع الكشف لهذه الأداة: الأداء موزّع على (${names}). بعد إضافتها أعطها وزنًا من الكشف ← "تعديل توزيع الأداء" وأنقص غيرها. الرصد محفوظ.`
+      : `⚠ المتبقي في الكشف ${formatScore(r.remaining)} فقط والأداة من ${formatScore(max)}. عدّل وزنها من الكشف ← "تعديل توزيع الأداء" (${names}). الرصد محفوظ.`;
   }
 }
 

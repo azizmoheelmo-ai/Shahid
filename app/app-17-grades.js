@@ -325,7 +325,8 @@ function crmGradeSimpleHtml(g){
   const perfMax = perfCols.reduce((a, c) => a + Number(c.max_score), 0);
   const totalMax = perfMax + (testsOn ? caps.tests : 0);
 
-  let html = `<div class="crm-today-card crm-gs-dist">التوزيع: <b>الأداء ${formatScore(perfMax)}</b>${perfCols.length ? ' = ' + perfCols.map(c => `${escapeHtml(c.name)} ${formatScore(c.max_score)}`).join(' + ') : ''}${testsOn ? ` &nbsp;|&nbsp; <b>الاختبارات ${formatScore(caps.tests)}</b> = محصلة كل الاختبارات` : ''}</div>`;
+  let html = `<div class="crm-today-card crm-gs-dist">التوزيع: <b>الأداء ${formatScore(perfMax)}</b>${perfCols.length ? ' = ' + perfCols.map(c => `${escapeHtml(c.name)} ${formatScore(c.max_score)}`).join(' + ') : ''}${testsOn ? ` &nbsp;|&nbsp; <b>الاختبارات ${formatScore(caps.tests)}</b> = محصلة كل الاختبارات` : ''}
+    <div style="margin-top:4px;"><a href="#" onclick="event.preventDefault();openCrmWeightsEditor()">تعديل توزيع الأداء${typeof crmCustomTools !== 'undefined' && crmCustomTools.some(t => t.category === 'performance' && !t.hidden && !(g.allColumns || g.columns).some(c => c.tool_id === t.id)) ? ' (وإدخال أدواتك الخاصة)' : ''}</a></div></div>`;
   html += hiddenGradeColumnsLineHtml(g.hiddenColumns);
   if(!g.columns.length && !testsOn) return html + '<div class="empty-state">كل أعمدة هذا الكشف لأدوات مخفية.</div>';
   if(!students.length) return html + '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>' + crmGradeTestsCardHtml(g, testCols, ids);
