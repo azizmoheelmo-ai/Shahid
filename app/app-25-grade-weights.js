@@ -444,8 +444,18 @@ function toolFullValue(tool){
 
 function startModeToggleHtml(key){
   const full = gradeStartsFull(key);
-  return `<span class="gs-start" role="group" aria-label="تبدأ الدرجة من">يبدأ من
-    <button type="button" class="${full ? '' : 'is-on'}" onclick="setGradeStartMode('${key}', false)">0</button><button type="button" class="${full ? 'is-on' : ''}" onclick="setGradeStartMode('${key}', true)">الكاملة</button></span>`;
+  return `<span class="gs-start" role="group" aria-label="تبدأ الدرجة من" data-start-key="${key}">يبدأ من
+    <span class="gs-seg"><button type="button" class="${full ? '' : 'is-on'}" aria-pressed="${!full}" onclick="setGradeStartMode('${key}', false)">${full ? '' : '✓ '}0</button><button type="button" class="${full ? 'is-on' : ''}" aria-pressed="${full}" onclick="setGradeStartMode('${key}', true)">${full ? '✓ ' : ''}الكاملة</button></span>
+    <small class="gs-start-busy"></small></span>`;
+}
+
+/* أثناء التطبيق: الزرّان معطّلان ورسالة ظاهرة (التطبيق على كل الشعب قد يأخذ ثواني) */
+function setStartModeBusy(key, on){
+  const el = document.querySelector(`[data-start-key="${key}"]`);
+  if(!el) return;
+  el.querySelectorAll('button').forEach(b => { b.disabled = on; });
+  const note = el.querySelector('.gs-start-busy');
+  if(note) note.textContent = on ? '⏳ جارٍ التطبيق على شعبك…' : '';
 }
 
 /* نص تأكيد تغيير "يبدأ من" — يقول بوضوح ما يُمسح وما يصير */
@@ -474,17 +484,19 @@ async function resetHomeworkStart(uid, term, sectionIds, full){
     .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).in('section_id', sectionIds);
   if(error) throw error;
   const hwIds = (hws || []).map(h => h.id);
+  if(!hwIds.length) return false;
   for(const ids of chunkArray(hwIds, 100)){
     const { error: dErr } = await sb.from('classroom_homework_status').delete().eq('teacher_id', uid).in('homework_id', ids);
     if(dErr) throw dErr;
   }
-  if(!full) return;
+  if(!full) return true;
   const rows = [];
   (hws || []).forEach(h => crmStudentsOfSection(h.section_id).forEach(st => rows.push({ teacher_id: uid, homework_id: h.id, student_id: st.id, status: 'submitted', updated_at: new Date().toISOString() })));
   for(const part of chunkArray(rows, 500)){
     const { error: uErr } = await sb.from('classroom_homework_status').upsert(part, { onConflict: 'homework_id,student_id' });
     if(uErr) throw uErr;
   }
+  return true;
 }
 
 /* المهام: درجة كل المكلَّفين = كاملة المهمة (أو "لم يُقيَّم")، مجمّعة حسب درجة المهمة */
@@ -492,6 +504,7 @@ async function resetTaskStart(uid, term, sectionIds, full){
   const { data: tasks, error } = await sb.from('classroom_tasks').select('id, max_score')
     .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).in('section_id', sectionIds);
   if(error) throw error;
+  if(!(tasks || []).length) return false;
   const byScore = new Map();
   (tasks || []).forEach(t => {
     const k = full ? Number(t.max_score) : null;
@@ -504,6 +517,7 @@ async function resetTaskStart(uid, term, sectionIds, full){
       if(uErr) throw uErr;
     }
   }
+  return true;
 }
 
 /* أداة حالة/درجة: يُمسح رصدها؛ ومن الكاملة يأخذ كل طلاب الشعبة الكاملة في كل حصة سبق رصدها */
@@ -512,13 +526,14 @@ async function resetToolMarksStart(uid, term, sectionIds, tool, full){
     .eq('teacher_id', uid).eq('tool_id', tool.id).eq('academic_year', term.year).eq('semester', term.semester).in('section_id', sectionIds)
     .order('id', { ascending: true }).range(from, to));
   if(error) throw error;
+  if(!(marks || []).length) return false; /* لا رصد سابق: لا شيء يُمسح أو يُعاد حسابه */
   const lessons = new Map();
   (marks || []).forEach(m => lessons.set(m.section_id + '|' + m.mark_date + '|' + m.period, m));
   for(const ids of chunkArray((marks || []).map(m => m.id), 200)){
     const { error: dErr } = await sb.from('classroom_tool_marks').delete().eq('teacher_id', uid).eq('tool_id', tool.id).in('id', ids);
     if(dErr) throw dErr;
   }
-  if(!full) return;
+  if(!full) return true;
   const rows = [];
   lessons.forEach(m => crmStudentsOfSection(m.section_id).forEach(st => rows.push({
     teacher_id: uid, tool_id: tool.id, student_id: st.id, section_id: m.section_id, academic_year: term.year, semester: term.semester,
@@ -528,6 +543,22 @@ async function resetToolMarksStart(uid, term, sectionIds, tool, full){
     const { error: uErr } = await sb.from('classroom_tool_marks').upsert(part, { onConflict: 'tool_id,student_id,mark_date,period' });
     if(uErr) throw uErr;
   }
+  return true;
+}
+
+/* إعادة حساب عمود المكوّن الذي تغيّر فقط، في كل الشعب معًا (لا الكشف كله شعبةً شعبة).
+   المشاركة والعدّاد: لا عمود محسوب — كُتبت درجاتهما مباشرة */
+async function resyncStartModeColumns(key, tool, term){
+  const kind = key === 'homework' || key === 'task' ? key : null;
+  if(!kind && !(tool && tool.tool_type !== 'counter')) return;
+  const cols = await termColumnsMatching(c => kind ? (!c.tool_id && c.kind === kind) : c.tool_id === tool.id);
+  await Promise.all(cols.map(async c => {
+    try{
+      if(kind === 'homework') await syncHomeworkColumn(c, c.section_id, await loadSectionHomework(c.section_id, term));
+      else if(kind === 'task') await syncTaskColumn(c, c.section_id, term);
+      else await syncToolColumn(c, tool, c.section_id, term);
+    } catch(e){} /* يُعاد حسابه عند فتح كشف الشعبة */
+  }));
 }
 
 /* المشاركة والعدّاد: الدرجة نفسها تُمسح، ومن الكاملة تُكتب الكاملة */
@@ -555,25 +586,31 @@ function setGradeStartMode(key, full){
     if(toolId && !tool) return;
     const { name, text } = startModeConfirmText(key, full);
     if(!(await showConfirm(text))) return;
-    const uid = currentUser.id;
-    const term = crmCurrentTerm();
-    const sectionIds = crmSections.map(s => s.id);
-    if(key === 'homework') await resetHomeworkStart(uid, term, sectionIds, full);
-    else if(key === 'task') await resetTaskStart(uid, term, sectionIds, full);
-    else if(tool && tool.tool_type !== 'counter') await resetToolMarksStart(uid, term, sectionIds, tool, full);
-    else await resetDirectScoresStart(uid, key, full);
-    if(!currentUser || currentUser.id !== uid) return;
-    const next = normalizeFeatures(appFeatures);
-    const sf = Object.assign({}, next.startFull);
-    if(full) sf[key] = true; else delete sf[key];
-    next.startFull = sf;
-    appFeatures = next;
-    afterAppFeaturesChanged();
-    await saveAppFeatures();
-    /* إعادة حساب الأعمدة المحسوبة (والملء للكاملة) في كل شعبة */
-    for(const id of sectionIds){ try{ await loadCrmGradeSheet(id); } catch(e){} }
-    showToast(`"${name}" تبدأ الآن من ${full ? 'الكاملة' : '0'} ✓`, 'ok');
-    if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
-    renderCrmGrades();
+    setStartModeBusy(key, true);
+    try{ await applyGradeStartMode(key, tool, name, full); }
+    finally { setStartModeBusy(key, false); }
   });
+}
+
+async function applyGradeStartMode(key, tool, name, full){
+  const uid = currentUser.id;
+  const term = crmCurrentTerm();
+  const sectionIds = crmSections.map(s => s.id);
+  let changed = true;
+  if(key === 'homework') changed = await resetHomeworkStart(uid, term, sectionIds, full);
+  else if(key === 'task') changed = await resetTaskStart(uid, term, sectionIds, full);
+  else if(tool && tool.tool_type !== 'counter') changed = await resetToolMarksStart(uid, term, sectionIds, tool, full);
+  else await resetDirectScoresStart(uid, key, full);
+  if(!currentUser || currentUser.id !== uid) return;
+  const next = normalizeFeatures(appFeatures);
+  const sf = Object.assign({}, next.startFull);
+  if(full) sf[key] = true; else delete sf[key];
+  next.startFull = sf;
+  appFeatures = next;
+  afterAppFeaturesChanged();
+  await saveAppFeatures();
+  if(changed) await resyncStartModeColumns(key, tool, term);
+  showToast(`"${name}" تبدأ الآن من ${full ? 'الكاملة' : '0'} ✓`, 'ok');
+  if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
+  renderCrmGrades();
 }

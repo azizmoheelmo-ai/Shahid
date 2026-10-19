@@ -32,9 +32,11 @@ const APP_SHELL = [
    أن هناك نسخة أحدث، وهذا وقع فعليًا (تحديث خطاب الإحالة ظهر بالمعاينة
    على جهاز المطوّر لكن لم يظهر عند المستخدم لحظة النشر). أما بقية الملفات
    (الأيقونات، manifest) فتبقى "كاش أولًا" لأنها نادرًا ما تتغير وتفيد
-   بالعمل بلا اتصال بسرعة. */
+   بالعمل بلا اتصال بسرعة.
+   ملف التنسيق (style.css) مثلها: كود جديد مع تنسيق قديم من الكاش أظهر أزرارًا
+   جديدة بلا ألوان (لا يُعرف المختار منها) حتى إعادة الفتح — وقع فعليًا. */
 function isAppLogicRequest(url){
-  return url.pathname.endsWith('.html') || url.pathname === '/' || /\/app\/.*\.js$/.test(url.pathname);
+  return url.pathname.endsWith('.html') || url.pathname === '/' || /\/app\/.*\.js$/.test(url.pathname) || url.pathname.endsWith('.css');
 }
 
 self.addEventListener('install', (event) => {
