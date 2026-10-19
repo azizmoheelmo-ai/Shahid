@@ -783,4 +783,5 @@ function closeCrmLessonSheet(){
   showCrmLessonSheetPane(false);
   renderCrmLinkBanner();
   switchCrmTab('today');
+  if(typeof maybeShowUpdateSheet === 'function') maybeShowUpdateSheet(); /* تحديث أُجِّل لأن الورقة كانت مفتوحة */
 }

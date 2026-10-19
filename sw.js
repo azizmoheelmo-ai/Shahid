@@ -64,6 +64,8 @@ self.addEventListener('fetch', (event) => {
   /* نخدم فقط طلبات GET لنفس أصل الصفحة — أي شيء آخر (Supabase، jsDelivr،
      الخطوط...) يُترك تمامًا لسلوك الشبكة الطبيعي بدون أي تدخل من هنا */
   if(req.method !== 'GET' || url.origin !== self.location.origin) return;
+  /* رقم الإصدار يُقرأ من الشبكة دائمًا (نافذة التحديث) — لا يُخزَّن ولا يُخدَّم من الكاش */
+  if(url.pathname.endsWith('/version.json')) return;
 
   if(isAppLogicRequest(url)){
     /* الشبكة أولًا: أي تحديث منشور يظهر فورًا بلا أي كاش قديم يحجبه.
