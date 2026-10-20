@@ -169,7 +169,6 @@ function showConfirm(message){
 
     const okBtn = document.getElementById('confirmOkBtn');
     const cancelBtn = document.getElementById('confirmCancelBtn');
-    cancelBtn.style.display = ''; /* قد تكون نافذة سابقة أخفته */
 
     function cleanup(result){
       overlay.style.display = 'none';

@@ -296,9 +296,7 @@ function paintCrmParticipation(studentId){
   const chip = btn.querySelector('.crm-part-chip');
   if(chip) chip.innerHTML = net ? `<b class="crm-part-today${net < 0 ? ' is-minus' : ''}" dir="ltr">${net < 0 ? '−' : '+'}${Math.abs(net)}</b>` : '';
   btn.classList.toggle('is-full', score !== null && score >= Number(s.part.column.max_score));
-  const am = crmAbsentMode(s, studentId);
-  btn.classList.toggle('is-absent', am === 'absent');
-  btn.classList.toggle('is-absent-ok', am === 'ok');
+  btn.classList.toggle('is-absent', !!crmAbsentClass(s, studentId));
   const undo = document.getElementById('crmPartUndoBtn');
   if(undo) undo.disabled = !s.part.undo.length;
 }
@@ -357,7 +355,6 @@ function participationUndoEntry(p, studentId, dir){
 function tapCrmParticipation(studentId, dir){
   const s = crmSheet;
   if(!s || !s.part) return;
-  if(crmAbsentGate(studentId)) return; /* غائب: "حضر" أو "تجاوز" أولًا — النقرة لا تُحسب */
   const p = s.part;
   const max = Number(p.column.max_score);
   const step = p.step || 1; /* اتجاه الوضع: +1 (يبدأ من 0) أو −1 (يبدأ من الكاملة) */
@@ -392,89 +389,10 @@ function undoCrmParticipation(){
 }
 
 /* ============ الطالب الغائب (المشاركة والأدوات) ============ */
-/* مسجّل غائب في الحصة: باهت وعليه "غائب"، والضغط عليه يسأل "حضر" أو "تجاوز" أولًا
-   (النقرة نفسها لا تُحسب). "تجاوز" يبقيه غائبًا ويفتح له الرصد في هذه الورقة. */
-function crmAbsentMode(s, studentId){
-  if(!s || !s.states || s.states[studentId] !== 'absent') return '';
-  return s.absentOk && s.absentOk.has(studentId) ? 'ok' : 'absent';
-}
-
+/* مسجّل غائب في الحصة: عليه "غائب" بلون واضح، ويُرصد له + و− عاديًا بلا سؤال
+   (حضوره يُغيَّر من تبويب "حضور" فقط) */
 function crmAbsentClass(s, studentId){
-  const m = crmAbsentMode(s, studentId);
-  return m === 'absent' ? ' is-absent' : m === 'ok' ? ' is-absent-ok' : '';
-}
-
-/* true = أُوقفت النقرة وظهرت نافذة الاختيار */
-function crmAbsentGate(studentId){
-  const s = crmSheet;
-  if(crmAbsentMode(s, studentId) !== 'absent') return false;
-  const st = crmStudents.find(x => x.id === studentId);
-  s.absentAsk = studentId;
-  showInfoModal(`<div style="text-align:center;">
-    <h3 style="margin:0 0 4px;font-size:16px;color:var(--navy);">${escapeHtml(st ? st.full_name : '')}</h3>
-    <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">مسجّل غائب في هذه الحصة</p>
-    <div class="crm-absent-two">
-      <button type="button" class="btn btn-primary" onclick="chooseCrmAbsent('present')">حضر<small>تروح كلمة «غائب»</small></button>
-      <button type="button" class="btn btn-outline" onclick="chooseCrmAbsent('skip')">تجاوز<small>يبقى غائبًا</small></button>
-    </div></div>`, '380px');
-  /* خياران فقط: لا "إغلاق" (يعود ظاهرًا عند إغلاق النافذة) */
-  const cancel = document.getElementById('confirmCancelBtn');
-  if(cancel) cancel.style.display = 'none';
-  return true;
-}
-
-function repaintCrmSheetStudent(studentId){
-  const s = crmSheet;
-  if(!s) return;
-  if(s.part) paintCrmParticipation(studentId);
-  if(s.tool && typeof paintCrmTool === 'function') paintCrmTool(studentId);
-}
-
-function chooseCrmAbsent(kind){
-  const s = crmSheet;
-  const id = s && s.absentAsk;
-  closeCrmModal();
-  if(!id) return;
-  s.absentAsk = null;
-  if(kind === 'skip'){
-    s.absentOk = s.absentOk || new Set();
-    s.absentOk.add(id);
-    repaintCrmSheetStudent(id);
-    return;
-  }
-  return markCrmStudentPresent(s, id);
-}
-
-/* "حضر": يُحفظ حاضرًا في حضور الحصة. يُقرأ حضور الحصة من القاعدة مباشرة ويُغيَّر هذا
-   الطالب وحده — فلا تُحفظ ضمنًا تغييرات حضور أخرى لم يحفظها المعلم بعد */
-let crmAbsentBusy = false;
-async function markCrmStudentPresent(s, id){
-  if(crmAbsentBusy) return;
-  crmAbsentBusy = true;
-  const st = crmStudents.find(x => x.id === id);
-  const first = String((st && st.full_name) || '').split(' ')[0];
-  try{
-    if(s.lessonId){
-      const uid = currentUser.id;
-      const { data: rows, error } = await sb.from('classroom_attendance').select('student_id, status').eq('teacher_id', uid).eq('lesson_id', s.lessonId);
-      if(error) throw error;
-      const states = {};
-      (rows || []).forEach(r => { if(r.student_id !== id) states[r.student_id] = r.status; });
-      const { error: sErr } = await sb.rpc('save_lesson_attendance', {
-        p_section_id: s.sectionId, p_lesson_date: s.dateIso, p_period: s.period, p_exceptions: exceptionsFromStates(states)
-      });
-      if(sErr) throw sErr;
-    }
-    if(crmSheet !== s) return; /* أُغلقت الورقة: الحضور حُفظ ولا شيء يُرسم */
-    s.states[id] = 'present';
-    if(s.dirty) writeLessonDraft(s.sectionId, s.dateIso, s.period, s.states);
-    showToast(`«${first}» صار حاضرًا ✓` + (s.lessonId ? '' : ' — احفظ الحضور من تبويب "حضور"'), 'ok');
-    repaintCrmSheetStudent(id);
-  } catch(e){
-    showToast('تعذّر تسجيله حاضرًا: ' + (e.message || 'خطأ بالاتصال'), 'error');
-  } finally {
-    crmAbsentBusy = false;
-  }
+  return s && s.states && s.states[studentId] === 'absent' ? ' is-absent' : '';
 }
 
 /* ============ وضع الواجب ============ */
