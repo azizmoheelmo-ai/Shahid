@@ -12,6 +12,11 @@ const vm = require('node:vm');
 const { loadApp, runInAppContext } = require('./load-app');
 
 const get = (app, e) => runInAppContext(app, e);
+/* أرقام نسبية للإصدار الحالي (لا تنكسر الاختبارات مع كل رفع للإصدار) */
+const CURRENT = get(loadApp(), 'APP_VERSION');
+const bump = (v, n) => { const p = v.split('.').map(Number); p[p.length - 1] += n; return p.join('.'); };
+const NEXT = bump(CURRENT, 1), NEXT2 = bump(CURRENT, 2);
+const esc = v => v.replace(/\./g, '\\.');
 
 function appWith(info){
   const app = loadApp({ currentUser: { id: 'u1' } });
@@ -38,11 +43,11 @@ test('compareVersions — رقميًا جزءًا جزءًا (1.10 أحدث من
 });
 
 test('إصدار أحدث: نافذة بالإصدارين وما الجديد مُهرَّبًا، والطلب بلا كاش', async () => {
-  const app = appWith({ version: '1.1', notes: ['زرّا + و − <img src=x>', 5] });
+  const app = appWith({ version: NEXT, notes: ['زرّا + و − <img src=x>', 5] });
   await app.checkForUpdate();
   assert.match(get(app, 'window.__fetched[0]'), /^version\.json\?t=\d+$/);
   const h = get(app, 'window.__sheetEl.innerHTML');
-  assert.match(h, /الإصدار 1\.1<\/span> <span class="upd-sub">· إصدارك 1\.0/);
+  assert.match(h, new RegExp(`الإصدار ${esc(NEXT)}</span> <span class="upd-sub">· إصدارك ${esc(CURRENT)}`));
   assert.match(h, /<li>زرّا \+ و − &lt;img src=x&gt;<\/li>/);
   assert.doesNotMatch(h, /<img src=x>/);
   assert.doesNotMatch(h, /<li>5<\/li>/, 'غير النصوص تُتجاهل');
@@ -50,7 +55,7 @@ test('إصدار أحدث: نافذة بالإصدارين وما الجديد �
 });
 
 test('نفس الإصدار أو أقدم: لا نافذة', async () => {
-  for(const v of ['1.0', '0.9']){
+  for(const v of [CURRENT, '0.1']){
     const app = appWith({ version: v, notes: [] });
     assert.equal(await app.checkForUpdate(), null);
     assert.equal(get(app, 'window.__appended.length'), 0);
@@ -58,7 +63,7 @@ test('نفس الإصدار أو أقدم: لا نافذة', async () => {
 });
 
 test('أثناء ورقة رصد مفتوحة لا تظهر — وتظهر بعد إغلاقها', async () => {
-  const app = appWith({ version: '1.1', notes: ['أ'] });
+  const app = appWith({ version: NEXT, notes: ['أ'] });
   runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-20', period: 1 };
     showCrmLessonSheetPane = () => {}; renderCrmLinkBanner = () => {}; switchCrmTab = () => {};`);
   await app.checkForUpdate();
@@ -68,19 +73,19 @@ test('أثناء ورقة رصد مفتوحة لا تظهر — وتظهر بع�
 });
 
 test('"لاحقًا" يؤجّل ساعة لنفس الإصدار، وإصدار أحدث منه يظهر', async () => {
-  const app = appWith({ version: '1.1', notes: [] });
+  const app = appWith({ version: NEXT, notes: [] });
   await app.checkForUpdate();
   app.snoozeUpdate();
   assert.equal(get(app, 'window.__sheetEl'), null);
   await app.checkForUpdate();
   assert.equal(get(app, 'window.__appended.length'), 1, 'مؤجّل');
-  runInAppContext(app, `fetch = async () => ({ ok: true, json: async () => ({ version: '1.2', notes: [] }) });`);
+  runInAppContext(app, `fetch = async () => ({ ok: true, json: async () => ({ version: '${NEXT2}', notes: [] }) });`);
   await app.checkForUpdate();
   assert.equal(get(app, 'window.__appended.length'), 2);
 });
 
 test('"تحديث الآن" ينتظر اكتمال الحفظ الجاري في الورقة ثم يعيد الفتح، ونقرتان = إعادة واحدة', async () => {
-  const app = appWith({ version: '1.1', notes: [] });
+  const app = appWith({ version: NEXT, notes: [] });
   runInAppContext(app, `window.__done = false;
     crmSheet = { part: { queue: new Map([['a', new Promise(r => setTimeout(() => { window.__done = true; r(); }, 30))]]) } };`);
   const p = Promise.all([app.applyUpdate(), app.applyUpdate()]);
