@@ -1298,9 +1298,7 @@
 .crm-att-btn.state-permitted_exit{background:#EDF1F7;border-color:#9DB0CC;}
 .crm-att-btn.state-permitted_exit .crm-att-state{color:#2C4A72;}
 /* وضعا المشاركة والواجب في ورقة الحصة */
-.crm-att-btn.is-absent{background:#FAF9F6;}
-.crm-att-btn.is-absent .crm-att-nm, .crm-att-btn.is-absent .crm-part-step, .crm-att-btn.is-absent .crm-att-state, .crm-att-btn.is-absent .crm-part-chip{opacity:.45;}
-.crm-att-btn.is-absent-ok{background:#FFFCF7;}
+.crm-att-btn.is-absent{background:#FFFCF7;}
 .crm-part-val{font-size:12px;font-weight:800;color:var(--navy);}
 .crm-part-val .crm-grade-max{display:inline;}
 .crm-part-today{display:inline-block;margin-right:6px;background:#E3F1E7;color:#215C34;padding:0 6px;font-size:11px;}
@@ -1644,9 +1642,6 @@ html, body, *{touch-action:manipulation;}
   input, select, textarea{font-size:16px !important;}
 }
 
-/* الغائب في المشاركة والأدوات: "غائب" واضحة رغم إبهات المستطيل، ونافذة حضر/تجاوز */
+/* الغائب في المشاركة والأدوات: "غائب" بجانب اسمه، ويُرصد له عاديًا */
 .crm-absent-badge{display:none;margin-right:6px;background:#FBEAEA;color:#8A2C2C;border:1px solid #E3B9B9;border-radius:8px;font-size:11px;font-weight:800;padding:0 7px;vertical-align:middle;}
-.is-absent .crm-absent-badge, .is-absent-ok .crm-absent-badge{display:inline-block;}
-.crm-absent-two{display:flex;gap:10px;}
-.crm-absent-two .btn{flex:1;flex-direction:column;justify-content:center;padding:10px 0;font-size:15px;font-weight:800;}
-.crm-absent-two .btn small{display:block;font-size:11px;font-weight:400;opacity:.85;margin-top:2px;}
+.is-absent .crm-absent-badge{display:inline-block;}

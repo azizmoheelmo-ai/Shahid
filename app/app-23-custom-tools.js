@@ -282,7 +282,6 @@ function paintCrmToolCounts(){
 function tapCrmTool(studentId){
   const t = crmSheet && crmSheet.tool;
   if(!t) return;
-  if(crmAbsentGate(studentId)) return; /* غائب: "حضر" أو "تجاوز" أولًا */
   if(t.tool.tool_type === 'status'){
     const prev = t.values.has(studentId) ? t.values.get(studentId) : null;
     setCrmToolValue(studentId, nextToolStatus(prev, t.full));
