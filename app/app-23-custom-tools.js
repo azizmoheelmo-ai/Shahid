@@ -233,8 +233,8 @@ async function renderCrmToolMode(students, tool){
       : `اضغط على الطالب لرصد درجته من ${formatScore(tool.max_score)}. ما لم يُرصد لا يُحسب.`}${s.tool.column ? ' يُحسب في عمود "' + escapeHtml(s.tool.column.name) + '".' : ''}</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
-        <button type="button" class="crm-att-btn${s.states && s.states[st.id] === 'absent' ? ' is-absent' : ''}" id="crmTool_${st.id}" onclick="tapCrmTool('${st.id}')">
-          <span class="crm-att-name">${escapeHtml(st.full_name)}</span><span class="crm-att-state"></span></button>
+        <button type="button" class="crm-att-btn${crmAbsentClass(s, st.id)}" id="crmTool_${st.id}" onclick="tapCrmTool('${st.id}')">
+          <span class="crm-att-name"><span class="crm-att-nm">${escapeHtml(st.full_name)}</span><span class="crm-absent-badge">غائب</span></span><span class="crm-att-state"></span></button>
       </div>`).join('')}
     </div>
     <div class="crm-sheet-bar">
@@ -251,7 +251,7 @@ function paintCrmTool(studentId){
   const btn = document.getElementById('crmTool_' + studentId);
   if(!btn || !t) return;
   const v = t.values.has(studentId) ? t.values.get(studentId) : null;
-  const absent = btn.classList.contains('is-absent') ? ' is-absent' : '';
+  const absent = crmAbsentClass(crmSheet, studentId);
   let cls, text;
   if(t.tool.tool_type === 'status'){
     cls = v === null ? 'tk-none' : (v >= 1 ? 'tk-high' : 'tk-low');
@@ -282,6 +282,7 @@ function paintCrmToolCounts(){
 function tapCrmTool(studentId){
   const t = crmSheet && crmSheet.tool;
   if(!t) return;
+  if(crmAbsentGate(studentId)) return; /* غائب: "حضر" أو "تجاوز" أولًا */
   if(t.tool.tool_type === 'status'){
     const prev = t.values.has(studentId) ? t.values.get(studentId) : null;
     setCrmToolValue(studentId, nextToolStatus(prev, t.full));

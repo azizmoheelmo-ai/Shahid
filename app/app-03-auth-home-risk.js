@@ -800,6 +800,7 @@ function showInfoModal(bodyHtml, maxWidth){
     document.getElementById('confirmModal').style.display = 'none';
     document.getElementById('confirmOkBtn').style.display = 'inline-block';
     document.getElementById('confirmCancelBtn').textContent = 'إلغاء';
+    document.getElementById('confirmCancelBtn').style.display = ''; /* نافذة أخفته (مثل حضر/تجاوز) */
     document.getElementById('confirmMsg').innerHTML = '';
     document.getElementById('confirmModal').querySelector('.confirm-box').style.maxWidth = '';
     cancelBtn.removeEventListener('click', closeHandler);
