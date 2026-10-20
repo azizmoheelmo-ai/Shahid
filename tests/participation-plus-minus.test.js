@@ -120,7 +120,7 @@ test('المستطيل: زرّا + و − بالطالب نفسه (الاسم م
     crmSheet = { sectionId: 'S', dateIso: '2026-10-20', period: 1, states: {}, token: 1, mode: 'participation' };`);
   await app.renderCrmParticipation(get(app, 'crmStudentsOfSection("S")'));
   const h = get(app, `document.getElementById('crmLessonSheetBody').innerHTML`);
-  assert.match(h, /<span class="crm-att-name">سامي &lt;b&gt;علي&lt;\/b&gt;<span class="crm-part-chip"><\/span><\/span>/);
+  assert.match(h, /<span class="crm-att-name"><span class="crm-att-nm">سامي &lt;b&gt;علي&lt;\/b&gt;<\/span><span class="crm-absent-badge">غائب<\/span><span class="crm-part-chip"><\/span><\/span>/);
   assert.match(h, /aria-label="\+1 سامي &lt;b&gt;علي&lt;\/b&gt;" onclick="tapCrmParticipation\('a', 1\)">\+<\/button>/);
   assert.match(h, /onclick="tapCrmParticipation\('a', -1\)">−<\/button>/);
   assert.doesNotMatch(h, /<b>علي<\/b>/);
