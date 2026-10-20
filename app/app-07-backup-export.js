@@ -570,11 +570,15 @@ on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
--- قراءة عامة (الروابط تُستخدم مباشرة كـ src للصور وبالخطابات المطبوعة/PDF)
+-- القراءة عبر الواجهة لصاحب الملف فقط. الروابط العامة (getPublicUrl) تبقى تعمل للجميع لأن الحاوية عامة؛
+-- سياسة "قراءة للجميع" كانت تسمح لأي زائر بسرد كل ملفات كل المعلمين (قد تكون فيها صور طلاب). الحذف (remove) يحتاج
+-- قراءة الملف نفسه، فتبقى قراءة المالك لمجلده.
 drop policy if exists "قراءة عامة لصور شاهد" on storage.objects;
-create policy "قراءة عامة لصور شاهد"
+drop policy if exists "الصور قابلة للعرض للجميع (رابط مباشر)" on storage.objects;
+drop policy if exists "المعلم يقرأ ملفاته فقط" on storage.objects;
+create policy "المعلم يقرأ ملفاته فقط"
   on storage.objects for select
-  using (bucket_id = 'shawahid-photos');
+  using (bucket_id = 'shawahid-photos' and (select auth.uid())::text = (storage.foldername(name))[1]);
 
 -- الرفع مسموح فقط ضمن مجلد المستخدم نفسه (أول جزء من المسار = auth.uid())
 drop policy if exists "المعلم يرفع ضمن مجلده فقط" on storage.objects;
@@ -892,9 +896,15 @@ create policy "أي مستخدم مسجل يرفع صوره في مجلده فق
   with check (bucket_id = 'shawahid-photos'
     and auth.uid()::text = (storage.foldername(name))[1]);
 
+-- القراءة عبر الواجهة لصاحب الملف فقط. الروابط العامة (getPublicUrl) تبقى تعمل للجميع لأن الحاوية عامة؛
+-- سياسة "قراءة للجميع" كانت تسمح لأي زائر بسرد كل ملفات كل المعلمين (قد تكون فيها صور طلاب). الحذف (remove) يحتاج
+-- قراءة الملف نفسه، فتبقى قراءة المالك لمجلده.
+drop policy if exists "قراءة عامة لصور شاهد" on storage.objects;
 drop policy if exists "الصور قابلة للعرض للجميع (رابط مباشر)" on storage.objects;
-create policy "الصور قابلة للعرض للجميع (رابط مباشر)"
-  on storage.objects for select using (bucket_id = 'shawahid-photos');
+drop policy if exists "المعلم يقرأ ملفاته فقط" on storage.objects;
+create policy "المعلم يقرأ ملفاته فقط"
+  on storage.objects for select
+  using (bucket_id = 'shawahid-photos' and (select auth.uid())::text = (storage.foldername(name))[1]);
 
 drop policy if exists "المعلم يحذف صوره فقط" on storage.objects;
 create policy "المعلم يحذف صوره فقط"
