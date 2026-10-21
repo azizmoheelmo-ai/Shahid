@@ -265,20 +265,6 @@ async function withPeriodBusy(fn, okMsg){
   return ok;
 }
 
-/* ============ إعداد الدرجات: سطر الفترات تحت كل مكوّن ============ */
-function componentPeriodsHtml(key){
-  if(!isPeriodCompKey(key)) return '';
-  const cfg = periodCfg(crmCurrentTerm(), key);
-  const now = currentPeriodOf(cfg);
-  const k = escapeHtml(key).replace(/'/g, '&#39;');
-  const seg = [1, 2, 3].map(n => `<button type="button" class="gs-period-btn${cfg.n === n ? ' is-on' : ''}" aria-pressed="${cfg.n === n}" onclick="setComponentPeriodCount('${k}', ${n})">${cfg.n === n ? '✓ ' : ''}${n}</button>`).join('');
-  return `<span class="gs-start gs-periods-line" data-period-key="${escapeHtml(key)}">الفترات <span class="gs-seg">${seg}</span></span>
-    ${cfg.n > 1 ? `<span class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
-      الآن: <b>${PERIOD_NAMES[now]}</b>
-      ${now < cfg.n ? `<button type="button" class="gs-period-btn gs-period-go" onclick="goToComponentPeriod('${k}', ${now + 1})">ابدأ ${PERIOD_NAMES[now + 1]} ←</button>` : ''}
-      ${now > 1 ? `<button type="button" class="gs-period-btn gs-period-back" onclick="goToComponentPeriod('${k}', ${now - 1})">→ رجوع</button>` : ''}</span>` : ''}`;
-}
-
 /* ============ شارة الفترة في ورقة الحصة (للمكوّن الذي له أكثر من فترة) ============ */
 function sheetPeriodInfo(s){
   const key = s && periodCompKeyOfMode(s.mode);

@@ -228,6 +228,11 @@ test('إعداد الدرجات — زر حذف 🗑 لكل مكوّن ولكل 
   const app = delApp({}, []);
   const cols = baseCols('S').concat([col('t1', 'S', 'قصير', 20, { category: 'tests' })]);
   const html = app.crmGradeSettingsHtml(sheetG(cols, 'S'));
-  for(const k of ['c:Sp', 'c:Sh', 'c:Sk']) assert.match(html, new RegExp(`deleteGradeComponent\\('${k}'\\)`));
+  /* حذف المكوّن من نافذته (بطاقته تفتحها)، وحذف الاختبار من سطره */
+  for(const k of ['c:Sp', 'c:Sh', 'c:Sk']){
+    assert.match(html, new RegExp(`openGsCompSheet\\('${k}'\\)`));
+    app.openGsCompSheet(k);
+    assert.match(get(app, 'window.__modal[window.__modal.length - 1]'), new RegExp(`deleteGradeComponent\\('${k}'\\)`));
+  }
   assert.match(html, /deleteGradeTestEverywhere\('t1'\)/);
 });

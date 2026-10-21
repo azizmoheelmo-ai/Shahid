@@ -162,10 +162,18 @@ test('إعداد الدرجات — "يبدأ من [0][الكاملة]" لكل �
   const cols = [col('P', 'S', 'participation', 10), col('H', 'S', 'homework', 10), col('K', 'S', 'task', 10),
     col('R', 'S', 'manual', 5, { tool_id: TOOL_ID, name: 'قراءة' }), col('B', 'S', 'manual', 2, { tool_id: STATUS_ID, name: 'بحوث' }), col('O', 'S', 'manual', 4, { tool_id: SCORE_ID, name: 'شفهي' })];
   const html = app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
-  ['participation', 'task', 'tool:' + TOOL_ID, 'tool:' + STATUS_ID, 'tool:' + SCORE_ID, 'tool:' + NEW_ID]
-    .forEach(k => assert.match(html, new RegExp(`setGradeStartMode\\('${k}', true\\)`), k));
-  assert.match(html, /<button type="button" class="is-on" aria-pressed="true" onclick="setGradeStartMode\('homework', true\)">✓ الدرجة كاملة/, 'الواجبات على الكاملة وعليها ✓');
-  assert.match(html, /aria-pressed="true" onclick="setGradeStartMode\('participation', false\)">✓ 0</, 'المشاركة على 0 وعليها ✓');
+  /* "يبدأ من" في نافذة كل مكوّن (بطاقته تفتحها) */
+  runInAppContext(app, `window.__modal = ''; showInfoModal = h => { window.__modal = h; };`);
+  ['c:P', 'c:K', 'c:R', 'c:B', 'c:O', 't:' + NEW_ID].forEach(key => {
+    assert.match(html, new RegExp(`openGsCompSheet\\('${key}'\\)`), key);
+    app.openGsCompSheet(key);
+    assert.match(get(app, 'window.__modal'), /يبدأ الطالب من[\s\S]*onclick="setGsCompFull\(true\)">الدرجة كاملة/, key);
+  });
+  app.openGsCompSheet('c:H');
+  assert.match(get(app, 'window.__modal'), /class="is-on" aria-pressed="true" onclick="setGsCompFull\(true\)">الدرجة كاملة/, 'الواجبات على الدرجة كاملة');
+  app.openGsCompSheet('c:P');
+  assert.match(get(app, 'window.__modal'), /class="is-on" aria-pressed="true" onclick="setGsCompFull\(false\)">0</, 'المشاركة على 0');
+  assert.match(html, /data-comp="c:H"[\s\S]*?يبدأ من الدرجة كاملة/, 'بطاقة الواجبات تقول ذلك بشارة');
 });
 
 test('انحدار: الكشف لا يكتب "الكاملة" مباشرة في عمود محسوب (واجبات/مهام/حالة/درجة) — تُمحى عند المزامنة وتعطي من لا رصد له الكاملة', async () => {
