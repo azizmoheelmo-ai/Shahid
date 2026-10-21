@@ -84,6 +84,7 @@ let crmWeightsDraft = null; /* { sectionId, components, saving } */
 
 function openCrmGradeSettings(){
   crmGradesSettingsOpen = true;
+  Object.keys(crmGsOpen).forEach(k => { crmGsOpen[k] = false; }); /* تُفتح الشاشة وأقسامها مطوية */
   crmGradesDetail = false;
   resetCrmGradeStudent();
   renderCrmGrades();
@@ -134,25 +135,36 @@ function crmGradeSettingsHtml(g){
     <div class="crm-today-title">⚙ إعداد الدرجات</div>
     <p class="crm-gs-note" style="margin:0 0 8px;">الإعداد هنا، والرصد في ورقة الحصة. الحفظ يُطبَّق على كل شعبك لهذا الفصل.</p>
 
-    <h4 class="crm-gs-step">① التوزيع (المجموع ${GRADE_CAPS_TOTAL})</h4>
+    ${gsSectionHtml('dist', `① التوزيع (المجموع ${GRADE_CAPS_TOTAL})`, `الأداء ${formatScore(caps.performance)} · الاختبارات ${formatScore(caps.tests)}`, `
     <div class="crm-gs-line"><span>الأداء</span><input class="goal-input gs-num" id="gsCapPerf" inputmode="decimal" value="${formatScore(caps.performance)}" oninput="syncGradeCapInputs('gs', 'performance');paintCrmGradeSettings()"></div>
     <div class="crm-gs-line"><span>الاختبارات</span><input class="goal-input gs-num" id="gsCapTests" inputmode="decimal" value="${formatScore(caps.tests)}" oninput="syncGradeCapInputs('gs', 'tests');paintCrmGradeSettings()"></div>
-    <p class="crm-gs-note">الرسمي ${GRADE_CAPS_DEFAULT.performance} و${GRADE_CAPS_DEFAULT.tests}. اكتب إحداهما والأخرى تُكمَل.</p>
+    <p class="crm-gs-note">الرسمي ${GRADE_CAPS_DEFAULT.performance} و${GRADE_CAPS_DEFAULT.tests}. اكتب إحداهما والأخرى تُكمَل.</p>`)}
 
-    <h4 class="crm-gs-step">② مكوّنات الأداء</h4>
+    ${gsSectionHtml('comps', '② مكوّنات الأداء', comps.map(c => `${c.name} ${formatScore(c.tool ? c.tool.max_score : c.max)}`).join(' · '), `
     ${compRows}
     <div id="crmWeightsTotal" style="font-size:13px;font-weight:700;margin:8px 0;"></div>
     ${missing.length ? `<div class="crm-gs-note">محذوف من الكشف: ${missing.map(b => `<button type="button" class="gs-add gs-add-sm" onclick="addBuiltinGradeComponent('${b.kind}')">↩ ${b.name}</button>`).join(' ')}</div>` : ''}
-    ${(typeof crmCustomTools !== 'undefined' ? crmCustomTools.length : 0) < CUSTOM_TOOL_MAX ? '<button class="gs-add" onclick="openCustomToolEditor(null)">+ مكوّن (مثل: بحوث، قراءة، مشروع)</button>' : ''}
+    ${(typeof crmCustomTools !== 'undefined' ? crmCustomTools.length : 0) < CUSTOM_TOOL_MAX ? '<button class="gs-add" onclick="openCustomToolEditor(null)">+ مكوّن (مثل: بحوث، قراءة، مشروع)</button>' : ''}`)}
 
-    ${testsOn ? `<h4 class="crm-gs-step">③ الاختبارات — ${escapeHtml(crmSectionLabel(g.sectionId))} (محصلتها من ${formatScore(caps.tests)})</h4>
+    ${testsOn ? gsSectionHtml('tests', `③ الاختبارات — ${escapeHtml(crmSectionLabel(g.sectionId))}`, `${g.columns.filter(c => c.category === 'tests').length} · محصلتها من ${formatScore(caps.tests)}`, `
     ${testRows || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
     <button class="gs-add" style="margin-top:6px;" onclick="openCrmGradeColumnEditor('tests', null)">+ اختبار</button>
-    ${testRows ? '<p class="crm-gs-note">اضغط على اسم الاختبار لرصد درجاته أو تعديله، و🗑 يحذفه من كل شعبك.</p>' : ''}` : ''}
+    ${testRows ? '<p class="crm-gs-note">اضغط على اسم الاختبار لرصد درجاته أو تعديله، و🗑 يحذفه من كل شعبك.</p>' : ''}`) : ''}
+
+    ${typeof crmPeriodSettingsHtml === 'function' ? crmPeriodSettingsHtml(g.periods) : ''}
 
     <div id="crmGradeSettingsError" style="display:none;color:#8A2C2C;font-size:12px;margin:10px 0 0;line-height:1.7;"></div>
     <button class="gs-save" id="crmGradeSettingsSaveBtn" onclick="saveCrmGradeSettings()">💾 حفظ — يُطبَّق على كل شعبي</button>
   </div>`;
+}
+
+/* أقسام "إعداد الدرجات" مطوية افتراضيًا: العنوان وتحته ملخص سطر، والنقر يفتح/يطوي.
+   المفتوح يبقى مفتوحًا عند إعادة الرسم (الحقول داخل المطوي موجودة، فالحفظ يقرؤها) */
+const crmGsOpen = { dist: false, comps: false, tests: false };
+function gsSectionHtml(key, title, summary, body){
+  return `<details class="gs-acc" data-gs="${key}"${crmGsOpen[key] ? ' open' : ''} ontoggle="crmGsOpen['${key}'] = this.open">
+    <summary class="crm-gs-step"><span class="gs-acc-t">${title}</span><small class="gs-acc-s">${escapeHtml(summary)}</small></summary>
+    <div class="gs-acc-b">${body}</div></details>`;
 }
 
 function readCrmWeightInputs(){
@@ -199,7 +211,8 @@ async function saveCrmGradeSettings(){
   const d = crmWeightsDraft;
   if(!d || d.saving || !currentUser) return;
   const err = document.getElementById('crmGradeSettingsError');
-  const fail = m => { err.textContent = m; err.style.display = 'block'; };
+  /* الخطأ في التوزيع أو الأوزان: يُفتح قسماهما ليرى المعلم الحقل */
+  const fail = m => { err.textContent = m; err.style.display = 'block'; document.querySelectorAll('.gs-acc[data-gs="dist"], .gs-acc[data-gs="comps"]').forEach(d => { d.open = true; }); };
   const c = readGradeCapInputs('gs');
   if(c.error) return fail(c.error);
   const r = validatePerfWeights(d.components, readCrmWeightInputs(), c.caps.performance);
@@ -244,10 +257,20 @@ async function applySectionWeights(sectionId, term, cols, plan){
     if(error) throw error;
     return data || [];
   };
-  const rescale = async (ch, rows) => {
-    if(!rows.length) return;
+  /* المشاركة بفترتين: درجتا الفترتين تُحوَّلان (والقاعدة تحدّث المعدّل)، ودرجة الكشف لمن لا فترات له فقط */
+  const loadPeriodScores = async c => isPeriodColumn(c) && c.kind === 'participation' ? await loadPeriodRows(c.id) : [];
+  const rescale = async (ch, rows, perRows) => {
+    if((perRows || []).length){
+      const { error } = await sb.from('classroom_grade_period_scores').upsert(
+        perRows.map(r => ({ teacher_id: uid, column_id: ch.column.id, student_id: r.student_id, period: r.period, score: scaleGradeScore(r.score, ch.old, ch.max) })),
+        { onConflict: 'column_id,student_id,period' });
+      if(error) throw error;
+    }
+    const withPer = new Set((perRows || []).map(r => r.student_id));
+    const direct = rows.filter(r => !withPer.has(r.student_id));
+    if(!direct.length) return;
     const { error } = await sb.from('classroom_grade_scores').upsert(
-      rows.map(r => ({ teacher_id: uid, column_id: ch.column.id, student_id: r.student_id, score: scaleGradeScore(r.score, ch.old, ch.max) })),
+      direct.map(r => ({ teacher_id: uid, column_id: ch.column.id, student_id: r.student_id, score: scaleGradeScore(r.score, ch.old, ch.max) })),
       { onConflict: 'column_id,student_id' });
     if(error) throw error;
   };
@@ -261,15 +284,16 @@ async function applySectionWeights(sectionId, term, cols, plan){
       const { error } = await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', ch.column.id);
       if(error) throw error;
     } else {
-      await rescale(ch, await loadScores(ch.column.id));
+      await rescale(ch, await loadScores(ch.column.id), await loadPeriodScores(ch.column));
     }
     await setMax(ch);
   }
   /* رفع: الحد أولًا ثم الدرجات */
   for(const ch of plan.increase){
     const rows = isComputedGradeColumn(ch.column) ? [] : await loadScores(ch.column.id);
+    const perRows = isComputedGradeColumn(ch.column) ? [] : await loadPeriodScores(ch.column);
     await setMax(ch);
-    await rescale(ch, rows);
+    await rescale(ch, rows, perRows);
   }
   for(const cr of plan.create){
     const { error } = await sb.from('classroom_grade_columns').insert({
@@ -565,6 +589,12 @@ async function resyncStartModeColumns(key, tool, term){
 /* المشاركة والعدّاد: الدرجة نفسها تُمسح، ومن الكاملة تُكتب الكاملة */
 async function resetDirectScoresStart(uid, key, full){
   const cols = await termColumnsMatching(c => directStartFullKey(c) === key);
+  /* المشاركة: درجتا الفترتين تُمسحان أولًا (وإلا عادت درجة الكشف منهما) */
+  const perCols = cols.filter(isPeriodColumn);
+  if(perCols.length){
+    const { error: pErr } = await sb.from('classroom_grade_period_scores').delete().eq('teacher_id', uid).in('column_id', perCols.map(c => c.id));
+    if(pErr) throw pErr;
+  }
   if(cols.length){
     const { error: dErr } = await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).in('column_id', cols.map(c => c.id));
     if(dErr) throw dErr;

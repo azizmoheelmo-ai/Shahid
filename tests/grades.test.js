@@ -268,6 +268,12 @@ test('moveStudentGrades — يُنشئ الكشف الناقص ثم ينقل، �
   const seed = {
     classroom_grade_scores: [{ id: 's1', teacher_id: 'u1', column_id: 'o1', student_id: 'a', score: 9 }],
     classroom_grade_columns: [Object.assign({ id: 'o1', section_id: 'OLD', category: 'performance', name: 'مشاركة', max_score: 10, position: 0 }, term)],
+    /* درجتا الفترتين تتبعان درجة الكشف — ولمعلم آخر لا تُمسّ */
+    classroom_grade_period_scores: [
+      { id: 'p1', teacher_id: 'u1', column_id: 'o1', student_id: 'a', period: 1, score: 10 },
+      { id: 'p2', teacher_id: 'u1', column_id: 'o1', student_id: 'a', period: 2, score: 8 },
+      { id: 'px', teacher_id: 'u2', column_id: 'o1', student_id: 'a', period: 1, score: 3 },
+    ],
   };
   const writes = [];
   const client = scopedClient(seed);
@@ -302,6 +308,9 @@ test('moveStudentGrades — يُنشئ الكشف الناقص ثم ينقل، �
   const upd = writes.find(w => w.op === 'update');
   assert.ok(upd.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'), 'نقل الدرجة مقيّد بالمعلم الحالي');
   assert.equal(seed.classroom_grade_scores[0].column_id, 'new0');
+  assert.deepEqual(seed.classroom_grade_period_scores.map(r => r.column_id), ['new0', 'new0', 'o1'], 'الفترتان تنتقلان مع الطالب، ورصد معلم آخر لا يُمسّ');
+  const pu = writes.find(w => w.op === 'update' && w.table === 'classroom_grade_period_scores');
+  assert.ok(pu.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'));
 });
 
 test('loadAttentionData — أعمدة ودرجات المعلم الحالي فقط (للقاعدتين 8 و9)', async () => {

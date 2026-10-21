@@ -1360,6 +1360,9 @@ begin
   end if;
   if tg_op = 'UPDATE' and new.max_score < old.max_score then
     select count(*) into v_over from public.classroom_grade_scores where column_id = new.id and score > new.max_score;
+    if v_over = 0 then
+      select count(*) into v_over from public.classroom_grade_period_scores where column_id = new.id and score > new.max_score;
+    end if;
     if v_over > 0 then
       raise exception 'grade_max_below_scores' using errcode = 'P0001', hint = v_over::text;
     end if;
@@ -1674,6 +1677,137 @@ end $b$;
 revoke execute on function public.increment_grade_score(uuid, uuid, numeric, boolean) from public, anon;
 grant execute on function public.increment_grade_score(uuid, uuid, numeric, boolean) to authenticated;
 
+-- فترتا المشاركة: درجة لكل فترة، والدرجة في الكشف (classroom_grade_scores) = معدّل ما رُصد من الفترتين
+-- (يُحسب هنا بمشغّل، فكل ما يقرأ الكشف — المجموع والتنبيهات والتقارير — يرى المعدّل كما هو).
+-- طالب له درجة قديمة بلا فترات: درجته = الفترة الأولى (تُنسخ عند أول رصد بفترة).
+create table if not exists public.classroom_grade_period_scores (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  column_id uuid not null,
+  student_id uuid not null,
+  period smallint not null check (period in (1, 2)),
+  score numeric(5,2) not null check (score >= 0),
+  updated_at timestamptz not null default now(),
+  unique (column_id, student_id, period),
+  foreign key (column_id, teacher_id) references public.classroom_grade_columns(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_grade_period_scores_student_idx on public.classroom_grade_period_scores(student_id);
+alter table public.classroom_grade_period_scores enable row level security;
+drop policy if exists "المعلم يدير درجات فترات طلابه فقط" on public.classroom_grade_period_scores;
+create policy "المعلم يدير درجات فترات طلابه فقط" on public.classroom_grade_period_scores for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+grant select, insert, update, delete on public.classroom_grade_period_scores to authenticated;
+-- لا تتجاوز درجة الفترة حد العمود (نفس فحص درجة الكشف)
+drop trigger if exists trg_check_grade_period_score on public.classroom_grade_period_scores;
+create trigger trg_check_grade_period_score before insert or update on public.classroom_grade_period_scores for each row execute function public.check_grade_score();
+
+-- درجة الكشف = معدّل الفترات المرصودة (لا فترات = لا درجة)
+create or replace function public.recompute_period_main_score(p_teacher uuid, p_column uuid, p_student uuid)
+returns void language plpgsql security invoker set search_path = '' as $b$
+declare v_avg numeric; v_n int;
+begin
+  select round(avg(score), 2), count(*) into v_avg, v_n from public.classroom_grade_period_scores
+    where teacher_id = p_teacher and column_id = p_column and student_id = p_student;
+  if v_n = 0 then
+    delete from public.classroom_grade_scores where teacher_id = p_teacher and column_id = p_column and student_id = p_student;
+    return;
+  end if;
+  -- حذف متسلسل (عمود أو طالب يُحذف): لا يُعاد إنشاء درجة له
+  if not exists (select 1 from public.classroom_grade_columns where id = p_column and teacher_id = p_teacher)
+     or not exists (select 1 from public.classroom_students where id = p_student and teacher_id = p_teacher) then
+    return;
+  end if;
+  insert into public.classroom_grade_scores as g (teacher_id, column_id, student_id, score)
+    values (p_teacher, p_column, p_student, v_avg)
+    on conflict (column_id, student_id) do update set score = excluded.score where g.score is distinct from excluded.score;
+end $b$;
+revoke execute on function public.recompute_period_main_score(uuid, uuid, uuid) from public, anon;
+grant execute on function public.recompute_period_main_score(uuid, uuid, uuid) to authenticated;
+
+create or replace function public.sync_period_main_score() returns trigger
+language plpgsql security invoker set search_path = '' as $b$
+begin
+  if tg_op in ('UPDATE', 'DELETE') then
+    perform public.recompute_period_main_score(old.teacher_id, old.column_id, old.student_id);
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') and (tg_op = 'INSERT' or new.column_id <> old.column_id or new.student_id <> old.student_id or new.teacher_id <> old.teacher_id or new.score <> old.score or new.period <> old.period) then
+    perform public.recompute_period_main_score(new.teacher_id, new.column_id, new.student_id);
+  end if;
+  return null;
+end $b$;
+drop trigger if exists trg_sync_period_main_score on public.classroom_grade_period_scores;
+create trigger trg_sync_period_main_score after insert or update or delete on public.classroom_grade_period_scores for each row execute function public.sync_period_main_score();
+
+-- درجة قديمة بلا فترات تصير الفترة الأولى قبل أول رصد بفترة (فلا تضيع)
+create or replace function public.seed_period_scores(p_teacher uuid, p_column uuid, p_student uuid)
+returns void language plpgsql security invoker set search_path = '' as $b$
+begin
+  if not exists (select 1 from public.classroom_grade_period_scores where teacher_id = p_teacher and column_id = p_column and student_id = p_student) then
+    insert into public.classroom_grade_period_scores (teacher_id, column_id, student_id, period, score)
+      select teacher_id, column_id, student_id, 1, score from public.classroom_grade_scores
+        where teacher_id = p_teacher and column_id = p_column and student_id = p_student
+      on conflict (column_id, student_id, period) do nothing;
+  end if;
+end $b$;
+revoke execute on function public.seed_period_scores(uuid, uuid, uuid) from public, anon;
+grant execute on function public.seed_period_scores(uuid, uuid, uuid) to authenticated;
+
+-- نقرة + أو − في فترة (ذرّية). p_full: "يبدأ من الكاملة" — الفترة بلا رصد تبدأ من الحد، والصفر درجة تبقى
+create or replace function public.increment_period_score(p_column_id uuid, p_student_id uuid, p_period smallint, p_delta numeric, p_full boolean)
+returns numeric language plpgsql security invoker set search_path = '' as $b$
+declare v_uid uuid := auth.uid(); v_max numeric; v_new numeric; v_full boolean := coalesce(p_full, false);
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  if p_period is null or p_period not in (1, 2) then raise exception 'bad period'; end if;
+  select max_score into v_max from public.classroom_grade_columns where id = p_column_id and teacher_id = v_uid;
+  if v_max is null then raise exception 'column not found'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_column_id::text || p_student_id::text, 0));
+  perform public.seed_period_scores(v_uid, p_column_id, p_student_id);
+  insert into public.classroom_grade_period_scores as g (teacher_id, column_id, student_id, period, score)
+    values (v_uid, p_column_id, p_student_id, p_period, greatest(0, least(v_max, (case when v_full then v_max else 0 end) + p_delta)))
+    on conflict (column_id, student_id, period) do update set score = greatest(0, least(v_max, g.score + p_delta))
+    returning score into v_new;
+  if v_new = 0 and p_delta < 0 and not v_full then
+    delete from public.classroom_grade_period_scores where teacher_id = v_uid and column_id = p_column_id and student_id = p_student_id and period = p_period;
+  end if;
+  return v_new;
+end $b$;
+revoke execute on function public.increment_period_score(uuid, uuid, smallint, numeric, boolean) from public, anon;
+grant execute on function public.increment_period_score(uuid, uuid, smallint, numeric, boolean) to authenticated;
+
+-- تعيين درجة فترة (رصد يدوي، استيراد، "يبدأ من الكاملة"). p_score فارغ = حذف. p_only_missing: لا يكتب فوق رصد قائم
+create or replace function public.set_period_score(p_column_id uuid, p_student_id uuid, p_period smallint, p_score numeric, p_only_missing boolean)
+returns numeric language plpgsql security invoker set search_path = '' as $b$
+declare v_uid uuid := auth.uid(); v_max numeric; v_new numeric;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  if p_period is null or p_period not in (1, 2) then raise exception 'bad period'; end if;
+  select max_score into v_max from public.classroom_grade_columns where id = p_column_id and teacher_id = v_uid;
+  if v_max is null then raise exception 'column not found'; end if;
+  if p_score is not null and (p_score < 0 or p_score > v_max) then
+    raise exception 'grade_score_above_max' using errcode = 'P0001', hint = v_max::text;
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_column_id::text || p_student_id::text, 0));
+  perform public.seed_period_scores(v_uid, p_column_id, p_student_id);
+  if p_score is null then
+    delete from public.classroom_grade_period_scores where teacher_id = v_uid and column_id = p_column_id and student_id = p_student_id and period = p_period;
+    return null;
+  end if;
+  if coalesce(p_only_missing, false) then
+    insert into public.classroom_grade_period_scores (teacher_id, column_id, student_id, period, score)
+      values (v_uid, p_column_id, p_student_id, p_period, p_score)
+      on conflict (column_id, student_id, period) do nothing;
+  else
+    insert into public.classroom_grade_period_scores as g (teacher_id, column_id, student_id, period, score)
+      values (v_uid, p_column_id, p_student_id, p_period, p_score)
+      on conflict (column_id, student_id, period) do update set score = excluded.score;
+  end if;
+  select score into v_new from public.classroom_grade_period_scores where teacher_id = v_uid and column_id = p_column_id and student_id = p_student_id and period = p_period;
+  return v_new;
+end $b$;
+revoke execute on function public.set_period_score(uuid, uuid, smallint, numeric, boolean) from public, anon;
+grant execute on function public.set_period_score(uuid, uuid, smallint, numeric, boolean) to authenticated;
+
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
   next_number int not null default 1,
@@ -1958,7 +2092,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -2071,6 +2205,7 @@ async function exportFullBackup(){
       '     37. classroom_task_students.csv (لازم بعد classroom_tasks وclassroom_students)',
       '     38. user_app_settings.csv',
       '     39. classroom_tool_marks.csv (لازم بعد classroom_custom_tools وclassroom_students وclassroom_sections)',
+      '     40. classroom_grade_period_scores.csv (لازم بعد classroom_grade_scores — مشغّله يكتب معدّل الفترتين في الكشف)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

@@ -1652,11 +1652,12 @@ async function deleteCrmStudent(id){
   let relatedFollowups = [];
   let relatedFuActions = [];
   let relatedGrades = [];
+  let relatedPeriodGrades = [];
   let relatedHomework = [];
   let relatedTasks = [];
   let relatedToolMarks = [];
   try{
-    const [incRes, caseRes, attRes, posRes, privRes, fuRes, grRes, hwRes, tkRes, tmRes] = await Promise.all([
+    const [incRes, caseRes, attRes, posRes, privRes, fuRes, grRes, hwRes, tkRes, tmRes, pgRes] = await Promise.all([
       sb.from('classroom_incidents').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('academic_cases').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
@@ -1666,7 +1667,8 @@ async function deleteCrmStudent(id){
       sb.from('classroom_grade_scores').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_homework_status').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
       sb.from('classroom_task_students').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_tool_marks').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
+      sb.from('classroom_tool_marks').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
+      sb.from('classroom_grade_period_scores').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
     ]);
     relatedIncidents = incRes.data || [];
     relatedCases = caseRes.data || [];
@@ -1675,6 +1677,7 @@ async function deleteCrmStudent(id){
     relatedPrivate = privRes.data || [];
     relatedFollowups = fuRes.data || [];
     relatedGrades = (grRes && grRes.data) || [];
+    relatedPeriodGrades = (pgRes && pgRes.data) || [];
     relatedHomework = (hwRes && hwRes.data) || [];
     relatedTasks = (tkRes && tkRes.data) || [];
     relatedToolMarks = (tmRes && tmRes.data) || [];
@@ -1730,6 +1733,11 @@ async function deleteCrmStudent(id){
       if(relatedGrades.length){
         const { error: gErr } = await sb.from('classroom_grade_scores').insert(relatedGrades);
         if(gErr) throw gErr;
+      }
+      /* بعد درجات الكشف: مشغّل الفترات يكتب المعدّل فوقها (القيمة نفسها) */
+      if(relatedPeriodGrades.length){
+        const { error: pgErr } = await sb.from('classroom_grade_period_scores').insert(relatedPeriodGrades);
+        if(pgErr) throw pgErr;
       }
       if(relatedHomework.length){
         const { error: hErr } = await sb.from('classroom_homework_status').insert(relatedHomework);
