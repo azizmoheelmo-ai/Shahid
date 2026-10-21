@@ -1539,12 +1539,12 @@
 .gs-acc-b{padding-top:6px;}
 
 /* ============ الفترتان ============ */
-.gs-periods{margin-top:12px;background:#FBF3DC;border:1px solid #E8D49C;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.8;color:var(--ink);}
-.gs-periods small{color:var(--muted);}
-.gs-periods-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
-.gs-periods-now{margin-top:8px;color:var(--muted);}
-.gs-periods-now b{color:var(--navy);}
-.gs-period-go,.gs-period-back{display:block;width:100%;margin-top:8px;padding:9px;border-radius:9px;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;}
+.gs-period-now{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:12.5px;color:var(--muted);}
+.gs-period-now b{color:var(--navy);}
+.gs-pdots{display:inline-flex;gap:4px;}
+.gs-pdots i{width:18px;height:7px;border-radius:4px;background:#E5E0D4;display:inline-block;}
+.gs-pdots i.done{background:#1F7A6A;}.gs-pdots i.cur{background:var(--gold);}
+.gs-period-go,.gs-period-back{padding:4px 12px;border-radius:8px;font-family:inherit;font-weight:800;font-size:12.5px;cursor:pointer;}
 .gs-period-go{border:0;background:var(--navy);color:#fff;}
 .gs-period-back{border:1.5px solid #CFC8B8;background:#fff;color:#5B6470;}
 .gs-period-btn:disabled{opacity:.6;cursor:wait;}

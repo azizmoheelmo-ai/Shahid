@@ -44,8 +44,15 @@ function taskColumnScoreFor(tasks, rows, studentId, colMax){
   return Math.round(100 * Math.min(1, earned / possible) * Number(colMax)) / 100;
 }
 
-function planTaskScoreSync(studentIds, tasks, rows, colMax, existing){
-  return planComputedScoreSync(studentIds, id => taskColumnScoreFor(tasks, rows, id, colMax), existing);
+/* الفترات (app-27): كل مهمة في فترة موعدها (أو يوم إنشائها)، والعمود = معدّل الفترات */
+function taskDateOf(t){ return t.due_date || String(t.created_at || '').slice(0, 10); }
+
+function taskPeriodScores(tasks, rows, studentId, colMax, starts){
+  return periodSplitScores(tasks, taskDateOf, list => taskColumnScoreFor(list, rows, studentId, colMax), starts);
+}
+
+function planTaskScoreSync(studentIds, tasks, rows, colMax, existing, starts){
+  return planComputedScoreSync(studentIds, id => taskPeriodScores(tasks, rows, id, colMax, starts).final, existing);
 }
 
 function taskQuickScores(max){
@@ -198,7 +205,7 @@ async function loadSectionTasks(sectionId, term){
 /* كل مهام الفصل (أي شعبة) لهؤلاء الطلاب — الطالب المنقول يُحسب على مهامه السابقة */
 async function loadTaskScoresForStudents(studentIds, term){
   const uid = currentUser.id;
-  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, max_score')
+  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, max_score, due_date, created_at')
     .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester);
   if(error) throw error;
   const inTerm = new Set((tasks || []).map(t => t.id));
@@ -224,7 +231,7 @@ async function syncTaskColumn(column, sectionId, term, studentIds){
   ]);
   if(scoresRes.error) throw scoresRes.error;
   const existing = new Map((scoresRes.data || []).map(r => [r.student_id, Number(r.score)]));
-  const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing);
+  const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing, periodCfg(term, 'kind:task').starts);
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
@@ -250,7 +257,7 @@ function crmTaskCellHtml(st){
 async function renderCrmTasks(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();

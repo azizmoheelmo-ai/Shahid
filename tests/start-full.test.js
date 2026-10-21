@@ -164,7 +164,7 @@ test('إعداد الدرجات — "يبدأ من [0][الكاملة]" لكل �
   const html = app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
   ['participation', 'task', 'tool:' + TOOL_ID, 'tool:' + STATUS_ID, 'tool:' + SCORE_ID, 'tool:' + NEW_ID]
     .forEach(k => assert.match(html, new RegExp(`setGradeStartMode\\('${k}', true\\)`), k));
-  assert.match(html, /<button type="button" class="is-on" aria-pressed="true" onclick="setGradeStartMode\('homework', true\)">✓ الكاملة/, 'الواجبات على الكاملة وعليها ✓');
+  assert.match(html, /<button type="button" class="is-on" aria-pressed="true" onclick="setGradeStartMode\('homework', true\)">✓ الدرجة كاملة/, 'الواجبات على الكاملة وعليها ✓');
   assert.match(html, /aria-pressed="true" onclick="setGradeStartMode\('participation', false\)">✓ 0</, 'المشاركة على 0 وعليها ✓');
 });
 
@@ -312,7 +312,7 @@ test('تغيير "يبدأ من" لأداة "حالة" — يُمسح رصدها
   const app = appWith(seed, log);
   runInAppContext(app, `crmCustomTools = ${TOOLS}; crmCustomToolsLoaded = true;`);
   await app.setGradeStartMode('tool:' + STATUS_ID, true);
-  assert.match(get(app, 'window.__confirm[0]'), /"بحوث" تبدأ من الكاملة؟ يصير كل الطلاب "تمّ" في كل حصة رُصدت/);
+  assert.match(get(app, 'window.__confirm[0]'), /"بحوث" تبدأ من الدرجة كاملة؟ يصير كل الطلاب "تمّ" في كل حصة رُصدت/);
   const del = log.find(l => l.table === 'classroom_tool_marks' && l.op === 'delete');
   assert.deepEqual([...del.filters.find(([c]) => c === 'id')[1]].sort(), ['m1', 'm2', 'm3']);
   const up = log.find(l => l.table === 'classroom_tool_marks' && l.op === 'upsert');

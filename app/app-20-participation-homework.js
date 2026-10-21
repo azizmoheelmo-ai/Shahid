@@ -25,17 +25,6 @@ function nextHomeworkState(state, full){
   return cycle[(i + 1) % cycle.length];
 }
 
-/* "يبدأ من الكاملة": من لا درجة له في العمود يأخذ الكاملة (لا يكتب فوق رصد قائم أو متزامن) */
-async function fillStartFullScores(column, studentIds, existing){
-  const missing = (studentIds || []).filter(id => !existing.has(id));
-  if(!missing.length) return [];
-  const { error } = await sb.from('classroom_grade_scores').upsert(
-    missing.map(id => ({ teacher_id: currentUser.id, column_id: column.id, student_id: id, score: Number(column.max_score) })),
-    { onConflict: 'column_id,student_id', ignoreDuplicates: true });
-  if(error) throw error;
-  return missing;
-}
-
 function homeworkStatusIndex(rows){
   const idx = new Map();
   (rows || []).forEach(r => {
@@ -72,17 +61,14 @@ function planComputedScoreSync(studentIds, wantFn, existing){
   return { upserts, deletes };
 }
 
-/* فترتان (app-27): كل واجب في فترة موعده، ودرجة الفترة من واجباتها، والعمود = معدّل
-   الفترتين اللتين فيهما واجب محسوب. بلا بداية للثانية = الفترة الأولى وحدها (كالسابق) */
-function homeworkPeriodScores(counted, statusIdx, studentId, max, start){
-  const c1 = (counted || []).filter(h => periodOfDate(h.due_date, start) === 1);
-  const c2 = (counted || []).filter(h => periodOfDate(h.due_date, start) === 2);
-  const p1 = homeworkScoreFor(c1, statusIdx, studentId, max), p2 = homeworkScoreFor(c2, statusIdx, studentId, max);
-  return { p1, p2, final: periodAverage(p1, p2) };
+/* الفترات (app-27): كل واجب في فترة موعده، ودرجة الفترة من واجباتها، والعمود = معدّل
+   الفترات التي فيها واجب محسوب. starts فارغة = فترة واحدة (الحساب القديم تمامًا) */
+function homeworkPeriodScores(counted, statusIdx, studentId, max, starts){
+  return periodSplitScores(counted, h => h.due_date, list => homeworkScoreFor(list, statusIdx, studentId, max), starts);
 }
 
-function planHomeworkScoreSync(studentIds, counted, statusIdx, max, existing, start){
-  return planComputedScoreSync(studentIds, id => homeworkPeriodScores(counted, statusIdx, id, max, start).final, existing);
+function planHomeworkScoreSync(studentIds, counted, statusIdx, max, existing, starts){
+  return planComputedScoreSync(studentIds, id => homeworkPeriodScores(counted, statusIdx, id, max, starts).final, existing);
 }
 
 function defaultHomeworkId(homeworks, dateIso){
@@ -128,8 +114,8 @@ async function syncHomeworkColumn(column, sectionId, hw, studentIds){
   if(error) throw error;
   const existing = new Map((rows || []).map(r => [r.student_id, Number(r.score)]));
   const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
-  const periods = await loadGradePeriods(hw.term || crmCurrentTerm());
-  const plan = planHomeworkScoreSync(ids, counted, homeworkStatusIndex(hw.statusRows), column.max_score, existing, periods.start);
+  const starts = periodCfg(hw.term || crmCurrentTerm(), 'kind:homework').starts;
+  const plan = planHomeworkScoreSync(ids, counted, homeworkStatusIndex(hw.statusRows), column.max_score, existing, starts);
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
@@ -188,9 +174,9 @@ function crmSheetHeaderText(s){
 /* ============ وضع المشاركة ============ */
 /* toolId: أداة "عدّاد" خاصة (app-23) — لكل أداة سجلها؛ المفتاح ينتهي دومًا بـ شعبة|تاريخ|حصة */
 function participationTodayKey(s, toolId, period){
-  /* "يبدأ من الكاملة" له سجل نقرات وتراجع مستقل (اتجاه النقرة مختلف)، وكذلك الفترة الثانية */
+  /* "يبدأ من الكاملة" له سجل نقرات وتراجع مستقل (اتجاه النقرة مختلف)، وكذلك كل فترة بعد الأولى */
   const full = gradeStartsFull(toolId ? 'tool:' + toolId : 'participation') ? 'full:' : '';
-  const per = period === 2 ? 'p2:' : '';
+  const per = period > 1 ? 'p' + period + ':' : '';
   return 'crm_part:' + (currentUser && currentUser.id) + ':' + full + per + (toolId ? toolId + ':' : '') + lessonKey(s.sectionId, s.dateIso, s.period);
 }
 
@@ -233,29 +219,28 @@ async function renderCrmParticipation(students, tool){
   const s = crmSheet;
   const mode = tool ? 'tool:' + tool.id : 'participation';
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
-  let column = null, scores = new Map(), capError = null, period = null;
+  let column = null, scores = new Map(), capError = null;
+  /* الرصد دائمًا بدرجة فترة (app-27) — بفترة واحدة: الأولى؛ وفترة الحصة من إعداد المكوّن */
+  const pinfo = sheetPeriodInfo(s);
+  const period = pinfo ? pinfo.period : 1;
   try{
     if(tool){
       const r = await ensureToolColumn(tool, s.sectionId, crmCurrentTerm());
       column = r.column || null;
       capError = r.error ? r : null;
     } else {
-      const term = crmCurrentTerm();
-      [column, s.periods] = await Promise.all([findKindColumn(s.sectionId, term, 'participation'), loadGradePeriods(term)]);
-      period = periodOfDate(s.dateIso, s.periods.start); /* المشاركة فترتان (app-27) */
+      column = await findKindColumn(s.sectionId, crmCurrentTerm(), 'participation');
     }
     if(column){
       const { data, error } = await sb.from('classroom_grade_scores').select('student_id, score')
         .eq('teacher_id', currentUser.id).eq('column_id', column.id);
       if(error) throw error;
-      scores = new Map((data || []).map(r => [r.student_id, Number(r.score)]));
-      if(period) scores = currentPeriodScores(scores, await loadPeriodRows(column.id), period);
+      scores = currentPeriodScores(new Map((data || []).map(r => [r.student_id, Number(r.score)])), await loadPeriodRows(column.id), period);
       if(gradeStartsFull(tool ? 'tool:' + tool.id : 'participation')){
-        (period ? await fillStartFullPeriodScores(column, students.map(st => st.id), period, scores)
-          : await fillStartFullScores(column, students.map(st => st.id), scores)).forEach(id => scores.set(id, Number(column.max_score)));
+        (await fillStartFullPeriodScores(column, students.map(st => st.id), period, scores)).forEach(id => scores.set(id, Number(column.max_score)));
       }
     }
   } catch(e){
@@ -277,10 +262,10 @@ async function renderCrmParticipation(students, tool){
   const saved = readParticipationState(s, tool ? tool.id : null, period);
   const full = gradeStartsFull(tool ? 'tool:' + tool.id : 'participation');
   s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full, step: full ? -1 : 1, period };
-  /* المشاركة تُرصد دائمًا في درجة فترة (بفترة واحدة: الأولى)؛ الشارة والشرح لمن فعّل الفترتين */
-  const shown = period && s.periods.on ? period : null;
+  /* الشارة والشرح للمكوّن الذي له أكثر من فترة */
+  const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترتين. ` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. ` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <div class="crm-att-btn crm-part-tile${crmAbsentClass(s, st.id)}" id="crmPart_${st.id}">
@@ -419,13 +404,13 @@ function crmAbsentClass(s, studentId){
 async function renderCrmHomework(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
   let hw, column;
   try{
-    [hw, column, s.periods] = await Promise.all([loadSectionHomework(s.sectionId, term), findKindColumn(s.sectionId, term, 'homework'), loadGradePeriods(term)]);
+    [hw, column] = await Promise.all([loadSectionHomework(s.sectionId, term), findKindColumn(s.sectionId, term, 'homework')]);
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== 'homework') return;
     body.innerHTML = head + `<div class="empty-state">تعذّر التحميل. <button class="btn btn-outline crm-mini-btn" onclick="setCrmSheetMode('homework')">إعادة المحاولة</button></div>`;
@@ -441,17 +426,17 @@ async function renderCrmHomework(students, selectId){
     return;
   }
   const statuses = homeworkStatusIndex(hw.statusRows).get(selectedId) || new Map();
-  const start = s.periods.start, perOn = s.periods.on;
+  const hcfg = periodCfg(term, 'kind:homework'), perOn = hcfg.n > 1;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}` + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${perOn ? ' · ' + PERIOD_NAMES[periodOfDate(h.due_date, start)] : ''}</option>`).join('')}
+        ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${perOn ? ' · ' + PERIOD_NAMES[Math.min(hcfg.n, periodOfDateFor(h.due_date, hcfg.starts))] : ''}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل أو حذف الواجب المختار" onclick="openCrmHomeworkEditor(crmSheet.hw && crmSheet.hw.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترتين. ' : ''}${gradeStartsFull('homework') ? 'الأصل "سلّم" — اضغط: <b style="color:#8A2C2C;">لم يسلّم</b> ← ناقص ← متأخر ← سلّم' : 'الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم'}. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}${gradeStartsFull('homework') ? 'الأصل "سلّم" — اضغط: <b style="color:#8A2C2C;">لم يسلّم</b> ← ناقص ← متأخر ← سلّم' : 'الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم'}. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">
