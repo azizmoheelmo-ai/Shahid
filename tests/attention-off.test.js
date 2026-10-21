@@ -38,7 +38,7 @@ test('تبويب اليوم — بلا "حضور لم يُرصد" ولا "شعب
     return { html: runInAppContext(app, 'window.__box.innerHTML'), plans: runInAppContext(app, 'window.__plansLoaded') };
   };
   const off = await render(false);
-  assert.match(off.html, /حصص اليوم/);
+  assert.match(off.html, /class="crm-hero"/, 'بطاقة الحصة الآن');
   assert.doesNotMatch(off.html, /لم يُرصد/);
   assert.doesNotMatch(off.html, /شعبي/);
   assert.doesNotMatch(off.html, /خططي/);

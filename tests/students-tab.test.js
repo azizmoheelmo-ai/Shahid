@@ -197,5 +197,7 @@ test('الجدول الأسبوعي في تبويب "اليوم" لا "الطل�
     document.getElementById('crmTabToday').style.display = 'none';`);
   app.openCrmTimetableEditor();
   assert.deepEqual([...get(app, 'window.__tabs')], ['today']);
-  assert.equal(get(app, `document.getElementById('crmTimetableBody').style.display`), 'block');
+  assert.equal(get(app, `document.getElementById('crmTimetableSection').style.display`), 'block');
+  app.toggleCrmTimetable();
+  assert.equal(get(app, `document.getElementById('crmTimetableSection').style.display`), 'none', 'مربّع "جدولي" يغلقه أيضًا');
 });

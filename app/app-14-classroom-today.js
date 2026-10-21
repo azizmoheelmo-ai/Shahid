@@ -3,10 +3,10 @@
    (14) إدارة الصف — "اليوم" + الجدول الأسبوعي + ورقة رصد الحصة
    ------------------------------------------------------------
    الدفعة 2 من إعادة تصميم إدارة الصف:
-   - الجدول الأسبوعي (اختياري): يوم + رقم حصة ← شعبة. بلا أوقات عمدًا —
-     أوقات الحصص تتغير (رمضان، الاختبارات، الأيام المختصرة) فتصير "الحصة
-     الآن" خاطئة؛ بدلها نُبرز أول حصة لم تُرصد اليوم.
-   - "اليوم": حصص اليوم بحالتها، الحصص غير المرصودة آخر 7 أيام، وشعبي.
+   - الجدول الأسبوعي (اختياري): يوم + رقم حصة ← شعبة. بلا أوقات يُدخلها المعلم —
+     أوقات الحصص تتغير (رمضان، الاختبارات، الأيام المختصرة)؛ "الحصة الآن" تُتعلَّم
+     من وقت رصده المعتاد لكل حصة، وبدونه أول حصة لم تُرصد.
+   - "اليوم": بطاقة الحصة الآن بمربّعات أدواتها، ثم المتبقية/المنجزة، وخططي وجدولي.
    - ورقة الحصة: الأصل "حاضر"، نقرة تبدّل الحالة (غائب ← متأخر ← مستأذن)،
      والحفظ عملية واحدة بالقاعدة (save_lesson_attendance) حتى لا تبقى حصة
      "مرصودة" بلا غيابها. الحصة غير المحفوظة ليست "حضورًا".
@@ -217,9 +217,156 @@ function crmStudentsOfSection(sectionId){
 }
 
 /* ============================================================
+   "الحصة الآن" بلا أوقات يُدخلها المعلم: تُتعلَّم من وقت رصده المعتاد لكل حصة
+   (created_at للحصص المرصودة في يومها). أوقات الجرس تتغير (رمضان، الاختبارات)
+   فلا تُخزَّن أصلًا: آخر الرصدات تغلب، و"ليست هي؟" تصحّح اليوم بنقرة.
+   بلا تعلّم كافٍ: أول حصة لم تُرصد بعد آخر حصة رُصدت اليوم.
+   ============================================================ */
+const LEARN_MIN_SAMPLES = 2;        /* رصدتان على الأقل لكل حصة */
+const LEARN_RECENT_SAMPLES = 8;     /* آخر 8 رصدات فقط — تتكيّف مع تغيّر الجدول */
+const LEARN_DAY_START = 5 * 60;     /* رصد خارج الدوام (ليلًا) لا يدل على وقت الحصة */
+const LEARN_DAY_END = 16 * 60;
+const FOCUS_BEFORE_DAY = 40;        /* قبل أول حصة بأكثر من هذا = "أول حصة اليوم" */
+const FOCUS_AFTER_DAY = 45;         /* بعد آخر حصة بأكثر من هذا = انتهى اليوم */
+const FOCUS_NOW_WINDOW = 30;        /* ضمن هذا من وقتها المعتاد = "الآن" */
+
+function minutesOfDay(d){ return d.getHours() * 60 + d.getMinutes(); }
+
+/* { رقم الحصة: دقيقة اليوم المعتادة } أو null إن لم يُعرف ما يكفي (أقل من حصتين) */
+function learnPeriodTimes(lessons){
+  const by = new Map();
+  (lessons || []).forEach(l => {
+    if(l.period == null || !l.created_at) return;
+    const d = new Date(l.created_at);
+    if(isNaN(d.getTime()) || localIsoDate(d) !== l.lesson_date) return; /* رُصدت في يوم آخر */
+    const m = minutesOfDay(d);
+    if(m < LEARN_DAY_START || m > LEARN_DAY_END) return;
+    if(!by.has(l.period)) by.set(l.period, []);
+    by.get(l.period).push({ at: d.getTime(), m });
+  });
+  const out = {};
+  let prev = -1;
+  [...by.keys()].sort((a, b) => a - b).forEach(p => {
+    const xs = by.get(p).sort((a, b) => b.at - a.at).slice(0, LEARN_RECENT_SAMPLES).map(x => x.m).sort((a, b) => a - b);
+    if(xs.length < LEARN_MIN_SAMPLES) return;
+    const mid = xs.length >> 1;
+    const med = xs.length % 2 ? xs[mid] : Math.round((xs[mid - 1] + xs[mid]) / 2);
+    if(med <= prev) return; /* يخالف ترتيب الحصص — لا يُعتمد */
+    out[p] = med;
+    prev = med;
+  });
+  return Object.keys(out).length >= 2 ? out : null;
+}
+
+/* وقت حصة لم يُتعلَّم مباشرة: بين جارتيها، أو بمتوسط طول الحصة من الطرف */
+function estimatePeriodMinutes(period, learned){
+  if(!learned) return null;
+  if(learned[period] != null) return learned[period];
+  const ps = Object.keys(learned).map(Number).sort((a, b) => a - b);
+  const lo = ps.filter(x => x < period).pop();
+  const hi = ps.find(x => x > period);
+  if(lo != null && hi != null) return Math.round(learned[lo] + (learned[hi] - learned[lo]) * (period - lo) / (hi - lo));
+  const gap = (learned[ps[ps.length - 1]] - learned[ps[0]]) / (ps[ps.length - 1] - ps[0]);
+  return lo != null ? Math.round(learned[lo] + gap * (period - lo)) : Math.round(learned[hi] - gap * (hi - period));
+}
+
+/* الحصة المعروضة في البطاقة الكبيرة.
+   pick = تصحيح المعلم اليوم { period, atMin }: مع الأوقات المتعلَّمة يُزاح اليوم كله
+   (رمضان: كل الحصص متأخرة)، وبدونها تُثبَّت تلك الحصة حتى تُرصد.
+   الحالة: now | near | first | next | over | done */
+function pickTodayFocus(rows, nowMin, learned, pick){
+  const open = (rows || []).map((r, i) => ({ r, i })).filter(x => !x.r.skip);
+  if(!open.length) return { index: -1, state: 'done', byClock: false };
+  const validPick = pick && rows.some(r => r.period === pick.period) ? pick : null;
+  if(learned){
+    let now = nowMin;
+    if(validPick) now = nowMin + (estimatePeriodMinutes(validPick.period, learned) - validPick.atMin);
+    const t = x => estimatePeriodMinutes(x.r.period, learned);
+    const first = open[0], last = open[open.length - 1];
+    if(now < t(first) - FOCUS_BEFORE_DAY) return { index: first.i, state: 'first', byClock: true };
+    if(now > t(last) + FOCUS_AFTER_DAY) return { index: -1, state: 'over', byClock: true };
+    let best = first;
+    open.forEach(x => { if(Math.abs(now - t(x)) < Math.abs(now - t(best))) best = x; });
+    return { index: best.i, state: Math.abs(now - t(best)) <= FOCUS_NOW_WINDOW ? 'now' : 'near', byClock: true };
+  }
+  if(validPick){
+    const pi = rows.findIndex(r => r.period === validPick.period && !r.recorded && !r.skip);
+    if(pi !== -1) return { index: pi, state: 'next', byClock: false };
+  }
+  const lastRec = rows.reduce((m, r, i) => (r.recorded ? i : m), -1);
+  let idx = rows.findIndex((r, i) => i > lastRec && !r.recorded && !r.skip);
+  if(idx === -1) idx = rows.findIndex(r => !r.recorded && !r.skip);
+  return idx === -1 ? { index: -1, state: 'done', byClock: false } : { index: idx, state: 'next', byClock: false };
+}
+
+/* مربّعات الأدوات في البطاقة الكبيرة: 4 على الأكثر (الرابع "المزيد" إن زادت).
+   الذهبي = من أين يبدأ: الحضور ما لم يُرصد، ثم الأداة التي تليه. */
+const TODAY_TILE_LABELS = { attendance: 'الحضور', participation: 'المشاركة', homework: 'الواجب', task: 'المهام', test: 'الاختبار' };
+const TODAY_TILE_ICONS = { attendance: '👥', participation: '👆', homework: '📝', task: '🎯', test: '🧪' };
+const TODAY_TOOL_ICONS = { counter: '🔢', status: '✅', score: '💯' };
+
+function todayToolTiles(modes, recorded){
+  const list = modes.length > 4 ? modes.slice(0, 3) : modes.slice();
+  const tiles = list.map(mode => ({ mode, more: false, gold: false, done: false, sub: '' }));
+  if(modes.length > 4) tiles.push({ mode: modes[3], more: true, gold: false, done: false, sub: '', rest: modes.slice(3) });
+  const att = tiles.find(t => t.mode === 'attendance' && !t.more);
+  if(att && !recorded){ att.gold = true; att.sub = 'ابدأ هنا'; }
+  else {
+    if(att){ att.done = true; att.sub = 'رُصد'; }
+    const next = tiles.find(t => t.mode !== 'attendance' && !t.more);
+    if(next && att){ next.gold = true; next.sub = 'التالي'; }
+  }
+  return tiles;
+}
+
+function todayTileLabel(mode){
+  return TODAY_TILE_LABELS[mode] || (typeof sheetModeLabel === 'function' ? sheetModeLabel(mode) : mode);
+}
+
+function todayTileIcon(mode){
+  if(String(mode).indexOf('tool:') === 0){
+    const t = typeof customToolById === 'function' ? customToolById(mode.slice(5)) : null;
+    return (t && TODAY_TOOL_ICONS[t.tool_type]) || '⭐';
+  }
+  return TODAY_TILE_ICONS[mode] || '•';
+}
+
+/* ---- تصحيح "ليست هي؟" (لهذا اليوم ولهذا المستخدم فقط) ---- */
+const NOW_PICK_PREFIX = 'crm_now_pick:';
+
+function readCrmNowPick(todayIso){
+  try{
+    const raw = localStorage.getItem(NOW_PICK_PREFIX + currentUser.id + ':' + todayIso);
+    const v = raw ? JSON.parse(raw) : null;
+    return v && Number.isInteger(v.period) && typeof v.atMin === 'number' ? v : null;
+  } catch(e){ return null; }
+}
+
+function writeCrmNowPick(todayIso, pick){
+  try{
+    for(let i = localStorage.length - 1; i >= 0; i--){
+      const k = localStorage.key(i);
+      if(k && k.indexOf(NOW_PICK_PREFIX) === 0) localStorage.removeItem(k); /* أيام سابقة لا قيمة لها */
+    }
+    if(pick) localStorage.setItem(NOW_PICK_PREFIX + currentUser.id + ':' + todayIso, JSON.stringify(pick));
+  } catch(e){ /* تخزين غير متاح — التصحيح يبقى في الذاكرة لهذه الجلسة */ }
+  crmNowPickMemo = { todayIso, uid: currentUser.id, pick };
+}
+
+let crmNowPickMemo = null;
+function currentCrmNowPick(todayIso){
+  if(crmNowPickMemo && crmNowPickMemo.todayIso === todayIso && crmNowPickMemo.uid === currentUser.id) return crmNowPickMemo.pick;
+  return readCrmNowPick(todayIso);
+}
+
+/* ============================================================
    تبويب "اليوم"
    ============================================================ */
 let crmTodayRenderToken = 0;
+let crmTodayData = null;      /* آخر ما حُمّل — يُعاد الرسم منه كل دقيقة بلا شبكة */
+let crmTodayListTab = null;   /* 'left' | 'done' */
+let crmTodayPlansOpen = false;
+let crmTodayTimer = null;
 
 /* بطاقة "شعبي" في تبويب اليوم — موقوفة لتبسيط الصفحة (true يعيدها) */
 const TODAY_SECTIONS_CARD_ON = false;
@@ -229,20 +376,26 @@ async function renderCrmToday(){
   if(!box) return;
   const token = ++crmTodayRenderToken;
   const todayIso = localIsoDate();
+  const uid = currentUser.id;
   box.innerHTML = '<div class="loading-state">جارٍ التحميل...</div>';
 
   const since = addDaysIso(todayIso, -7);
-  const [ttOk, lessonsRes, holidayCheck, attention, skipsRes, plans] = await Promise.all([
+  const [ttOk, lessonsRes, holidayCheck, attention, skipsRes, plans, learnRes] = await Promise.all([
     loadCrmTimetable(),
     sb.from('classroom_lessons').select('id, section_id, lesson_date, period, updated_at')
-      .eq('teacher_id', currentUser.id).gte('lesson_date', since).lte('lesson_date', todayIso),
+      .eq('teacher_id', uid).gte('lesson_date', since).lte('lesson_date', todayIso),
     crmHolidayChecker(),
     getAttentionFresh(),
     sb.from('classroom_lesson_skips').select('id, section_id, lesson_date, period, note')
-      .eq('teacher_id', currentUser.id).gte('lesson_date', since).lte('lesson_date', todayIso),
-    appSectionOn('shahid') ? loadLessonPlans().catch(() => null) : Promise.resolve(null)
+      .eq('teacher_id', uid).gte('lesson_date', since).lte('lesson_date', todayIso),
+    appSectionOn('shahid') ? loadLessonPlans().catch(() => null) : Promise.resolve(null),
+    /* أوقات الرصد للتعلّم — فشلها لا يعطّل شيئًا (نرجع لـ"أول غير مرصودة") */
+    Promise.resolve(sb.from('classroom_lessons').select('period, lesson_date, created_at')
+      .eq('teacher_id', uid).gte('lesson_date', addDaysIso(todayIso, -60)).lte('lesson_date', todayIso)
+      .order('lesson_date', { ascending: false }).limit(800)).catch(() => null)
   ]);
   if(token !== crmTodayRenderToken) return; /* طُلب رسم أحدث أثناء الانتظار (تغيّر الفصل/السنة) */
+  if(!currentUser || currentUser.id !== uid) return;
   if(!ttOk || lessonsRes.error){
     box.innerHTML = '<div class="empty-state">تعذّر تحميل بيانات اليوم. <button class="btn btn-outline" style="padding:3px 10px;font-size:11.5px;" onclick="renderCrmToday()">إعادة المحاولة</button></div>';
     return;
@@ -254,67 +407,93 @@ async function renderCrmToday(){
   let attendance = [];
   if(TODAY_SECTIONS_CARD_ON && lessons.length){
     const { data: att, error: aErr } = await sb.from('classroom_attendance').select('lesson_id, status')
-      .eq('teacher_id', currentUser.id).in('lesson_id', lessons.map(l => l.id));
+      .eq('teacher_id', uid).in('lesson_id', lessons.map(l => l.id));
     if(token !== crmTodayRenderToken) return;
     if(!aErr) attendance = att || [];
   }
+  const learned = learnRes && !learnRes.error ? learnPeriodTimes(learnRes.data || []) : null;
+  if(!crmTodayData || crmTodayData.todayIso !== todayIso){ crmTodayListTab = null; crmTodayPlansOpen = false; }
+  crmTodayData = { token, todayIso, uid, lessons, skips, plans, attention, attendance, learned, holidayName: holidayCheck.nameFor(todayIso),
+    unrecorded: ATTENTION_ALERTS_ON ? findUnrecordedLessons(crmTimetableSlots, lessons, todayIso, 7, d => !!holidayCheck.nameFor(d), skips) : [] };
+  paintCrmToday();
+  ensureCrmTodayTimer();
+}
 
+/* "الحصة الآن" تتبدّل مع الساعة: إعادة رسم من البيانات المحمّلة كل دقيقة،
+   فقط والتبويب ظاهر، وفقط إن تغيّرت الحصة المعروضة */
+function ensureCrmTodayTimer(){
+  if(crmTodayTimer) return;
+  crmTodayTimer = setInterval(() => {
+    const d = crmTodayData;
+    const tab = document.getElementById('crmTabToday');
+    const view = document.getElementById('classroomView');
+    if(!d || !currentUser || d.uid !== currentUser.id || !tab || tab.style.display === 'none' || !view || view.style.display === 'none') return;
+    if(d.todayIso !== localIsoDate()){ renderCrmToday(); return; }
+    const f = crmTodayFocus(d);
+    if(!d.focus || f.index !== d.focus.index || f.state !== d.focus.state) paintCrmToday();
+  }, 60000);
+  if(crmTodayTimer && typeof crmTodayTimer.unref === 'function') crmTodayTimer.unref();
+}
+
+function crmTodayRows(d){
+  return planDayLessons(crmTimetableSlots, d.todayIso, d.lessons, d.skips).rows;
+}
+
+function crmTodayFocus(d){
+  return pickTodayFocus(crmTodayRows(d), minutesOfDay(new Date()), d.learned, currentCrmNowPick(d.todayIso));
+}
+
+function paintCrmToday(){
+  const box = document.getElementById('crmTodayBody');
+  const d = crmTodayData;
+  /* تحميل أحدث جارٍ (تغيّر الفصل/السنة): لا يُرسم القديم فوقه */
+  if(!box || !d || !currentUser || d.uid !== currentUser.id || d.token !== crmTodayRenderToken) return;
+  const todayIso = d.todayIso;
   const todayName = CRM_WEEKDAY_NAMES[weekdayOfIso(todayIso)];
   let dateText = todayIso;
   try{ dateText = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { day: 'numeric', month: 'long' }).format(new Date()); } catch(e){}
-  const holidayName = holidayCheck.nameFor(todayIso);
-
-  let html = `<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px;">${todayName} ${escapeHtml(dateText)}</div>`;
+  const dayLabel = `${todayName} ${escapeHtml(dateText)}`;
 
   if(!crmSections.length){
-    box.innerHTML = html + '<div class="empty-state">ابدأ من تبويب "الطلاب": أضف المرحلة والشعب، ثم طلابك. بعدها تستطيع رصد الحصص من هنا.</div>';
+    box.innerHTML = `<div class="crm-hero is-off"><div class="crm-hero-k">${dayLabel}</div><div class="crm-hero-sub">ابدأ من تبويب "الطلاب": أضف المرحلة والشعب، ثم طلابك. بعدها تستطيع رصد الحصص من هنا.</div></div>`;
     return;
   }
 
-  /* ---- حصص اليوم ---- */
-  html += '<div class="crm-today-card"><div class="crm-today-title">حصص اليوم</div>';
-  if(holidayName){
-    html += `<div class="crm-today-empty">إجازة: ${escapeHtml(holidayName)}</div>`;
+  let html = '';
+  const extraBtn = `<button type="button" class="crm-extra-btn" onclick="toggleCrmExtraLesson()">+ رصد حصة خارج الجدول</button>
+    <div id="crmExtraLessonBox" style="display:none;margin:-4px 0 10px;">${crmSectionButtonsHtml(todayIso)}</div>`;
+
+  if(d.holidayName){
+    d.focus = null;
+    html += `<div class="crm-hero is-off"><div class="crm-hero-k">${dayLabel}</div><b class="crm-hero-t">إجازة: ${escapeHtml(d.holidayName)}</b></div>`;
+    html += extraBtn;
   } else if(!crmTimetableSlots.length){
-    html += `<div class="crm-today-empty">لم تضبط جدولك الأسبوعي (اختياري — يجعل رصد حصة اليوم بنقرة). <a href="#" onclick="event.preventDefault();openCrmTimetableEditor()">ضبط الجدول</a></div>`;
-    html += crmSectionButtonsHtml(todayIso);
+    d.focus = null;
+    html += `<div class="crm-hero is-off"><div class="crm-hero-k">${dayLabel}</div><b class="crm-hero-t">رصد حصة</b>
+      <div class="crm-hero-sub">اختر الشعبة. ولتظهر حصصك هنا تلقائيًا كل يوم: <a href="#" onclick="event.preventDefault();openCrmTimetableEditor()">اضبط جدولك الأسبوعي</a> (اختياري).</div>
+      ${crmSectionButtonsHtml(todayIso)}</div>`;
   } else {
-    const plan = planDayLessons(crmTimetableSlots, todayIso, lessons, skips);
-    if(!plan.rows.length){
-      html += '<div class="crm-today-empty">لا حصص في جدولك اليوم.</div>';
+    const rows = crmTodayRows(d);
+    if(!rows.length){
+      d.focus = null;
+      html += `<div class="crm-hero is-off"><div class="crm-hero-k">${dayLabel}</div><b class="crm-hero-t">لا حصص في جدولك اليوم</b></div>`;
+      html += extraBtn;
     } else {
-      html += plan.rows.map((r, i) => {
-        const label = escapeHtml(crmSectionLabel(r.section_id));
-        const isNext = i === plan.nextIndex;
-        const action = r.recorded
-          ? `<span class="crm-lesson-done">الحضور ✓</span><button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">أكمل الرصد ←</button>`
-          : r.skip
-            ? `<button class="btn btn-outline crm-mini-btn" onclick="undoCrmLessonSkip('${r.skip.id}')">تراجع</button>`
-            : `<button class="crm-skip-btn" onclick="openCrmSkipModal('${r.section_id}','${todayIso}',${r.period})">لم أحضر</button><button class="btn ${isNext ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">رصد</button>`;
-        const skipText = r.skip ? `<div class="crm-skip-note">لم تحضرها${r.skip.note ? ' — ' + escapeHtml(r.skip.note) : ''}</div>` : '';
-        return `<div class="crm-lesson-row${isNext ? ' is-next' : ''}${r.skip ? ' is-skipped' : ''}">
-          <span><b>الحصة ${r.period}</b> · ${label}${skipText}${planBadgeForLesson(plans, todayIso, r.section_id, r.period)}</span>
-          <span class="crm-lesson-actions">${action}</span>
-        </div>`;
-      }).join('');
+      const focus = crmTodayFocus(d);
+      d.focus = focus;
+      html += crmTodayHeroHtml(d, rows, focus, dayLabel);
+      html += crmTodayListsHtml(d, rows, focus);
+      html += extraBtn;
     }
   }
-  html += `<div style="margin-top:8px;"><a href="#" style="font-size:11.5px;" onclick="event.preventDefault();toggleCrmExtraLesson()">+ رصد حصة خارج الجدول</a></div>
-    <div id="crmExtraLessonBox" style="display:none;margin-top:6px;">${crmSectionButtonsHtml(todayIso)}</div>`;
-  html += '</div>';
 
-  /* ---- خططي (أخطط ← أنفّذ ← أوثّق) ---- */
-  /* خططي: مرتبطة بالشواهد (نموذج الشاهد ← خطة) — تظهر لمن فعّل قسم الشواهد */
-  if(appSectionOn('shahid')) html += lessonPlansTodayHtml(plans, todayIso);
+  html += crmTodayMiniTilesHtml(d);
 
-  /* ---- يحتاج انتباهي (أعلى 5) ---- */
-  html += attentionTodaySectionHtml(attention);
-
-  /* ---- غير المرصود ---- (تنبيه: موقوف مع بقية التنبيهات) */
-  const unrecorded = ATTENTION_ALERTS_ON ? findUnrecordedLessons(crmTimetableSlots, lessons, todayIso, 7, d => !!holidayCheck.nameFor(d), skips) : [];
-  if(unrecorded.length){
-    html += `<div class="crm-today-card crm-today-warn"><div class="crm-today-title">⚠ حضور لم يُرصد (آخر 7 أيام): ${unrecorded.length}</div>`;
-    html += unrecorded.map(u => `<div class="crm-lesson-row">
+  /* ---- يحتاج انتباهي / غير المرصود ---- (موقوفان مع بقية التنبيهات) */
+  html += attentionTodaySectionHtml(d.attention);
+  if(d.unrecorded.length){
+    html += `<div class="crm-today-card crm-today-warn"><div class="crm-today-title">⚠ حضور لم يُرصد (آخر 7 أيام): ${d.unrecorded.length}</div>`;
+    html += d.unrecorded.map(u => `<div class="crm-lesson-row">
         <span>${CRM_WEEKDAY_NAMES[u.weekday]} ${u.date.slice(5).replace('-', '/')} · الحصة ${u.period} · ${escapeHtml(crmSectionLabel(u.section_id))}</span>
         <span class="crm-lesson-actions"><button class="crm-skip-btn" onclick="openCrmSkipModal('${u.section_id}','${u.date}',${u.period})">لم أحضر</button><button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${u.section_id}','${u.date}',${u.period})">رصد</button></span>
       </div>`).join('');
@@ -327,8 +506,8 @@ async function renderCrmToday(){
     const sortedSections = crmSections.slice().sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar', { numeric: true }));
     html += sortedSections.map(sec => {
       const studentCount = crmStudentsOfSection(sec.id).length;
-      const secLessons = lessons.filter(l => l.section_id === sec.id);
-      const rate = sectionAttendanceRate(secLessons, attendance, studentCount);
+      const secLessons = d.lessons.filter(l => l.section_id === sec.id);
+      const rate = sectionAttendanceRate(secLessons, d.attendance, studentCount);
       const rateText = rate === null ? 'لا رصد هذا الأسبوع' : `حضور الأسبوع ${rate}%`;
       return `<div class="crm-lesson-row"><span>${escapeHtml(crmSectionOptionLabel(sec))}</span>
         <span style="font-size:11.5px;color:var(--muted);">${studentCount ? arabicCountPhrase(studentCount, CRM_STUDENT_COUNT_FORMS) : 'لا طلاب مربوطون'} · ${rateText}</span></div>`;
@@ -337,6 +516,166 @@ async function renderCrmToday(){
   }
 
   box.innerHTML = html;
+}
+
+function crmTodayHeroHtml(d, rows, focus, dayLabel){
+  const todayIso = d.todayIso;
+  const active = rows.filter(r => !r.skip);
+  const recCount = active.filter(r => r.recorded).length;
+  const badge = `<span class="crm-hero-badge">${recCount}/${active.length} ✓</span>`;
+  const pickLink = `<a href="#" onclick="event.preventDefault();toggleCrmNowPick()">ليست هي؟</a>`;
+  const pickBox = crmNowPickBoxHtml(d, rows);
+
+  if(focus.index === -1){
+    const skipped = rows.length - active.length;
+    const allDone = recCount === active.length;
+    const title = focus.state === 'over' ? 'انتهت حصص اليوم' : (allDone ? '✓ رُصدت حصص اليوم' : 'حصص اليوم');
+    return `<div class="crm-hero${allDone ? ' is-done' : ''}">
+      <div class="crm-hero-top"><span class="crm-hero-k">${dayLabel}</span>${badge}</div>
+      <b class="crm-hero-t">${title}</b>
+      <div class="crm-hero-sub">رصدت ${recCount} من ${active.length}${skipped ? ' · لم تحضر ' + skipped : ''}</div>
+      ${focus.byClock ? `<div class="crm-hero-why">⏱ حسب وقت رصدك المعتاد · ${pickLink}</div>${pickBox}` : ''}
+    </div>`;
+  }
+
+  const r = rows[focus.index];
+  const kicker = focus.state === 'now' ? `الحصة ${r.period} الآن`
+    : focus.state === 'first' ? `أول حصة اليوم: ${r.period}`
+    : focus.state === 'next' ? `الحصة التالية: ${r.period}`
+    : `الحصة ${r.period}`;
+  const studentCount = crmStudentsOfSection(r.section_id).length;
+  const plan = typeof planBadgeForLesson === 'function' ? planBadgeForLesson(d.plans, todayIso, r.section_id, r.period) : '';
+  const why = focus.byClock ? `⏱ حسب وقت رصدك المعتاد · ${pickLink}` : pickLink;
+  return `<div class="crm-hero">
+    <div class="crm-hero-top"><span class="crm-hero-k">${dayLabel} · ${kicker}</span>${badge}
+      <button type="button" class="crm-hero-more" aria-label="خيارات الحصة" onclick="openCrmLessonActions('${r.section_id}','${todayIso}',${r.period})">⋯</button></div>
+    <b class="crm-hero-t">${escapeHtml(crmSectionLabel(r.section_id))}</b>
+    <div class="crm-hero-sub">${studentCount ? arabicCountPhrase(studentCount, CRM_STUDENT_COUNT_FORMS) : 'لا طلاب مربوطون'}</div>
+    ${plan}
+    ${crmTodayTilesHtml(r, todayIso)}
+    <div class="crm-hero-why">${why}</div>
+    ${pickBox}
+  </div>`;
+}
+
+function crmTodayTilesHtml(r, todayIso){
+  const modes = typeof enabledSheetModes === 'function' ? enabledSheetModes() : ['attendance'];
+  const open = mode => `openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period}${mode ? `,'${mode}'` : ''})`;
+  if(modes.length <= 1){
+    const label = modes.length ? `${todayTileIcon(modes[0])} رصد ${escapeHtml(todayTileLabel(modes[0]))} ←` : 'رصد ←';
+    return `<button type="button" class="crm-hero-go" onclick="${open(modes[0])}">${label}</button>`;
+  }
+  const tiles = todayToolTiles(modes, r.recorded);
+  return `<div class="crm-tiles">${tiles.map(t => {
+    const cls = 'crm-tile' + (t.gold ? ' is-gold' : '') + (t.done ? ' is-done' : '') + (t.more ? ' is-more' : '');
+    const name = t.more ? 'المزيد' : todayTileLabel(t.mode);
+    const sub = t.more ? t.rest.map(todayTileLabel).join('، ') : t.sub;
+    return `<button type="button" class="${cls}" onclick="${open(t.mode)}">
+      <span class="crm-tile-ic">${t.more ? '＋' + t.rest.length : todayTileIcon(t.mode)}</span>
+      <b>${escapeHtml(name)}</b><small>${escapeHtml(sub) || '&nbsp;'}</small></button>`;
+  }).join('')}</div>`;
+}
+
+function crmNowPickBoxHtml(d, rows){
+  const pick = currentCrmNowPick(d.todayIso);
+  const chips = rows.filter(r => !r.skip).map(r =>
+    `<button type="button" class="${pick && pick.period === r.period ? 'is-on' : ''}" onclick="pickCrmNowPeriod(${r.period})">${r.period}</button>`).join('');
+  return `<div class="crm-nowpick" id="crmNowPickBox" style="display:none;">
+    <div class="crm-nowpick-q">أي حصة الآن؟</div>
+    <div class="crm-nowpick-cs">${chips}${pick ? '<button type="button" onclick="pickCrmNowPeriod(null)">تلقائي</button>' : ''}</div></div>`;
+}
+
+function toggleCrmNowPick(){
+  const b = document.getElementById('crmNowPickBox');
+  if(b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
+}
+
+function pickCrmNowPeriod(period){
+  const d = crmTodayData;
+  if(!d || !currentUser || d.uid !== currentUser.id) return;
+  writeCrmNowPick(d.todayIso, period == null ? null : { period: Number(period), atMin: minutesOfDay(new Date()) });
+  paintCrmToday();
+}
+
+function crmTodayListsHtml(d, rows, focus){
+  const todayIso = d.todayIso;
+  const left = rows.filter(r => !r.recorded && !r.skip);
+  const done = rows.filter(r => r.recorded || r.skip);
+  if(!crmTodayListTab) crmTodayListTab = left.length ? 'left' : 'done';
+  const focusRow = focus.index !== -1 ? rows[focus.index] : null;
+  const label = r => escapeHtml(crmSectionLabel(r.section_id)); /* رقم الحصة في مربّعها */
+  const more = r => `<button type="button" class="crm-lrow-more" aria-label="خيارات الحصة" onclick="openCrmLessonActions('${r.section_id}','${todayIso}',${r.period})">⋯</button>`;
+  const plan = r => typeof planBadgeForLesson === 'function' ? planBadgeForLesson(d.plans, todayIso, r.section_id, r.period) : '';
+  const leftHtml = left.length ? left.map(r => {
+    const isFocus = r === focusRow;
+    const chip = isFocus ? `<span class="gs-chip now">${focus.state === 'now' ? 'الآن' : 'التالية'}</span>` : '';
+    return `<div class="crm-lrow"><span class="crm-lrow-no" aria-label="الحصة ${r.period}">${r.period}</span>
+      <div class="crm-lrow-main"><b>${label(r)}</b>${chip ? `<div class="gs-chips">${chip}</div>` : ''}${plan(r)}</div>
+      <button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">رصد</button>${more(r)}</div>`;
+  }).join('') : '<div class="crm-today-empty" style="padding:8px 2px;">لا حصص متبقية اليوم.</div>';
+  const doneHtml = done.length ? done.map(r => r.recorded
+    ? `<div class="crm-lrow is-done"><span class="crm-lrow-no is-ok" aria-label="الحصة ${r.period}">${r.period}</span>
+        <div class="crm-lrow-main"><b>${label(r)}</b><div class="gs-chips"><span class="gs-chip full">الحضور ✓</span></div>${plan(r)}</div>
+        <button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">أكمل الرصد ←</button></div>`
+    : `<div class="crm-lrow is-skipped"><span class="crm-lrow-no is-skip" aria-label="الحصة ${r.period}">${r.period}</span>
+        <div class="crm-lrow-main"><b>${label(r)}</b><div class="crm-skip-note">لم تحضرها${r.skip.note ? ' — ' + escapeHtml(r.skip.note) : ''}</div></div>
+        <button class="btn btn-outline crm-mini-btn" onclick="undoCrmLessonSkip('${r.skip.id}')">تراجع</button></div>`
+  ).join('') : '<div class="crm-today-empty" style="padding:8px 2px;">لم تُرصد حصة اليوم بعد.</div>';
+  const on = t => crmTodayListTab === t;
+  return `<div class="crm-seg crm-today-seg">
+      <button type="button" class="${on('left') ? 'is-on' : ''}" onclick="setCrmTodayList('left')">المتبقية (${left.length})</button>
+      <button type="button" class="${on('done') ? 'is-on' : ''}" onclick="setCrmTodayList('done')">المنجزة (${done.length})</button></div>
+    <div id="crmTodayLeft"${on('left') ? '' : ' style="display:none;"'}>${leftHtml}</div>
+    <div id="crmTodayDone"${on('done') ? '' : ' style="display:none;"'}>${doneHtml}</div>`;
+}
+
+function setCrmTodayList(tab){
+  crmTodayListTab = tab === 'done' ? 'done' : 'left';
+  paintCrmToday();
+}
+
+/* خططي + جدولي: مربّعان صغيران بملخص — يفتح كل منهما محتواه */
+function crmTodayMiniTilesHtml(d){
+  const plansOn = appSectionOn('shahid');
+  const slots = crmTimetableSlots.length;
+  let plansSub = '—';
+  if(plansOn && d.plans && typeof classifyPlans === 'function'){
+    const c = classifyPlans(d.plans, d.todayIso);
+    plansSub = c.today.length || c.upcoming.length ? `${c.today.length} اليوم · ${c.upcoming.length} قادمة` : 'لا خطط قادمة';
+  }
+  const tt = `<button type="button" class="crm-mtile" onclick="toggleCrmTimetable()"><span class="crm-mtile-ic">📅</span>
+    <span><b>جدولي</b><small>${slots ? arabicCountPhrase(slots, { one: 'حصة واحدة', two: 'حصتان', few: '{n} حصص', many: '{n} حصة' }) : 'لم يُضبط بعد'}</small></span></button>`;
+  if(!plansOn) return `<div class="crm-mtiles">${tt}</div>`;
+  return `<div class="crm-mtiles">
+      <button type="button" class="crm-mtile${crmTodayPlansOpen ? ' is-open' : ''}" onclick="toggleCrmTodayPlans()"><span class="crm-mtile-ic">📋</span>
+        <span><b>خططي</b><small>${plansSub}</small></span></button>${tt}</div>
+    <div id="crmTodayPlans"${crmTodayPlansOpen ? '' : ' style="display:none;"'}>${typeof lessonPlansTodayHtml === 'function' ? lessonPlansTodayHtml(d.plans, d.todayIso) : ''}</div>`;
+}
+
+function toggleCrmTodayPlans(){
+  crmTodayPlansOpen = !crmTodayPlansOpen;
+  paintCrmToday();
+}
+
+/* خيارات حصة (⋯): خطتها، و"لم أحضر" أو التراجع عنه — بعيدًا عن زر الرصد */
+function openCrmLessonActions(sectionId, dateIso, period){
+  const d = crmTodayData;
+  if(!d) return;
+  const r = planDayLessons(crmTimetableSlots, dateIso, d.lessons, d.skips).rows.find(x => x.section_id === sectionId && x.period === period);
+  if(!r) return;
+  const plan = (d.plans || []).find(x => x.status === 'planned' && x.planned_date === dateIso && x.section_id === sectionId && x.period === period);
+  const opt = (ico, title, sub, onclick, cls) => `<button type="button" class="crm-act-opt${cls ? ' ' + cls : ''}" onclick="${onclick}">
+    <span class="crm-act-ic">${ico}</span><span><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span></button>`;
+  const opts = [];
+  if(r.recorded) opts.push(opt('✎', 'أكمل الرصد / عدّله', 'الحضور والمشاركة والواجب…', `closeCrmModal();openCrmLessonSheet('${sectionId}','${dateIso}',${period})`));
+  else if(!r.skip) opts.push(opt('✓', 'رصد الحصة', '', `closeCrmModal();openCrmLessonSheet('${sectionId}','${dateIso}',${period})`));
+  if(plan) opts.push(opt('📋', 'خطة الحصة', escapeHtml(plan.title), `openLessonPlanView('${plan.id}')`));
+  if(r.skip) opts.push(opt('↶', 'تراجع عن «لم أحضر»', '', `closeCrmModal();undoCrmLessonSkip('${r.skip.id}')`));
+  else if(!r.recorded) opts.push(opt('⊘', 'لم أحضر هذه الحصة', 'انتظار، مناوبة، نشاط… (يمكن التراجع)', `openCrmSkipModal('${sectionId}','${dateIso}',${period})`, 'is-red'));
+  showInfoModal(`<div style="text-align:right;">
+      <h3 style="margin:0 0 2px;font-size:15px;color:var(--navy);">الحصة ${period} · ${escapeHtml(crmSectionLabel(sectionId))}</h3>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;">${r.recorded ? 'رُصد حضورها' : r.skip ? 'لم تحضرها' : 'لم تُرصد بعد'}</div>
+      ${opts.join('')}</div>`, '400px');
 }
 
 /* ============================================================
@@ -433,18 +772,24 @@ function setCrmTimetableDay(day){
   renderCrmTimetableEditor();
 }
 
-/* الجدول في تبويب "اليوم" (منه تُبنى حصص اليوم) */
+/* الجدول في تبويب "اليوم" (منه تُبنى حصص اليوم) — مخفي حتى يُفتح من مربّع "جدولي" */
 function openCrmTimetableEditor(){
   if(document.getElementById('crmTabToday').style.display === 'none') switchCrmTab('today');
-  const box = document.getElementById('crmTimetableBody');
-  if(box){
-    box.style.display = 'block';
-    const arrow = document.getElementById('crmTimetableBody_arrow');
-    if(arrow) arrow.textContent = '▾';
-  }
-  renderCrmTimetableEditor();
   const sec = document.getElementById('crmTimetableSection');
-  if(sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if(sec) sec.style.display = 'block';
+  renderCrmTimetableEditor();
+  if(sec && sec.scrollIntoView) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeCrmTimetable(){
+  const sec = document.getElementById('crmTimetableSection');
+  if(sec) sec.style.display = 'none';
+}
+
+function toggleCrmTimetable(){
+  const sec = document.getElementById('crmTimetableSection');
+  if(sec && sec.style.display !== 'none') closeCrmTimetable();
+  else openCrmTimetableEditor();
 }
 
 async function renderCrmTimetableEditor(){
@@ -513,7 +858,8 @@ let crmSheet = null; /* { sectionId, dateIso, period, states, lessonId, updatedA
 let crmSheetToken = 0;
 let crmSheetSaving = false;
 
-async function openCrmLessonSheet(sectionId, dateIso, period){
+/* mode (اختياري): يفتح الورقة على أداة بعينها (مربّعات بطاقة اليوم) */
+async function openCrmLessonSheet(sectionId, dateIso, period, mode){
   if(dateIso > localIsoDate()){ showToast('لا يمكن رصد حصة بتاريخ لم يأتِ بعد', 'error'); return; }
   /* لا نفترض أن شاشة إدارة الصف ظاهرة أصلًا (قد تُستدعى من شاشة أخرى
      مستقبلًا): نفتحها ونحمّل شعبها وطلابها أولًا ثم نعرض الورقة */
@@ -565,6 +911,8 @@ async function openCrmLessonSheet(sectionId, dateIso, period){
   const markers = typeof sheetMarkersFor === 'function' ? sheetMarkersFor(attention, students.map(st => st.id), localIsoDate()) : new Map();
 
   crmSheet = { sectionId, dateIso, period, states, lessonId: lesson ? lesson.id : null, updatedAt: lesson ? lesson.updated_at : null, token, dirty: draftRestored, markers, markersLoaded: !!attention };
+  /* مسودة حضور مستعادة تُعرض أولًا (لا تُخفى خلف أداة أخرى) */
+  if(mode && mode !== 'attendance' && !draftRestored && enabledSheetModes().includes(mode)){ setCrmSheetMode(mode); return; }
   /* الحضور مخفي (تخصيص التطبيق): تفتح الورقة على أول أداة مفعّلة */
   if(!appToolOn('attendance')){ setCrmSheetMode(enabledSheetModes()[0] || 'none'); return; }
   renderCrmLessonSheet(students, draftRestored);
