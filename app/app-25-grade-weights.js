@@ -115,7 +115,8 @@ function crmGradeSettingsHtml(g){
     return `<div class="crm-gs-line">
       <span>${escapeHtml(c.name)}${t.tool ? ' 🧩' : ''} <small style="color:var(--muted);">${escapeHtml(t.sub)}${c.column && hidden.has(c.column.id) ? ' · مخفي' : ''}${c.tool ? ' · جديد' : ''}</small>
         ${t.tool ? `<a href="#" style="font-size:11px;" onclick="event.preventDefault();openCustomToolEditor('${t.tool.id}')">تعديل</a>` : ''}
-        ${startKeyOf(c) ? startModeToggleHtml(startKeyOf(c)) : ''}</span>
+        ${startKeyOf(c) ? startModeToggleHtml(startKeyOf(c)) : ''}
+        ${typeof componentPeriodsHtml === 'function' ? componentPeriodsHtml(perfComponentIdentity(c)) : ''}</span>
       <span class="gs-cell"><input class="goal-input gs-num crm-weight-input" inputmode="decimal" data-key="${c.key}" value="${value}" oninput="paintCrmGradeSettings()">
         <button type="button" class="gs-del" title="حذف" aria-label="حذف ${escapeHtml(c.name)}" onclick="deleteGradeComponent('${c.key}')">🗑</button></span>
     </div>`;
@@ -151,7 +152,6 @@ function crmGradeSettingsHtml(g){
     <button class="gs-add" style="margin-top:6px;" onclick="openCrmGradeColumnEditor('tests', null)">+ اختبار</button>
     ${testRows ? '<p class="crm-gs-note">اضغط على اسم الاختبار لرصد درجاته أو تعديله، و🗑 يحذفه من كل شعبك.</p>' : ''}`) : ''}
 
-    ${typeof crmPeriodSettingsHtml === 'function' ? crmPeriodSettingsHtml(g.periods) : ''}
 
     <div id="crmGradeSettingsError" style="display:none;color:#8A2C2C;font-size:12px;margin:10px 0 0;line-height:1.7;"></div>
     <button class="gs-save" id="crmGradeSettingsSaveBtn" onclick="saveCrmGradeSettings()">💾 حفظ — يُطبَّق على كل شعبي</button>
@@ -258,7 +258,7 @@ async function applySectionWeights(sectionId, term, cols, plan){
     return data || [];
   };
   /* المشاركة بفترتين: درجتا الفترتين تُحوَّلان (والقاعدة تحدّث المعدّل)، ودرجة الكشف لمن لا فترات له فقط */
-  const loadPeriodScores = async c => isPeriodColumn(c) && c.kind === 'participation' ? await loadPeriodRows(c.id) : [];
+  const loadPeriodScores = async c => isDirectPeriodColumn(c) ? await loadPeriodRows(c.id) : [];
   const rescale = async (ch, rows, perRows) => {
     if((perRows || []).length){
       const { error } = await sb.from('classroom_grade_period_scores').upsert(
@@ -470,7 +470,7 @@ function toolFullValue(tool){
 function startModeToggleHtml(key){
   const full = gradeStartsFull(key);
   return `<span class="gs-start" role="group" aria-label="تبدأ الدرجة من" data-start-key="${key}">يبدأ من
-    <span class="gs-seg"><button type="button" class="${full ? '' : 'is-on'}" aria-pressed="${!full}" onclick="setGradeStartMode('${key}', false)">${full ? '' : '✓ '}0</button><button type="button" class="${full ? 'is-on' : ''}" aria-pressed="${full}" onclick="setGradeStartMode('${key}', true)">${full ? '✓ ' : ''}الكاملة</button></span>
+    <span class="gs-seg"><button type="button" class="${full ? '' : 'is-on'}" aria-pressed="${!full}" onclick="setGradeStartMode('${key}', false)">${full ? '' : '✓ '}0</button><button type="button" class="${full ? 'is-on' : ''}" aria-pressed="${full}" onclick="setGradeStartMode('${key}', true)">${full ? '✓ ' : ''}الدرجة كاملة</button></span>
     <small class="gs-start-busy"></small></span>`;
 }
 
@@ -501,7 +501,7 @@ function startModeConfirmText(key, full){
                 : `يرجع كل الطلاب "لم يُرصد" في كل الحصص ${where}، ويُمسح ما رصدته.`
   }[kind] || (full ? `يأخذ كل الطلاب الدرجة الكاملة الآن ${where}، ويُمسح ما رصدته حتى الآن. بعدها كل نقرة تُنقص درجة.`
                    : `يرجع كل الطلاب بلا درجة الآن ${where}، ويُمسح ما رصدته حتى الآن. بعدها كل نقرة تزيد درجة.`);
-  return { name, text: `"${name}" تبدأ من ${full ? 'الكاملة' : '0'}؟ ${text}` };
+  return { name, text: `"${name}" تبدأ من ${full ? 'الدرجة كاملة' : '0'}؟ ${text}` };
 }
 
 async function resetHomeworkStart(uid, term, sectionIds, full){
@@ -589,8 +589,8 @@ async function resyncStartModeColumns(key, tool, term){
 /* المشاركة والعدّاد: الدرجة نفسها تُمسح، ومن الكاملة تُكتب الكاملة */
 async function resetDirectScoresStart(uid, key, full){
   const cols = await termColumnsMatching(c => directStartFullKey(c) === key);
-  /* المشاركة: درجتا الفترتين تُمسحان أولًا (وإلا عادت درجة الكشف منهما) */
-  const perCols = cols.filter(isPeriodColumn);
+  /* درجات الفترات تُمسح أولًا (وإلا عادت درجة الكشف منها) */
+  const perCols = cols.filter(isDirectPeriodColumn);
   if(perCols.length){
     const { error: pErr } = await sb.from('classroom_grade_period_scores').delete().eq('teacher_id', uid).in('column_id', perCols.map(c => c.id));
     if(pErr) throw pErr;
@@ -641,7 +641,7 @@ async function applyGradeStartMode(key, tool, name, full){
   afterAppFeaturesChanged();
   await saveAppFeatures();
   if(changed) await resyncStartModeColumns(key, tool, term);
-  showToast(`"${name}" تبدأ الآن من ${full ? 'الكاملة' : '0'} ✓`, 'ok');
+  showToast(`"${name}" تبدأ الآن من ${full ? 'الدرجة كاملة' : '0'} ✓`, 'ok');
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   renderCrmGrades();
 }

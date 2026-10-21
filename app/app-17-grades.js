@@ -242,46 +242,66 @@ async function loadCrmGradeSheet(sectionId){
      يُحسب الآن). فشل المزامنة لا يمنع عرض الكشف بآخر قيم محفوظة. */
   /* أداة مخفية: عمودها لا يُعاد حسابه ولا يُعرض ولا يُحسب — بياناته باقية */
   const visible = (columns || []).filter(gradeColumnVisible);
-  const periods = await loadGradePeriods({ year, semester });
-  const breakdown = new Map(); /* عمود المشاركة/الواجبات → (طالب → { p1, p2 }) لعرض الفترتين */
+  const term = { year, semester };
+  /* تفصيل الفترات (app-27): عمود → (طالب → { p1, p2, p3 }) لعرض المكوّن الذي له أكثر من فترة */
+  const breakdown = new Map();
   const ids = crmStudentsOfSection(sectionId).map(st => st.id);
+  const multi = c => periodCfg(term, periodCompKeyOfColumn(c)).n > 1;
   const hwCol = visible.find(c => c.kind === 'homework' && !c.tool_id);
   if(hwCol && typeof syncHomeworkColumn === 'function'){
     try{
-      const hw = await loadSectionHomework(sectionId, { year, semester });
+      const hw = await loadSectionHomework(sectionId, term);
       await syncHomeworkColumn(hwCol, sectionId, hw);
-      const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
-      const idx = homeworkStatusIndex(hw.statusRows);
-      breakdown.set(hwCol.id, new Map(ids.map(id => [id, homeworkPeriodScores(counted, idx, id, hwCol.max_score, periods.start)])));
-    } catch(e){}
-  }
-  /* المشاركة: "يبدأ من الكاملة" يملأ الفترة الحالية لمن لا درجة له فيها (القاعدة تحدّث المعدّل)، ثم تفصيل الفترتين */
-  const partCol = visible.find(c => c.kind === 'participation' && !c.tool_id);
-  if(partCol){
-    try{
-      const loadPart = async () => {
-        const { data, error: mErr } = await sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', partCol.id);
-        if(mErr) throw mErr;
-        return { main: new Map((data || []).map(r => [r.student_id, Number(r.score)])), rows: await loadPeriodRows(partCol.id) };
-      };
-      let pd = await loadPart();
-      if(gradeStartsFull('participation')){
-        const period = periodOfDate(localIsoDate(), periods.start);
-        if((await fillStartFullPeriodScores(partCol, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await loadPart();
+      if(multi(hwCol)){
+        const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
+        const idx = homeworkStatusIndex(hw.statusRows), starts = periodCfg(term, 'kind:homework').starts;
+        breakdown.set(hwCol.id, new Map(ids.map(id => [id, homeworkPeriodScores(counted, idx, id, hwCol.max_score, starts)])));
       }
-      breakdown.set(partCol.id, participationPeriodBreakdown(pd.main, pd.rows));
     } catch(e){}
   }
-  const taskCol = visible.find(c => c.kind === 'task');
+  const taskCol = visible.find(c => c.kind === 'task' && !c.tool_id);
   if(taskCol && typeof syncTaskColumn === 'function'){
-    try{ await syncTaskColumn(taskCol, sectionId, { year, semester }); } catch(e){}
+    try{
+      await syncTaskColumn(taskCol, sectionId, term);
+      if(multi(taskCol) && ids.length){
+        const { tasks, rows } = await loadTaskScoresForStudents(ids, term);
+        const starts = periodCfg(term, 'kind:task').starts;
+        breakdown.set(taskCol.id, new Map(ids.map(id => [id, taskPeriodScores(tasks, rows, id, taskCol.max_score, starts)])));
+      }
+    } catch(e){}
   }
   /* أعمدة أدوات الحالة/الدرجة الخاصة */
   for(const tc of visible.filter(c => c.tool_id)){
     const tool = typeof customToolById === 'function' ? customToolById(tc.tool_id) : null;
     if(tool && tool.tool_type !== 'counter'){
-      try{ await syncToolColumn(tc, tool, sectionId, { year, semester }); } catch(e){}
+      try{
+        await syncToolColumn(tc, tool, sectionId, term);
+        if(multi(tc) && ids.length){
+          const byStudent = await loadToolMarksByStudent(tool, ids, term);
+          const starts = periodCfg(term, 'tool:' + tool.id).starts;
+          breakdown.set(tc.id, new Map(ids.map(id => [id, toolPeriodScores(tool, byStudent.get(id), tc.max_score, starts)])));
+        }
+      } catch(e){}
     }
+  }
+  /* المرصود مباشرة (المشاركة، العدّاد، اليدوي): "يبدأ من الدرجة كاملة" يملأ الفترة الجارية لمن لا درجة
+     له فيها (القاعدة تحدّث المعدّل)، ثم درجات الفترات — للرصد اليدوي دائمًا، وللعرض متى كان له أكثر من فترة */
+  for(const c of visible.filter(isDirectPeriodColumn)){
+    try{
+      const load = async () => {
+        const { data, error: mErr } = await sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', c.id);
+        if(mErr) throw mErr;
+        return { main: new Map((data || []).map(r => [r.student_id, Number(r.score)])), rows: await loadPeriodRows(c.id) };
+      };
+      let pd = await load();
+      const fk = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
+      if(fk && gradeStartsFull(fk)){
+        const cfg = periodCfg(term, periodCompKeyOfColumn(c));
+        const period = Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
+        if((await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
+      }
+      breakdown.set(c.id, participationPeriodBreakdown(pd.main, pd.rows));
+    } catch(e){}
   }
   let scores = [];
   if((columns || []).length){
@@ -290,18 +310,8 @@ async function loadCrmGradeSheet(sectionId){
     if(sErr) return { error: sErr };
     scores = data || [];
   }
-  /* "يبدأ من الكاملة" (إعداد الدرجات): من لا درجة له — طالب جديد مثلًا — يأخذ الكاملة */
-  for(const c of visible){
-    const key = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
-    if(!key || !gradeStartsFull(key) || isPeriodColumn(c)) continue; /* المشاركة مُلئت بفترتها أعلاه */
-    const have = new Set(scores.filter(x => x.column_id === c.id).map(x => x.student_id));
-    try{
-      (await fillStartFullScores(c, crmStudentsOfSection(sectionId).map(st => st.id), have))
-        .forEach(id => scores.push({ column_id: c.id, student_id: id, score: Number(c.max_score) }));
-    } catch(e){}
-  }
   return {
-    sectionId, year, semester, scores, periods, breakdown,
+    sectionId, year, semester, scores, breakdown,
     columns: sortGradeColumns(visible),
     allColumns: sortGradeColumns(columns || []), /* لسقف الفئة وفحص التكرار: القاعدة تعدّ المخفي أيضًا */
     hiddenColumns: sortGradeColumns((columns || []).filter(c => !gradeColumnVisible(c)))
@@ -477,24 +487,35 @@ function crmGradeStudentPageHtml(g, studentId){
     <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openCrmStudentProfile('${st.id}', { type: 'tab', tab: 'grades' })">ملف الطالب</button>`;
 }
 
-/* مكوّن بفترتين في صفحة الطالب: شريط لكل فترة، وطريقة حساب المعدّل تحتهما */
+/* إعداد فترات عمود في الكشف المحمّل (app-27) */
+function gradeColumnPeriodCfg(g, c){
+  const key = periodCompKeyOfColumn(c);
+  return key ? periodCfg({ year: g.year, semester: g.semester }, key) : { n: 1, starts: [] };
+}
+
+/* مكوّن بأكثر من فترة في صفحة الطالب: شريط لكل فترة، وطريقة حساب المعدّل تحتها */
 function crmGradePeriodPartHtml(g, x, studentId){
+  const col = (g.columns || []).find(c => c.id === x.id);
+  const cfg = col ? gradeColumnPeriodCfg(g, col) : { n: 1 };
   const per = g.breakdown && g.breakdown.get(x.id);
-  if(!per || !g.periods || !g.periods.on) return ''; /* فترة واحدة: سطر عادي */
-  const b = per.get(studentId) || { p1: null, p2: null };
-  if(b.p1 === null && b.p2 === null && x.score === null) return ''; /* لا رصد بعد: سطر عادي بلا تفصيل فارغ */
-  const start = g.periods.start, today = localIsoDate();
-  const cur = periodOfDate(today, start);
+  if(!per || cfg.n < 2) return ''; /* فترة واحدة: سطر عادي */
+  const b = per.get(studentId) || { p1: null, p2: null, p3: null };
+  const vals = [1, 2, 3].slice(0, cfg.n).map(p => (b['p' + p] === undefined ? null : b['p' + p]));
+  if(vals.every(v => v === null) && x.score === null) return ''; /* لا رصد بعد: سطر عادي بلا تفصيل فارغ */
+  const now = currentPeriodOf(cfg);
   const none = txt => `<span class="crm-gs-none">${txt}</span>`;
-  const p2Label = !start ? none('لم تبدأ بعد') : start > today ? none('تبدأ ' + escapeHtml(shortPeriodDate(start))) : null;
-  const sub = (n, v, label) => `<div class="crm-gs-sub"><span>${PERIOD_NAMES[n]}${cur === n && (n === 1 || !p2Label) ? ' <small>(جارية)</small>' : ''}</span><span>${label || (v === null ? none('لم يُرصد') : `${formatScore(v)} من ${formatScore(x.max)}`)}</span></div>
-      ${label ? '' : crmGradeBarHtml(v, x.max)}`;
+  const sub = p => {
+    const v = vals[p - 1];
+    const label = p > now ? none('لم تبدأ') : v === null ? none('لم يُرصد') : `${formatScore(v)} من ${formatScore(x.max)}`;
+    return `<div class="crm-gs-sub"><span>${PERIOD_NAMES[p]}${p === now ? ' <small>(جارية)</small>' : ''}</span><span>${label}</span></div>${p > now ? '' : crmGradeBarHtml(v, x.max)}`;
+  };
+  const rec = vals.filter(v => v !== null);
   /* bdi: المعادلة تُقرأ كما تُكتب (لا يقلبها اتجاه الصفحة) */
-  const calc = b.p1 !== null && b.p2 !== null ? `المعدّل: <bdi dir="ltr">(${formatScore(b.p1)} + ${formatScore(b.p2)}) ÷ 2 = <b>${formatScore(periodAverage(b.p1, b.p2))}</b></bdi>`
-    : (b.p1 !== null || b.p2 !== null) ? `الدرجة = ${b.p1 !== null ? PERIOD_NAMES[1] : PERIOD_NAMES[2]} وحدها (ما لم يُرصد لا يُحسب)` : '';
+  const calc = rec.length > 1 ? `المعدّل: <bdi dir="ltr">(${rec.map(formatScore).join(' + ')}) ÷ ${rec.length} = <b>${formatScore(periodAverage(rec))}</b></bdi>`
+    : rec.length ? 'الدرجة = الفترة المرصودة وحدها (ما لم يُرصد لا يُحسب)' : '';
   return `<div class="crm-gs-prow crm-gs-per">
       <div class="crm-gs-plabel"><span>${escapeHtml(x.name)}</span><span>${x.score === null ? none('لم يُرصد بعد') : `${formatScore(x.score)} من ${formatScore(x.max)}`}</span></div>
-      ${sub(1, b.p1)}${sub(2, b.p2, p2Label)}
+      ${[1, 2, 3].slice(0, cfg.n).map(sub).join('')}
       ${calc ? `<div class="crm-gs-calc">${calc}</div>` : ''}</div>`;
 }
 
@@ -556,15 +577,17 @@ function crmGradeDetailHtml(g){
     g.columns.forEach(c => {
       const k = c.id + '|' + s.id;
       /* مكوّن بفترتين: المعدّل، وتحته درجتا الفترتين متى رُصدت الثانية */
-      const per = g.periods && g.periods.on && g.breakdown && g.breakdown.get(c.id) && g.breakdown.get(c.id).get(s.id);
-      const perTxt = per && per.p2 !== null ? `<small class="crm-grade-per">${per.p1 === null ? '—' : formatScore(per.p1)} · ${formatScore(per.p2)}</small>` : '';
+      const pn = gradeColumnPeriodCfg(g, c).n;
+      const per = pn > 1 && g.breakdown && g.breakdown.get(c.id) && g.breakdown.get(c.id).get(s.id);
+      const pv = per ? [1, 2, 3].slice(0, pn).map(p => per['p' + p]) : [];
+      const perTxt = pv.filter(v => v !== null && v !== undefined).length > 1 ? `<small class="crm-grade-per">${pv.map(v => v === null || v === undefined ? '—' : formatScore(v)).join(' · ')}</small>` : '';
       html += `<td>${scoreOf.has(k) ? formatScore(scoreOf.get(k)) + perTxt : '<span class="crm-grade-empty">—</span>'}</td>`;
     });
     html += `<td class="crm-grade-total">${sum.performance.count ? formatScore(sum.performance.sum) : ''}</td>
       <td class="crm-grade-total">${res.tests.points === null ? '' : formatScore(res.tests.points)}</td></tr>`;
   });
   html += '</tbody></table></div>';
-  html += `<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">اضغط رأس العمود لرصد درجاته أو تعديله. "—" = لم تُرصد (لا تُحسب صفرًا).${g.periods && g.periods.on ? ' المشاركة والواجبات: الرقم = معدّل الفترتين، وتحته الفترة الأولى · الثانية.' : ''}</p>`;
+  html += `<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">اضغط رأس العمود لرصد درجاته أو تعديله. "—" = لم تُرصد (لا تُحسب صفرًا).${g.columns.some(c => gradeColumnPeriodCfg(g, c).n > 1) ? ' المكوّن بفترات: الرقم = معدّل الفترات، وتحته درجة كل فترة.' : ''}</p>`;
   return html;
 }
 
@@ -749,8 +772,8 @@ function openCrmGradeEntry(columnId){
   const students = crmStudentsOfSection(crmGrades.sectionId);
   const scoreOf = crmGradeEntryScores(crmGrades, c, period);
   box.innerHTML = `
-    <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period && crmGrades.periods.on ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
-    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period && crmGrades.periods.on ? ' · الدرجة في الكشف = معدّل الفترتين' : ''}</div>
+    <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
+    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' · الدرجة في الكشف = معدّل الفترات' : ''}</div>
     <div class="crm-grade-entry">
       ${students.map((s, i) => `<label class="crm-grade-entry-row">
         <span>${escapeHtml(s.full_name)}</span>
@@ -766,10 +789,11 @@ function openCrmGradeEntry(columnId){
   if(first) first.focus();
 }
 
-/* فترة الرصد اليدوي لعمود المشاركة (null لغيره). بفترة واحدة: الأولى (رصد المشاركة دائمًا بدرجة فترة) */
+/* فترة الرصد اليدوي لعمود يُرصد مباشرة (null لغيره) — الجارية؛ بفترة واحدة: الأولى (الرصد دائمًا بدرجة فترة) */
 function crmGradeEntryPeriod(g, c){
-  if(!c || c.kind !== 'participation' || c.tool_id || !g.periods || !(g.breakdown && g.breakdown.has(c.id))) return null;
-  return periodOfDate(localIsoDate(), g.periods.start);
+  if(!isDirectPeriodColumn(c) || !(g.breakdown && g.breakdown.has(c.id))) return null;
+  const cfg = gradeColumnPeriodCfg(g, c);
+  return Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
 }
 
 function crmGradeEntryScores(g, c, period){
@@ -1074,13 +1098,13 @@ function crmGradeImportPlan(){
   return planGradeImport(im.rows, im.nameKey, mapping, crmStudentsOfSection(im.sectionId), crmGrades.columns, crmGradeImportExisting(crmGrades), im.manual);
 }
 
-/* المقارن به عند الاستيراد: درجة الكشف، وللمشاركة درجة الفترة الحالية (الاستيراد يكتب فيها) */
+/* المقارن به عند الاستيراد: درجة الكشف، وللعمود المرصود مباشرة درجة فترته الجارية (الاستيراد يكتب فيها) */
 function crmGradeImportExisting(g){
-  const partCol = g.columns.find(c => crmGradeEntryPeriod(g, c));
-  if(!partCol) return g.scores;
-  const period = crmGradeEntryPeriod(g, partCol);
-  const rest = g.scores.filter(x => x.column_id !== partCol.id);
-  crmGradeEntryScores(g, partCol, period).forEach((score, id) => rest.push({ column_id: partCol.id, student_id: id, score }));
+  const direct = g.columns.filter(c => crmGradeEntryPeriod(g, c));
+  if(!direct.length) return g.scores;
+  const ids = new Set(direct.map(c => c.id));
+  const rest = g.scores.filter(x => !ids.has(x.column_id));
+  direct.forEach(c => crmGradeEntryScores(g, c, crmGradeEntryPeriod(g, c)).forEach((score, id) => rest.push({ column_id: c.id, student_id: id, score })));
   return rest;
 }
 

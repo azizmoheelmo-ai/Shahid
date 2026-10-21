@@ -1,50 +1,108 @@
 /* ============================================================
-   فترتا المشاركة والواجبات — اختيار المعلم، ويدوي بالكامل
+   الفترات — لكل مكوّن أداء إعداده الخاص (١ إلى ٣ فترات)
    ------------------------------------------------------------
-   - الأصل: فترة واحدة (كما كان). المعلم يفعّل "فترتان" من إعداد الدرجات،
-     فيبدأ في الفترة الأولى، ومتى أراد يضغط "ابدأ الفترة الثانية". لا تقويم
-     ولا تاريخ يُطلب منه — يوم الضغط يُحفظ داخليًا فقط ليعرف كل واجب فترته.
-   - المشاركة: درجة لكل فترة (classroom_grade_period_scores)، والقاعدة تكتب
-     بمشغّل في الكشف معدّل ما رُصد منهما. بفترة واحدة: كل الرصد في الأولى،
-     فدرجة الكشف = درجتها (لا فرق يراه المعلم). الرصد القديم = الأولى.
-   - الواجبات: كل واجب في فترة موعد تسليمه (قبل يوم البدء = الأولى)،
-     والعمود = معدّل الفترتين.
-   - الحالة في user_app_settings.features.periods لكل فصل ("سنة|فصل"):
-     غيابها = فترة واحدة، "later" = فترتان والأولى جارية، تاريخ = الثانية بدأت.
-   - الإيقاف بعد بدء الثانية يدمجهما: درجة كل طالب تبقى معدّله الحالي.
+   - الأصل فترة واحدة لكل مكوّن. المعلم يختار لأي مكوّن ٢ أو ٣ فترات، ومتى
+     أراد يضغط "ابدأ الفترة التالية" (يدوي، بلا تاريخ يُطلب — يوم الضغط
+     يُحفظ داخليًا ليعرف كل رصد مؤرَّخ فترته).
+   - المكوّن المرصود مباشرة (المشاركة، العدّاد، العمود اليدوي): درجة لكل فترة
+     في classroom_grade_period_scores، والقاعدة تكتب في الكشف معدّل ما رُصد.
+     يُرصد دائمًا بدرجة فترة (بفترة واحدة: الأولى) فتبقى البيانات متّسقة.
+   - المكوّن المحسوب (الواجبات بموعدها، المهام بموعدها، أداة الحالة/الدرجة
+     بتاريخ رصدها): درجة كل فترة من رصدها، والعمود = معدّل الفترات.
+   - الإعداد في user_app_settings.features.periods["سنة|فصل"][هوية المكوّن]
+     = { n: 1..3, starts: [يوم بدء الثانية، يوم بدء الثالثة] }.
+     هوية المكوّن كما في إعداد الدرجات: kind:participation، tool:<id>، name:<اسم>.
+   - الاختبارات بلا فترات (كل اختبار عمود مستقل أصلًا).
    ============================================================ */
 
-const PERIOD_NAMES = { 1: 'الفترة الأولى', 2: 'الفترة الثانية' };
+const PERIOD_NAMES = { 1: 'الفترة الأولى', 2: 'الفترة الثانية', 3: 'الفترة الثالثة' };
+const PERIOD_COUNT_MAX = 3;
+const PERIOD_COUNT_LABELS = { 1: 'فترة واحدة', 2: 'فترتان', 3: 'ثلاث فترات' };
 
 /* ============ دوال صرفة ============ */
 function termPeriodKey(term){ return term.year + '|' + term.semester; }
 
-function isPeriodOverrideValue(v){
-  return v === 'later' || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v));
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isPeriodCompKey(k){
+  return typeof k === 'string' && (/^kind:(participation|homework|task)$/.test(k) || /^tool:[0-9a-f-]{36}$/i.test(k) || /^name:.{1,60}$/.test(k));
 }
 
-function periodOverrideOf(features, term){
-  const p = features && features.periods;
-  const v = p && p[termPeriodKey(term)];
-  return isPeriodOverrideValue(v) ? v : null;
+/* { n, starts } صالح، أو null (= فترة واحدة) */
+function normalizePeriodCfg(raw){
+  if(!raw || typeof raw !== 'object') return null;
+  const n = Number(raw.n);
+  if(!Number.isInteger(n) || n < 2 || n > PERIOD_COUNT_MAX) return null;
+  const starts = (Array.isArray(raw.starts) ? raw.starts : []).filter(d => typeof d === 'string' && ISO_DATE_RE.test(d)).sort().slice(0, n - 1);
+  return { n, starts };
 }
 
-/* { on, override, start }: start = يوم بدء الثانية، أو null (لم تبدأ / فترة واحدة) */
-function gradePeriodsState(override){
-  return { on: !!override, override: override || null, start: override && override !== 'later' ? override : null };
+/* القيمة القديمة (الإصدار 1.5: "later" أو تاريخ لكل فصل) = المشاركة والواجبات بفترتين */
+function normalizeTermPeriods(v){
+  if(v === 'later' || (typeof v === 'string' && ISO_DATE_RE.test(v))){
+    const starts = v === 'later' ? [] : [v];
+    return { 'kind:participation': { n: 2, starts }, 'kind:homework': { n: 2, starts: starts.slice() } };
+  }
+  if(!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out = {};
+  Object.keys(v).forEach(k => { const c = isPeriodCompKey(k) && normalizePeriodCfg(v[k]); if(c) out[k] = c; });
+  return Object.keys(out).length ? out : null;
 }
 
-function periodOfDate(iso, start){
-  return start && iso && iso >= start ? 2 : 1;
+function normalizePeriodsFeature(raw){
+  if(!raw || typeof raw !== 'object') return null;
+  const out = {};
+  Object.keys(raw).forEach(t => {
+    if(!/^[0-9٠-٩\-\/ ]{1,20}\|[12]$/.test(t)) return;
+    const v = normalizeTermPeriods(raw[t]);
+    if(v) out[t] = v;
+  });
+  return Object.keys(out).length ? out : null;
 }
 
-/* عمود له فترتان: المشاركة والواجبات (لا أدوات المعلم الخاصة) */
-function isPeriodColumn(c){
-  return !!c && !c.tool_id && (c.kind === 'participation' || c.kind === 'homework');
+/* إعداد مكوّن: { n, starts } — الأصل فترة واحدة */
+function periodCfgOf(features, term, key){
+  const t = features && features.periods && features.periods[termPeriodKey(term)];
+  const c = t && normalizePeriodCfg(t[key]);
+  return c || { n: 1, starts: [] };
 }
 
-/* درجات الفترة الحالية في ورقة الحصة. صفوف الفترات لها الأولوية؛ طالب بلا
-   صفوف فترات (رصد قديم) = درجته في الكشف هي الفترة الأولى */
+function currentPeriodOf(cfg){ return Math.min(cfg.n, (cfg.starts || []).length + 1); }
+
+/* فترة تاريخ: ١ + عدد الفترات التي بدأت في هذا اليوم أو قبله */
+function periodOfDateFor(iso, starts){
+  return 1 + (starts || []).filter(d => iso && d <= iso).length;
+}
+
+/* هوية المكوّن لعمود أداء (كما في إعداد الدرجات) */
+function periodCompKeyOfColumn(c){
+  if(!c || c.category === 'tests') return null;
+  if(c.tool_id) return 'tool:' + c.tool_id;
+  if(c.kind && c.kind !== 'manual') return 'kind:' + c.kind;
+  return 'name:' + normalizeGradeColumnName(c.name);
+}
+
+/* وضع ورقة الحصة → هوية المكوّن */
+function periodCompKeyOfMode(mode){
+  if(mode === 'participation' || mode === 'homework' || mode === 'task') return 'kind:' + mode;
+  if(typeof mode === 'string' && mode.indexOf('tool:') === 0) return mode;
+  return null;
+}
+
+/* عمود يُرصد مباشرة (درجة لكل فترة في القاعدة): المشاركة، العدّاد، اليدوي */
+function isDirectPeriodColumn(c){
+  if(!c || c.category === 'tests') return false;
+  if(c.tool_id){
+    const t = typeof customToolById === 'function' ? customToolById(c.tool_id) : null;
+    return !!t && t.tool_type === 'counter';
+  }
+  return !c.kind || c.kind === 'manual' || c.kind === 'participation';
+}
+
+/* عمود له فترات (أي مكوّن أداء) */
+function isPeriodColumn(c){ return !!c && c.category !== 'tests'; }
+
+/* درجات فترة واحدة في ورقة الحصة. طالب بلا صفوف فترات (رصد قديم) = درجته في الكشف هي الأولى */
 function currentPeriodScores(mainScores, periodRows, period){
   const hasRows = new Set((periodRows || []).map(r => r.student_id));
   const out = new Map();
@@ -55,67 +113,76 @@ function currentPeriodScores(mainScores, periodRows, period){
   return out;
 }
 
-/* درجتا الفترتين لكل طالب في عمود مشاركة: { p1, p2 } (null = لم تُرصد) */
+/* درجات الفترات لكل طالب في عمود مرصود مباشرة: { p1, p2, p3 } (null = لم تُرصد) */
 function participationPeriodBreakdown(mainScores, periodRows){
   const out = new Map();
-  const get = id => { if(!out.has(id)) out.set(id, { p1: null, p2: null }); return out.get(id); };
+  const get = id => { if(!out.has(id)) out.set(id, { p1: null, p2: null, p3: null }); return out.get(id); };
   (periodRows || []).forEach(r => { get(r.student_id)['p' + Number(r.period)] = Number(r.score); });
   (mainScores || new Map()).forEach((v, id) => { if(!out.has(id)) get(id).p1 = Number(v); });
   return out;
 }
 
-/* معدّل ما رُصد من الفترتين (كما تحسبه القاعدة للمشاركة) */
-function periodAverage(p1, p2){
-  const vals = [p1, p2].filter(v => v !== null && v !== undefined);
-  if(!vals.length) return null;
-  return Math.round(100 * vals.reduce((a, b) => a + Number(b), 0) / vals.length) / 100;
+/* معدّل ما رُصد من الفترات (كما تحسبه القاعدة للمرصود مباشرة) */
+function periodAverage(...vals){
+  const rec = vals.flat().filter(v => v !== null && v !== undefined);
+  if(!rec.length) return null;
+  return Math.round(100 * rec.reduce((a, b) => a + Number(b), 0) / rec.length) / 100;
 }
 
-/* ============ الحالة ============ */
-/* async ليبقى توقيع المستدعين كما هو (لا تحميل من الشبكة) */
-async function loadGradePeriods(term){
-  return gradePeriodsState(periodOverrideOf(appFeatures, term));
+/* مكوّن محسوب: درجة كل فترة من عناصرها (بتاريخها)، والنهائية = معدّل الفترات المرصودة.
+   بلا فترات بدأت = حساب واحد على الكل (كالسابق تمامًا) */
+function periodSplitScores(items, dateOf, scoreOf, starts){
+  const out = { p1: null, p2: null, p3: null, final: null };
+  const k = (starts || []).length + 1;
+  for(let p = 1; p <= k; p++) out['p' + p] = scoreOf((items || []).filter(it => periodOfDateFor(dateOf(it), starts) === p));
+  out.final = periodAverage(out.p1, out.p2, out.p3);
+  return out;
 }
 
-/* ============ اختيار المعلم (يتبع حسابه على كل أجهزته) ============ */
+/* ============ الإعداد (يتبع حساب المعلم على كل أجهزته) ============ */
+function periodCfg(term, key){ return periodCfgOf(appFeatures, term, key); }
+
 let gradePeriodSaving = false;
-async function setGradePeriodOverride(term, value){
-  if(gradePeriodSaving || !currentUser) return false;
-  if(value !== null && !isPeriodOverrideValue(value)) return false;
-  gradePeriodSaving = true;
-  try{
-    return await saveGradePeriodValue(term, value);
-  } finally {
-    gradePeriodSaving = false;
-  }
-}
-
-async function saveGradePeriodValue(term, value){
+async function savePeriodCfg(term, key, cfg){
   const next = normalizeFeatures(appFeatures);
-  const periods = Object.assign({}, next.periods);
-  if(value === null) delete periods[termPeriodKey(term)]; else periods[termPeriodKey(term)] = value;
-  if(Object.keys(periods).length) next.periods = periods; else delete next.periods;
+  const all = Object.assign({}, next.periods);
+  const t = Object.assign({}, all[termPeriodKey(term)]);
+  if(cfg && cfg.n > 1) t[key] = { n: cfg.n, starts: cfg.starts.slice(0, cfg.n - 1) }; else delete t[key];
+  if(Object.keys(t).length) all[termPeriodKey(term)] = t; else delete all[termPeriodKey(term)];
+  if(Object.keys(all).length) next.periods = all; else delete next.periods;
   appFeatures = next;
   await saveAppFeatures();
-  if(periodOverrideOf(appFeatures, term) !== value) return false; /* فشل الحفظ: أُعيد المحفوظ */
-  /* الواجبات تتوزّع على الفترتين بموعدها — يُعاد حساب عمودها في كل الشعب */
-  if(typeof resyncStartModeColumns === 'function'){
-    try{ await resyncStartModeColumns('homework', null, term); } catch(e){}
-  }
+  const saved = periodCfg(term, key);
+  const want = cfg && cfg.n > 1 ? { n: cfg.n, starts: cfg.starts.slice(0, cfg.n - 1) } : { n: 1, starts: [] };
+  if(saved.n !== want.n || saved.starts.join() !== want.starts.join()) return false; /* فشل الحفظ: أُعيد المحفوظ */
+  await resyncPeriodComponent(term, key);
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   return true;
 }
 
-/* إيقاف الفترتين بعد بدء الثانية: درجة الكشف (المعدّل) تصير درجة الأولى، ويُحذف رصد الثانية.
-   الترتيب: الأولى = المعدّل ثم حذف الثانية — فتبقى درجة الكشف كما هي. يرمي عند الفشل (يُعاد بأمان) */
-async function mergeGradePeriods(){
+/* المحسوب يتوزّع على الفترات بتاريخه — يُعاد حساب عموده في كل الشعب */
+async function resyncPeriodComponent(term, key){
+  if(typeof resyncStartModeColumns !== 'function') return;
+  try{
+    if(key === 'kind:homework') await resyncStartModeColumns('homework', null, term);
+    else if(key === 'kind:task') await resyncStartModeColumns('task', null, term);
+    else if(key.indexOf('tool:') === 0){
+      const tool = typeof customToolById === 'function' ? customToolById(key.slice(5)) : null;
+      if(tool && tool.tool_type !== 'counter') await resyncStartModeColumns(key, tool, term);
+    }
+  } catch(e){} /* يُعاد حسابه عند فتح الكشف */
+}
+
+/* المرصود مباشرة: دمج كل الفترات في الأولى بمعدّلها الحالي (درجة الكشف لا تتغيّر).
+   الأولى = المعدّل ثم حذف ما بعدها. يرمي عند الفشل (يُعاد بأمان) */
+async function mergeDirectPeriods(key){
   const uid = currentUser.id;
-  const cols = await termColumnsMatching(c => c.kind === 'participation' && !c.tool_id);
+  const cols = await termColumnsMatching(c => periodCompKeyOfColumn(c) === key && isDirectPeriodColumn(c));
   for(const c of cols){
-    const { data: p2, error } = await sb.from('classroom_grade_period_scores').select('student_id')
-      .eq('teacher_id', uid).eq('column_id', c.id).eq('period', 2);
+    const { data: later, error } = await sb.from('classroom_grade_period_scores').select('student_id')
+      .eq('teacher_id', uid).eq('column_id', c.id).in('period', [2, 3]);
     if(error) throw error;
-    const ids = (p2 || []).map(r => r.student_id);
+    const ids = [...new Set((later || []).map(r => r.student_id))];
     if(!ids.length) continue;
     const { data: main, error: mErr } = await sb.from('classroom_grade_scores').select('student_id, score')
       .eq('teacher_id', uid).eq('column_id', c.id).in('student_id', ids);
@@ -125,81 +192,135 @@ async function mergeGradePeriods(){
     const bad = res.find(r => r.error);
     if(bad) throw bad.error;
     const { error: dErr } = await sb.from('classroom_grade_period_scores').delete()
-      .eq('teacher_id', uid).eq('column_id', c.id).eq('period', 2);
+      .eq('teacher_id', uid).eq('column_id', c.id).in('period', [2, 3]);
     if(dErr) throw dErr;
   }
 }
 
-/* من إعداد الدرجات: "فترة واحدة / فترتان"، و"ابدأ الفترة الثانية" / "رجوع للأولى" */
-async function setCrmGradePeriods(action){
-  if(gradePeriodSaving || !currentUser) return;
-  const term = crmCurrentTerm();
-  const cur = gradePeriodsState(periodOverrideOf(appFeatures, term));
-  let value;
-  if(action === 'on') value = cur.on ? cur.override : 'later';
-  else if(action === 'start2') value = localIsoDate();
-  else if(action === 'back1') value = 'later';
-  else value = null;
-  if(value === cur.override) return;
-  if(action === 'off' && cur.start && !(await showConfirm('إيقاف الفترتين؟ تُدمج الفترتان: درجة كل طالب في المشاركة تبقى معدّله الحالي، والواجبات تُحسب كلها فترة واحدة.'))) return;
-  gradePeriodSaving = true;
-  document.querySelectorAll('.gs-period-btn').forEach(b => { b.disabled = true; });
-  let ok = false;
-  try{
-    if(action === 'off' && cur.start) await mergeGradePeriods();
-    ok = await saveGradePeriodValue(term, value);
-  } catch(e){
-    ok = false;
-  } finally {
-    gradePeriodSaving = false;
+function periodKeyIsDirect(key){
+  if(key === 'kind:participation' || key.indexOf('name:') === 0) return true;
+  if(key.indexOf('tool:') === 0){
+    const t = typeof customToolById === 'function' ? customToolById(key.slice(5)) : null;
+    return !!t && t.tool_type === 'counter';
   }
-  if(!ok){ showToast('تعذّر الحفظ — أعد المحاولة', 'error'); if(typeof renderCrmGrades === 'function') renderCrmGrades(); return; }
-  showToast({ on: 'فعّلت الفترتين — أنت الآن في الفترة الأولى', start2: 'بدأت الفترة الثانية ✓', back1: 'رجعت للفترة الأولى', off: 'رجعت لفترة واحدة' }[action], 'ok');
-  if(typeof renderCrmGrades === 'function') renderCrmGrades();
+  return false;
 }
 
-/* ============ شارة الفترة في ورقة الحصة (لمن فعّل الفترتين فقط) ============ */
+/* من إعداد الدرجات: عدد فترات مكوّن (١–٣) */
+async function setComponentPeriodCount(key, n){
+  if(gradePeriodSaving || !currentUser || !isPeriodCompKey(key)) return false;
+  n = Number(n);
+  if(!(n >= 1 && n <= PERIOD_COUNT_MAX)) return false;
+  const term = crmCurrentTerm();
+  const cur = periodCfg(term, key);
+  if(cur.n === n) return false;
+  /* أقل من الفترة الجارية: المرصود مباشرة يُدمج (بتأكيد)، والمحسوب يُعاد توزيعه بتاريخه */
+  const merge = n < currentPeriodOf(cur) && periodKeyIsDirect(key);
+  if(merge && !(await showConfirm(`تقليل فترات "${periodCompName(key)}" إلى ${PERIOD_COUNT_LABELS[n]}؟ تُدمج الفترات في الأولى: درجة كل طالب تبقى معدّله الحالي، ثم تبدأ من الفترة الأولى.`))) return false;
+  return withPeriodBusy(async () => {
+    if(merge) await mergeDirectPeriods(key);
+    return savePeriodCfg(term, key, { n, starts: merge ? [] : cur.starts.slice(0, n - 1) });
+  }, `صار "${periodCompName(key)}" ${PERIOD_COUNT_LABELS[n]} ✓`);
+}
+
+/* الفترات بعد الانتقال لفترة: بعد الجارية = تبدأ الآن، وقبلها = رجوع */
+function periodStartsFor(cfg, target, dateIso){
+  if(target <= currentPeriodOf(cfg)) return cfg.starts.slice(0, target - 1);
+  const starts = cfg.starts.slice();
+  const last = starts.length ? starts[starts.length - 1] : '';
+  const day = dateIso > last ? dateIso : last;
+  while(starts.length < target - 1) starts.push(day);
+  return starts;
+}
+
+async function goToComponentPeriod(key, target, dateIso){
+  if(gradePeriodSaving || !currentUser || !isPeriodCompKey(key)) return false;
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key);
+  const now = currentPeriodOf(cfg);
+  if(!(target >= 1 && target <= cfg.n) || target === now) return false;
+  return withPeriodBusy(() => savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }),
+    target > now ? `بدأت ${PERIOD_NAMES[target]} في "${periodCompName(key)}" ✓` : `رجعت إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}"`);
+}
+
+function periodCompName(key){
+  if(key.indexOf('tool:') === 0){
+    const t = typeof customToolById === 'function' ? customToolById(key.slice(5)) : null;
+    return t ? t.name : 'المكوّن';
+  }
+  if(key.indexOf('name:') === 0) return key.slice(5);
+  return { 'kind:participation': 'المشاركة', 'kind:homework': 'الواجبات', 'kind:task': 'المهام الأدائية' }[key] || 'المكوّن';
+}
+
+/* تعطيل أزرار الفترات أثناء الحفظ (لا نقرة مزدوجة)، ثم رسالة وإعادة رسم الكشف الظاهر */
+async function withPeriodBusy(fn, okMsg){
+  gradePeriodSaving = true;
+  document.querySelectorAll('.gs-period-btn, .crm-period-opt').forEach(b => { b.disabled = true; });
+  let ok = false;
+  try{ ok = await fn(); } catch(e){ ok = false; }
+  finally { gradePeriodSaving = false; }
+  showToast(ok ? okMsg : 'تعذّر الحفظ — أعد المحاولة', ok ? 'ok' : 'error');
+  const tab = document.getElementById('crmTabGrades');
+  if(tab && tab.style.display !== 'none' && typeof renderCrmGrades === 'function') renderCrmGrades();
+  return ok;
+}
+
+/* ============ إعداد الدرجات: سطر الفترات تحت كل مكوّن ============ */
+function componentPeriodsHtml(key){
+  if(!isPeriodCompKey(key)) return '';
+  const cfg = periodCfg(crmCurrentTerm(), key);
+  const now = currentPeriodOf(cfg);
+  const k = escapeHtml(key).replace(/'/g, '&#39;');
+  const seg = [1, 2, 3].map(n => `<button type="button" class="gs-period-btn${cfg.n === n ? ' is-on' : ''}" aria-pressed="${cfg.n === n}" onclick="setComponentPeriodCount('${k}', ${n})">${cfg.n === n ? '✓ ' : ''}${n}</button>`).join('');
+  return `<span class="gs-start gs-periods-line" data-period-key="${escapeHtml(key)}">الفترات <span class="gs-seg">${seg}</span></span>
+    ${cfg.n > 1 ? `<span class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
+      الآن: <b>${PERIOD_NAMES[now]}</b>
+      ${now < cfg.n ? `<button type="button" class="gs-period-btn gs-period-go" onclick="goToComponentPeriod('${k}', ${now + 1})">ابدأ ${PERIOD_NAMES[now + 1]} ←</button>` : ''}
+      ${now > 1 ? `<button type="button" class="gs-period-btn gs-period-back" onclick="goToComponentPeriod('${k}', ${now - 1})">→ رجوع</button>` : ''}</span>` : ''}`;
+}
+
+/* ============ شارة الفترة في ورقة الحصة (للمكوّن الذي له أكثر من فترة) ============ */
+function sheetPeriodInfo(s){
+  const key = s && periodCompKeyOfMode(s.mode);
+  if(!key) return null;
+  const cfg = periodCfg(crmCurrentTerm(), key);
+  return { key, cfg, period: Math.min(cfg.n, periodOfDateFor(s.dateIso, cfg.starts)) };
+}
+
 function crmPeriodChipHtml(s){
-  if(!s || !s.periods || !s.periods.on) return '';
-  const p = periodOfDate(s.dateIso, s.periods.start);
-  return `<button type="button" class="crm-period-chip${p === 2 ? ' is-p2' : ''}" onclick="openCrmPeriodPicker()" aria-label="تغيير الفترة">📅 ${PERIOD_NAMES[p]} ▾</button>`;
+  const info = sheetPeriodInfo(s);
+  if(!info || info.cfg.n < 2) return '';
+  return `<button type="button" class="crm-period-chip${info.period > 1 ? ' is-p2' : ''}" onclick="openCrmPeriodPicker()" aria-label="تغيير الفترة">📅 ${PERIOD_NAMES[info.period]} من ${info.cfg.n} ▾</button>`;
 }
 
 function openCrmPeriodPicker(){
-  const s = crmSheet;
-  if(!s || !s.periods || !s.periods.on) return;
-  const cur = periodOfDate(s.dateIso, s.periods.start);
-  const opt = (n, sub) => `<button type="button" class="crm-period-opt${cur === n ? ' is-on' : ''}" onclick="pickCrmPeriod(${n})">
-      <span><b>${PERIOD_NAMES[n]}</b><small>${sub}</small></span><span class="crm-period-ck">${cur === n ? '✓' : ''}</span></button>`;
+  const info = sheetPeriodInfo(crmSheet);
+  if(!info || info.cfg.n < 2) return;
+  const now = currentPeriodOf(info.cfg);
+  const sub = p => p === info.period ? 'الجارية الآن' : p < now ? 'رجوع إليها' : p === now + 1 ? 'ابدأها الآن' : 'لم تبدأ';
+  const opts = [1, 2, 3].slice(0, info.cfg.n).map(p => `<button type="button" class="crm-period-opt${p === info.period ? ' is-on' : ''}" onclick="pickCrmPeriod(${p})">
+      <span><b>${PERIOD_NAMES[p]}</b><small>${sub(p)}</small></span><span class="crm-period-ck">${p === info.period ? '✓' : ''}</span></button>`).join('');
   showInfoModal(`<div style="text-align:right;">
-    <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">الفترة</h3>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">الدرجة في الكشف = معدّل الفترتين. الرصد يذهب للفترة المختارة، وما رصدته سابقًا يبقى في فترته.</p>
-    ${opt(1, cur === 1 ? 'الجارية الآن' : 'رجوع إليها')}
-    ${opt(2, cur === 2 ? 'الجارية الآن' : 'ابدأها الآن')}
+    <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">فترات "${escapeHtml(periodCompName(info.key))}"</h3>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">الدرجة في الكشف = معدّل الفترات. ما رصدته سابقًا يبقى في فترته.</p>
+    ${opts}
   </div>`, '420px');
 }
 
-async function pickCrmPeriod(n){
+async function pickCrmPeriod(p){
   const s = crmSheet;
-  if(!s || !s.periods || gradePeriodSaving) return;
-  const cur = periodOfDate(s.dateIso, s.periods.start);
-  if(n === cur){ closeCrmModal(); return; }
-  /* الثانية تبدأ من اليوم (أو من تاريخ هذه الحصة إن كانت أقدم، فتُرصد هي فيها) */
+  const info = sheetPeriodInfo(s);
+  if(!info || gradePeriodSaving) return;
+  if(p === info.period){ closeCrmModal(); return; }
+  /* بدء فترة من حصة سابقة: تبدأ من تاريخ تلك الحصة (فتُرصد هي فيها) */
   const today = localIsoDate();
-  const value = n === 2 ? (s.dateIso < today ? s.dateIso : today) : 'later';
-  document.querySelectorAll('.crm-period-opt').forEach(b => { b.disabled = true; });
-  const term = crmCurrentTerm();
-  const ok = await setGradePeriodOverride(term, value);
+  const ok = await goToComponentPeriod(info.key, p, s.dateIso < today ? s.dateIso : today);
   closeCrmModal();
-  if(!ok){ showToast('تعذّر تغيير الفترة', 'error'); return; }
-  if(crmSheet !== s) return; /* أُغلقت الورقة أثناء الحفظ */
-  s.periods = await loadGradePeriods(term);
-  if(crmSheet !== s) return;
-  showToast('الرصد الآن في ' + PERIOD_NAMES[periodOfDate(s.dateIso, s.periods.start)], 'ok');
+  if(!ok || crmSheet !== s) return; /* فشل، أو أُغلقت الورقة أثناء الحفظ */
   await setCrmSheetMode(s.mode);
 }
 
-/* ============ "يبدأ من الكاملة": من لا درجة له في الفترة الحالية يأخذ الكاملة ============ */
+/* ============ "يبدأ من الدرجة كاملة": من لا درجة له في الفترة يأخذ الكاملة ============ */
 async function fillStartFullPeriodScores(column, studentIds, period, current){
   const missing = (studentIds || []).filter(id => !current.has(id));
   if(!missing.length) return [];
@@ -215,17 +336,4 @@ async function loadPeriodRows(columnId){
     .eq('teacher_id', currentUser.id).eq('column_id', columnId);
   if(error) throw error;
   return data || [];
-}
-
-/* ============ إعداد الدرجات: "فترة واحدة / فترتان" ============ */
-function crmPeriodSettingsHtml(periods){
-  if(!periods) return '';
-  const cur = periodOfDate(localIsoDate(), periods.start);
-  return `<div class="gs-periods">
-    <div class="gs-periods-row"><b>📅 المشاركة والواجبات</b>
-      <span class="gs-seg"><button type="button" class="gs-period-btn${periods.on ? '' : ' is-on'}" aria-pressed="${!periods.on}" onclick="setCrmGradePeriods('off')">${periods.on ? '' : '✓ '}فترة واحدة</button><button type="button" class="gs-period-btn${periods.on ? ' is-on' : ''}" aria-pressed="${periods.on}" onclick="setCrmGradePeriods('on')">${periods.on ? '✓ ' : ''}فترتان</button></span></div>
-    ${periods.on ? `<div class="gs-periods-now">الآن: <b>${PERIOD_NAMES[cur]}</b> — الدرجة في الكشف = معدّل الفترتين</div>
-      ${cur === 1 ? '<button type="button" class="gs-period-btn gs-period-go" onclick="setCrmGradePeriods(\'start2\')">ابدأ الفترة الثانية ←</button>'
-        : '<button type="button" class="gs-period-btn gs-period-back" onclick="setCrmGradePeriods(\'back1\')">→ رجوع للفترة الأولى</button>'}` : ''}
-  </div>`;
 }

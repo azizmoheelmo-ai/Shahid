@@ -1685,7 +1685,7 @@ create table if not exists public.classroom_grade_period_scores (
   teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   column_id uuid not null,
   student_id uuid not null,
-  period smallint not null check (period in (1, 2)),
+  period smallint not null check (period in (1, 2, 3)),
   score numeric(5,2) not null check (score >= 0),
   updated_at timestamptz not null default now(),
   unique (column_id, student_id, period),
@@ -1758,7 +1758,7 @@ returns numeric language plpgsql security invoker set search_path = '' as $b$
 declare v_uid uuid := auth.uid(); v_max numeric; v_new numeric; v_full boolean := coalesce(p_full, false);
 begin
   if v_uid is null then raise exception 'not authenticated'; end if;
-  if p_period is null or p_period not in (1, 2) then raise exception 'bad period'; end if;
+  if p_period is null or p_period not in (1, 2, 3) then raise exception 'bad period'; end if;
   select max_score into v_max from public.classroom_grade_columns where id = p_column_id and teacher_id = v_uid;
   if v_max is null then raise exception 'column not found'; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_column_id::text || p_student_id::text, 0));
@@ -1781,7 +1781,7 @@ returns numeric language plpgsql security invoker set search_path = '' as $b$
 declare v_uid uuid := auth.uid(); v_max numeric; v_new numeric;
 begin
   if v_uid is null then raise exception 'not authenticated'; end if;
-  if p_period is null or p_period not in (1, 2) then raise exception 'bad period'; end if;
+  if p_period is null or p_period not in (1, 2, 3) then raise exception 'bad period'; end if;
   select max_score into v_max from public.classroom_grade_columns where id = p_column_id and teacher_id = v_uid;
   if v_max is null then raise exception 'column not found'; end if;
   if p_score is not null and (p_score < 0 or p_score > v_max) then

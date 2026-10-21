@@ -70,12 +70,9 @@ function normalizeFeatures(raw){
     const keys = Object.keys(sf).filter(k => sf[k] === true && isStartFullKey(k));
     if(keys.length) out.startFull = Object.fromEntries(keys.map(k => [k, true]));
   }
-  /* بداية الفترة الثانية لكل فصل ("سنة|فصل" → تاريخ أو "later") — app-27 */
-  const pr = raw && raw.periods;
-  if(pr && typeof pr === 'object'){
-    const keys = Object.keys(pr).filter(k => /^[0-9٠-٩\-\/ ]{1,20}\|[12]$/.test(k) && typeof isPeriodOverrideValue === 'function' && isPeriodOverrideValue(pr[k]));
-    if(keys.length) out.periods = Object.fromEntries(keys.map(k => [k, pr[k]]));
-  }
+  /* الفترات لكل مكوّن في كل فصل (app-27) */
+  const pr = typeof normalizePeriodsFeature === 'function' ? normalizePeriodsFeature(raw && raw.periods) : null;
+  if(pr) out.periods = pr;
   return out;
 }
 

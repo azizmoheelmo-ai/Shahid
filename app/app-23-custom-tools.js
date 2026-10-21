@@ -54,6 +54,11 @@ function toolColumnScoreFor(tool, values, colMax){
   return Math.round(100 * avg * Number(colMax)) / 100;
 }
 
+/* الفترات (app-27): كل رصد في فترة يومه، والعمود = معدّل الفترات */
+function toolPeriodScores(tool, marks, colMax, starts){
+  return periodSplitScores(marks, m => m.mark_date, list => toolColumnScoreFor(tool, list.map(m => m.value), colMax), starts);
+}
+
 function nextToolStatus(v, full){
   if(full) return v >= 1 ? 0 : 1; /* من الكاملة: تمّ ⇄ لم يتمّ (الحصة تبدأ "تمّ" للجميع) */
   return v === undefined || v === null ? 1 : (v >= 1 ? 0 : null); /* لم يُرصد ← تمّ ← لم يتمّ ← لم يُرصد */
@@ -150,24 +155,31 @@ async function ensureToolColumn(tool, sectionId, term){
 }
 
 /* يكتب درجات عمود أداة الحالة/الدرجة لطلاب الشعبة (أو studentIds). يرمي عند الفشل. */
+/* رصد أداة حالة/درجة لطلاب في فصل: Map(طالب → [{ value, mark_date }]) */
+async function loadToolMarksByStudent(tool, ids, term){
+  let marks = [];
+  for(const chunk of chunkArray(ids || [], 100)){
+    const { data, error } = await sb.from('classroom_tool_marks').select('student_id, value, mark_date')
+      .eq('teacher_id', currentUser.id).eq('tool_id', tool.id).eq('academic_year', term.year).eq('semester', term.semester).in('student_id', chunk);
+    if(error) throw error;
+    marks = marks.concat(data || []);
+  }
+  const byStudent = new Map();
+  marks.forEach(m => { if(!byStudent.has(m.student_id)) byStudent.set(m.student_id, []); byStudent.get(m.student_id).push(m); });
+  return byStudent;
+}
+
 async function syncToolColumn(column, tool, sectionId, term, studentIds){
   if(!column || !tool || tool.tool_type === 'counter') return;
   const uid = currentUser.id;
   const ids = studentIds || crmStudentsOfSection(sectionId).map(s => s.id);
   if(!ids.length) return;
-  let marks = [];
-  for(const chunk of chunkArray(ids, 100)){
-    const { data, error } = await sb.from('classroom_tool_marks').select('student_id, value')
-      .eq('teacher_id', uid).eq('tool_id', tool.id).eq('academic_year', term.year).eq('semester', term.semester).in('student_id', chunk);
-    if(error) throw error;
-    marks = marks.concat(data || []);
-  }
-  const byStudent = new Map();
-  marks.forEach(m => { if(!byStudent.has(m.student_id)) byStudent.set(m.student_id, []); byStudent.get(m.student_id).push(m.value); });
+  const byStudent = await loadToolMarksByStudent(tool, ids, term);
+  const starts = periodCfg(term, 'tool:' + tool.id).starts;
   const { data: rows, error: sErr } = await sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', column.id);
   if(sErr) throw sErr;
   const existing = new Map((rows || []).map(r => [r.student_id, Number(r.score)]));
-  const plan = planComputedScoreSync(ids, id => toolColumnScoreFor(tool, byStudent.get(id), column.max_score), existing);
+  const plan = planComputedScoreSync(ids, id => toolPeriodScores(tool, byStudent.get(id), column.max_score, starts).final, existing);
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
@@ -193,7 +205,7 @@ async function renderCrmToolMode(students, tool){
   const s = crmSheet;
   const mode = 'tool:' + tool.id;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
