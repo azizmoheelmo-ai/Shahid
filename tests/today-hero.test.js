@@ -152,8 +152,9 @@ test('البطاقة الكبيرة: مربّع لكل أداة يفتح الو�
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /<span class="crm-tile-ic">🔢<\/span>\s*<b>&lt;b&gt;قراءة&lt;\/b&gt;<\/b>/, 'مربّع الأداة الخاصة باسمها مهرّبًا');
   assert.match(html, /onclick="openCrmLessonSheet\('S1','2026-10-21',1,'tool:T1'\)"/);
-  assert.match(html, /المتبقية \(2\)/);
+  assert.match(html, /بعدها \(1\)/, 'حصة البطاقة لا تتكرر في القائمة');
   assert.match(html, /المنجزة \(0\)/);
+  assert.equal((html.match(/openCrmLessonActions\('S1'/g) || []).length, 1, 'الحصة 1 مرة واحدة (⋯ البطاقة فقط)');
   assert.doesNotMatch(html, /لم يُرصد|ناقص/, 'بلا تنبيهات');
 });
 
@@ -171,7 +172,8 @@ test('رُصدت الأولى: البطاقة على الثانية، والأو
   const html = get(app, 'window.__box.innerHTML');
   assert.match(html, /الحصة التالية: 2/);
   assert.match(html, /1\/2 ✓/);
-  assert.match(html, /المتبقية \(1\)/);
+  assert.match(html, /بعدها \(0\)/);
+  assert.match(html, /لا حصص بعدها اليوم/);
   assert.match(html, /المنجزة \(1\)/);
   const lessonQs = log.filter(q => q.table === 'classroom_lessons' || q.table === 'classroom_lesson_skips');
   assert.ok(lessonQs.length >= 3);
@@ -213,4 +215,18 @@ test('تحديث الدقيقة لا يرسم بيانات قديمة فوق ت�
   runInAppContext(app, `crmTodayRenderToken++; window.__box.innerHTML = 'LOADING';`);
   app.paintCrmToday();
   assert.equal(get(app, 'window.__box.innerHTML'), 'LOADING');
+});
+
+test('القائمتان بلا حصة البطاقة: "المتبقية" إن بقيت حصة قبلها، ولا تبويبات إن لم يبقَ غيرها', async () => {
+  const { app } = renderApp({});
+  runInAppContext(app, `crmTimetableSlots = [1, 3, 5].map(p => ({ section_id: 'S1', weekday: 3, period: p, created_at: '2020-01-01' }));`);
+  await app.renderCrmToday();
+  app.pickCrmNowPeriod(3);
+  let html = get(app, 'window.__box.innerHTML');
+  assert.match(html, /الحصة التالية: 3/);
+  assert.match(html, /المتبقية \(2\)/, 'الحصة 1 قبلها لم تُرصد — ليست "بعدها"');
+  runInAppContext(app, `crmTimetableSlots = [{ section_id: 'S1', weekday: 3, period: 1, created_at: '2020-01-01' }];`);
+  app.pickCrmNowPeriod(null);
+  html = get(app, 'window.__box.innerHTML');
+  assert.doesNotMatch(html, /crm-today-seg/, 'حصة واحدة = البطاقة فقط');
 });
