@@ -1541,9 +1541,15 @@
 /* ============ الفترتان ============ */
 .gs-periods{margin-top:12px;background:#FBF3DC;border:1px solid #E8D49C;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.8;color:var(--ink);}
 .gs-periods small{color:var(--muted);}
-.gs-period-edit{margin-top:6px;padding:5px 14px;border:0;border-radius:8px;background:var(--navy);color:#fff;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer;}
+.gs-periods-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
+.gs-periods-now{margin-top:8px;color:var(--muted);}
+.gs-periods-now b{color:var(--navy);}
+.gs-period-go,.gs-period-back{display:block;width:100%;margin-top:8px;padding:9px;border-radius:9px;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;}
+.gs-period-go{border:0;background:var(--navy);color:#fff;}
+.gs-period-back{border:1.5px solid #CFC8B8;background:#fff;color:#5B6470;}
+.gs-period-btn:disabled{opacity:.6;cursor:wait;}
 .crm-period-chip{display:inline-block;margin-inline-start:6px;border:0;border-radius:12px;padding:2px 12px;background:#F4EBD3;color:#7A5E16;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;vertical-align:middle;white-space:nowrap;}
-.crm-period-chip.is-manual{background:#FCE3CC;color:#9A4A0B;}
+.crm-period-chip.is-p2{background:#E3ECF3;color:var(--navy);}
 .crm-period-opt{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:right;border:1.5px solid #DED8CA;border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#fff;font-family:inherit;cursor:pointer;}
 .crm-period-opt b{display:block;font-size:14px;color:var(--navy);}
 .crm-period-opt small{display:block;font-size:11.5px;color:var(--muted);}

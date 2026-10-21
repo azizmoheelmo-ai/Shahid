@@ -480,7 +480,7 @@ function crmGradeStudentPageHtml(g, studentId){
 /* مكوّن بفترتين في صفحة الطالب: شريط لكل فترة، وطريقة حساب المعدّل تحتهما */
 function crmGradePeriodPartHtml(g, x, studentId){
   const per = g.breakdown && g.breakdown.get(x.id);
-  if(!per || !g.periods) return '';
+  if(!per || !g.periods || !g.periods.on) return ''; /* فترة واحدة: سطر عادي */
   const b = per.get(studentId) || { p1: null, p2: null };
   if(b.p1 === null && b.p2 === null && x.score === null) return ''; /* لا رصد بعد: سطر عادي بلا تفصيل فارغ */
   const start = g.periods.start, today = localIsoDate();
@@ -556,7 +556,7 @@ function crmGradeDetailHtml(g){
     g.columns.forEach(c => {
       const k = c.id + '|' + s.id;
       /* مكوّن بفترتين: المعدّل، وتحته درجتا الفترتين متى رُصدت الثانية */
-      const per = g.breakdown && g.breakdown.get(c.id) && g.breakdown.get(c.id).get(s.id);
+      const per = g.periods && g.periods.on && g.breakdown && g.breakdown.get(c.id) && g.breakdown.get(c.id).get(s.id);
       const perTxt = per && per.p2 !== null ? `<small class="crm-grade-per">${per.p1 === null ? '—' : formatScore(per.p1)} · ${formatScore(per.p2)}</small>` : '';
       html += `<td>${scoreOf.has(k) ? formatScore(scoreOf.get(k)) + perTxt : '<span class="crm-grade-empty">—</span>'}</td>`;
     });
@@ -564,7 +564,7 @@ function crmGradeDetailHtml(g){
       <td class="crm-grade-total">${res.tests.points === null ? '' : formatScore(res.tests.points)}</td></tr>`;
   });
   html += '</tbody></table></div>';
-  html += `<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">اضغط رأس العمود لرصد درجاته أو تعديله. "—" = لم تُرصد (لا تُحسب صفرًا).${g.breakdown && g.breakdown.size ? ' المشاركة والواجبات: الرقم = معدّل الفترتين، وتحته الفترة الأولى · الثانية.' : ''}</p>`;
+  html += `<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">اضغط رأس العمود لرصد درجاته أو تعديله. "—" = لم تُرصد (لا تُحسب صفرًا).${g.periods && g.periods.on ? ' المشاركة والواجبات: الرقم = معدّل الفترتين، وتحته الفترة الأولى · الثانية.' : ''}</p>`;
   return html;
 }
 
@@ -749,8 +749,8 @@ function openCrmGradeEntry(columnId){
   const students = crmStudentsOfSection(crmGrades.sectionId);
   const scoreOf = crmGradeEntryScores(crmGrades, c, period);
   box.innerHTML = `
-    <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
-    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period ? ' · الدرجة في الكشف = معدّل الفترتين' : ''}</div>
+    <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period && crmGrades.periods.on ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
+    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period && crmGrades.periods.on ? ' · الدرجة في الكشف = معدّل الفترتين' : ''}</div>
     <div class="crm-grade-entry">
       ${students.map((s, i) => `<label class="crm-grade-entry-row">
         <span>${escapeHtml(s.full_name)}</span>
@@ -766,7 +766,7 @@ function openCrmGradeEntry(columnId){
   if(first) first.focus();
 }
 
-/* فترة الرصد اليدوي لعمود المشاركة (null لغيره) */
+/* فترة الرصد اليدوي لعمود المشاركة (null لغيره). بفترة واحدة: الأولى (رصد المشاركة دائمًا بدرجة فترة) */
 function crmGradeEntryPeriod(g, c){
   if(!c || c.kind !== 'participation' || c.tool_id || !g.periods || !(g.breakdown && g.breakdown.has(c.id))) return null;
   return periodOfDate(localIsoDate(), g.periods.start);

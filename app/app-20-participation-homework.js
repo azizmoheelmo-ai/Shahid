@@ -277,8 +277,10 @@ async function renderCrmParticipation(students, tool){
   const saved = readParticipationState(s, tool ? tool.id : null, period);
   const full = gradeStartsFull(tool ? 'tool:' + tool.id : 'participation');
   s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full, step: full ? -1 : 1, period };
-  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${period ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${period ? `الرصد في <b>${PERIOD_NAMES[period]}</b> — درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترتين. ` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${period ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
+  /* المشاركة تُرصد دائمًا في درجة فترة (بفترة واحدة: الأولى)؛ الشارة والشرح لمن فعّل الفترتين */
+  const shown = period && s.periods.on ? period : null;
+  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترتين. ` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <div class="crm-att-btn crm-part-tile${crmAbsentClass(s, st.id)}" id="crmPart_${st.id}">
@@ -439,17 +441,17 @@ async function renderCrmHomework(students, selectId){
     return;
   }
   const statuses = homeworkStatusIndex(hw.statusRows).get(selectedId) || new Map();
-  const start = s.periods.start;
+  const start = s.periods.start, perOn = s.periods.on;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}` + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${start ? ' · ' + PERIOD_NAMES[periodOfDate(h.due_date, start)] : ''}</option>`).join('')}
+        ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${perOn ? ' · ' + PERIOD_NAMES[periodOfDate(h.due_date, start)] : ''}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل أو حذف الواجب المختار" onclick="openCrmHomeworkEditor(crmSheet.hw && crmSheet.hw.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${start ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترتين. ' : ''}${gradeStartsFull('homework') ? 'الأصل "سلّم" — اضغط: <b style="color:#8A2C2C;">لم يسلّم</b> ← ناقص ← متأخر ← سلّم' : 'الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم'}. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترتين. ' : ''}${gradeStartsFull('homework') ? 'الأصل "سلّم" — اضغط: <b style="color:#8A2C2C;">لم يسلّم</b> ← ناقص ← متأخر ← سلّم' : 'الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم'}. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">
