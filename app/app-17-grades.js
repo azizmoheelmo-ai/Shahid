@@ -351,8 +351,9 @@ function setCrmGradesDetail(on){
   renderCrmGrades();
 }
 
-/* لا كشف للشعبة في هذا الفصل بعد */
+/* لا كشف للشعبة في هذا الفصل بعد: معالج البداية (app-28) */
 function crmGradeCreateCardHtml(){
+  if(typeof crmGradeWizardHtml === 'function') return crmGradeWizardHtml();
   const term = crmCurrentTerm();
   return `<div class="crm-today-card">
       <div class="crm-today-title">لا كشف درجات لهذه الشعبة في ${escapeHtml(getCrmSemesterLabel())}</div>
