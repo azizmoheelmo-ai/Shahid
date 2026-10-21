@@ -473,8 +473,7 @@ async function checkAdminStatus(){
   /* شارة "إدارة الصف" = بطاقات الانتباه العاجلة والمهمة (app-16) — مصدر
      واحد لتنبيهات الطلاب بدل تكرارها هنا وفي مركز التنبيهات */
   refreshAttention();
-  buildPerformanceRisks();
-  buildDataRisks();
+  if(riskCenterOn()){ buildPerformanceRisks(); buildDataRisks(); }
 }
 
 async function handleLogout(){
@@ -1014,7 +1013,14 @@ async function revokeConnectorToken(id){
 }
 
 /* ============ مركز المخاطر ============ */
+/* موقوف حتى إشعار آخر (بطلب صاحب التطبيق): الجرس 🔔 مخفي ولا تُفحص تنبيهاته.
+   الكود باقٍ كما هو — إعادته = true هنا */
+const RISK_CENTER_ON = false;
+function riskCenterOn(){ return RISK_CENTER_ON; }
+(function(){ const b = document.getElementById('riskNavBtn'); if(b && !RISK_CENTER_ON) b.style.display = 'none'; })();
+
 async function showRiskCenter(){
+  if(!riskCenterOn()) return;
   hideAllMainViews();
   setActiveBottomTab('risk');
   document.getElementById('riskView').style.display = 'block';
