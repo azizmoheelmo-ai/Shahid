@@ -599,20 +599,21 @@ function pickCrmNowPeriod(period){
 
 function crmTodayListsHtml(d, rows, focus){
   const todayIso = d.todayIso;
-  const left = rows.filter(r => !r.recorded && !r.skip);
-  const done = rows.filter(r => r.recorded || r.skip);
-  if(!crmTodayListTab) crmTodayListTab = left.length ? 'left' : 'done';
+  /* حصة البطاقة الكبيرة لا تتكرر في القائمتين — عددها الكامل في شارة البطاقة */
   const focusRow = focus.index !== -1 ? rows[focus.index] : null;
+  const left = rows.filter(r => r !== focusRow && !r.recorded && !r.skip);
+  const done = rows.filter(r => r !== focusRow && (r.recorded || r.skip));
+  if(!left.length && !done.length) return '';
+  if(!crmTodayListTab) crmTodayListTab = left.length || !done.length ? 'left' : 'done';
+  /* "بعدها" فقط إن كانت كل الباقية بعد حصة البطاقة (حصة سابقة لم تُرصد = "المتبقية") */
+  const leftName = focusRow && left.every(r => r.period > focusRow.period) ? 'بعدها' : 'المتبقية';
   const label = r => escapeHtml(crmSectionLabel(r.section_id)); /* رقم الحصة في مربّعها */
   const more = r => `<button type="button" class="crm-lrow-more" aria-label="خيارات الحصة" onclick="openCrmLessonActions('${r.section_id}','${todayIso}',${r.period})">⋯</button>`;
   const plan = r => typeof planBadgeForLesson === 'function' ? planBadgeForLesson(d.plans, todayIso, r.section_id, r.period) : '';
-  const leftHtml = left.length ? left.map(r => {
-    const isFocus = r === focusRow;
-    const chip = isFocus ? `<span class="gs-chip now">${focus.state === 'now' ? 'الآن' : 'التالية'}</span>` : '';
-    return `<div class="crm-lrow"><span class="crm-lrow-no" aria-label="الحصة ${r.period}">${r.period}</span>
-      <div class="crm-lrow-main"><b>${label(r)}</b>${chip ? `<div class="gs-chips">${chip}</div>` : ''}${plan(r)}</div>
-      <button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">رصد</button>${more(r)}</div>`;
-  }).join('') : '<div class="crm-today-empty" style="padding:8px 2px;">لا حصص متبقية اليوم.</div>';
+  const leftHtml = left.length ? left.map(r => `<div class="crm-lrow"><span class="crm-lrow-no" aria-label="الحصة ${r.period}">${r.period}</span>
+      <div class="crm-lrow-main"><b>${label(r)}</b>${plan(r)}</div>
+      <button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${r.section_id}','${todayIso}',${r.period})">رصد</button>${more(r)}</div>`
+  ).join('') : `<div class="crm-today-empty" style="padding:8px 2px;">${leftName === 'بعدها' ? 'لا حصص بعدها اليوم.' : 'لا حصص متبقية اليوم.'}</div>`;
   const doneHtml = done.length ? done.map(r => r.recorded
     ? `<div class="crm-lrow is-done"><span class="crm-lrow-no is-ok" aria-label="الحصة ${r.period}">${r.period}</span>
         <div class="crm-lrow-main"><b>${label(r)}</b><div class="gs-chips"><span class="gs-chip full">الحضور ✓</span></div>${plan(r)}</div>
@@ -623,7 +624,7 @@ function crmTodayListsHtml(d, rows, focus){
   ).join('') : '<div class="crm-today-empty" style="padding:8px 2px;">لم تُرصد حصة اليوم بعد.</div>';
   const on = t => crmTodayListTab === t;
   return `<div class="crm-seg crm-today-seg">
-      <button type="button" class="${on('left') ? 'is-on' : ''}" onclick="setCrmTodayList('left')">المتبقية (${left.length})</button>
+      <button type="button" class="${on('left') ? 'is-on' : ''}" onclick="setCrmTodayList('left')">${leftName} (${left.length})</button>
       <button type="button" class="${on('done') ? 'is-on' : ''}" onclick="setCrmTodayList('done')">المنجزة (${done.length})</button></div>
     <div id="crmTodayLeft"${on('left') ? '' : ' style="display:none;"'}>${leftHtml}</div>
     <div id="crmTodayDone"${on('done') ? '' : ' style="display:none;"'}>${doneHtml}</div>`;
