@@ -55,8 +55,8 @@ function toolColumnScoreFor(tool, values, colMax){
 }
 
 /* الفترات (app-27): كل رصد في فترة يومه، والعمود = معدّل الفترات */
-function toolPeriodScores(tool, marks, colMax, starts){
-  return periodSplitScores(marks, m => m.mark_date, list => toolColumnScoreFor(tool, list.map(m => m.value), colMax), starts);
+function toolPeriodScores(tool, marks, colMax, cfg){
+  return periodSplitScores(marks, m => m.mark_date, list => toolColumnScoreFor(tool, list.map(m => m.value), colMax), cfg);
 }
 
 function nextToolStatus(v, full){
@@ -175,11 +175,11 @@ async function syncToolColumn(column, tool, sectionId, term, studentIds){
   const ids = studentIds || crmStudentsOfSection(sectionId).map(s => s.id);
   if(!ids.length) return;
   const byStudent = await loadToolMarksByStudent(tool, ids, term);
-  const starts = periodCfg(term, 'tool:' + tool.id).starts;
+  const pcfg = periodCfg(term, 'tool:' + tool.id);
   const { data: rows, error: sErr } = await sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', column.id);
   if(sErr) throw sErr;
   const existing = new Map((rows || []).map(r => [r.student_id, Number(r.score)]));
-  const plan = planComputedScoreSync(ids, id => toolPeriodScores(tool, byStudent.get(id), column.max_score, starts).final, existing);
+  const plan = planComputedScoreSync(ids, id => toolPeriodScores(tool, byStudent.get(id), column.max_score, pcfg).final, existing);
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),

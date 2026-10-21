@@ -10,7 +10,11 @@
    - المكوّن المحسوب (الواجبات بموعدها، المهام بموعدها، أداة الحالة/الدرجة
      بتاريخ رصدها): درجة كل فترة من رصدها، والعمود = معدّل الفترات.
    - الإعداد في user_app_settings.features.periods["سنة|فصل"][هوية المكوّن]
-     = { n: 1..3, starts: [يوم بدء الثانية، يوم بدء الثالثة] }.
+     = { n: 1..3, starts: [يوم بدء الثانية، يوم بدء الثالثة], ended?: true }.
+   - الفترة الجارية لا تدخل المعدّل حتى تنتهي (لا هبوط مفاجئ عند بدء فترة):
+     في الأولى تُحسب الأولى؛ بعدها تُحسب الفترات المنتهية فقط، والأخيرة عند
+     "أنهِ الفترة". للمرصود مباشرة: classroom_grade_columns.counted_periods.
+   - تقليل الفترات يحذف رصد ما بعدها فقط (ترجع الدرجة لما قبلها)، مع "تراجع".
      هوية المكوّن كما في إعداد الدرجات: kind:participation، tool:<id>، name:<اسم>.
    - الاختبارات بلا فترات (كل اختبار عمود مستقل أصلًا).
    ============================================================ */
@@ -28,13 +32,22 @@ function isPeriodCompKey(k){
   return typeof k === 'string' && (/^kind:(participation|homework|task)$/.test(k) || /^tool:[0-9a-f-]{36}$/i.test(k) || /^name:.{1,60}$/.test(k));
 }
 
-/* { n, starts } صالح، أو null (= فترة واحدة) */
+/* { n, starts, ended? } صالح، أو null (= فترة واحدة). ended: الفترة الأخيرة انتهت (تُحسب) */
 function normalizePeriodCfg(raw){
   if(!raw || typeof raw !== 'object') return null;
   const n = Number(raw.n);
   if(!Number.isInteger(n) || n < 2 || n > PERIOD_COUNT_MAX) return null;
   const starts = (Array.isArray(raw.starts) ? raw.starts : []).filter(d => typeof d === 'string' && ISO_DATE_RE.test(d)).sort().slice(0, n - 1);
-  return { n, starts };
+  return raw.ended === true && starts.length === n - 1 ? { n, starts, ended: true } : { n, starts };
+}
+
+/* كم فترة تُحسب في الدرجة: null = الكل (فترة واحدة)؛ في الأولى: الأولى؛ بعدها: المنتهية فقط؛
+   وبعد "أنهِ الفترة الأخيرة": كلها */
+function countedPeriodsOf(cfg){
+  if(!cfg || cfg.n < 2) return null;
+  if(cfg.ended) return cfg.n;
+  const cur = currentPeriodOf(cfg);
+  return cur === 1 ? 1 : cur - 1;
 }
 
 /* القيمة القديمة (الإصدار 1.5: "later" أو تاريخ لكل فصل) = المشاركة والواجبات بفترتين */
@@ -129,13 +142,16 @@ function periodAverage(...vals){
   return Math.round(100 * rec.reduce((a, b) => a + Number(b), 0) / rec.length) / 100;
 }
 
-/* مكوّن محسوب: درجة كل فترة من عناصرها (بتاريخها)، والنهائية = معدّل الفترات المرصودة.
-   بلا فترات بدأت = حساب واحد على الكل (كالسابق تمامًا) */
-function periodSplitScores(items, dateOf, scoreOf, starts){
+/* مكوّن محسوب: درجة كل فترة من عناصرها (بتاريخها)، والنهائية = معدّل الفترات المحسوبة المرصودة.
+   cfg: إعداد المكوّن (أو قائمة starts = كل الفترات محسوبة). بلا فترات بدأت = حساب واحد على الكل */
+function periodSplitScores(items, dateOf, scoreOf, cfg){
+  const c = Array.isArray(cfg) || !cfg ? { n: (cfg || []).length + 1, starts: cfg || [], ended: true } : cfg;
+  const starts = c.starts || [];
   const out = { p1: null, p2: null, p3: null, final: null };
-  const k = (starts || []).length + 1;
+  const k = starts.length + 1;
   for(let p = 1; p <= k; p++) out['p' + p] = scoreOf((items || []).filter(it => periodOfDateFor(dateOf(it), starts) === p));
-  out.final = periodAverage(out.p1, out.p2, out.p3);
+  const counted = countedPeriodsOf(c) || k;
+  out.final = periodAverage([out.p1, out.p2, out.p3].slice(0, counted));
   return out;
 }
 
@@ -147,14 +163,15 @@ async function savePeriodCfg(term, key, cfg){
   const next = normalizeFeatures(appFeatures);
   const all = Object.assign({}, next.periods);
   const t = Object.assign({}, all[termPeriodKey(term)]);
-  if(cfg && cfg.n > 1) t[key] = { n: cfg.n, starts: cfg.starts.slice(0, cfg.n - 1) }; else delete t[key];
+  if(cfg && cfg.n > 1) t[key] = Object.assign({ n: cfg.n, starts: cfg.starts.slice(0, cfg.n - 1) }, cfg.ended && cfg.starts.length >= cfg.n - 1 ? { ended: true } : {}); else delete t[key];
   if(Object.keys(t).length) all[termPeriodKey(term)] = t; else delete all[termPeriodKey(term)];
   if(Object.keys(all).length) next.periods = all; else delete next.periods;
   appFeatures = next;
   await saveAppFeatures();
   const saved = periodCfg(term, key);
-  const want = cfg && cfg.n > 1 ? { n: cfg.n, starts: cfg.starts.slice(0, cfg.n - 1) } : { n: 1, starts: [] };
-  if(saved.n !== want.n || saved.starts.join() !== want.starts.join()) return false; /* فشل الحفظ: أُعيد المحفوظ */
+  const want = normalizePeriodCfg(cfg) || { n: 1, starts: [] };
+  if(saved.n !== want.n || saved.starts.join() !== want.starts.join() || !!saved.ended !== !!want.ended) return false; /* فشل الحفظ: أُعيد المحفوظ */
+  await applyCountedPeriods(term, key, saved);
   await resyncPeriodComponent(term, key);
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   return true;
@@ -173,28 +190,26 @@ async function resyncPeriodComponent(term, key){
   } catch(e){} /* يُعاد حسابه عند فتح الكشف */
 }
 
-/* المرصود مباشرة: دمج كل الفترات في الأولى بمعدّلها الحالي (درجة الكشف لا تتغيّر).
-   الأولى = المعدّل ثم حذف ما بعدها. يرمي عند الفشل (يُعاد بأمان) */
-async function mergeDirectPeriods(key){
-  const uid = currentUser.id;
+/* المرصود مباشرة: عدد الفترات المحسوبة في كل أعمدة المكوّن (القاعدة تعيد حساب الدرجات) */
+async function applyCountedPeriods(term, key, cfg){
+  if(!periodKeyIsDirect(key) || typeof termColumnsMatching !== 'function') return;
+  const want = countedPeriodsOf(cfg);
   const cols = await termColumnsMatching(c => periodCompKeyOfColumn(c) === key && isDirectPeriodColumn(c));
   for(const c of cols){
-    const { data: later, error } = await sb.from('classroom_grade_period_scores').select('student_id')
-      .eq('teacher_id', uid).eq('column_id', c.id).in('period', [2, 3]);
+    if((c.counted_periods == null ? null : Number(c.counted_periods)) === want) continue;
+    const { error } = await sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want });
     if(error) throw error;
-    const ids = [...new Set((later || []).map(r => r.student_id))];
-    if(!ids.length) continue;
-    const { data: main, error: mErr } = await sb.from('classroom_grade_scores').select('student_id, score')
-      .eq('teacher_id', uid).eq('column_id', c.id).in('student_id', ids);
-    if(mErr) throw mErr;
-    const res = await Promise.all((main || []).map(m => sb.rpc('set_period_score',
-      { p_column_id: c.id, p_student_id: m.student_id, p_period: 1, p_score: Number(m.score), p_only_missing: false })));
-    const bad = res.find(r => r.error);
-    if(bad) throw bad.error;
-    const { error: dErr } = await sb.from('classroom_grade_period_scores').delete()
-      .eq('teacher_id', uid).eq('column_id', c.id).in('period', [2, 3]);
-    if(dErr) throw dErr;
   }
+}
+
+/* رصد الفترات بعد n في أعمدة مكوّن مرصود مباشرة (للحذف مع إمكانية التراجع) */
+async function laterPeriodRows(key, n){
+  const cols = await termColumnsMatching(c => periodCompKeyOfColumn(c) === key && isDirectPeriodColumn(c));
+  if(!cols.length) return [];
+  const { data, error } = await sb.from('classroom_grade_period_scores').select('*')
+    .eq('teacher_id', currentUser.id).in('column_id', cols.map(c => c.id)).in('period', [1, 2, 3].filter(p => p > n));
+  if(error) throw error;
+  return data || [];
 }
 
 function periodKeyIsDirect(key){
@@ -214,13 +229,50 @@ async function setComponentPeriodCount(key, n){
   const term = crmCurrentTerm();
   const cur = periodCfg(term, key);
   if(cur.n === n) return false;
-  /* أقل من الفترة الجارية: المرصود مباشرة يُدمج (بتأكيد)، والمحسوب يُعاد توزيعه بتاريخه */
-  const merge = n < currentPeriodOf(cur) && periodKeyIsDirect(key);
-  if(merge && !(await showConfirm(`تقليل فترات "${periodCompName(key)}" إلى ${PERIOD_COUNT_LABELS[n]}؟ تُدمج الفترات في الأولى: درجة كل طالب تبقى معدّله الحالي، ثم تبدأ من الفترة الأولى.`))) return false;
-  return withPeriodBusy(async () => {
-    if(merge) await mergeDirectPeriods(key);
-    return savePeriodCfg(term, key, { n, starts: merge ? [] : cur.starts.slice(0, n - 1) });
+  const next = { n, starts: cur.starts.slice(0, n - 1) };
+  /* أقل من الفترات: المرصود مباشرة يُحذف رصد ما بعدها فقط (بتأكيد وتراجع) — ترجع الدرجة لما قبلها،
+     والمحسوب يُعاد توزيعه بتاريخه (لا شيء يُحذف) */
+  let later = [];
+  if(n < cur.n && periodKeyIsDirect(key)){
+    try{ later = await laterPeriodRows(key, n); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
+    if(later.length){
+      const students = new Set(later.map(r => r.student_id)).size;
+      const names = [1, 2, 3].filter(p => p > n && later.some(r => Number(r.period) === p)).map(p => PERIOD_NAMES[p]).join(' و');
+      if(!(await showConfirm(`تقليل فترات "${periodCompName(key)}" إلى ${PERIOD_COUNT_LABELS[n]}؟ يُحذف رصد ${names} (${students === 1 ? 'لطالب واحد' : students === 2 ? 'لطالبين' : 'لـ ' + students + ' طلاب'})، وترجع درجاتهم لما قبلها.`))) return false;
+    }
+  }
+  const ok = await withPeriodBusy(async () => {
+    if(later.length){
+      const { error } = await sb.from('classroom_grade_period_scores').delete()
+        .eq('teacher_id', currentUser.id).in('id', later.map(r => r.id));
+      if(error) throw error;
+    }
+    return savePeriodCfg(term, key, next);
   }, `صار "${periodCompName(key)}" ${PERIOD_COUNT_LABELS[n]} ✓`);
+  if(ok && later.length && typeof showUndoToast === 'function'){
+    const keep = await showUndoToast('حُذف رصد الفترات الزائدة', 6);
+    if(!keep) await undoPeriodReduce(term, key, cur, later);
+  }
+  return ok;
+}
+
+/* تراجع: يعود الرصد المحذوف والإعداد كما كانا */
+async function undoPeriodReduce(term, key, prevCfg, rows){
+  await withPeriodBusy(async () => {
+    const { error } = await sb.from('classroom_grade_period_scores').insert(rows);
+    if(error) throw error;
+    return savePeriodCfg(term, key, prevCfg);
+  }, 'عاد الرصد كما كان ✓');
+}
+
+/* إنهاء الفترة الأخيرة (فتُحسب في الدرجة)، أو التراجع عن إنهائها */
+async function endComponentPeriods(key, ended){
+  if(gradePeriodSaving || !currentUser || !isPeriodCompKey(key)) return false;
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key);
+  if(cfg.n < 2 || currentPeriodOf(cfg) !== cfg.n || !!cfg.ended === !!ended) return false;
+  return withPeriodBusy(() => savePeriodCfg(term, key, Object.assign({}, cfg, { ended: !!ended })),
+    ended ? `انتهت ${PERIOD_NAMES[cfg.n]} — صارت تُحسب في الدرجة ✓` : `${PERIOD_NAMES[cfg.n]} جارية من جديد`);
 }
 
 /* الفترات بعد الانتقال لفترة: بعد الجارية = تبدأ الآن، وقبلها = رجوع */
@@ -238,8 +290,8 @@ async function goToComponentPeriod(key, target, dateIso){
   const term = crmCurrentTerm();
   const cfg = periodCfg(term, key);
   const now = currentPeriodOf(cfg);
-  if(!(target >= 1 && target <= cfg.n) || target === now) return false;
-  return withPeriodBusy(() => savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }),
+  if(!(target >= 1 && target <= cfg.n) || (target === now && !cfg.ended)) return false;
+  return withPeriodBusy(() => savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }), /* الانتقال يلغي "انتهت" */
     target > now ? `بدأت ${PERIOD_NAMES[target]} في "${periodCompName(key)}" ✓` : `رجعت إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}"`);
 }
 
@@ -276,7 +328,7 @@ function sheetPeriodInfo(s){
 function crmPeriodChipHtml(s){
   const info = sheetPeriodInfo(s);
   if(!info || info.cfg.n < 2) return '';
-  return `<button type="button" class="crm-period-chip${info.period > 1 ? ' is-p2' : ''}" onclick="openCrmPeriodPicker()" aria-label="تغيير الفترة">📅 ${PERIOD_NAMES[info.period]} من ${info.cfg.n} ▾</button>`;
+  return `<button type="button" class="crm-period-chip${info.period > 1 ? ' is-p2' : ''}" onclick="openCrmPeriodPicker()" aria-label="تغيير الفترة">📅 ${PERIOD_NAMES[info.period]} من ${info.cfg.n}${info.cfg.ended ? ' ✓' : ''} ▾</button>`;
 }
 
 function openCrmPeriodPicker(){
@@ -288,8 +340,10 @@ function openCrmPeriodPicker(){
       <span><b>${PERIOD_NAMES[p]}</b><small>${sub(p)}</small></span><span class="crm-period-ck">${p === info.period ? '✓' : ''}</span></button>`).join('');
   showInfoModal(`<div style="text-align:right;">
     <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">فترات "${escapeHtml(periodCompName(info.key))}"</h3>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">الدرجة في الكشف = معدّل الفترات. ما رصدته سابقًا يبقى في فترته.</p>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">الدرجة في الكشف = معدّل الفترات المنتهية (الجارية تُحسب عند انتهائها). ما رصدته سابقًا يبقى في فترته.</p>
     ${opts}
+    ${now === info.cfg.n ? `<button type="button" class="crm-period-opt" onclick="closeCrmModal();endComponentPeriods('${escapeHtml(info.key).replace(/'/g, '&#39;')}', ${!info.cfg.ended})">
+      <span><b>${info.cfg.ended ? '↺ ' + PERIOD_NAMES[now] + ' جارية من جديد' : '✓ أنهِ ' + PERIOD_NAMES[now]}</b><small>${info.cfg.ended ? 'لا تُحسب حتى تنهيها' : 'فتُحسب في الدرجة'}</small></span></button>` : ''}
   </div>`, '420px');
 }
 

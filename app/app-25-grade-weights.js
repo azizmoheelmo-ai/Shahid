@@ -188,7 +188,7 @@ function gsCompCardHtml(c, hiddenCol){
   const sk = gsCompStartKey(c);
   const vis = gsCompVisibility(c);
   const chips = [];
-  if(cfg.n > 1) chips.push(`<span class="gs-chip per">📅 ${PERIOD_COUNT_LABELS[cfg.n]}</span><span class="gs-chip now">الآن: ${PERIOD_NAMES[currentPeriodOf(cfg)].replace('الفترة ', '')}</span>`);
+  if(cfg.n > 1) chips.push(`<span class="gs-chip per">📅 ${PERIOD_COUNT_LABELS[cfg.n]}</span><span class="gs-chip now">${cfg.ended ? 'انتهت كلها ✓' : 'الآن: ' + PERIOD_NAMES[currentPeriodOf(cfg)].replace('الفترة ', '')}</span>`);
   if(sk && gradeStartsFull(sk)) chips.push('<span class="gs-chip full">يبدأ من الدرجة كاملة</span>');
   if(hiddenCol || (vis && !vis.on)) chips.push('<span class="gs-chip off">مخفي — بياناته محفوظة</span>');
   if(c.tool) chips.push('<span class="gs-chip">جديد — أعطه درجة</span>');
@@ -245,12 +245,14 @@ function paintGsCompSheet(){
       ${tool ? `<a href="#" class="gs-sheet-edit" onclick="event.preventDefault();closeCrmModal();openCustomToolEditor('${tool.id}')">تعديل الاسم</a>` : ''}</div>
     <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>الدرجة</span><span>المتاح ${formatScore(room)} من ${formatScore(gradeCap('performance'))}</span></div>
       <div class="gs-step"><button type="button" onclick="stepGsCompWeight(-1)" ${d.weight - GRADE_WEIGHT_STEP < min ? 'disabled' : ''} aria-label="أنقص">−</button><b>${formatScore(d.weight)}</b><button type="button" onclick="stepGsCompWeight(1)" ${d.weight + GRADE_WEIGHT_STEP > room ? 'disabled' : ''} aria-label="زد">+</button></div></div>
-    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>عدد الفترات</span><span>الدرجة = معدّل الفترات</span></div>
+    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>عدد الفترات</span><span>الدرجة = معدّل الفترات المنتهية</span></div>
       ${seg([[1, '1'], [2, '2'], [3, '3']], d.n, 'setGsCompPeriods')}
-      ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
-        الآن: <b>${PERIOD_NAMES[now]}</b>
+      ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now || cfg.ended ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
+        ${cfg.ended ? '<b>انتهت كل الفترات — كلها محسوبة ✓</b>' : `الآن: <b>${PERIOD_NAMES[now]}</b>${now > 1 ? ' <small>(تُحسب عند انتهائها)</small>' : ''}`}
         ${now < cfg.n ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now + 1})">ابدأ ${PERIOD_NAMES[now + 1]} ←</button>` : ''}
-        ${now > 1 ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now - 1})">→ رجوع</button>` : ''}</div>` : ''}</div>
+        ${now === cfg.n && !cfg.ended ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();endComponentPeriods('${id}', true)">✓ أنهِ ${PERIOD_NAMES[now]}</button>` : ''}
+        ${cfg.ended ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();endComponentPeriods('${id}', false)">→ رجوع</button>`
+          : now > 1 ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now - 1})">→ رجوع</button>` : ''}</div>` : ''}</div>
     ${sk ? `<div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>يبدأ الطالب من</span></div>${seg([[false, '0'], [true, 'الدرجة كاملة']], d.full, 'setGsCompFull')}</div>` : ''}
     ${vis ? `<div class="gs-sheet-sec gs-sheet-sw"><span>ظاهر في الكشف ونافذة الرصد</span>
       <button type="button" class="cust-switch${d.visible ? ' is-on' : ''}" role="switch" aria-checked="${d.visible}" onclick="toggleGsCompVisible()"><span></span></button></div>` : ''}
@@ -483,7 +485,7 @@ const BUILTIN_GRADE_COMPONENTS = [
 /* أعمدة هذا الفصل (كل شعب المعلم) المطابقة لمكوّن */
 async function termColumnsMatching(match){
   const term = crmCurrentTerm();
-  const { data, error } = await sb.from('classroom_grade_columns').select('id, section_id, category, kind, tool_id, name, max_score')
+  const { data, error } = await sb.from('classroom_grade_columns').select('id, section_id, category, kind, tool_id, name, max_score, counted_periods')
     .eq('teacher_id', currentUser.id).eq('academic_year', term.year).eq('semester', term.semester);
   if(error) throw error;
   const mine = new Set(crmSections.map(s => s.id));

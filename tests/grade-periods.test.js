@@ -239,32 +239,37 @@ async function gradeSheet(seed, features){
   return { app, log, g };
 }
 
-test('صفحة الطالب — شريط لكل فترة وطريقة الحساب؛ وبفترة واحدة سطر عادي', async () => {
+test('صفحة الطالب — الفترة الجارية تُرى ولا تُحسب حتى تنتهي؛ وبعد إنهائها المعدّل؛ وبفترة واحدة سطر عادي', async () => {
   const seed = {
     classroom_grade_columns: [col('P', 'participation', 10)],
-    classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 6.5 }],
+    classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 9 }],
     classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 9 }, { teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 4 }],
   };
   const { app, g } = await gradeSheet(seed);
-  const html = app.crmGradeStudentPageHtml(g, 'a');
-  assert.match(html, /الفترة الأولى[\s\S]*9 من 10[\s\S]*الفترة الثانية <small>\(جارية\)<\/small>[\s\S]*4 من 10/);
-  assert.match(html, /<bdi dir="ltr">\(9 \+ 4\) ÷ 2 = <b>6\.5<\/b><\/bdi>/);
-  assert.match(app.crmGradeDetailHtml(g), /6\.5<small class="crm-grade-per">9 · 4<\/small>/);
+  let html = app.crmGradeStudentPageHtml(g, 'a');
+  assert.match(html, /الفترة الأولى[\s\S]*9 من 10[\s\S]*الفترة الثانية <small>\(جارية — تُحسب عند انتهائها\)<\/small>[\s\S]*4 من 10/);
+  assert.match(html, /الدرجة الآن = الفترة الأولى — والفترة الثانية تُحسب عند انتهائها/);
+  assert.doesNotMatch(html, /÷ 2/, 'لا هبوط: الجارية خارج المعدّل');
+  assert.match(app.crmGradeDetailHtml(g), /9<small class="crm-grade-per">9 · 4<\/small>/);
+  runInAppContext(app, `appFeatures = ${JSON.stringify(withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-25'], ended: true } }))};`);
+  html = app.crmGradeStudentPageHtml(g, 'a');
+  assert.match(html, /<bdi dir="ltr">\(9 \+ 4\) ÷ 2 = <b>6\.5<\/b><\/bdi>/, 'بعد إنهاء الأخيرة: معدّل الفترتين');
+  assert.doesNotMatch(html, /جارية/);
   runInAppContext(app, `appFeatures = ${JSON.stringify(OFF)};`);
   assert.doesNotMatch(app.crmGradeStudentPageHtml(g, 'a'), /الفترة الأولى|÷ 2/);
   assert.doesNotMatch(app.crmGradeDetailHtml(g), /crm-grade-per|معدّل الفترات/);
 });
 
-test('صفحة الطالب بثلاث فترات — الجارية الثانية، والثالثة "لم تبدأ" ولا تُحسب', async () => {
+test('صفحة الطالب بثلاث فترات — المنتهيتان في المعدّل، والثالثة جارية لا تُحسب', async () => {
   const seed = {
     classroom_grade_columns: [col('P', 'participation', 10)],
     classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 8 }],
-    classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 9 }, { teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 7 }],
+    classroom_grade_period_scores: [1, 2, 3].map((p, i) => ({ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: p, score: [9, 7, 2][i] })),
   };
-  const { app, g } = await gradeSheet(seed, withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }));
+  const { app, g } = await gradeSheet(seed, withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-01', '2026-10-25'] } }));
   const html = app.crmGradeStudentPageHtml(g, 'a');
-  assert.match(html, /الفترة الثالثة<\/span><span><span class="crm-gs-none">لم تبدأ/);
-  assert.match(html, /\(9 \+ 7\) ÷ 2 = <b>8<\/b>/);
+  assert.match(html, /الفترة الثالثة <small>\(جارية — تُحسب عند انتهائها\)<\/small><\/span><span>2 من 10/);
+  assert.match(html, /\(9 \+ 7\) ÷ 2 = <b>8<\/b><\/bdi> — والفترة الثالثة تُحسب عند انتهائها/);
 });
 
 test('الكشف — الواجبات بفترتين تُفصَّل ويُحسب عمودها بالمعدّل', async () => {
@@ -275,8 +280,11 @@ test('الكشف — الواجبات بفترتين تُفصَّل ويُحسب
       { id: 'h2', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, title: 'و2', due_date: '2026-10-26' }],
     classroom_homework_status: [{ teacher_id: 'u1', homework_id: 'h0', student_id: 'a', status: 'submitted' }, { teacher_id: 'u1', homework_id: 'h1', student_id: 'a', status: 'submitted' }],
   };
-  /* بلا فترات: 2 من 3 = 6.67؛ بالفترتين: (10 + 0) ÷ 2 = 5 */
-  const { log, g } = await gradeSheet(seed, withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-25'] } }));
+  /* بلا فترات: 2 من 3 = 6.67. الثانية جارية: الدرجة = الأولى (10) بلا هبوط؛ وبعد إنهائها: (10 + 0) ÷ 2 = 5 */
+  const run = await gradeSheet(JSON.parse(JSON.stringify(seed)), withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-25'] } }));
+  assert.deepEqual(JSON.parse(JSON.stringify(run.g.breakdown.get('H').get('a'))), { p1: 10, p2: 0, p3: null, final: 10 });
+  assert.deepEqual([...run.log.find(l => l.table === 'classroom_grade_scores' && l.op === 'upsert').values].filter(r => r.student_id === 'a').map(r => r.score), [10]);
+  const { log, g } = await gradeSheet(seed, withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-25'], ended: true } }));
   assert.deepEqual(JSON.parse(JSON.stringify(g.breakdown.get('H').get('a'))), { p1: 10, p2: 0, p3: null, final: 5 });
   const up = log.find(l => l.table === 'classroom_grade_scores' && l.op === 'upsert');
   assert.deepEqual([...up.values].filter(r => r.student_id === 'a').map(r => r.score), [5]);
@@ -487,33 +495,61 @@ test('المحسوب: تقليل الفترات تحت الجارية بلا ت�
   assert.equal(get(app, 'window.__confirm.length'), 0);
 });
 
-test('المرصود مباشرة: تقليل الفترات تحت الجارية — بتأكيد تُدمج في الأولى بالمعدّل الحالي ثم يُحذف ما بعدها', async () => {
+const LATER = { classroom_grade_period_scores: [
+  { id: 'r1', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 14 }, { id: 'r2', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 1 },
+  { id: 'r3', teacher_id: 'u1', column_id: 'P', student_id: 'b', period: 1, score: 8 }, { id: 'rx', teacher_id: 'u2', column_id: 'P', student_id: 'x', period: 2, score: 1 }] };
+
+test('انحدار: تقليل الفترات — يُحذف رصد ما بعدها فقط وترجع الدرجة لما قبلها (لا يُكتب المعدّل فوق الأولى)', async () => {
   const log = [];
-  const seed = {
-    classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 6.5 }, { teacher_id: 'u1', column_id: 'P', student_id: 'b', score: 8 }],
-    classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 9 }, { teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 4 },
-      { teacher_id: 'u1', column_id: 'P', student_id: 'b', period: 1, score: 8 }, { teacher_id: 'u2', column_id: 'P', student_id: 'x', period: 2, score: 1 }],
-  };
-  const app = settingsApp(PART2, seed, log);
+  const app = settingsApp(PART2, JSON.parse(JSON.stringify(LATER)), log);
+  runInAppContext(app, `showUndoToast = async () => true;`);
   await app.setComponentPeriodCount('kind:participation', 1);
-  assert.match(get(app, 'window.__confirm[0]'), /تُدمج الفترات في الأولى/);
-  assert.deepEqual(log.filter(l => l.op === 'rpc').map(l => JSON.parse(JSON.stringify(l.args))), [{ p_column_id: 'P', p_student_id: 'a', p_period: 1, p_score: 6.5, p_only_missing: false }]);
+  assert.match(get(app, 'window.__confirm[0]'), /يُحذف رصد الفترة الثانية \(لطالب واحد\)، وترجع درجاتهم لما قبلها/);
+  assert.equal(log.filter(l => l.op === 'rpc' && l.name === 'set_period_score').length, 0, 'لا كتابة فوق درجة الأولى');
   const del = log.find(l => l.op === 'delete' && l.table === 'classroom_grade_period_scores');
-  assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(del.filters))), { teacher_id: 'u1', column_id: 'P', period: [2, 3] });
-  const order = log.filter(l => l.op !== 'select').map(l => l.op);
-  assert.ok(order.indexOf('rpc') < order.indexOf('delete'), 'الأولى = المعدّل قبل الحذف');
+  assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(del.filters))), { teacher_id: 'u1', id: ['r2'] }, 'رصد الثانية لمعلمه فقط');
   assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 1, starts: [] });
 });
 
-test('المرصود مباشرة: إلغاء التأكيد لا يغيّر شيئًا', async () => {
+test('تقليل الفترات — "تراجع" يعيد الرصد المحذوف والإعداد كما كانا', async () => {
   const log = [];
-  const app = settingsApp(PART2, {}, log, false);
+  const app = settingsApp(PART2, JSON.parse(JSON.stringify(LATER)), log);
+  runInAppContext(app, `showUndoToast = async () => false;`);
   await app.setComponentPeriodCount('kind:participation', 1);
-  assert.equal(log.filter(l => l.op !== 'select').length, 0);
+  const ins = log.find(l => l.op === 'insert' && l.table === 'classroom_grade_period_scores');
+  assert.deepEqual([...ins.values].map(r => r.id + ':' + r.period + ':' + r.score), ['r2:2:1']);
   assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 2, starts: ['2026-10-25'] });
 });
 
-/* ============ النسخ الاحتياطي والحذف ============ */
+test('تقليل الفترات — إلغاء التأكيد لا يغيّر شيئًا، وبلا رصد بعدها لا سؤال', async () => {
+  const log = [];
+  const app = settingsApp(PART2, JSON.parse(JSON.stringify(LATER)), log, false);
+  await app.setComponentPeriodCount('kind:participation', 1);
+  assert.equal(log.filter(l => l.op !== 'select').length, 0);
+  assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 2, starts: ['2026-10-25'] });
+  const app2 = settingsApp(PART2, {}, [], false);
+  await app2.setComponentPeriodCount('kind:participation', 1);
+  assert.equal(get(app2, 'window.__confirm.length'), 0);
+  assert.deepEqual(cfgOf(app2, 'kind:participation'), { n: 1, starts: [] });
+});
+
+test('الفترة الجارية لا تُحسب حتى تنتهي — عدد الفترات المحسوبة يُرسل لأعمدة المكوّن عند كل انتقال', async () => {
+  const log = [];
+  const app = settingsApp(withPeriods({ 'kind:participation': { n: 3, starts: [] } }), {}, log);
+  const counted = () => log.filter(l => l.op === 'rpc' && l.name === 'set_column_counted_periods').map(l => l.args.p_column_id + ':' + l.args.p_counted);
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: [] }), 1);
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a'] }), 1);
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a', 'b'] }), 2);
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a', 'b'], ended: true }), 3);
+  assert.equal(app.countedPeriodsOf({ n: 1, starts: [] }), null);
+  await app.goToComponentPeriod('kind:participation', 2);
+  await app.goToComponentPeriod('kind:participation', 3);
+  await app.endComponentPeriods('kind:participation', true);
+  assert.equal(get(app, `appFeatures.periods['${TERM.year}|1']['kind:participation'].ended`), true);
+  await app.endComponentPeriods('kind:participation', false);
+  assert.deepEqual(counted(), ['P:1', 'P:2', 'P:3', 'P:2'], 'الثانية جارية: 1 · الثالثة جارية: 2 · أُنهيت: 3 · رجوع: 2');
+});
+
 test('النسخ الاحتياطي — جدول الفترتين في الشاملة (ودليل الاستعادة بعد درجات الكشف) والشخصية والبنية', () => {
   const fs = require('fs');
   const a07 = fs.readFileSync(require('path').join(__dirname, '..', 'app', 'app-07-backup-export.js'), 'utf8');

@@ -1702,17 +1702,24 @@ drop trigger if exists trg_check_grade_period_score on public.classroom_grade_pe
 create trigger trg_check_grade_period_score before insert or update on public.classroom_grade_period_scores for each row execute function public.check_grade_score();
 
 -- درجة الكشف = معدّل الفترات المرصودة (لا فترات = لا درجة)
+-- الفترة الجارية لا تدخل المعدّل حتى تنتهي: كل عمود يحفظ كم فترة تُحسب (فارغ = كل الفترات)
+alter table public.classroom_grade_columns add column if not exists counted_periods smallint;
+alter table public.classroom_grade_columns drop constraint if exists classroom_grade_columns_counted_periods_check;
+alter table public.classroom_grade_columns add constraint classroom_grade_columns_counted_periods_check check (counted_periods is null or counted_periods in (1, 2, 3));
+
+-- درجة الكشف = معدّل الفترات المحسوبة المرصودة (لا شيء = لا درجة)
 create or replace function public.recompute_period_main_score(p_teacher uuid, p_column uuid, p_student uuid)
 returns void language plpgsql security invoker set search_path = '' as $b$
-declare v_avg numeric; v_n int;
+declare v_avg numeric; v_n int; v_counted smallint;
 begin
+  select coalesce(counted_periods, 3) into v_counted from public.classroom_grade_columns where id = p_column and teacher_id = p_teacher;
+  v_counted := coalesce(v_counted, 3);
   select round(avg(score), 2), count(*) into v_avg, v_n from public.classroom_grade_period_scores
-    where teacher_id = p_teacher and column_id = p_column and student_id = p_student;
+    where teacher_id = p_teacher and column_id = p_column and student_id = p_student and period <= v_counted;
   if v_n = 0 then
     delete from public.classroom_grade_scores where teacher_id = p_teacher and column_id = p_column and student_id = p_student;
     return;
   end if;
-  -- حذف متسلسل (عمود أو طالب يُحذف): لا يُعاد إنشاء درجة له
   if not exists (select 1 from public.classroom_grade_columns where id = p_column and teacher_id = p_teacher)
      or not exists (select 1 from public.classroom_students where id = p_student and teacher_id = p_teacher) then
     return;
@@ -1807,6 +1814,22 @@ begin
 end $b$;
 revoke execute on function public.set_period_score(uuid, uuid, smallint, numeric, boolean) from public, anon;
 grant execute on function public.set_period_score(uuid, uuid, smallint, numeric, boolean) to authenticated;
+
+-- تغيير عدد الفترات المحسوبة لعمود ثم إعادة حساب درجة كل طالب له رصد بفترات
+create or replace function public.set_column_counted_periods(p_column_id uuid, p_counted smallint)
+returns void language plpgsql security invoker set search_path = '' as $b$
+declare v_uid uuid := auth.uid(); r record;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  if p_counted is not null and p_counted not in (1, 2, 3) then raise exception 'bad counted'; end if;
+  update public.classroom_grade_columns set counted_periods = p_counted where id = p_column_id and teacher_id = v_uid;
+  if not found then raise exception 'column not found'; end if;
+  for r in select distinct student_id from public.classroom_grade_period_scores where column_id = p_column_id and teacher_id = v_uid loop
+    perform public.recompute_period_main_score(v_uid, p_column_id, r.student_id);
+  end loop;
+end $b$;
+revoke execute on function public.set_column_counted_periods(uuid, smallint) from public, anon;
+grant execute on function public.set_column_counted_periods(uuid, smallint) to authenticated;
 
 create table if not exists public.classroom_letter_counters (
   teacher_id uuid primary key references auth.users(id) on delete cascade,
