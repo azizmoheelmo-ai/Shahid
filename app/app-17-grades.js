@@ -242,9 +242,35 @@ async function loadCrmGradeSheet(sectionId){
      يُحسب الآن). فشل المزامنة لا يمنع عرض الكشف بآخر قيم محفوظة. */
   /* أداة مخفية: عمودها لا يُعاد حسابه ولا يُعرض ولا يُحسب — بياناته باقية */
   const visible = (columns || []).filter(gradeColumnVisible);
-  const hwCol = visible.find(c => c.kind === 'homework');
+  const periods = await loadGradePeriods({ year, semester });
+  const breakdown = new Map(); /* عمود المشاركة/الواجبات → (طالب → { p1, p2 }) لعرض الفترتين */
+  const ids = crmStudentsOfSection(sectionId).map(st => st.id);
+  const hwCol = visible.find(c => c.kind === 'homework' && !c.tool_id);
   if(hwCol && typeof syncHomeworkColumn === 'function'){
-    try{ await syncHomeworkColumn(hwCol, sectionId, await loadSectionHomework(sectionId, { year, semester })); } catch(e){}
+    try{
+      const hw = await loadSectionHomework(sectionId, { year, semester });
+      await syncHomeworkColumn(hwCol, sectionId, hw);
+      const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
+      const idx = homeworkStatusIndex(hw.statusRows);
+      breakdown.set(hwCol.id, new Map(ids.map(id => [id, homeworkPeriodScores(counted, idx, id, hwCol.max_score, periods.start)])));
+    } catch(e){}
+  }
+  /* المشاركة: "يبدأ من الكاملة" يملأ الفترة الحالية لمن لا درجة له فيها (القاعدة تحدّث المعدّل)، ثم تفصيل الفترتين */
+  const partCol = visible.find(c => c.kind === 'participation' && !c.tool_id);
+  if(partCol){
+    try{
+      const loadPart = async () => {
+        const { data, error: mErr } = await sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', partCol.id);
+        if(mErr) throw mErr;
+        return { main: new Map((data || []).map(r => [r.student_id, Number(r.score)])), rows: await loadPeriodRows(partCol.id) };
+      };
+      let pd = await loadPart();
+      if(gradeStartsFull('participation')){
+        const period = periodOfDate(localIsoDate(), periods.start);
+        if((await fillStartFullPeriodScores(partCol, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await loadPart();
+      }
+      breakdown.set(partCol.id, participationPeriodBreakdown(pd.main, pd.rows));
+    } catch(e){}
   }
   const taskCol = visible.find(c => c.kind === 'task');
   if(taskCol && typeof syncTaskColumn === 'function'){
@@ -267,7 +293,7 @@ async function loadCrmGradeSheet(sectionId){
   /* "يبدأ من الكاملة" (إعداد الدرجات): من لا درجة له — طالب جديد مثلًا — يأخذ الكاملة */
   for(const c of visible){
     const key = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
-    if(!key || !gradeStartsFull(key)) continue;
+    if(!key || !gradeStartsFull(key) || isPeriodColumn(c)) continue; /* المشاركة مُلئت بفترتها أعلاه */
     const have = new Set(scores.filter(x => x.column_id === c.id).map(x => x.student_id));
     try{
       (await fillStartFullScores(c, crmStudentsOfSection(sectionId).map(st => st.id), have))
@@ -275,7 +301,7 @@ async function loadCrmGradeSheet(sectionId){
     } catch(e){}
   }
   return {
-    sectionId, year, semester, scores,
+    sectionId, year, semester, scores, periods, breakdown,
     columns: sortGradeColumns(visible),
     allColumns: sortGradeColumns(columns || []), /* لسقف الفئة وفحص التكرار: القاعدة تعدّ المخفي أيضًا */
     hiddenColumns: sortGradeColumns((columns || []).filter(c => !gradeColumnVisible(c)))
@@ -433,7 +459,7 @@ function crmGradeStudentPageHtml(g, studentId){
       ${crmGradeBarHtml(score, max)}</div>`;
   const prev = students[idx - 1], next = students[idx + 1];
   const perf = `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الأداء</b><span>${r.performance.points === null ? '—' : formatScore(r.performance.points)} <small>من ${formatScore(r.performance.max)}</small></span></div>
-    ${r.performance.parts.map(x => row(x.name, x.score, x.max)).join('') || '<div class="crm-today-empty">لا مكوّنات أداء.</div>'}</div>`;
+    ${r.performance.parts.map(x => crmGradePeriodPartHtml(g, x, studentId) || row(x.name, x.score, x.max)).join('') || '<div class="crm-today-empty">لا مكوّنات أداء.</div>'}</div>`;
   const rec = r.tests.list.filter(x => x.score !== null);
   const tests = testsOn ? `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الاختبارات</b><span>${r.tests.points === null ? '—' : formatScore(r.tests.points)} <small>من ${formatScore(caps.tests)}</small></span></div>
     ${r.tests.list.map(x => row(x.name, x.score, x.max, x.score === null ? '' : ` · ${Math.round(100 * x.score / x.max)}%`)).join('') || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
@@ -449,6 +475,27 @@ function crmGradeStudentPageHtml(g, studentId){
       <button type="button" class="btn btn-outline"${next ? ` onclick="openCrmGradeStudentDetail('${next.id}')"` : ' disabled'}>الطالب التالي ›</button>
     </div>
     <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openCrmStudentProfile('${st.id}', { type: 'tab', tab: 'grades' })">ملف الطالب</button>`;
+}
+
+/* مكوّن بفترتين في صفحة الطالب: شريط لكل فترة، وطريقة حساب المعدّل تحتهما */
+function crmGradePeriodPartHtml(g, x, studentId){
+  const per = g.breakdown && g.breakdown.get(x.id);
+  if(!per || !g.periods) return '';
+  const b = per.get(studentId) || { p1: null, p2: null };
+  if(b.p1 === null && b.p2 === null && x.score === null) return ''; /* لا رصد بعد: سطر عادي بلا تفصيل فارغ */
+  const start = g.periods.start, today = localIsoDate();
+  const cur = periodOfDate(today, start);
+  const none = txt => `<span class="crm-gs-none">${txt}</span>`;
+  const p2Label = !start ? none('لم تبدأ بعد') : start > today ? none('تبدأ ' + escapeHtml(shortPeriodDate(start))) : null;
+  const sub = (n, v, label) => `<div class="crm-gs-sub"><span>${PERIOD_NAMES[n]}${cur === n && (n === 1 || !p2Label) ? ' <small>(جارية)</small>' : ''}</span><span>${label || (v === null ? none('لم يُرصد') : `${formatScore(v)} من ${formatScore(x.max)}`)}</span></div>
+      ${label ? '' : crmGradeBarHtml(v, x.max)}`;
+  /* bdi: المعادلة تُقرأ كما تُكتب (لا يقلبها اتجاه الصفحة) */
+  const calc = b.p1 !== null && b.p2 !== null ? `المعدّل: <bdi dir="ltr">(${formatScore(b.p1)} + ${formatScore(b.p2)}) ÷ 2 = <b>${formatScore(periodAverage(b.p1, b.p2))}</b></bdi>`
+    : (b.p1 !== null || b.p2 !== null) ? `الدرجة = ${b.p1 !== null ? PERIOD_NAMES[1] : PERIOD_NAMES[2]} وحدها (ما لم يُرصد لا يُحسب)` : '';
+  return `<div class="crm-gs-prow crm-gs-per">
+      <div class="crm-gs-plabel"><span>${escapeHtml(x.name)}</span><span>${x.score === null ? none('لم يُرصد بعد') : `${formatScore(x.score)} من ${formatScore(x.max)}`}</span></div>
+      ${sub(1, b.p1)}${sub(2, b.p2, p2Label)}
+      ${calc ? `<div class="crm-gs-calc">${calc}</div>` : ''}</div>`;
 }
 
 function crmGradesSectionPickerHtml(sectionId){
@@ -508,13 +555,16 @@ function crmGradeDetailHtml(g){
     html += `<tr><td class="crm-grade-name" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'grades' })">${escapeHtml(s.full_name)}</td>`;
     g.columns.forEach(c => {
       const k = c.id + '|' + s.id;
-      html += `<td>${scoreOf.has(k) ? formatScore(scoreOf.get(k)) : '<span class="crm-grade-empty">—</span>'}</td>`;
+      /* مكوّن بفترتين: المعدّل، وتحته درجتا الفترتين متى رُصدت الثانية */
+      const per = g.breakdown && g.breakdown.get(c.id) && g.breakdown.get(c.id).get(s.id);
+      const perTxt = per && per.p2 !== null ? `<small class="crm-grade-per">${per.p1 === null ? '—' : formatScore(per.p1)} · ${formatScore(per.p2)}</small>` : '';
+      html += `<td>${scoreOf.has(k) ? formatScore(scoreOf.get(k)) + perTxt : '<span class="crm-grade-empty">—</span>'}</td>`;
     });
     html += `<td class="crm-grade-total">${sum.performance.count ? formatScore(sum.performance.sum) : ''}</td>
       <td class="crm-grade-total">${res.tests.points === null ? '' : formatScore(res.tests.points)}</td></tr>`;
   });
   html += '</tbody></table></div>';
-  html += '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">اضغط رأس العمود لرصد درجاته أو تعديله. "—" = لم تُرصد (لا تُحسب صفرًا).</p>';
+  html += `<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">اضغط رأس العمود لرصد درجاته أو تعديله. "—" = لم تُرصد (لا تُحسب صفرًا).${g.breakdown && g.breakdown.size ? ' المشاركة والواجبات: الرقم = معدّل الفترتين، وتحته الفترة الأولى · الثانية.' : ''}</p>`;
   return html;
 }
 
@@ -693,12 +743,14 @@ function openCrmGradeEntry(columnId){
   if(c.kind === 'homework'){ showToast('عمود الواجبات يُحسب تلقائيًا — ارصد التسليم من ورقة الحصة', 'error'); return; }
   if(c.kind === 'task'){ showToast('عمود المهام يُحسب تلقائيًا — ارصد درجات المهام من ورقة الحصة', 'error'); return; }
   if(c.tool_id && isComputedGradeColumn(c)){ showToast(`عمود "${c.name}" يُحسب تلقائيًا — ارصده من ورقة الحصة`, 'error'); return; }
-  crmGradeEntry = { columnId, saving: false };
+  /* المشاركة: الرصد اليدوي لدرجة الفترة الحالية، والكشف = معدّل الفترتين */
+  const period = crmGradeEntryPeriod(crmGrades, c);
+  crmGradeEntry = { columnId, saving: false, period };
   const students = crmStudentsOfSection(crmGrades.sectionId);
-  const scoreOf = new Map(crmGrades.scores.filter(s => s.column_id === columnId).map(s => [s.student_id, Number(s.score)]));
+  const scoreOf = crmGradeEntryScores(crmGrades, c, period);
   box.innerHTML = `
-    <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
-    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد</div>
+    <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
+    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period ? ' · الدرجة في الكشف = معدّل الفترتين' : ''}</div>
     <div class="crm-grade-entry">
       ${students.map((s, i) => `<label class="crm-grade-entry-row">
         <span>${escapeHtml(s.full_name)}</span>
@@ -712,6 +764,19 @@ function openCrmGradeEntry(columnId){
     </div>`;
   const first = box.querySelector('.crm-grade-input');
   if(first) first.focus();
+}
+
+/* فترة الرصد اليدوي لعمود المشاركة (null لغيره) */
+function crmGradeEntryPeriod(g, c){
+  if(!c || c.kind !== 'participation' || c.tool_id || !g.periods || !(g.breakdown && g.breakdown.has(c.id))) return null;
+  return periodOfDate(localIsoDate(), g.periods.start);
+}
+
+function crmGradeEntryScores(g, c, period){
+  if(!period) return new Map(g.scores.filter(s => s.column_id === c.id).map(s => [s.student_id, Number(s.score)]));
+  const out = new Map();
+  g.breakdown.get(c.id).forEach((b, id) => { const v = b['p' + period]; if(v !== null && v !== undefined) out.set(id, Number(v)); });
+  return out;
 }
 
 function onCrmGradeInputKey(e, index){
@@ -741,7 +806,7 @@ async function saveCrmGradeEntry(){
   if(!c) return;
   const inputs = [...document.querySelectorAll('.crm-grade-input')];
   const entries = inputs.map(inp => ({ studentId: inp.dataset.student, input: inp, parsed: parseScoreInput(inp.value, c.max_score) }));
-  const previous = new Map(crmGrades.scores.filter(s => s.column_id === c.id).map(s => [s.student_id, Number(s.score)]));
+  const previous = crmGradeEntryScores(crmGrades, c, entry.period);
   const plan = planGradeEntryChanges(entries, previous);
   if(plan.invalid.length){
     entries.forEach(e => { if(!e.parsed.ok) e.input.classList.add('is-invalid'); });
@@ -753,13 +818,19 @@ async function saveCrmGradeEntry(){
   const btn = document.getElementById('crmGradeEntrySaveBtn');
   if(btn) btn.disabled = true;
   let error = null;
-  if(plan.upserts.length){
+  if(entry.period){
+    /* درجة الفترة (القاعدة تنسخ الرصد القديم للأولى أولًا، وتحدّث المعدّل) */
+    const res = await Promise.all(plan.upserts.map(u => ({ id: u.student_id, score: u.score })).concat(plan.clears.map(id => ({ id, score: null })))
+      .map(x => sb.rpc('set_period_score', { p_column_id: c.id, p_student_id: x.id, p_period: entry.period, p_score: x.score, p_only_missing: false })));
+    const bad = res.find(r => r.error);
+    error = bad ? bad.error : null;
+  } else if(plan.upserts.length){
     ({ error } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: currentUser.id, column_id: c.id, student_id: u.student_id, score: u.score })),
       { onConflict: 'column_id,student_id' }
     ));
   }
-  if(!error && plan.clears.length){
+  if(!error && !entry.period && plan.clears.length){
     ({ error } = await sb.from('classroom_grade_scores').delete()
       .eq('teacher_id', currentUser.id).eq('column_id', c.id).in('student_id', plan.clears));
   }
@@ -814,23 +885,29 @@ function planGradeTransfer(studentScores, allColumns, targetSectionId, targetCol
     const t = targetByKey.get(tk + '|' + c.category + '|' + normalizeGradeColumnName(c.name));
     if(!t){ stay.push({ scoreId: s.id, name: c.name, reason: 'لا عمود بنفس الاسم في الشعبة الجديدة' }); return; }
     if(taken.has(t.id)){ stay.push({ scoreId: s.id, name: c.name, reason: 'له درجة في هذا العمود بالشعبة الجديدة' }); return; }
-    if(Number(s.score) > Number(t.max_score)){
-      stay.push({ scoreId: s.id, name: c.name, reason: `درجته ${formatScore(s.score)} أعلى من حد العمود في الشعبة الجديدة (${formatScore(t.max_score)})` });
+    /* peak: أعلى درجتي الفترتين إن وُجدتا (تنتقلان معها) */
+    const top = Math.max(Number(s.score), Number(s.peak || 0));
+    if(top > Number(t.max_score)){
+      stay.push({ scoreId: s.id, name: c.name, reason: `درجته ${formatScore(top)} أعلى من حد العمود في الشعبة الجديدة (${formatScore(t.max_score)})` });
       return;
     }
     taken.add(t.id);
-    moves.push({ scoreId: s.id, toColumnId: t.id });
+    moves.push({ scoreId: s.id, toColumnId: t.id, fromColumnId: c.id });
   });
   return { moves, stay, missingTerms: [...missing.values()], pendingCount };
 }
 
 async function loadGradeTransferData(studentId, targetSectionId){
   const uid = currentUser.id;
-  const [{ data: scores, error: e1 }, { data: target, error: e2 }] = await Promise.all([
+  const [{ data: scores, error: e1 }, { data: target, error: e2 }, { data: perRows, error: e3 }] = await Promise.all([
     sb.from('classroom_grade_scores').select('id, column_id, score').eq('teacher_id', uid).eq('student_id', studentId),
-    sb.from('classroom_grade_columns').select('id, section_id, academic_year, semester, category, name, max_score').eq('teacher_id', uid).eq('section_id', targetSectionId)
+    sb.from('classroom_grade_columns').select('id, section_id, academic_year, semester, category, name, max_score').eq('teacher_id', uid).eq('section_id', targetSectionId),
+    sb.from('classroom_grade_period_scores').select('column_id, score').eq('teacher_id', uid).eq('student_id', studentId)
   ]);
-  if(e1 || e2) throw (e1 || e2);
+  if(e1 || e2 || e3) throw (e1 || e2 || e3);
+  const peak = new Map();
+  (perRows || []).forEach(r => peak.set(r.column_id, Math.max(peak.get(r.column_id) || 0, Number(r.score))));
+  (scores || []).forEach(s => { if(peak.has(s.column_id)) s.peak = peak.get(s.column_id); });
   let columns = [];
   const ids = [...new Set((scores || []).map(s => s.column_id))];
   if(ids.length){
@@ -866,6 +943,10 @@ async function moveStudentGrades(studentId, targetSectionId){
     const { error } = await sb.from('classroom_grade_scores').update({ column_id: mv.toColumnId })
       .eq('teacher_id', uid).eq('id', mv.scoreId);
     if(error) throw error;
+    /* درجتا الفترتين تتبعان درجة الكشف (بعدها — وإلا كتب المشغّل درجة في الهدف قبل نقلها فتتعارض) */
+    const { error: pErr } = await sb.from('classroom_grade_period_scores').update({ column_id: mv.toColumnId })
+      .eq('teacher_id', uid).eq('student_id', studentId).eq('column_id', mv.fromColumnId);
+    if(pErr) throw pErr;
   }
   return { moved: plan.moves.length, stay: plan.stay };
 }
@@ -990,7 +1071,17 @@ function crmGradeImportPlan(){
   const im = crmGradeImport;
   const mapping = {};
   Object.keys(im.mapping).forEach(h => { if(h !== im.nameKey && im.mapping[h]) mapping[h] = im.mapping[h]; });
-  return planGradeImport(im.rows, im.nameKey, mapping, crmStudentsOfSection(im.sectionId), crmGrades.columns, crmGrades.scores, im.manual);
+  return planGradeImport(im.rows, im.nameKey, mapping, crmStudentsOfSection(im.sectionId), crmGrades.columns, crmGradeImportExisting(crmGrades), im.manual);
+}
+
+/* المقارن به عند الاستيراد: درجة الكشف، وللمشاركة درجة الفترة الحالية (الاستيراد يكتب فيها) */
+function crmGradeImportExisting(g){
+  const partCol = g.columns.find(c => crmGradeEntryPeriod(g, c));
+  if(!partCol) return g.scores;
+  const period = crmGradeEntryPeriod(g, partCol);
+  const rest = g.scores.filter(x => x.column_id !== partCol.id);
+  crmGradeEntryScores(g, partCol, period).forEach((score, id) => rest.push({ column_id: partCol.id, student_id: id, score }));
+  return rest;
 }
 
 function renderCrmGradeImport(){
@@ -1080,7 +1171,23 @@ async function saveCrmGradeImport(){
   im.saving = true;
   const btn = document.getElementById('crmGradeImportBtn');
   if(btn) btn.disabled = true;
-  for(const part of chunkArray(plan.upserts, 500)){
+  /* عمود المشاركة: تُكتب درجة الفترة الحالية (والقاعدة تحدّث المعدّل) */
+  const periodOf = new Map(crmGrades.columns.map(c => [c.id, crmGradeEntryPeriod(crmGrades, c)]).filter(x => x[1]));
+  const viaPeriod = plan.upserts.filter(u => periodOf.has(u.column_id));
+  const direct = plan.upserts.filter(u => !periodOf.has(u.column_id));
+  if(viaPeriod.length){
+    const res = await Promise.all(viaPeriod.map(u => sb.rpc('set_period_score',
+      { p_column_id: u.column_id, p_student_id: u.student_id, p_period: periodOf.get(u.column_id), p_score: u.score, p_only_missing: false })));
+    const bad = res.find(r => r.error);
+    if(bad){
+      showToast('تعذّر إكمال الاستيراد: ' + gradeDbErrorMessage(bad.error), 'error');
+      im.saving = false;
+      if(btn) btn.disabled = false;
+      afterCrmGradesChanged();
+      return;
+    }
+  }
+  for(const part of chunkArray(direct, 500)){
     const { error } = await sb.from('classroom_grade_scores').upsert(
       part.map(u => ({ teacher_id: currentUser.id, column_id: u.column_id, student_id: u.student_id, score: u.score })),
       { onConflict: 'column_id,student_id' });

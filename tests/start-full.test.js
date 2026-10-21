@@ -82,20 +82,21 @@ async function partSheet(scores, opts){
 
 test('المشاركة من الكاملة — من لا درجة له يأخذ الكاملة باسم المعلم بلا كتابة فوق رصد قائم، والنقرة −1 والصفر يبقى', async () => {
   const { app, log } = await partSheet([{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 6 }], { rpcValue: 5 });
-  const fill = log.find(l => l.op === 'upsert');
-  assert.deepEqual(JSON.parse(JSON.stringify(fill.values)), [{ teacher_id: 'u1', column_id: 'P', student_id: 'b', score: 10 }]);
-  assert.equal(fill.options.ignoreDuplicates, true);
+  /* المشاركة بفترتين: الكاملة تُكتب في درجة الفترة الحالية (بلا تقويم = الأولى)، ولا تكتب فوق رصد قائم */
+  const fills = log.filter(l => l.op === 'rpc' && l.name === 'set_period_score');
+  assert.deepEqual(fills.map(l => JSON.parse(JSON.stringify(l.args))), [{ p_column_id: 'P', p_student_id: 'b', p_period: 1, p_score: 10, p_only_missing: true }]);
+  assert.equal(log.filter(l => l.op === 'upsert').length, 0, 'لا كتابة مباشرة في الكشف');
   assert.equal(get(app, 'crmSheet.part.scores.get("b")'), 10);
   assert.match(get(app, `document.getElementById('crmLessonSheetBody').innerHTML`), /تبدأ الدرجة كاملة/);
   app.tapCrmParticipation('a');
   assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 5);
   await get(app, 'crmSheet.part.queue.get("a")');
-  const rpc = log.find(l => l.op === 'rpc');
-  assert.deepEqual(JSON.parse(JSON.stringify(rpc.args)), { p_column_id: 'P', p_student_id: 'a', p_delta: -1, p_keep_zero: true });
+  const taps = () => log.filter(l => l.op === 'rpc' && l.name === 'increment_period_score');
+  assert.deepEqual(JSON.parse(JSON.stringify(taps()[0].args)), { p_column_id: 'P', p_student_id: 'a', p_period: 1, p_delta: -1, p_full: true });
   app.undoCrmParticipation();
   assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 6, 'التراجع +1');
   await get(app, 'crmSheet.part.queue.get("a")');
-  assert.equal(log.filter(l => l.op === 'rpc')[1].args.p_delta, 1);
+  assert.equal(taps()[1].args.p_delta, 1);
 });
 
 test('المشاركة من الكاملة — عند الصفر لا تُرسل نقرة، والصفر المحفوظ لا يُحذف', async () => {
@@ -178,7 +179,10 @@ test('انحدار: الكشف لا يكتب "الكاملة" مباشرة في 
     syncHomeworkColumn = async () => {}; loadSectionHomework = async () => ({}); syncTaskColumn = async () => {}; syncToolColumn = async () => {};`);
   await appReal.loadCrmGradeSheet('S');
   const filled = log.filter(l => l.op === 'upsert' && l.table === 'classroom_grade_scores').flatMap(l => [...l.values].map(r => r.column_id));
-  assert.deepEqual(filled, ['P'], 'المشاركة فقط تُملأ مباشرة');
+  assert.deepEqual(filled, [], 'لا عمود يُملأ مباشرة في الكشف');
+  /* المشاركة تُملأ في درجة الفترة (والقاعدة تحدّث المعدّل) */
+  const perFill = log.filter(l => l.op === 'rpc' && l.name === 'set_period_score').map(l => l.args.p_column_id + ':' + l.args.p_student_id);
+  assert.deepEqual(perFill, ['P:a']);
   assert.equal(appReal.directStartFullKey({ kind: 'homework' }), null);
   assert.equal(appReal.directStartFullKey({ kind: 'manual', tool_id: TOOL_ID }), 'tool:' + TOOL_ID);
 });

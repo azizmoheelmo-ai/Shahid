@@ -1527,6 +1527,36 @@
 .gs-start-busy{color:#8A6D1F;font-weight:700;flex-basis:100%;}
 .crm-part-today.is-minus{background:#FBEFEF;color:#8A2C2C;}
 
+/* ============ "إعداد الدرجات": أقسام مطوية بنفس التصميم ============ */
+.gs-acc{margin:10px 0 0;}
+.gs-acc > summary{list-style:none;cursor:pointer;display:flex;flex-direction:column;gap:2px;position:relative;padding-left:28px;user-select:none;-webkit-user-select:none;}
+.gs-acc > summary::-webkit-details-marker{display:none;}
+.gs-acc > summary::after{content:'▾';position:absolute;left:10px;top:50%;transform:translateY(-50%) rotate(90deg);color:var(--navy);font-size:14px;transition:transform .15s;}
+.gs-acc[open] > summary::after{transform:translateY(-50%);}
+.gs-acc-t{font-weight:700;}
+.gs-acc-s{font-size:11.5px;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gs-acc[open] .gs-acc-s{display:none;}
+.gs-acc-b{padding-top:6px;}
+
+/* ============ الفترتان ============ */
+.gs-periods{margin-top:12px;background:#FBF3DC;border:1px solid #E8D49C;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.8;color:var(--ink);}
+.gs-periods small{color:var(--muted);}
+.gs-period-edit{margin-top:6px;padding:5px 14px;border:0;border-radius:8px;background:var(--navy);color:#fff;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer;}
+.crm-period-chip{display:inline-block;margin-inline-start:6px;border:0;border-radius:12px;padding:2px 12px;background:#F4EBD3;color:#7A5E16;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;vertical-align:middle;white-space:nowrap;}
+.crm-period-chip.is-manual{background:#FCE3CC;color:#9A4A0B;}
+.crm-period-opt{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:right;border:1.5px solid #DED8CA;border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#fff;font-family:inherit;cursor:pointer;}
+.crm-period-opt b{display:block;font-size:14px;color:var(--navy);}
+.crm-period-opt small{display:block;font-size:11.5px;color:var(--muted);}
+.crm-period-opt.is-on{border-color:var(--navy);background:#EAF0F5;}
+.crm-period-ck{width:22px;height:22px;border-radius:50%;border:2px solid #CFC8B8;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;flex:none;}
+.crm-period-opt.is-on .crm-period-ck{background:var(--navy);border-color:var(--navy);}
+.crm-period-opt:disabled,.crm-period-auto:disabled{opacity:.6;cursor:wait;}
+.crm-period-auto{display:block;width:100%;border:0;background:none;color:#12796A;font-family:inherit;font-weight:800;font-size:13px;padding:6px 0;cursor:pointer;}
+.crm-gs-per .crm-gs-sub{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:6px 0 3px;padding-right:10px;}
+.crm-gs-per .crm-gs-bar{margin-right:10px;}
+.crm-gs-calc{display:block;margin-top:8px;background:#FBF3DC;border-radius:8px;padding:5px 10px;font-size:12.5px;color:#7A5E16;}
+.crm-grade-per{display:block;font-size:10px;color:var(--muted);white-space:nowrap;}
+
 /* "جارٍ الدخول…" بدل شاشة الدخول لمن له جلسة محفوظة (index.html) */
 .boot-splash{display:none;}
 html.booting .boot-splash{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:60vh;color:var(--navy);font-weight:700;font-size:15px;}

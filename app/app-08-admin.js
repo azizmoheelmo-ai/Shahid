@@ -576,7 +576,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -606,7 +606,8 @@ async function exportBackup(evt){
       fetchAllRows((from, to) => sb.from('classroom_task_students').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
       sb.from('user_app_settings').select('*').eq('user_id', uid),
       sb.from('classroom_custom_tools').select('*').eq('teacher_id', uid),
-      fetchAllRows((from, to) => sb.from('classroom_tool_marks').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
+      fetchAllRows((from, to) => sb.from('classroom_tool_marks').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('classroom_grade_period_scores').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
     ]);
 
     const shawahid = shRes.data || [];
@@ -900,7 +901,8 @@ async function exportBackup(evt){
       classroom_task_students: taskStudentsRes.data || [],
       user_app_settings: appSettingsRes.data || [],
       classroom_custom_tools: customToolsRes.data || [],
-      classroom_tool_marks: toolMarksRes.data || []
+      classroom_tool_marks: toolMarksRes.data || [],
+      classroom_grade_period_scores: periodScoresRes.data || []
     };
     zip.file('بيانات-كاملة.json', JSON.stringify(fullData, null, 2));
 
