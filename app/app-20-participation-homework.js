@@ -63,12 +63,12 @@ function planComputedScoreSync(studentIds, wantFn, existing){
 
 /* الفترات (app-27): كل واجب في فترة موعده، ودرجة الفترة من واجباتها، والعمود = معدّل
    الفترات التي فيها واجب محسوب. starts فارغة = فترة واحدة (الحساب القديم تمامًا) */
-function homeworkPeriodScores(counted, statusIdx, studentId, max, starts){
-  return periodSplitScores(counted, h => h.due_date, list => homeworkScoreFor(list, statusIdx, studentId, max), starts);
+function homeworkPeriodScores(counted, statusIdx, studentId, max, cfg){
+  return periodSplitScores(counted, h => h.due_date, list => homeworkScoreFor(list, statusIdx, studentId, max), cfg);
 }
 
-function planHomeworkScoreSync(studentIds, counted, statusIdx, max, existing, starts){
-  return planComputedScoreSync(studentIds, id => homeworkPeriodScores(counted, statusIdx, id, max, starts).final, existing);
+function planHomeworkScoreSync(studentIds, counted, statusIdx, max, existing, cfg){
+  return planComputedScoreSync(studentIds, id => homeworkPeriodScores(counted, statusIdx, id, max, cfg).final, existing);
 }
 
 function defaultHomeworkId(homeworks, dateIso){
@@ -114,8 +114,7 @@ async function syncHomeworkColumn(column, sectionId, hw, studentIds){
   if(error) throw error;
   const existing = new Map((rows || []).map(r => [r.student_id, Number(r.score)]));
   const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
-  const starts = periodCfg(hw.term || crmCurrentTerm(), 'kind:homework').starts;
-  const plan = planHomeworkScoreSync(ids, counted, homeworkStatusIndex(hw.statusRows), column.max_score, existing, starts);
+  const plan = planHomeworkScoreSync(ids, counted, homeworkStatusIndex(hw.statusRows), column.max_score, existing, periodCfg(hw.term || crmCurrentTerm(), 'kind:homework'));
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
@@ -265,7 +264,7 @@ async function renderCrmParticipation(students, tool){
   /* الشارة والشرح للمكوّن الذي له أكثر من فترة */
   const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. ` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <div class="crm-att-btn crm-part-tile${crmAbsentClass(s, st.id)}" id="crmPart_${st.id}">

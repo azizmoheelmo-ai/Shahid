@@ -47,12 +47,12 @@ function taskColumnScoreFor(tasks, rows, studentId, colMax){
 /* الفترات (app-27): كل مهمة في فترة موعدها (أو يوم إنشائها)، والعمود = معدّل الفترات */
 function taskDateOf(t){ return t.due_date || String(t.created_at || '').slice(0, 10); }
 
-function taskPeriodScores(tasks, rows, studentId, colMax, starts){
-  return periodSplitScores(tasks, taskDateOf, list => taskColumnScoreFor(list, rows, studentId, colMax), starts);
+function taskPeriodScores(tasks, rows, studentId, colMax, cfg){
+  return periodSplitScores(tasks, taskDateOf, list => taskColumnScoreFor(list, rows, studentId, colMax), cfg);
 }
 
-function planTaskScoreSync(studentIds, tasks, rows, colMax, existing, starts){
-  return planComputedScoreSync(studentIds, id => taskPeriodScores(tasks, rows, id, colMax, starts).final, existing);
+function planTaskScoreSync(studentIds, tasks, rows, colMax, existing, cfg){
+  return planComputedScoreSync(studentIds, id => taskPeriodScores(tasks, rows, id, colMax, cfg).final, existing);
 }
 
 function taskQuickScores(max){
@@ -231,7 +231,7 @@ async function syncTaskColumn(column, sectionId, term, studentIds){
   ]);
   if(scoresRes.error) throw scoresRes.error;
   const existing = new Map((scoresRes.data || []).map(r => [r.student_id, Number(r.score)]));
-  const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing, periodCfg(term, 'kind:task').starts);
+  const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing, periodCfg(term, 'kind:task'));
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),

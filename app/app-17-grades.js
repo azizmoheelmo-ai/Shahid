@@ -254,8 +254,8 @@ async function loadCrmGradeSheet(sectionId){
       await syncHomeworkColumn(hwCol, sectionId, hw);
       if(multi(hwCol)){
         const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
-        const idx = homeworkStatusIndex(hw.statusRows), starts = periodCfg(term, 'kind:homework').starts;
-        breakdown.set(hwCol.id, new Map(ids.map(id => [id, homeworkPeriodScores(counted, idx, id, hwCol.max_score, starts)])));
+        const idx = homeworkStatusIndex(hw.statusRows), pc = periodCfg(term, 'kind:homework');
+        breakdown.set(hwCol.id, new Map(ids.map(id => [id, homeworkPeriodScores(counted, idx, id, hwCol.max_score, pc)])));
       }
     } catch(e){}
   }
@@ -265,8 +265,8 @@ async function loadCrmGradeSheet(sectionId){
       await syncTaskColumn(taskCol, sectionId, term);
       if(multi(taskCol) && ids.length){
         const { tasks, rows } = await loadTaskScoresForStudents(ids, term);
-        const starts = periodCfg(term, 'kind:task').starts;
-        breakdown.set(taskCol.id, new Map(ids.map(id => [id, taskPeriodScores(tasks, rows, id, taskCol.max_score, starts)])));
+        const pc = periodCfg(term, 'kind:task');
+        breakdown.set(taskCol.id, new Map(ids.map(id => [id, taskPeriodScores(tasks, rows, id, taskCol.max_score, pc)])));
       }
     } catch(e){}
   }
@@ -278,8 +278,8 @@ async function loadCrmGradeSheet(sectionId){
         await syncToolColumn(tc, tool, sectionId, term);
         if(multi(tc) && ids.length){
           const byStudent = await loadToolMarksByStudent(tool, ids, term);
-          const starts = periodCfg(term, 'tool:' + tool.id).starts;
-          breakdown.set(tc.id, new Map(ids.map(id => [id, toolPeriodScores(tool, byStudent.get(id), tc.max_score, starts)])));
+          const pc = periodCfg(term, 'tool:' + tool.id);
+          breakdown.set(tc.id, new Map(ids.map(id => [id, toolPeriodScores(tool, byStudent.get(id), tc.max_score, pc)])));
         }
       } catch(e){}
     }
@@ -293,10 +293,16 @@ async function loadCrmGradeSheet(sectionId){
         if(mErr) throw mErr;
         return { main: new Map((data || []).map(r => [r.student_id, Number(r.score)])), rows: await loadPeriodRows(c.id) };
       };
+      const cfg = periodCfg(term, periodCompKeyOfColumn(c));
+      /* عمود أُنشئ بعد ضبط الفترات (أو من جهاز آخر): الفترات المحسوبة تُصحَّح قبل العرض */
+      const want = countedPeriodsOf(cfg);
+      if((c.counted_periods == null ? null : Number(c.counted_periods)) !== want){
+        const { error: cErr } = await sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want });
+        if(!cErr) c.counted_periods = want;
+      }
       let pd = await load();
       const fk = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
       if(fk && gradeStartsFull(fk)){
-        const cfg = periodCfg(term, periodCompKeyOfColumn(c));
         const period = Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
         if((await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
       }
@@ -504,16 +510,21 @@ function crmGradePeriodPartHtml(g, x, studentId){
   const vals = [1, 2, 3].slice(0, cfg.n).map(p => (b['p' + p] === undefined ? null : b['p' + p]));
   if(vals.every(v => v === null) && x.score === null) return ''; /* لا رصد بعد: سطر عادي بلا تفصيل فارغ */
   const now = currentPeriodOf(cfg);
+  const counted = countedPeriodsOf(cfg) || cfg.n;
   const none = txt => `<span class="crm-gs-none">${txt}</span>`;
   const sub = p => {
     const v = vals[p - 1];
     const label = p > now ? none('لم تبدأ') : v === null ? none('لم يُرصد') : `${formatScore(v)} من ${formatScore(x.max)}`;
-    return `<div class="crm-gs-sub"><span>${PERIOD_NAMES[p]}${p === now ? ' <small>(جارية)</small>' : ''}</span><span>${label}</span></div>${p > now ? '' : crmGradeBarHtml(v, x.max)}`;
+    const tag = p === now && !cfg.ended ? ` <small>(جارية${p > counted ? ' — تُحسب عند انتهائها' : ''})</small>` : '';
+    return `<div class="crm-gs-sub"><span>${PERIOD_NAMES[p]}${tag}</span><span>${label}</span></div>${p > now ? '' : crmGradeBarHtml(v, x.max)}`;
   };
-  const rec = vals.filter(v => v !== null);
+  /* الدرجة = معدّل الفترات المحسوبة (الجارية بعد الأولى لا تُحسب حتى تنتهي) */
+  const rec = vals.slice(0, counted).filter(v => v !== null);
   /* bdi: المعادلة تُقرأ كما تُكتب (لا يقلبها اتجاه الصفحة) */
-  const calc = rec.length > 1 ? `المعدّل: <bdi dir="ltr">(${rec.map(formatScore).join(' + ')}) ÷ ${rec.length} = <b>${formatScore(periodAverage(rec))}</b></bdi>`
-    : rec.length ? 'الدرجة = الفترة المرصودة وحدها (ما لم يُرصد لا يُحسب)' : '';
+  const pending = !cfg.ended && now > counted ? ` — و${PERIOD_NAMES[now]} تُحسب عند انتهائها` : '';
+  const only = vals.slice(0, counted).findIndex(v => v !== null) + 1;
+  const calc = rec.length > 1 ? `المعدّل: <bdi dir="ltr">(${rec.map(formatScore).join(' + ')}) ÷ ${rec.length} = <b>${formatScore(periodAverage(rec))}</b></bdi>${pending}`
+    : rec.length ? `الدرجة الآن = ${PERIOD_NAMES[only]}${pending || ' (ما لم يُرصد لا يُحسب)'}` : '';
   return `<div class="crm-gs-prow crm-gs-per">
       <div class="crm-gs-plabel"><span>${escapeHtml(x.name)}</span><span>${x.score === null ? none('لم يُرصد بعد') : `${formatScore(x.score)} من ${formatScore(x.max)}`}</span></div>
       ${[1, 2, 3].slice(0, cfg.n).map(sub).join('')}
