@@ -32,7 +32,7 @@ test('المتابعات مخفية: التبويب يُخفى، والانتق�
   assert.equal(get(app, `document.getElementById('crmTabToday').style.display`), 'block');
 });
 
-test('تبويب اليوم — حصة رُصد حضورها: "الحضور ✓" وزر "أكمل الرصد ←" (لا "تعديل")', async () => {
+test('تبويب اليوم — حصة رُصد حضورها (في "المنجزة"): "الحضور ✓" وزر "أكمل الرصد ←" (لا "تعديل")', async () => {
   const app = loadApp({ supabaseClient: client(), currentUser: { id: 'u1' } });
   const today = get(app, 'localIsoDate()');
   runInAppContext(app, `
@@ -45,7 +45,7 @@ test('تبويب اليوم — حصة رُصد حضورها: "الحضور ✓"
     then: (r) => Promise.resolve({ data: t === 'classroom_lessons' ? [{ id: 'L1', section_id: 'S', lesson_date: '${today}', period: 1 }] : [], error: null }).then(r) }; return a; };`);
   await app.renderCrmToday();
   const html = get(app, 'window.__box.innerHTML');
-  assert.match(html, /الحضور ✓<\/span><button[^>]*>أكمل الرصد ←<\/button>/);
+  assert.match(html, /الحضور ✓<\/span><\/div><\/div>\s*<button[^>]*>أكمل الرصد ←<\/button>/);
   assert.doesNotMatch(html, />تعديل</);
 });
 

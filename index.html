@@ -696,13 +696,13 @@
       <div id="crmTabToday" style="display:none;">
         <div class="section" id="crmTodayBody"></div>
 
-        <!-- ============ الجدول الأسبوعي (اختياري) — منه تُبنى حصص اليوم ============ -->
-        <div class="section" id="crmTimetableSection">
-          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCrmGroup('crmTimetableBody')">
+        <!-- ============ الجدول الأسبوعي (اختياري) — منه تُبنى حصص اليوم؛ يُفتح من مربّع "جدولي" ============ -->
+        <div class="section" id="crmTimetableSection" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
             <h2 style="margin:0;">📅 جدولي الأسبوعي <span style="font-size:12px;font-weight:400;color:var(--muted);">(اختياري)</span></h2>
-            <span id="crmTimetableBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
+            <button type="button" class="btn btn-outline crm-mini-btn" onclick="closeCrmTimetable()">إغلاق ▴</button>
           </div>
-          <div id="crmTimetableBody" style="display:none;margin-top:10px;">
+          <div id="crmTimetableBody" style="margin-top:10px;">
             <div id="crmTimetableEditor"></div>
           </div>
         </div>

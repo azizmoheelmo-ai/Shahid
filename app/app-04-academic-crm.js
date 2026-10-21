@@ -967,13 +967,15 @@ function switchCrmTab(tab){
 }
 
 function collapseAllCrmSections(){
-  const pairs = ['crmRegisterBody', 'crmIncidentsListBody', 'crmTimetableBody'];
+  const pairs = ['crmRegisterBody', 'crmIncidentsListBody'];
   pairs.forEach(id => {
     const body = document.getElementById(id);
     const arrow = document.getElementById(id + '_arrow');
     if(body) body.style.display = 'none';
     if(arrow) arrow.textContent = '▸';
   });
+  const timetable = document.getElementById('crmTimetableSection'); /* يُفتح من مربّع "جدولي" */
+  if(timetable) timetable.style.display = 'none';
 }
 
 async function showClassroomManagement(){
