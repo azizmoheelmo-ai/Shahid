@@ -348,8 +348,8 @@ test('"يبدأ من" للمشاركة — تُمسح درجتا الفترتي�
 });
 
 /* ============ إعداد الدرجات ============ */
-test('إعداد الدرجات — الأقسام مطوية بملخص، ولكل مكوّن أداء سطر فترات خاص به (لا للاختبارات)', async () => {
-  const app = appWith({}, [], withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }), { code: `crmCustomTools = []; crmCustomToolsLoaded = true; renderCrmGrades = () => {};` });
+test('إعداد الدرجات — الأقسام مطوية بملخص، وبطاقة لكل مكوّن أداء بشارات إعداده (لا للاختبارات)', async () => {
+  const app = appWith({}, [], withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }, { startFull: { homework: true } }), { code: `crmCustomTools = []; crmCustomToolsLoaded = true; renderCrmGrades = () => {};` });
   const cols = [col('P', 'participation', 10), col('H', 'homework', 10), col('T1', 'manual', 20, { category: 'tests', name: 'اختبار' })];
   app.openCrmGradeSettings();
   const html = app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
@@ -357,19 +357,93 @@ test('إعداد الدرجات — الأقسام مطوية بملخص، ول�
   assert.equal(det.length, 3);
   det.forEach(d => assert.doesNotMatch(d, /\sopen/), 'مطوية');
   assert.match(html, /class="gs-acc-s">مشاركة 10 · واجبات 10</);
-  assert.equal((html.match(/data-period-key=/g) || []).length, 2, 'سطر فترات لكل مكوّن أداء فقط');
-  assert.match(html, /data-period-key="kind:participation"[\s\S]*aria-pressed="true" onclick="setComponentPeriodCount\('kind:participation', 3\)">✓ 3[\s\S]*الآن: <b>الفترة الثانية<\/b>[\s\S]*ابدأ الفترة الثالثة ←[\s\S]*→ رجوع/);
-  assert.match(html, /data-period-key="kind:homework"[\s\S]*aria-pressed="true" onclick="setComponentPeriodCount\('kind:homework', 1\)">✓ 1/);
+  assert.equal((html.match(/class="gs-card[^"]*" role="button"/g) || []).length, 2, 'بطاقة لكل مكوّن أداء فقط');
+  assert.match(html, /data-comp="c:P"[\s\S]*?📅 ثلاث فترات<\/span><span class="gs-chip now">الآن: الثانية/);
+  assert.match(html, /data-comp="c:H"[\s\S]*?يبدأ من الدرجة كاملة/);
+  assert.match(html, /class="crm-weight-input" data-key="c:P" value="10"/, 'الوزن محفوظ في البطاقة لحفظ واحد');
   runInAppContext(app, `crmGsOpen.comps = true;`);
   assert.match(app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] }), /data-gs="comps" open/);
   app.openCrmGradeSettings();
   assert.equal(get(app, 'crmGsOpen.comps'), false, 'فتح الشاشة من جديد = مطوية');
 });
 
-test('سطر الفترات يهرّب اسم المكوّن اليدوي داخل onclick', () => {
-  const app = appWith({}, [], OFF);
-  const html = app.componentPeriodsHtml("name:x');alert(1);//<b>");
-  assert.doesNotMatch(html, /'\);alert|<b>/);
+test('نافذة المكوّن — الدرجة بـ − و +، والفترات ١/٢/٣ مع الانتقال، و"يبدأ من"، والإظهار، والحذف', async () => {
+  const app = appWith({}, [], withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }), { code: `crmCustomTools = []; crmCustomToolsLoaded = true;` });
+  const cols = [col('P', 'participation', 10), col('H', 'homework', 10), col('K', 'task', 20)];
+  app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
+  app.openGsCompSheet('c:P');
+  const m = get(app, 'window.__modal');
+  assert.match(m, /الدرجة[\s\S]*stepGsCompWeight\(-1\)[\s\S]*<b>10<\/b>[\s\S]*stepGsCompWeight\(1\)/);
+  assert.match(m, /عدد الفترات[\s\S]*class="is-on" aria-pressed="true" onclick="setGsCompPeriods\(3\)">3/);
+  assert.match(m, /الآن: <b>الفترة الثانية<\/b>[\s\S]*goToComponentPeriod\('kind:participation', 3\)">ابدأ الفترة الثالثة/);
+  assert.match(m, /يبدأ الطالب من/);
+  assert.match(m, /ظاهر في الكشف ونافذة الرصد/);
+  assert.match(m, /deleteGradeComponent\('c:P'\)/);
+  app.setGsCompPeriods(2);
+  assert.doesNotMatch(get(app, 'window.__modal'), /ابدأ الفترة/, 'عدد الفترات تغيّر ولم يُحفظ: لا انتقال قبل الحفظ');
+});
+
+function sheetApp(features, extra){
+  const app = appWith({}, [], features || OFF, { code: `crmCustomTools = []; crmCustomToolsLoaded = true; window.__calls = [];
+    renderCrmGrades = () => window.__calls.push('render');
+    saveCrmGradeSettings = async o => { window.__calls.push('weights:' + window.__w.value + ':' + JSON.stringify(o)); return ${extra && extra.weightFails ? 'false' : 'true'}; };
+    setAppToolOn = async (k, on) => window.__calls.push('tool:' + k + ':' + on);
+    setGradeStartMode = async (k, f) => window.__calls.push('start:' + k + ':' + f);
+    setComponentPeriodCount = async (k, n) => window.__calls.push('periods:' + k + ':' + n);
+    window.__w = { value: '10', dataset: { key: 'c:P' } };
+    document.querySelector = q => q.indexOf('c:P') !== -1 ? window.__w : null;
+    document.querySelectorAll = q => q === '.crm-weight-input' ? [window.__w, { value: '10', dataset: { key: 'c:H' } }, { value: '15', dataset: { key: 'c:K' } }] : [];` });
+  const cols = [col('P', 'participation', 10), col('H', 'homework', 10), col('K', 'task', 15)];
+  app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
+  return app;
+}
+
+test('نافذة المكوّن — الدرجة لا تتجاوز المتاح في الأداء ولا تنزل عن نصف درجة', async () => {
+  const app = sheetApp();
+  app.openGsCompSheet('c:P');
+  assert.match(get(app, 'window.__modal'), /المتاح 15 من 40/);
+  for(let i = 0; i < 20; i++) app.stepGsCompWeight(1);
+  assert.equal(get(app, 'gsCompDraft.weight'), 15);
+  for(let i = 0; i < 40; i++) app.stepGsCompWeight(-1);
+  assert.equal(get(app, 'gsCompDraft.weight'), 0.5);
+});
+
+test('نافذة المكوّن — "حفظ" يطبّق ما تغيّر فقط بالترتيب: الدرجة ← الإظهار ← "يبدأ من" ← الفترات', async () => {
+  const app = sheetApp();
+  app.openGsCompSheet('c:P');
+  app.stepGsCompWeight(1);
+  app.toggleGsCompVisible();
+  app.setGsCompFull(true);
+  app.setGsCompPeriods(2);
+  await app.saveGsComp();
+  assert.deepEqual([...get(app, 'window.__calls')], ['weights:10.5:{"stay":true}', 'tool:participation:false', 'start:participation:true', 'periods:kind:participation:2', 'render']);
+  assert.equal(get(app, 'gsCompDraft'), null);
+  const app2 = sheetApp();
+  app2.openGsCompSheet('c:P');
+  await app2.saveGsComp();
+  assert.deepEqual([...get(app2, 'window.__calls')], ['render'], 'بلا تغيير: لا كتابة');
+});
+
+test('انحدار: فشل حفظ الدرجة من النافذة — يعود الوزن كما كان ولا تُمحى رسالة الخطأ بإعادة الرسم', async () => {
+  const app = sheetApp(OFF, { weightFails: true });
+  app.openGsCompSheet('c:P');
+  app.stepGsCompWeight(1);
+  app.setGsCompPeriods(3);
+  await app.saveGsComp();
+  assert.deepEqual([...get(app, 'window.__calls')], ['weights:10.5:{"stay":true}'], 'لا خطوات بعد فشل الدرجة، ولا إعادة رسم');
+  assert.equal(get(app, 'window.__w.value'), '10');
+});
+
+test('بطاقة المكوّن ونافذته تهرّبان اسم المكوّن اليدوي (في العنوان وفي أزرار الفترات)', () => {
+  const evil = "x');alert(1);//<b>";
+  const app = appWith({}, [], withPeriods({ ['name:' + evil]: { n: 2, starts: [] } }), { code: `crmCustomTools = []; crmCustomToolsLoaded = true;` });
+  const cols = [col('M', 'manual', 5, { name: evil })];
+  const html = app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
+  assert.ok(!html.includes(evil), 'البطاقة');
+  app.openGsCompSheet('c:M');
+  const m = get(app, 'window.__modal');
+  assert.ok(!m.includes(evil), 'النافذة');
+  assert.match(m, /goToComponentPeriod\('name:x&#39;\);alert\(1\);\/\/&lt;b&gt;', 2\)/);
 });
 
 test('ملخص المكوّنات يُهرَّب (اسم المكوّن من المعلم)', async () => {

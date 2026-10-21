@@ -108,19 +108,7 @@ function crmGradeSettingsHtml(g){
     if(tool) return { tool, sub: CUSTOM_TOOL_TYPES[tool.tool_type] ? CUSTOM_TOOL_TYPES[tool.tool_type].label : '' };
     return { tool: null, sub: { participation: '+1 بنقرة', homework: 'سلّم / لم يسلّم', task: 'درجة لكل مهمة' }[c.column.kind] || 'يدوي' };
   };
-  const startKeyOf = c => c.tool ? 'tool:' + c.tool.id : startFullKeyOfColumn(c.column);
-  const compRows = comps.map(c => {
-    const t = typeOf(c);
-    const value = c.tool ? formatScore(c.tool.max_score) : formatScore(c.max);
-    return `<div class="crm-gs-line">
-      <span>${escapeHtml(c.name)}${t.tool ? ' 🧩' : ''} <small style="color:var(--muted);">${escapeHtml(t.sub)}${c.column && hidden.has(c.column.id) ? ' · مخفي' : ''}${c.tool ? ' · جديد' : ''}</small>
-        ${t.tool ? `<a href="#" style="font-size:11px;" onclick="event.preventDefault();openCustomToolEditor('${t.tool.id}')">تعديل</a>` : ''}
-        ${startKeyOf(c) ? startModeToggleHtml(startKeyOf(c)) : ''}
-        ${typeof componentPeriodsHtml === 'function' ? componentPeriodsHtml(perfComponentIdentity(c)) : ''}</span>
-      <span class="gs-cell"><input class="goal-input gs-num crm-weight-input" inputmode="decimal" data-key="${c.key}" value="${value}" oninput="paintCrmGradeSettings()">
-        <button type="button" class="gs-del" title="حذف" aria-label="حذف ${escapeHtml(c.name)}" onclick="deleteGradeComponent('${c.key}')">🗑</button></span>
-    </div>`;
-  }).join('');
+  const compRows = comps.map(c => gsCompCardHtml(c, hidden.has(c.column && c.column.id))).join('');
   const have = new Set((g.allColumns || g.columns).map(c => c.kind));
   const missing = BUILTIN_GRADE_COMPONENTS.filter(b => !have.has(b.kind));
   const testsOn = appToolOn('tests');
@@ -142,8 +130,8 @@ function crmGradeSettingsHtml(g){
     <p class="crm-gs-note">الرسمي ${GRADE_CAPS_DEFAULT.performance} و${GRADE_CAPS_DEFAULT.tests}. اكتب إحداهما والأخرى تُكمَل.</p>`)}
 
     ${gsSectionHtml('comps', '② مكوّنات الأداء', comps.map(c => `${c.name} ${formatScore(c.tool ? c.tool.max_score : c.max)}`).join(' · '), `
+    <div class="gs-tot"><span class="gs-ring" id="crmWeightsRing"><i>${formatScore(caps.performance)}</i></span><span><b id="crmWeightsTotal">${(() => { const t = Math.round(100 * comps.reduce((a, c) => a + Number(c.tool ? 0 : c.max), 0)) / 100; return `الأداء — ${formatScore(t)} من ${formatScore(caps.performance)}${t === caps.performance ? ' ✓' : ''}`; })()}</b><small>اضغط على أي مكوّن لتعديل إعداده</small></span></div>
     ${compRows}
-    <div id="crmWeightsTotal" style="font-size:13px;font-weight:700;margin:8px 0;"></div>
     ${missing.length ? `<div class="crm-gs-note">محذوف من الكشف: ${missing.map(b => `<button type="button" class="gs-add gs-add-sm" onclick="addBuiltinGradeComponent('${b.kind}')">↩ ${b.name}</button>`).join(' ')}</div>` : ''}
     ${(typeof crmCustomTools !== 'undefined' ? crmCustomTools.length : 0) < CUSTOM_TOOL_MAX ? '<button class="gs-add" onclick="openCustomToolEditor(null)">+ مكوّن (مثل: بحوث، قراءة، مشروع)</button>' : ''}`)}
 
@@ -167,6 +155,158 @@ function gsSectionHtml(key, title, summary, body){
     <div class="gs-acc-b">${body}</div></details>`;
 }
 
+/* ============ بطاقة المكوّن ونافذة إعداده ============ */
+const GS_COMP_ICONS = { participation: '👆', homework: '📝', task: '🎯', counter: '🔢', status: '✅', score: '💯', manual: '✏️' };
+
+function gsCompTool(c){ return c.tool || (c.column && c.column.tool_id ? customToolById(c.column.tool_id) : null); }
+
+/* مفتاح "يبدأ من" للمكوّن (أو null لليدوي) */
+function gsCompStartKey(c){ return c.tool ? 'tool:' + c.tool.id : startFullKeyOfColumn(c.column); }
+
+/* مفتاح الإظهار: أداة التخصيص (المشاركة/الواجبات/المهام) أو أداة المعلم الخاصة؛ اليدوي دائمًا ظاهر */
+function gsCompVisibility(c){
+  const tool = gsCompTool(c);
+  if(tool) return { type: 'tool', id: tool.id, on: !tool.hidden };
+  const k = c.column && GRADE_KIND_TOOL[c.column.kind];
+  return k ? { type: 'app', id: k, on: appToolOn(k) } : null;
+}
+
+function gsCompSubtitle(c){
+  const tool = gsCompTool(c);
+  if(tool) return 'مكوّن خاص · ' + (CUSTOM_TOOL_TYPES[tool.tool_type] ? CUSTOM_TOOL_TYPES[tool.tool_type].label : '');
+  return { participation: '+ و − في نافذة الرصد', homework: 'سلّم / لم يسلّم', task: 'درجة لكل مهمة' }[c.column.kind] || 'يدوي';
+}
+
+function gsCompIcon(c){
+  const tool = gsCompTool(c);
+  return GS_COMP_ICONS[tool ? tool.tool_type : (c.column.kind || 'manual')] || '✏️';
+}
+
+function gsCompCardHtml(c, hiddenCol){
+  const value = c.tool ? formatScore(c.tool.max_score) : formatScore(c.max);
+  const cfg = typeof periodCfg === 'function' ? periodCfg(crmCurrentTerm(), perfComponentIdentity(c)) : { n: 1, starts: [] };
+  const sk = gsCompStartKey(c);
+  const vis = gsCompVisibility(c);
+  const chips = [];
+  if(cfg.n > 1) chips.push(`<span class="gs-chip per">📅 ${PERIOD_COUNT_LABELS[cfg.n]}</span><span class="gs-chip now">الآن: ${PERIOD_NAMES[currentPeriodOf(cfg)].replace('الفترة ', '')}</span>`);
+  if(sk && gradeStartsFull(sk)) chips.push('<span class="gs-chip full">يبدأ من الدرجة كاملة</span>');
+  if(hiddenCol || (vis && !vis.on)) chips.push('<span class="gs-chip off">مخفي — بياناته محفوظة</span>');
+  if(c.tool) chips.push('<span class="gs-chip">جديد — أعطه درجة</span>');
+  return `<div class="gs-card${hiddenCol || (vis && !vis.on) ? ' is-off' : ''}" role="button" tabindex="0" data-comp="${escapeHtml(c.key)}" onclick="openGsCompSheet('${c.key}')">
+    <span class="gs-card-ico">${gsCompIcon(c)}</span>
+    <span class="gs-card-main"><b>${escapeHtml(c.name)}</b><small>${escapeHtml(gsCompSubtitle(c))}</small>${chips.length ? `<span class="gs-chips">${chips.join('')}</span>` : ''}</span>
+    <span class="gs-card-pts"><b id="gsPts_${c.key.replace(/[^\w-]/g, '_')}">${value}</b><small>درجة</small><i aria-hidden="true">‹</i></span>
+    <input type="hidden" class="crm-weight-input" data-key="${c.key}" value="${value}">
+  </div>`;
+}
+
+/* المسودة: لا يُحفظ شيء حتى "حفظ"؛ الانتقال بين الفترات وحده فوري (حدث لا إعداد) */
+let gsCompDraft = null; /* { key, comp, weight, n, full, visible, orig } */
+
+function openGsCompSheet(key){
+  const d = crmWeightsDraft;
+  const c = d && d.components.find(x => x.key === key);
+  if(!c) return;
+  const inp = document.querySelector(`.crm-weight-input[data-key="${key}"]`);
+  const raw = inp && inp.value !== '' && inp.value !== undefined ? inp.value : (c.tool ? c.tool.max_score : c.max);
+  const weight = Number(String(raw).replace(/[٠-٩]/g, x => String('٠١٢٣٤٥٦٧٨٩'.indexOf(x))).replace(/[٫,]/g, '.')) || 0;
+  const id = perfComponentIdentity(c);
+  const cfg = periodCfg(crmCurrentTerm(), id);
+  const sk = gsCompStartKey(c);
+  const vis = gsCompVisibility(c);
+  const orig = { weight, n: cfg.n, full: sk ? gradeStartsFull(sk) : false, visible: vis ? vis.on : true };
+  gsCompDraft = Object.assign({ key, comp: c, id, orig }, orig);
+  paintGsCompSheet();
+}
+
+/* حد الدرجة: ما يتسع في وزن الأداء بعد المكوّنات الأخرى */
+function gsCompWeightRoom(key){
+  const cap = gradeCap('performance');
+  const others = [...document.querySelectorAll('.crm-weight-input')].filter(i => i.dataset.key !== key)
+    .reduce((s, i) => s + (Number(String(i.value).replace(/[٠-٩]/g, x => String('٠١٢٣٤٥٦٧٨٩'.indexOf(x))).replace(/[٫,]/g, '.')) || 0), 0);
+  return Math.max(0, Math.round((cap - others) * 100) / 100);
+}
+
+function paintGsCompSheet(){
+  const d = gsCompDraft;
+  if(!d) return;
+  const c = d.comp;
+  const room = gsCompWeightRoom(d.key);
+  const min = c.column ? GRADE_WEIGHT_STEP : 0;
+  const sk = gsCompStartKey(c);
+  const vis = gsCompVisibility(c);
+  const cfg = periodCfg(crmCurrentTerm(), d.id);
+  const now = currentPeriodOf(cfg);
+  const id = escapeHtml(d.id).replace(/'/g, '&#39;');
+  const seg = (items, cur, fn) => `<div class="gs-sheet-seg">${items.map(([v, label]) => `<button type="button" class="${cur === v ? 'is-on' : ''}" aria-pressed="${cur === v}" onclick="${fn}(${JSON.stringify(v)})">${label}</button>`).join('')}</div>`;
+  const tool = gsCompTool(c);
+  showInfoModal(`<div class="gs-sheet">
+    <div class="gs-sheet-h"><span class="gs-card-ico">${gsCompIcon(c)}</span><b>${escapeHtml(c.name)}</b>
+      ${tool ? `<a href="#" class="gs-sheet-edit" onclick="event.preventDefault();closeCrmModal();openCustomToolEditor('${tool.id}')">تعديل الاسم</a>` : ''}</div>
+    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>الدرجة</span><span>المتاح ${formatScore(room)} من ${formatScore(gradeCap('performance'))}</span></div>
+      <div class="gs-step"><button type="button" onclick="stepGsCompWeight(-1)" ${d.weight - GRADE_WEIGHT_STEP < min ? 'disabled' : ''} aria-label="أنقص">−</button><b>${formatScore(d.weight)}</b><button type="button" onclick="stepGsCompWeight(1)" ${d.weight + GRADE_WEIGHT_STEP > room ? 'disabled' : ''} aria-label="زد">+</button></div></div>
+    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>عدد الفترات</span><span>الدرجة = معدّل الفترات</span></div>
+      ${seg([[1, '1'], [2, '2'], [3, '3']], d.n, 'setGsCompPeriods')}
+      ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
+        الآن: <b>${PERIOD_NAMES[now]}</b>
+        ${now < cfg.n ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now + 1})">ابدأ ${PERIOD_NAMES[now + 1]} ←</button>` : ''}
+        ${now > 1 ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now - 1})">→ رجوع</button>` : ''}</div>` : ''}</div>
+    ${sk ? `<div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>يبدأ الطالب من</span></div>${seg([[false, '0'], [true, 'الدرجة كاملة']], d.full, 'setGsCompFull')}</div>` : ''}
+    ${vis ? `<div class="gs-sheet-sec gs-sheet-sw"><span>ظاهر في الكشف ونافذة الرصد</span>
+      <button type="button" class="cust-switch${d.visible ? ' is-on' : ''}" role="switch" aria-checked="${d.visible}" onclick="toggleGsCompVisible()"><span></span></button></div>` : ''}
+    <button type="button" class="gs-save" id="gsCompSaveBtn" onclick="saveGsComp()">حفظ</button>
+    <button type="button" class="gs-sheet-del" onclick="closeCrmModal();deleteGradeComponent('${d.key}')">🗑 حذف المكوّن</button>
+  </div>`, '440px');
+}
+
+function stepGsCompWeight(dir){
+  const d = gsCompDraft;
+  if(!d) return;
+  const min = d.comp.column ? GRADE_WEIGHT_STEP : 0;
+  const next = Math.round((d.weight + dir * GRADE_WEIGHT_STEP) * 100) / 100;
+  if(next < min || next > Math.min(GRADE_COLUMN_MAX, gsCompWeightRoom(d.key))) return;
+  d.weight = next;
+  paintGsCompSheet();
+}
+function setGsCompPeriods(n){ if(gsCompDraft){ gsCompDraft.n = n; paintGsCompSheet(); } }
+function setGsCompFull(full){ if(gsCompDraft){ gsCompDraft.full = !!full; paintGsCompSheet(); } }
+function toggleGsCompVisible(){ if(gsCompDraft){ gsCompDraft.visible = !gsCompDraft.visible; paintGsCompSheet(); } }
+
+/* حفظ ما تغيّر فقط، كلٌّ بمساره القائم: الدرجة (كل الشعب) ← الإظهار ← "يبدأ من" (بتأكيده) ← الفترات */
+let gsCompSaving = false;
+async function saveGsComp(){
+  const d = gsCompDraft;
+  if(!d || gsCompSaving || !currentUser) return;
+  gsCompSaving = true;
+  const btn = document.getElementById('gsCompSaveBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الحفظ...'; }
+  closeCrmModal(); /* نافذة التأكيد هي نفسها نافذة المعلومات */
+  gsCompDraft = null;
+  let rerender = true;
+  try{
+    if(d.weight !== d.orig.weight){
+      const inp = document.querySelector(`.crm-weight-input[data-key="${d.key}"]`);
+      if(inp) inp.value = formatScore(d.weight);
+      if(!(await saveCrmGradeSettings({ stay: true }))){
+        /* الخطأ ظاهر في الصفحة — لا إعادة رسم تمحوه، والوزن يعود كما كان */
+        if(inp) inp.value = formatScore(d.orig.weight);
+        rerender = false;
+        return;
+      }
+    }
+    const vis = gsCompVisibility(d.comp);
+    if(vis && d.visible !== d.orig.visible){
+      if(vis.type === 'app') await setAppToolOn(vis.id, d.visible); else await toggleCustomToolHidden(vis.id);
+    }
+    const sk = gsCompStartKey(d.comp);
+    if(sk && d.full !== d.orig.full) await setGradeStartMode(sk, d.full);
+    if(d.n !== d.orig.n) await setComponentPeriodCount(d.id, d.n);
+  } finally {
+    gsCompSaving = false;
+    if(rerender) renderCrmGrades();
+  }
+}
+
 function readCrmWeightInputs(){
   const m = new Map();
   document.querySelectorAll('.crm-weight-input').forEach(i => m.set(i.dataset.key, i.value));
@@ -180,9 +320,15 @@ function paintCrmGradeSettings(){
   const c = readGradeCapInputs('gs');
   const cap = c.caps ? c.caps.performance : gradeCap('performance');
   const r = validatePerfWeights(d.components, readCrmWeightInputs(), cap);
+  const ring = document.getElementById('crmWeightsRing');
   if(r.error){ el.textContent = r.error; el.style.color = '#8A2C2C'; return; }
   el.style.color = r.total === cap ? '#12796A' : 'var(--navy)';
-  el.textContent = `المجموع ${formatScore(r.total)} من ${formatScore(cap)}` + (r.total < cap ? ` — الأداء سيكون من ${formatScore(r.total)}` : ' ✓');
+  el.textContent = `الأداء — ${formatScore(r.total)} من ${formatScore(cap)}` + (r.total < cap ? ` (المتبقي ${formatScore(cap - r.total)})` : ' ✓');
+  if(ring){
+    const pct = cap > 0 ? Math.min(100, Math.round(100 * r.total / cap)) : 0;
+    ring.style.background = `conic-gradient(${r.total === cap ? '#1F7A6A' : 'var(--gold)'} 0 ${pct}%, #E5E0D4 0)`;
+    ring.firstElementChild && (ring.firstElementChild.textContent = formatScore(r.total));
+  }
 }
 
 /* يطبّق أوزان المكوّنات على شعب المعلم (التي لها كشف هذا الفصل) */
@@ -207,9 +353,10 @@ async function applyPerfWeightsToSections(desired, sectionIds){
   return { applied, failed };
 }
 
-async function saveCrmGradeSettings(){
+/* opts.stay: من نافذة المكوّن — يبقى في الإعداد بعد الحفظ. يعيد true عند النجاح */
+async function saveCrmGradeSettings(opts){
   const d = crmWeightsDraft;
-  if(!d || d.saving || !currentUser) return;
+  if(!d || d.saving || !currentUser) return false;
   const err = document.getElementById('crmGradeSettingsError');
   /* الخطأ في التوزيع أو الأوزان: يُفتح قسماهما ليرى المعلم الحقل */
   const fail = m => { err.textContent = m; err.style.display = 'block'; document.querySelectorAll('.gs-acc[data-gs="dist"], .gs-acc[data-gs="comps"]').forEach(d => { d.open = true; }); };
@@ -246,7 +393,8 @@ async function saveCrmGradeSettings(){
   crmWeightsDraft = null;
   showToast('حُفظ إعداد الدرجات لكل شعبك ✓', 'ok');
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
-  closeCrmGradeSettings();
+  if(opts && opts.stay) renderCrmGrades(); else closeCrmGradeSettings();
+  return true;
 }
 
 /* تنفيذ خطة شعبة. المحسوب: تُحذف درجاته ثم يُعاد حسابه بالوزن الجديد؛ اليدوي: تُحوَّل درجاته بالنسبة */
