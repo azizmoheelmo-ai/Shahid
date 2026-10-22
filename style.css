@@ -1893,3 +1893,34 @@ html, body, *{touch-action:manipulation;}
 .crm-type-chip.is-on{background:var(--navy);color:#fff;border-color:var(--navy);}
 .crm-type-chip.is-more{color:#0E5F53;border-style:dashed;}
 
+
+/* ============ صفحة الشواهد: رأس بأيقونات، ملخص التغطية، بطاقة لكل معيار، زر ثابت ============ */
+.sh-head-actions{display:flex;gap:6px;align-items:center;}
+.sh-icon-btn{width:38px;height:38px;border-radius:11px;border:none;background:#F3F0E8;color:var(--navy);font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;}
+.sh-icon-btn.is-on{background:var(--navy);color:#fff;}
+.sh-more{position:relative;}
+.sh-more-menu{position:absolute;left:0;top:44px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 24px rgba(16,30,44,.16);padding:6px;white-space:nowrap;}
+.sh-more-menu .btn{border:none;width:100%;justify-content:flex-start;border-radius:9px;}
+.sh-filter-sum{margin-top:10px;font-size:12px;font-weight:700;color:var(--navy);background:#EAF0F5;border-radius:10px;padding:6px 10px;}
+#listBody{padding:12px 14px 4px;}
+.sh-summary{display:flex;align-items:center;gap:12px;background:#F7F4EC;border-radius:16px;padding:10px 12px;margin-bottom:10px;}
+.sh-ring{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;}
+.sh-ring i{width:44px;height:44px;border-radius:50%;background:#F7F4EC;display:flex;align-items:center;justify-content:center;font-style:normal;font-weight:900;font-size:13.5px;color:#1F7A6A;}
+.sh-summary b{display:block;font-size:15px;color:var(--navy);}
+.sh-summary small{font-size:12px;color:var(--muted);}
+#listBody .criterion-group{border:1px solid #E4DECF;border-radius:14px;margin-bottom:8px;background:#fff;box-shadow:0 2px 0 #F1ECE0;overflow:hidden;}
+#listBody .criterion-group:last-child{border-bottom:1px solid #E4DECF;}
+#listBody .criterion-head{flex-wrap:wrap;background:#fff;padding:10px 12px 9px;gap:4px 8px;}
+#listBody .criterion-head:hover{background:#FBFAF6;}
+#listBody .criterion-head .left:first-child{flex:1;min-width:0;}
+#listBody .criterion-head .weight{border:none;padding:0;font-size:11px;font-weight:700;}
+#listBody .criterion-head .count{background:none;color:var(--navy);font-size:16px;font-weight:900;padding:0 2px;}
+#listBody .criterion-head .count.zero{background:none;color:#B9B2A3;}
+.sh-bar{flex:0 0 100%;height:6px;border-radius:4px;background:#EEE9DE;overflow:hidden;}
+.sh-bar i{display:block;height:100%;background:#2A4A66;border-radius:4px;}
+.sh-add-first{border:none;background:none;color:#0E5F53;font-family:inherit;font-size:12px;font-weight:800;padding:2px 0 0;cursor:pointer;}
+#listBody .criterion-group.open .criterion-head{border-bottom:1px dashed #E8E2D4;}
+.sh-fab-wrap{position:sticky;bottom:calc(74px + env(safe-area-inset-bottom, 0px));padding:8px 14px 12px;z-index:40;pointer-events:none;}
+.sh-fab{pointer-events:auto;display:block;width:100%;border:none;background:var(--navy);color:#fff;border-radius:14px;padding:12px;font-family:inherit;font-size:15px;font-weight:900;cursor:pointer;box-shadow:0 6px 14px rgba(27,50,69,.3);}
+#listView .list-header{padding:10px 14px;}
+#listView #listTitle{font-size:14px;color:var(--muted);font-weight:800;}

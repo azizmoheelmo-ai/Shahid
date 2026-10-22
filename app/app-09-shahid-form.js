@@ -183,7 +183,7 @@ async function loadMyShawahid(){
   document.getElementById('listTitle').textContent = `الشواهد (${myRecords.length})`;
   updateFilterSummary();
   document.getElementById('filterPanel').style.display = 'none';
-  document.getElementById('filterChevron').textContent = '▾ عرض';
+  const sb2 = document.getElementById('shSearchBtn'); if(sb2 && sb2.classList) sb2.classList.remove('is-on');
   renderShawahidGroups(myRecords, false);
 }
 
@@ -191,10 +191,28 @@ let currentStageFilter = '';
 /* (5) طي/فتح لوحة البحث والفلترة، مع ملخص للحالة النشطة */
 function toggleFilterPanel(){
   const panel = document.getElementById('filterPanel');
-  const chev = document.getElementById('filterChevron');
   const opening = panel.style.display === 'none';
   panel.style.display = opening ? 'block' : 'none';
-  chev.textContent = opening ? '▴ إخفاء' : '▾ عرض';
+  const btn = document.getElementById('shSearchBtn');
+  if(btn && btn.classList) btn.classList.toggle('is-on', opening);
+  if(opening){ const q = document.getElementById('shahidSearch'); if(q && q.focus) q.focus(); }
+}
+
+/* ⋯ في رأس الشواهد (تصدير الكل) — قائمة صغيرة تُغلق بأي ضغطة خارجها */
+function toggleShawahidMore(e){
+  if(e && e.stopPropagation) e.stopPropagation();
+  const m = document.getElementById('shMoreMenu');
+  if(m) m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+function closeShawahidMore(){
+  const m = document.getElementById('shMoreMenu');
+  if(m) m.style.display = 'none';
+}
+if(typeof document.addEventListener === 'function'){
+  document.addEventListener('click', e => {
+    const m = document.getElementById('shMoreMenu');
+    if(m && m.style.display !== 'none' && !(e.target && e.target.closest && e.target.closest('.sh-more'))) closeShawahidMore();
+  });
 }
 
 function updateFilterSummary(){
@@ -205,7 +223,9 @@ function updateFilterSummary(){
   const parts = [];
   if(currentStageFilter) parts.push(stageLabels[currentStageFilter] || currentStageFilter);
   if(q.trim()) parts.push(`بحث: "${q.trim()}"`);
-  el.textContent = parts.length ? `فلترة وبحث — ${parts.join(' • ')}` : 'فلترة وبحث';
+  /* سطر صغير يظهر فقط والفلترة فعّالة (لوحة البحث تُفتح من 🔍) */
+  el.textContent = parts.length ? `🔍 ${parts.join(' • ')}` : '';
+  el.style.display = parts.length ? 'block' : 'none';
 }
 
 function setStageFilter(stage, btnEl){
@@ -286,7 +306,17 @@ function renderShawahidGroups(records, autoOpen){
     .map(key => ({ key, label: (grouped[key][0] && grouped[key][0].element_label) || key, active: false }));
   const allElements = elements.map(e => Object.assign({ active: true }, e)).concat(orphanElements);
 
-  body.innerHTML = allElements.map((el, idx) => {
+  /* ملخص التغطية (بلا فلترة): كم معيارًا له شاهد من معايير القالب الحالي */
+  const maxCount = Math.max(1, ...allElements.map(e => (grouped[e.key] || []).length));
+  let summary = '';
+  if(!autoOpen && elements.length){
+    const covered = elements.filter(e => (grouped[e.key] || []).length > 0).length;
+    const pct = Math.round(100 * covered / elements.length);
+    summary = `<div class="sh-summary"><div class="sh-ring" style="background:conic-gradient(#1F7A6A 0 ${pct}%, #E5E0D4 0)"><i>${covered}/${elements.length}</i></div>
+      <div><b>غطّيت ${covered} من ${elements.length} معيارًا</b><small>${shawahidCountText(myRecords.length)}</small></div></div>`;
+  }
+
+  body.innerHTML = summary + allElements.map((el, idx) => {
     const { name, weight } = splitLabel(el.label);
     const recs = grouped[el.key] || [];
     const count = recs.length;
@@ -297,15 +327,16 @@ function renderShawahidGroups(records, autoOpen){
       <div class="criterion-group ${autoOpen && count > 0 ? 'open' : ''}" id="grp-${idx}">
         <div class="criterion-head" onclick="toggleGroup('grp-${idx}')">
           <div class="left">
-            <span class="dot"></span>
             <span class="name">${escapeHtml(name)}</span>
             ${el.active ? '' : '<span style="font-size:10px;color:var(--muted);margin-right:4px;">(غير مفعَّل حاليًا)</span>'}
-            <span class="weight">${weight}</span>
           </div>
           <div class="left">
+            <span class="weight">${escapeHtml(weight)}</span>
             <span class="count ${count === 0 ? 'zero' : ''}">${count}</span>
             <span class="chevron">▾</span>
           </div>
+          <div class="sh-bar"><i style="width:${Math.round(100 * count / maxCount)}%"></i></div>
+          ${count === 0 && el.active ? `<button type="button" class="sh-add-first" onclick="event.stopPropagation();addShahidForElement('${escapeHtml(el.key)}')">+ أضف أول شاهد</button>` : ''}
         </div>
         <div class="criterion-body">
           ${el.active ? `<div class="criterion-actions">
@@ -316,6 +347,10 @@ function renderShawahidGroups(records, autoOpen){
         </div>
       </div>`;
   }).join('');
+}
+
+function shawahidCountText(n){
+  return n === 0 ? 'لا شواهد بعد' : n === 1 ? 'شاهد واحد' : n === 2 ? 'شاهدان' : n <= 10 ? n + ' شواهد' : n + ' شاهدًا';
 }
 
 function toggleGroup(id){
