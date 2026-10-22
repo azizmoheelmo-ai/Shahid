@@ -896,6 +896,7 @@ async function saveProfile(){
 
     currentUser = data.user;
     document.getElementById('whoName').textContent = full_name || currentUser.email;
+    updateAcctInitial();
     msg.style.color = '#215C34';
     msg.textContent = 'تم الحفظ ✓';
     setTimeout(() => {
@@ -984,6 +985,7 @@ async function showClassroomManagement(){
   document.getElementById('classroomView').style.display = 'block';
   document.getElementById('crmSemesterSelect').value = localStorage.getItem('crm_semester_part') || 'الفصل الأول';
   document.getElementById('crmYearInput').value = localStorage.getItem('crm_year_part') || '1448-1449';
+  updateCrmTermChip();
   pruneLessonDrafts();
   if(typeof pruneParticipationStates === 'function') pruneParticipationStates();
   resetCrmLessonSheet();
@@ -1014,9 +1016,25 @@ function saveCrmSemester(){
   localStorage.setItem('crm_year_part', document.getElementById('crmYearInput').value);
 }
 
+/* شارة "السنة · الفصل" أعلى إدارة الصف — الاختيار نفسه مطوي تحتها */
+function updateCrmTermChip(){
+  const el = document.getElementById('crmTermChipText');
+  if(el) el.textContent = document.getElementById('crmYearInput').value + ' · ' + document.getElementById('crmSemesterSelect').value;
+}
+
+function toggleCrmTermRow(){
+  const row = document.getElementById('crmTermRow');
+  if(!row) return;
+  const open = row.style.display === 'none';
+  row.style.display = open ? 'block' : 'none';
+  const chip = document.getElementById('crmTermChip');
+  if(chip) chip.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
 /* تغيير الفصل الدراسي يغيّر الجدول المعروض (لكل فصل جدوله) */
 function onCrmSemesterChange(){
   saveCrmSemester();
+  updateCrmTermChip();
   renderCrmTimetableEditor();
   if(document.getElementById('crmTabToday').style.display !== 'none') renderCrmToday();
   if(document.getElementById('crmTabGrades').style.display !== 'none') renderCrmGrades();
@@ -1024,6 +1042,7 @@ function onCrmSemesterChange(){
 
 async function onCrmYearChange(){
   saveCrmSemester();
+  updateCrmTermChip();
   document.getElementById('crmIncidentStudentId').value = '';
   document.getElementById('crmIncidentStudentSearch').value = '';
   document.getElementById('crmOccurrencePreview').style.display = 'none';

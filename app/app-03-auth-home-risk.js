@@ -356,6 +356,7 @@ async function onLoggedIn(user){
   endBoot();
   const meta = user.user_metadata || {};
   document.getElementById('whoName').textContent = meta.full_name || user.email;
+  updateAcctInitial();
   checkAdminStatus();
   renderVerifyBanner();
   applyStaffRoleVisibility();
@@ -474,6 +475,84 @@ async function checkAdminStatus(){
      واحد لتنبيهات الطلاب بدل تكرارها هنا وفي مركز التنبيهات */
   refreshAttention();
   if(riskCenterOn()){ buildPerformanceRisks(); buildDataRisks(); }
+}
+
+/* ============ الشريط العلوي: عنوان الصفحة + قائمة الحساب ============
+   العنوان يُقرأ من الشاشة الظاهرة (لافتتها .band-title مخفية بالتنسيق، أو اسم
+   ثابت للشاشات بلا لافتة) — مراقبة ظهور الشاشات بدل تعديل كل دالة showX. */
+const TOP_TITLE_VIEWS = ['homeView', 'formView', 'listView', 'adminView', 'planView', 'selfView', 'classroomView',
+  'referralLetterView', 'settingsView', 'riskView', 'academicView', 'acLetterView', 'programsView', 'calendarView', 'tasksView'];
+const TOP_TITLE_FALLBACK = { homeView: 'الرئيسية', listView: 'الشواهد', formView: 'توثيق شاهد', programsView: 'أعمالي', tasksView: 'أعمالي' };
+
+function topTitleFor(view, id){
+  if(!view) return 'الرئيسية';
+  const h = view.querySelector && view.querySelector('.band-title h1');
+  if(h && h.textContent.trim()) return h.textContent.trim();
+  if(TOP_TITLE_FALLBACK[id]) return TOP_TITLE_FALLBACK[id];
+  const b = view.querySelector && view.querySelector('.band h1');
+  return b && b.textContent.trim() ? b.textContent.trim() : 'إدارة الأداء الوظيفي';
+}
+
+function syncTopTitle(){
+  const el = document.getElementById('topTitle');
+  if(!el) return;
+  const id = TOP_TITLE_VIEWS.find(x => { const v = document.getElementById(x); return v && v.style.display !== 'none'; });
+  el.textContent = topTitleFor(id ? document.getElementById(id) : null, id);
+}
+
+(function watchTopTitle(){
+  if(typeof MutationObserver !== 'function') return;
+  const mo = new MutationObserver(syncTopTitle);
+  TOP_TITLE_VIEWS.forEach(id => { const v = document.getElementById(id); if(v) mo.observe(v, { attributes: true, attributeFilter: ['style'] }); });
+  syncTopTitle();
+})();
+
+/* أول حرف من الاسم في دائرة الحساب */
+function updateAcctInitial(){
+  const name = (document.getElementById('whoName') || {}).textContent || '';
+  const el = document.getElementById('acctInitial');
+  if(el) el.textContent = (name.trim().replace(/^(ال)/, '').charAt(0) || '؟');
+}
+
+/* نقطة على دائرة الحساب إن كان في القائمة شارة ظاهرة (رسائل الدعم للمسؤول) */
+function syncAcctDot(){
+  const dot = document.getElementById('acctDot');
+  if(!dot) return;
+  const any = ['supportMsgNavBadge', 'riskNavBadge'].some(id => {
+    const b = document.getElementById(id);
+    const btn = b && b.closest ? b.closest('button') : null;
+    return b && b.style.display !== 'none' && (!btn || btn.style.display !== 'none');
+  });
+  dot.style.display = any ? 'block' : 'none';
+}
+
+function toggleAcctMenu(e){
+  if(e && e.stopPropagation) e.stopPropagation();
+  const m = document.getElementById('acctMenu');
+  if(!m) return;
+  const open = m.style.display === 'none';
+  m.style.display = open ? 'block' : 'none';
+  const b = document.getElementById('acctBtn');
+  if(b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeAcctMenu(){
+  const m = document.getElementById('acctMenu');
+  if(m) m.style.display = 'none';
+  const b = document.getElementById('acctBtn');
+  if(b) b.setAttribute('aria-expanded', 'false');
+}
+
+if(typeof document.addEventListener === 'function'){
+  document.addEventListener('click', e => {
+    const m = document.getElementById('acctMenu');
+    if(m && m.style.display !== 'none' && !(e.target && e.target.closest && e.target.closest('.tb-acct'))) closeAcctMenu();
+  });
+}
+
+/* الخروج آخر القائمة وبتأكيد — لا يُخرج بضغطة خاطئة */
+async function confirmLogout(){
+  if(await showConfirm('تسجيل الخروج من حسابك؟')) handleLogout();
 }
 
 async function handleLogout(){

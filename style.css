@@ -82,6 +82,23 @@
   .topbar button.ghost{border-color:var(--line);color:var(--muted);}
   .topbar button.ghost:hover{background:#F1EEE6;color:var(--ink);}
 
+  /* الشريط العلوي المضغوط: عنوان الصفحة + دائرة الحساب (القائمة تحتها) */
+  .topbar{padding:8px 14px;gap:10px;}
+  .tb-title{font-size:17px;font-weight:800;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+  .tb-acct{position:relative;flex:none;}
+  .topbar .tb-avatar{width:38px;height:38px;border-radius:50%;padding:0;border:none;background:var(--navy);color:#fff;font-size:16px;font-weight:900;display:flex;align-items:center;justify-content:center;position:relative;}
+  .topbar .tb-avatar:hover{background:var(--navy-deep);}
+  .tb-dot{position:absolute;top:0;left:0;width:11px;height:11px;border-radius:50%;background:#C0392B;border:2px solid #fff;}
+  .acct-menu{position:absolute;left:0;top:46px;z-index:9500;min-width:230px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 28px rgba(16,30,44,.18);padding:6px;}
+  .acct-menu .who{font-size:12px;padding:8px 10px 10px;border-bottom:1px solid #F0EBE0;margin-bottom:4px;}
+  .topbar .acct-menu button{display:flex;align-items:center;gap:8px;width:100%;border:none;background:none;color:var(--navy);font-size:13.5px;font-weight:700;padding:10px;border-radius:10px;text-align:right;}
+  .topbar .acct-menu button:hover{background:#F3F0E8;color:var(--navy);}
+  .topbar .acct-menu .acct-logout{color:#8A2C2C;border-top:1px solid #F0EBE0;border-radius:0 0 10px 10px;margin-top:4px;}
+  .topbar .acct-menu .acct-logout:hover{background:#FBEDED;color:#8A2C2C;}
+  .acct-badge{margin-right:auto;background:#C0392B;color:#fff;border-radius:10px;min-width:18px;height:18px;padding:0 5px;font-size:10px;font-weight:800;align-items:center;justify-content:center;}
+  /* لافتة العنوان صارت في الشريط العلوي (اللافتات المطبوعة كالخطابات والشاهد باقية) */
+  .band.band-title{display:none;}
+
   /* ===== الصفحة الرئيسية ===== */
   .home-profile{padding:20px 32px 6px;}
   .hp-row{
@@ -1229,7 +1246,6 @@
     .meta{grid-template-columns:1fr 1fr;}
     .impact{grid-template-columns:1fr;}
     .sign{grid-template-columns:1fr;}
-    .topbar{flex-direction:column;gap:8px;align-items:stretch;}
   }
 
   /* ===== التقويم الدراسي ===== */
@@ -1349,10 +1365,17 @@
 .crm-private-note{background:#FAF9F6;border:1px dashed var(--line);padding:8px 10px;margin-bottom:8px;font-size:12px;line-height:1.7;}
 /* تبويبات إدارة الصف: شبكة تنقسم صفّين تلقائيًا عند ضيق الشاشة أو تكبير خط
    الجوال، بدل صف واحد يخرج عن حافة الشاشة ويُزيح الصفحة كلها جانبيًا */
-#crmTabsBar{display:grid;grid-template-columns:repeat(auto-fit, minmax(58px, 1fr));gap:4px;padding:0 32px;margin-bottom:14px;}
+/* تبويبات إدارة الصف: مفتاح مستدير بنفس شكل "بعدها/المنجزة"، ثابت أعلى الشاشة عند التمرير
+   (تحت شريط "نسخة تجريبية" الثابت) */
+#crmTabsBar{display:flex;gap:3px;padding:3px;margin:0 32px 14px;background:#F3F0E8;border-radius:13px;position:sticky;top:34px;z-index:60;box-shadow:0 2px 6px rgba(0,0,0,.04);}
+#crmTabsBar .crm-tab-btn{flex:1;border:none;background:transparent;color:#6B6457;border-radius:10px;min-height:38px;box-shadow:none;font-weight:800;}
+#crmTabsBar .crm-tab-btn.btn-primary{background:var(--navy);color:#fff;box-shadow:0 2px 6px rgba(27,50,69,.25);}
+.crm-term-wrap{padding:12px 32px 8px;}
+.crm-term-chip{border:none;background:#EAF0F5;color:var(--navy);border-radius:11px;padding:5px 12px;font-family:inherit;font-size:12.5px;font-weight:800;cursor:pointer;}
 .crm-tab-btn{min-width:0;padding-left:4px;padding-right:4px;font-size:12.5px;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 @media (max-width:640px){
-  #crmTabsBar{padding:0 16px;}
+  #crmTabsBar{margin:0 12px 12px;}
+  .crm-term-wrap{padding:10px 12px 6px;}
   .crm-tab-btn{font-size:12px;}
 }
 .crm-attention-card{border:1px solid var(--line);border-right-width:4px;padding:8px 10px;margin-bottom:8px;background:#fff;}
