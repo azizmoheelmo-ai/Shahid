@@ -300,7 +300,7 @@ function pickTodayFocus(rows, nowMin, learned, pick){
 }
 
 /* مربّعات الأدوات في البطاقة الكبيرة: 4 على الأكثر (الرابع "المزيد" إن زادت).
-   الذهبي = من أين يبدأ: الحضور ما لم يُرصد، ثم الأداة التي تليه. */
+   الحضور ذهبي "ابدأ هنا" ما لم يُرصد، وبعده ✓ فقط — بلا توجيه لأداة "تالية" (بطلب صاحب التطبيق). */
 const TODAY_TILE_LABELS = { attendance: 'الحضور', participation: 'المشاركة', homework: 'الواجب', task: 'المهام', test: 'الاختبار' };
 const TODAY_TILE_ICONS = { attendance: '👥', participation: '👆', homework: '📝', task: '🎯', test: '🧪' };
 const TODAY_TOOL_ICONS = { counter: '🔢', status: '✅', score: '💯' };
@@ -311,11 +311,7 @@ function todayToolTiles(modes, recorded){
   if(modes.length > 4) tiles.push({ mode: modes[3], more: true, gold: false, done: false, sub: '', rest: modes.slice(3) });
   const att = tiles.find(t => t.mode === 'attendance' && !t.more);
   if(att && !recorded){ att.gold = true; att.sub = 'ابدأ هنا'; }
-  else {
-    if(att){ att.done = true; att.sub = 'رُصد'; }
-    const next = tiles.find(t => t.mode !== 'attendance' && !t.more);
-    if(next && att){ next.gold = true; next.sub = 'التالي'; }
-  }
+  else if(att) att.done = true;
   return tiles;
 }
 

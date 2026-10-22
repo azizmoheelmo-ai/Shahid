@@ -216,4 +216,5 @@ async function refreshSupportMessagesBadge(){
       badge.style.display = 'none';
     }
   } catch(e){ badge.style.display = 'none'; }
+  if(typeof syncAcctDot === 'function') syncAcctDot();
 }

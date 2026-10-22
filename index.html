@@ -240,20 +240,27 @@
     <div id="verifyMsg" style="font-size:11.5px;margin-top:6px;"></div>
   </div>
 
+  <!-- شريط علوي واحد: عنوان الصفحة + قائمة الحساب (الترحيب والأزرار والخروج داخلها) -->
   <div class="topbar">
-    <div class="who">مرحبًا، <b id="whoName">—</b></div>
-    <div class="actions" style="display:flex;gap:8px;align-items:center;">
-      <button class="ghost" id="adminNavBtn" style="display:none;position:relative;" onclick="showAdminPanel()">
-        لوحة التحكم
-        <span id="supportMsgNavBadge" style="display:none;position:absolute;top:-4px;left:-4px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
+    <div class="tb-title" id="topTitle">الرئيسية</div>
+    <div class="tb-acct">
+      <button type="button" class="tb-avatar" id="acctBtn" onclick="toggleAcctMenu(event)" aria-label="قائمة الحساب" aria-haspopup="true" aria-expanded="false">
+        <span id="acctInitial">؟</span><span class="tb-dot" id="acctDot" style="display:none;"></span>
       </button>
-      <button class="ghost" id="riskNavBtn" onclick="showRiskCenter()" title="التنبيهات" style="position:relative;width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">
-        🔔
-        <span id="riskNavBadge" style="display:none;position:absolute;top:-4px;left:-4px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;">0</span>
-      </button>
-      <button class="ghost" onclick="showSupportModal()" title="تواصل معنا" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">💬</button>
-      <button class="ghost" onclick="showSettings()" title="الإعدادات" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">⚙</button>
-      <button onclick="handleLogout()" title="تسجيل خروج" style="width:44px;height:44px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;">🚪</button>
+      <div class="acct-menu" id="acctMenu" style="display:none;" role="menu">
+        <div class="who">مرحبًا، <b id="whoName">—</b></div>
+        <button type="button" class="ghost" id="adminNavBtn" style="display:none;" onclick="closeAcctMenu();showAdminPanel()">
+          📊 لوحة التحكم
+          <span id="supportMsgNavBadge" class="acct-badge" style="display:none;">0</span>
+        </button>
+        <button type="button" class="ghost" id="riskNavBtn" onclick="closeAcctMenu();showRiskCenter()">
+          🔔 التنبيهات
+          <span id="riskNavBadge" class="acct-badge" style="display:none;">0</span>
+        </button>
+        <button type="button" class="ghost" onclick="closeAcctMenu();showSupportModal()">💬 تواصل معنا</button>
+        <button type="button" class="ghost" onclick="closeAcctMenu();showSettings()">⚙ الإعدادات</button>
+        <button type="button" class="acct-logout" onclick="closeAcctMenu();confirmLogout()">🚪 تسجيل الخروج</button>
+      </div>
     </div>
   </div>
 
@@ -325,7 +332,7 @@
   <!-- ---------- مركز التنبيهات ---------- -->
   <div id="riskView" style="display:none;">
     <div class="sheet">
-      <div class="band"><h1>مركز التنبيهات</h1></div>
+      <div class="band band-title"><h1>مركز التنبيهات</h1></div>
 
       <div class="section">
         <p style="margin:0;font-size:12.5px;line-height:1.85;color:#413D33;">
@@ -349,16 +356,13 @@
         <div id="riskDataBody" style="display:none;margin-top:10px;"><div class="loading-state">جارٍ الفحص...</div></div>
       </div>
 
-      <div style="margin-top:14px;padding:0 32px 24px;">
-        <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
-      </div>
     </div>
   </div>
 
   <!-- ---------- المتابعة الأكاديمية ---------- -->
   <div id="academicView" style="display:none;">
     <div class="sheet">
-      <div class="band"><h1>المتابعة الأكاديمية</h1></div>
+      <div class="band band-title"><h1>المتابعة الأكاديمية</h1></div>
 
       <div class="section" style="padding-top:14px;padding-bottom:12px;">
         <div style="display:flex;align-items:center;gap:6px;">
@@ -376,9 +380,6 @@
 
       <div id="acPendingBanner" style="display:none;background:#FBEAEA;border:1px solid #E0B4B4;color:#8A2C2C;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 10px;text-align:center;cursor:pointer;" onclick="jumpToAcFilter('pending')">
         ⚠ <span id="acPendingCount">0</span> حالة أُحيلت ولم يُصدَر لها خطاب — اضغط لعرضها
-      </div>
-      <div id="acUndocumentedBanner" style="display:none;background:#FFF7E6;border:1px solid #E8D19A;color:#8A6D1F;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 14px;text-align:center;cursor:pointer;" onclick="jumpToAcFilter('undocumented')">
-        📷 <span id="acUndocumentedCount">0</span> خطاب صادر بدون توثيق تسليم — اضغط لعرضه
       </div>
 
       <!-- ============ تبويب: تسجيل حالة ============ -->
@@ -420,15 +421,11 @@
         <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
           <button class="btn btn-primary" id="acFilterBtn_all" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('all')">الكل</button>
           <button class="btn btn-outline" id="acFilterBtn_pending" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('pending')">⚠ بانتظار الخطاب</button>
-          <button class="btn btn-outline" id="acFilterBtn_undocumented" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('undocumented')">📷 غير موثّق</button>
         </div>
         <input class="goal-input" id="acCasesSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderAcCases()">
         <div id="acCasesList"></div>
       </div>
 
-      <div style="margin-top:14px;padding:0 32px 24px;">
-        <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
-      </div>
     </div>
   </div>
 
@@ -490,7 +487,7 @@
   <!-- ---------- الإعدادات ---------- -->
   <div id="settingsView" style="display:none;">
     <div class="sheet">
-      <div class="band"><h1>الإعدادات</h1></div>
+      <div class="band band-title"><h1>الإعدادات</h1></div>
 
       <div id="settingsMenu" class="section">
         <div class="home-actions">
@@ -647,9 +644,6 @@
         </p>
       </div>
 
-      <div style="margin-top:14px;padding:0 32px 24px;">
-        <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
-      </div>
     </div>
   </div>
 
@@ -657,10 +651,11 @@
   <!-- ---------- إدارة الصف (وضع تجربة — للمسؤول) ---------- -->
   <div id="classroomView" style="display:none;">
     <div class="sheet">
-      <div class="band"><h1>إدارة الصف</h1></div>
+      <div class="band band-title"><h1>إدارة الصف</h1></div>
 
-      <!-- شريط مضغوط: السنة والفصل الدراسي -->
-      <div class="section" style="padding-top:14px;padding-bottom:12px;">
+      <!-- السنة والفصل: شارة صغيرة تفتح الاختيار (يتغيّران مرتين في السنة) -->
+      <div class="crm-term-wrap"><button type="button" class="crm-term-chip" id="crmTermChip" onclick="toggleCrmTermRow()" aria-expanded="false">📅 <span id="crmTermChipText">—</span> ▾</button></div>
+      <div class="section" id="crmTermRow" style="display:none;padding-top:4px;padding-bottom:12px;">
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:6px;">
             <label style="font-size:12px;font-weight:700;color:var(--navy);white-space:nowrap;">السنة:</label>
@@ -730,46 +725,39 @@
 
       <!-- ============ تبويب: تسجيل ============ -->
       <div id="crmTabRecord" style="display:none;">
-        <div id="crmPendingReferralBanner" style="display:none;background:#FBEAEA;border:1px solid #E0B4B4;color:#8A2C2C;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 10px;text-align:center;cursor:pointer;" onclick="jumpToCrmFilter('pending')">
-          ⚠ <span id="crmPendingReferralCount">0</span> حالة بانتظار تأكيد التحويل — اضغط لعرضها
-        </div>
-        <div id="crmUndocumentedBanner" style="display:none;background:#FFF7E6;border:1px solid #E8D19A;color:#8A6D1F;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 14px;text-align:center;cursor:pointer;" onclick="jumpToCrmFilter('undocumented')">
-          📷 <span id="crmUndocumentedCount">0</span> خطاب صادر بدون توثيق تسليم — اضغط لعرضه
-        </div>
-        <div class="section">
-          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCrmGroup('crmRegisterBody')">
-            <h2 style="margin:0;">تسجيل حادثة سلوكية</h2>
-            <span id="crmRegisterBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
+        <!-- ملخص يعمل كفلتر للقائمة (بدل الشريط الوردي والزر والشرائح القديمة) -->
+        <div class="crm-inc-top">
+          <div class="crm-inc-stats">
+            <button type="button" class="crm-inc-stat is-on" id="crmFilterBtn_all" onclick="setCrmIncidentFilter('all')"><b id="crmIncAllCount">—</b><span>الكل</span></button>
+            <button type="button" class="crm-inc-stat" id="crmFilterBtn_week" onclick="setCrmIncidentFilter('week')"><b id="crmIncWeekCount">—</b><span>هذا الأسبوع</span></button>
+            <button type="button" class="crm-inc-stat" id="crmFilterBtn_pending" onclick="setCrmIncidentFilter('pending')"><b id="crmPendingReferralCount">0</b><span>بانتظار التحويل</span></button>
           </div>
-          <div id="crmRegisterBody" style="display:none;margin-top:10px;">
-            <div style="position:relative;margin-bottom:8px;">
-              <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
-              <input type="hidden" id="crmIncidentStudentId">
-              <div id="crmIncidentStudentResults" style="display:none;position:absolute;z-index:5;background:#fff;border:1px solid var(--line);width:100%;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
-            </div>
-            <select class="goal-input" id="crmIncidentType" style="margin-bottom:8px;" onchange="refreshOccurrencePreview()"><option value="">اختر نوع المخالفة</option></select>
-            <div id="crmOccurrencePreview" style="display:none;"></div>
-            <textarea class="goal-input" id="crmIncidentNotes" maxlength="2000" placeholder="ملاحظة (اختياري)" rows="2" style="margin:10px 0;"></textarea>
-            <button class="btn btn-primary" onclick="saveClassroomIncident()">حفظ الحادثة</button>
-          </div>
+          <button type="button" class="crm-inc-add" onclick="openCrmIncidentSheet()">+ تسجيل مخالفة</button>
         </div>
 
-        <div class="section" id="crmIncidentsListSection">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-            <div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleCrmGroup('crmIncidentsListBody')">
-              <h2 style="margin:0;">آخر الحوادث المسجّلة</h2>
-              <span id="crmIncidentsListBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
+        <div class="section" id="crmIncidentsListSection" style="padding-top:4px;">
+          <input class="goal-input" id="crmIncidentsSearch" placeholder="🔍 ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderCrmRecentIncidents()">
+          <div id="crmRecentIncidents"></div>
+        </div>
+
+        <!-- تسجيل مخالفة: لوحة سفلية بثلاث خطوات -->
+        <div id="crmIncidentSheet" class="crm-bsheet-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="crmIncidentSheetTitle" onclick="if(event.target===this)closeCrmIncidentSheet()">
+          <div class="crm-bsheet">
+            <div class="crm-bsheet-grab"></div>
+            <div class="crm-bsheet-head"><b id="crmIncidentSheetTitle">تسجيل مخالفة</b><button type="button" class="crm-bsheet-x" aria-label="إغلاق" onclick="closeCrmIncidentSheet()">✕</button></div>
+            <div class="crm-bsheet-step">١ · الطالب</div>
+            <div style="position:relative;margin-bottom:6px;">
+              <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
+              <input type="hidden" id="crmIncidentStudentId">
+              <div id="crmIncidentStudentResults" style="display:none;position:absolute;z-index:5;background:#fff;border:1px solid var(--line);border-radius:10px;width:100%;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
             </div>
-            <button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" onclick="showCrmTransfersStatusModal('incident')">حالة التحويلات</button>
-          </div>
-          <div id="crmIncidentsListBody" style="display:none;">
-            <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
-              <button class="btn btn-primary" id="crmFilterBtn_all" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('all')">الكل</button>
-              <button class="btn btn-outline" id="crmFilterBtn_pending" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('pending')">⚠ بانتظار التحويل</button>
-              <button class="btn btn-outline" id="crmFilterBtn_undocumented" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('undocumented')">📷 غير موثّق</button>
-            </div>
-            <input class="goal-input" id="crmIncidentsSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderCrmRecentIncidents()">
-            <div id="crmRecentIncidents"></div>
+            <div class="crm-bsheet-step">٢ · المخالفة <span id="crmIncidentTypeHint"></span></div>
+            <div id="crmIncidentTypeChips" class="crm-type-chips"></div>
+            <select class="goal-input" id="crmIncidentType" style="margin:6px 0 0;display:none;" onchange="onCrmIncidentTypeSelect()"><option value="">اختر نوع المخالفة</option></select>
+            <div id="crmOccurrencePreview" style="display:none;margin-top:8px;"></div>
+            <div class="crm-bsheet-step">٣ · ملاحظة <span>(اختياري)</span></div>
+            <textarea class="goal-input" id="crmIncidentNotes" maxlength="2000" placeholder="اكتب ملاحظة…" rows="2" style="margin:0 0 10px;"></textarea>
+            <button class="btn btn-primary crm-bsheet-save" id="crmIncidentSaveBtn" onclick="saveClassroomIncident()">حفظ</button>
           </div>
         </div>
       </div>
@@ -841,9 +829,6 @@
         </div>
       </div>
 
-      <div style="margin-top:14px;padding:0 32px 24px;">
-        <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
-      </div>
     </div>
   </div>
 
@@ -952,7 +937,7 @@
 
   <div id="planView" style="display:none;">
     <div class="sheet">
-      <div class="band">
+      <div class="band band-title">
         <h1>أدائي</h1>
       </div>
 
@@ -1026,7 +1011,7 @@
 
   <div id="adminView" style="display:none;">
     <div class="sheet">
-      <div class="band"><h1>لوحة تحكم المسؤول</h1></div>
+      <div class="band band-title"><h1>لوحة تحكم المسؤول</h1></div>
 
       <div class="section" style="background:#F7F5F0;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -1272,17 +1257,19 @@
     <div class="list-card">
       <div class="list-header">
         <h2 id="listTitle">الشواهد</h2>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" onclick="startNewShahid()">+ شاهد جديد</button>
-          <button class="btn btn-outline" id="exportAllBtn" onclick="exportAllShawahid()">تصدير الكل PDF</button>
+        <div class="sh-head-actions">
+          <button type="button" class="sh-icon-btn" id="shSearchBtn" aria-label="بحث وفلترة" onclick="toggleFilterPanel()">🔍</button>
+          <div class="sh-more">
+            <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleShawahidMore(event)">⋯</button>
+            <div class="sh-more-menu" id="shMoreMenu" style="display:none;">
+              <button class="btn btn-outline" id="exportAllBtn" onclick="closeShawahidMore();exportAllShawahid()">📄 تصدير الكل PDF</button>
+            </div>
+          </div>
         </div>
       </div>
-      <div style="padding:14px 26px 0;">
-        <div class="filter-toggle" onclick="toggleFilterPanel()">
-          <span id="filterSummary">فلترة وبحث</span>
-          <span class="roster-chevron" id="filterChevron">▾ عرض</span>
-        </div>
-        <div id="filterPanel" style="display:none;margin-top:10px;">
+      <div style="padding:0 26px;">
+        <div id="filterSummary" class="sh-filter-sum" style="display:none;"></div>
+        <div id="filterPanel" style="display:none;margin-top:12px;">
           <input type="text" id="shahidSearch" class="goal-input" placeholder="ابحث بالعنوان، الوصف، الصف، أو الرقم المرجعي..." oninput="debouncedFilterMyShawahid()">
           <div class="stage-filter" style="margin-top:10px;">
             <button class="active" data-stage="" onclick="setStageFilter('', this)">الكل</button>
@@ -1295,6 +1282,8 @@
       <div id="listBody">
         <div class="loading-state">جارِ التحميل...</div>
       </div>
+      <!-- زر ثابت أسفل الشاشة مهما نزلت في القائمة -->
+      <div class="sh-fab-wrap"><button type="button" class="sh-fab" onclick="startNewShahid()">+ شاهد جديد</button></div>
     </div>
   </div>
 
@@ -1302,7 +1291,7 @@
   <div id="programsView" style="display:none;">
 
     <div class="sheet" style="margin-bottom:16px;">
-      <div class="band"><h1>أعمالي</h1></div>
+      <div class="band band-title"><h1>أعمالي</h1></div>
       <div style="display:flex;gap:8px;padding:14px 26px;">
         <button class="btn btn-outline" style="flex:1;" onclick="showTasks()">مهامّي</button>
         <button class="btn btn-primary" id="workSubnavProgramsBtnPrograms" style="flex:1;" onclick="showPrograms()">البرامج</button>
@@ -1314,7 +1303,6 @@
         <h2>البرامج</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="showNewProgramForm()">+ برنامج جديد</button>
-          <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
         </div>
       </div>
       <div id="programsListBody">
@@ -1366,7 +1354,7 @@
   <!-- ---------- التقويم الدراسي ---------- -->
   <div id="calendarView" style="display:none;">
     <div class="sheet">
-      <div class="band"><h1>التقويم الدراسي</h1></div>
+      <div class="band band-title"><h1>التقويم الدراسي</h1></div>
 
       <div id="calRegionMissingNote" style="display:none;margin:16px 32px;padding:12px 14px;font-size:12.5px;background:#FFF7E6;border:1px solid #E8D19A;color:#8A6D1F;">
         حدّد نطاقك الجغرافي أولًا لعرض التقويم الدقيق الخاص بمدرستك.
@@ -1392,9 +1380,6 @@
         <div id="calWeekList"></div>
       </div>
 
-      <div style="margin-top:14px;padding:0 32px 24px;">
-        <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
-      </div>
     </div>
   </div>
 
@@ -1402,7 +1387,7 @@
   <div id="tasksView" style="display:none;">
 
     <div class="sheet" style="margin-bottom:16px;">
-      <div class="band"><h1>أعمالي</h1></div>
+      <div class="band band-title"><h1>أعمالي</h1></div>
       <div style="display:flex;gap:8px;padding:14px 26px;">
         <button class="btn btn-primary" style="flex:1;" onclick="showTasks()">مهامّي</button>
         <button class="btn btn-outline" id="workSubnavProgramsBtnTasks" style="flex:1;" onclick="showPrograms()">البرامج</button>
@@ -1414,7 +1399,6 @@
         <h2>مهامّي</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="showNewTaskForm()">+ مهمة جديدة</button>
-          <button class="btn btn-outline" onclick="showHome()">رجوع للرئيسية</button>
         </div>
       </div>
       <div id="tasksListBody">

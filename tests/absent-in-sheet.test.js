@@ -75,3 +75,16 @@ test('المستطيل يحمل "غائب" (تظهر للغائب فقط بال�
   assert.match(css, /\.is-absent \.crm-absent-badge\{display:inline-block;\}/);
   assert.doesNotMatch(css, /\.is-absent[^{]*\{[^}]*opacity:\s*\.45/, 'لا إبهات للغائب');
 });
+
+test('بطاقة الغائب في المشاركة والأدوات بنفس لون "غائب" في الحضور (لا تقارب لون الحاضر)', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+  const rule = sel => { const m = css.match(new RegExp(sel.replace(/[.-]/g, '\\$&') + '\\{([^}]*)\\}')); return m ? m[1] : ''; };
+  const att = rule('.crm-att-btn.state-absent');
+  const part = rule('.crm-att-btn.is-absent');
+  const bg = r => (r.match(/background:([^;]+)/) || [])[1];
+  const border = r => (r.match(/border-color:([^;]+)/) || [])[1];
+  assert.ok(bg(att));
+  assert.equal(bg(part), bg(att));
+  assert.equal(border(part), border(att));
+});

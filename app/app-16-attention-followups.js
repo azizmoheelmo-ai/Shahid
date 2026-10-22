@@ -122,7 +122,7 @@ function computeAttentionItems(input){
     if(i.current_stage !== 'referred') return;
     if(!i.referral_letter_generated){
       add(i.student_id, { rule: 'referral_no_letter', priority: 'urgent', text: `بلغت الإحالة: ${i.typeName || 'مخالفة'} — لم يُصدَر خطاب التحويل`, action: { kind: 'crm_pending' } });
-    } else if(!i.referral_receipt_photo_url && ageDays(i.created_at) >= ATTENTION_RULES.receiptDays){
+    } else if(RECEIPT_DOCS_ON && !i.referral_receipt_photo_url && ageDays(i.created_at) >= ATTENTION_RULES.receiptDays){
       add(i.student_id, { rule: 'letter_no_receipt', priority: 'important', text: `خطاب تحويل (${i.typeName || 'مخالفة'}) بلا توثيق تسليم`, action: { kind: 'crm_undocumented' } });
     }
   });
@@ -130,7 +130,7 @@ function computeAttentionItems(input){
     if(c.status !== 'referred') return;
     if(!c.referral_letter_generated){
       add(c.student_id, { rule: 'academic_no_letter', priority: 'urgent', text: `إحالة أكاديمية (${c.subject || ''}) بلا خطاب`, action: { kind: 'ac_pending' } });
-    } else if(!c.referral_receipt_photo_url && ageDays(c.created_at) >= ATTENTION_RULES.receiptDays){
+    } else if(RECEIPT_DOCS_ON && !c.referral_receipt_photo_url && ageDays(c.created_at) >= ATTENTION_RULES.receiptDays){
       add(c.student_id, { rule: 'academic_no_receipt', priority: 'important', text: `خطاب إحالة أكاديمية بلا توثيق تسليم`, action: { kind: 'ac_undocumented' } });
     }
   });

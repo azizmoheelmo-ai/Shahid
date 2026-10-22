@@ -131,11 +131,9 @@ test('computeAttentionItems — الخطابات والمتابعات وتجمي
     assert.equal(app.computeAttentionItems(baseInput({ students, incidents })).length, 0);
   });
 
-  await t.test('خطاب بلا توثيق: لا شيء قبل 3 أيام، "مهم" بعدها', () => {
-    const fresh = [{ student_id: 'st2', current_stage: 'referred', referral_letter_generated: true, referral_receipt_photo_url: null, created_at: new Date(NOW - 1 * 86400000).toISOString() }];
+  await t.test('خطاب بلا صورة تسليم: لا بطاقة (توثيق التسليم أُلغي — RECEIPT_DOCS_ON)', () => {
     const old = [{ student_id: 'st2', current_stage: 'referred', referral_letter_generated: true, referral_receipt_photo_url: null, created_at: new Date(NOW - 4 * 86400000).toISOString() }];
-    assert.equal(app.computeAttentionItems(baseInput({ students, incidents: fresh })).length, 0);
-    assert.equal(app.computeAttentionItems(baseInput({ students, incidents: old }))[0].priority, 'important');
+    assert.equal(app.computeAttentionItems(baseInput({ students, incidents: old })).length, 0);
   });
 
   await t.test('متابعة حان موعدها = مهم، ومتأخرة أكثر من 7 أيام = عاجل', () => {

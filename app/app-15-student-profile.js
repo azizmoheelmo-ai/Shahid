@@ -257,7 +257,7 @@ async function renderCrmStudentProfile(){
     }
     const i = item.ref;
     const letter = i.current_stage === 'referred'
-      ? (i.referral_letter_generated ? (i.referral_receipt_photo_url ? ' · خطاب ✓ موثّق' : ' · خطاب ✓ غير موثّق') : ' · بلا خطاب بعد')
+      ? (i.referral_letter_generated ? ' · خطاب ✓' : ' · بلا خطاب بعد')
       : '';
     return `<div class="crm-tl-row"><span>${escapeHtml(i.typeName)}${i.notes ? ' — ' + escapeHtml(i.notes) : ''}</span>
       <span class="crm-tl-meta">${i.incident_date} · ${stageLabel[i.current_stage] || ''}${letter}</span></div>`;

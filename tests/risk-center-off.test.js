@@ -12,7 +12,7 @@ const { loadApp, runInAppContext } = require('./load-app');
 
 test('الجرس مخفي عند التحميل، والزر له معرّف', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  assert.match(html, /<button class="ghost" id="riskNavBtn" onclick="showRiskCenter\(\)"/);
+  assert.match(html, /<button type="button" class="ghost" id="riskNavBtn" onclick="closeAcctMenu\(\);showRiskCenter\(\)"/);
   const app = loadApp();
   assert.equal(app.riskCenterOn(), false);
   assert.equal(runInAppContext(app, `document.getElementById('riskNavBtn').style.display`), 'none');
