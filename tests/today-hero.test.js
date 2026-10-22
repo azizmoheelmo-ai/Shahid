@@ -114,7 +114,7 @@ test('todayToolTiles — 4 مربّعات على الأكثر، والذهبي �
   const t1 = app.todayToolTiles(['attendance', 'participation', 'homework'], false);
   assert.deepEqual(t1.map(t => [t.mode, t.gold, t.done]), [['attendance', true, false], ['participation', false, false], ['homework', false, false]]);
   const t2 = app.todayToolTiles(['attendance', 'participation', 'homework'], true);
-  assert.deepEqual(t2.map(t => [t.gold, t.done]), [[false, true], [true, false], [false, false]]);
+  assert.deepEqual(t2.map(t => [t.gold, t.done, t.sub]), [[false, true, ''], [false, false, ''], [false, false, '']], 'بعد الحضور: ✓ فقط، بلا "التالي"');
   const t3 = app.todayToolTiles(['attendance', 'participation', 'homework', 'task', 'tool:x'], false);
   assert.equal(t3.length, 4);
   assert.equal(t3[3].more, true);

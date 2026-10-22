@@ -1298,7 +1298,9 @@
 .crm-att-btn.state-permitted_exit{background:#EDF1F7;border-color:#9DB0CC;}
 .crm-att-btn.state-permitted_exit .crm-att-state{color:#2C4A72;}
 /* وضعا المشاركة والواجب في ورقة الحصة */
-.crm-att-btn.is-absent{background:#FFFCF7;}
+/* الغائب بنفس لون "غائب" في الحضور — يُميَّز بنظرة */
+.crm-att-btn.is-absent{background:#FBEAEA;border-color:#C98B8B;}
+.crm-att-btn.is-absent .crm-absent-badge{background:#fff;}
 .crm-part-val{font-size:12px;font-weight:800;color:var(--navy);}
 .crm-part-val .crm-grade-max{display:inline;}
 .crm-part-today{display:inline-block;margin-right:6px;background:#E3F1E7;color:#215C34;padding:0 6px;font-size:11px;}
