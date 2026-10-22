@@ -126,7 +126,7 @@ function computeAttentionItems(input){
       add(i.student_id, { rule: 'letter_no_receipt', priority: 'important', text: `خطاب تحويل (${i.typeName || 'مخالفة'}) بلا توثيق تسليم`, action: { kind: 'crm_undocumented' } });
     }
   });
-  (academicCases || []).forEach(c => {
+  (ACADEMIC_ON ? academicCases || [] : []).forEach(c => {
     if(c.status !== 'referred') return;
     if(!c.referral_letter_generated){
       add(c.student_id, { rule: 'academic_no_letter', priority: 'urgent', text: `إحالة أكاديمية (${c.subject || ''}) بلا خطاب`, action: { kind: 'ac_pending' } });
@@ -486,7 +486,7 @@ async function loadAttentionData(){
     () => sb.from('classroom_sections').select('id').eq('teacher_id', uid),
     () => sb.from('classroom_lessons').select('id, section_id, lesson_date, period').eq('teacher_id', uid).gte('lesson_date', since),
     () => sb.from('classroom_incidents').select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', uid).eq('current_stage', 'referred'),
-    () => sb.from('academic_cases').select('id, student_id, subject, status, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', uid).eq('status', 'referred'),
+    () => ACADEMIC_ON ? sb.from('academic_cases').select('id, student_id, subject, status, referral_letter_generated, referral_receipt_photo_url, created_at').eq('teacher_id', uid).eq('status', 'referred') : Promise.resolve({ data: [], error: null }),
     () => sb.from('classroom_followups').select('id, student_id, section_id, reason_type, reason_text, review_date, status, baseline, created_at').eq('teacher_id', uid).eq('status', 'open'),
     () => sb.from('classroom_attention_dismissals').select('rule_key, subject_key, dismissed_at').eq('teacher_id', uid),
     () => sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, status, outcome, closed_at, shahid_id')
@@ -832,7 +832,7 @@ async function renderCrmFollowups(){
     </div>`).join('');
   html += '</div>';
 
-  html += `<div style="margin-top:6px;"><a href="#" style="font-size:12px;" onclick="event.preventDefault();showAcademicTracking()">الإحالات الأكاديمية (الشاشة السابقة) ←</a></div>`;
+  if(ACADEMIC_ON) html += `<div style="margin-top:6px;"><a href="#" style="font-size:12px;" onclick="event.preventDefault();showAcademicTracking()">الإحالات الأكاديمية (الشاشة السابقة) ←</a></div>`;
   box.innerHTML = html;
 }
 
