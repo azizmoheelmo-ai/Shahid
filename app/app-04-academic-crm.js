@@ -154,9 +154,12 @@ function jumpToAcFilter(mode){
    الزر، ودالة إعادة العرض. */
 function setListFilter(cfg, mode){
   cfg.setValue(mode);
-  ['all', 'pending', 'undocumented'].forEach(m => {
+  ['all', 'week', 'pending', 'undocumented'].forEach(m => {
     const btn = document.getElementById(cfg.btnPrefix + m);
-    if(btn) btn.className = (m === mode) ? 'btn btn-primary' : 'btn btn-outline';
+    if(!btn) return;
+    /* مربعات ملخص المخالفات تتبدّل بعلامة، لا بلون زر */
+    if(btn.classList && btn.classList.contains('crm-inc-stat')) btn.classList.toggle('is-on', m === mode);
+    else btn.className = (m === mode) ? 'btn btn-primary' : 'btn btn-outline';
   });
   cfg.render();
 }
@@ -285,7 +288,9 @@ async function getTransferCounts(cfg){
 async function refreshTransferBadges(cfg){
   const counts = await getTransferCounts(cfg);
   if(!counts) return; /* فشل الفحص مرتين — نُبقي الشارات المعروضة حاليًا كما هي */
-  const { pending, undocumented } = counts;
+  const { pending } = counts;
+  /* إدارة الصف: توثيق تسليم الخطاب أُلغي من المتابعة (بطلب صاحب التطبيق) — المعلَّق = بانتظار التحويل فقط */
+  const undocumented = cfg.countUndocumented === false ? 0 : counts.undocumented;
   const total = pending + undocumented;
 
   const navBadge = cfg.navBadgeId ? document.getElementById(cfg.navBadgeId) : null;
@@ -298,12 +303,11 @@ async function refreshTransferBadges(cfg){
     if(total > 0){ homeBadge.style.display = 'inline-block'; homeBadge.textContent = total > 9 ? '9+' : String(total); }
     else { homeBadge.style.display = 'none'; }
   }
-  const banner = document.getElementById(cfg.pendingBannerId);
-  if(banner){
-    if(pending > 0){ banner.style.display = 'block'; document.getElementById(cfg.pendingCountId).textContent = pending; }
-    else { banner.style.display = 'none'; }
-  }
-  const docBanner = document.getElementById(cfg.undocumentedBannerId);
+  const countEl = cfg.pendingCountId ? document.getElementById(cfg.pendingCountId) : null;
+  if(countEl) countEl.textContent = pending;
+  const banner = cfg.pendingBannerId ? document.getElementById(cfg.pendingBannerId) : null;
+  if(banner) banner.style.display = pending > 0 ? 'block' : 'none';
+  const docBanner = cfg.undocumentedBannerId ? document.getElementById(cfg.undocumentedBannerId) : null;
   if(docBanner){
     if(undocumented > 0){ docBanner.style.display = 'block'; document.getElementById(cfg.undocumentedCountId).textContent = undocumented; }
     else { docBanner.style.display = 'none'; }
@@ -328,10 +332,11 @@ const CRM_TRANSFER_CFG = {
   stageColumn: 'current_stage',
   navBadgeId: null, /* شارة تبويب إدارة الصف يحدّدها محرك الانتباه (app-16) لا عدد الخطابات وحده */
   homeBadgeId: 'classroomHomeBadge',
-  pendingBannerId: 'crmPendingReferralBanner',
+  pendingBannerId: null, /* العدد في مربع "بانتظار التحويل" نفسه */
   pendingCountId: 'crmPendingReferralCount',
-  undocumentedBannerId: 'crmUndocumentedBanner',
-  undocumentedCountId: 'crmUndocumentedCount'
+  undocumentedBannerId: null,
+  undocumentedCountId: null,
+  countUndocumented: false
 };
 
 async function getAcTransferCounts(){
@@ -968,7 +973,7 @@ function switchCrmTab(tab){
 }
 
 function collapseAllCrmSections(){
-  const pairs = ['crmRegisterBody', 'crmIncidentsListBody'];
+  const pairs = [];
   pairs.forEach(id => {
     const body = document.getElementById(id);
     const arrow = document.getElementById(id + '_arrow');
@@ -2005,6 +2010,8 @@ async function saveClassroomIncident(){
   /* نقرة مزدوجة كانت تُسجّل نفس المخالفة مرتين (وترفع رقم التكرار خطأً) */
   if(crmIncidentSaving) return;
   crmIncidentSaving = true;
+  const saveBtn = document.getElementById('crmIncidentSaveBtn');
+  if(saveBtn) saveBtn.disabled = true;
   let result;
   try{
     result = await insertClassroomIncident({ studentId, typeId, notes });
@@ -2013,6 +2020,7 @@ async function saveClassroomIncident(){
     return;
   } finally {
     crmIncidentSaving = false;
+    if(saveBtn) saveBtn.disabled = false;
   }
   showToast(result.stage === 'referred' ? 'تم الحفظ — الحالة تتطلب تحويل' : 'تم حفظ التنبيه', 'ok');
   document.getElementById('crmIncidentNotes').value = '';
@@ -2020,6 +2028,7 @@ async function saveClassroomIncident(){
   document.getElementById('crmIncidentStudentId').value = '';
   document.getElementById('crmIncidentStudentSearch').value = '';
   document.getElementById('crmIncidentType').value = '';
+  closeCrmIncidentSheet();
   await renderCrmRecentIncidents();
   await refreshCrmPendingBadges();
 }
@@ -2033,14 +2042,14 @@ async function refreshCrmPendingBadges(){
 }
 
 async function fetchCrmStudentById(id){
-  const { data } = await sb.from('classroom_students').select('*').eq('id', id).maybeSingle();
+  const { data } = await sb.from('classroom_students').select('*').eq('teacher_id', currentUser.id).eq('id', id).maybeSingle();
   return data;
 }
 
 let rlCurrentIncident = null;
 
 async function openReferralLetter(incidentId){
-  const { data: inc, error } = await sb.from('classroom_incidents').select('*').eq('id', incidentId).maybeSingle();
+  const { data: inc, error } = await sb.from('classroom_incidents').select('*').eq('teacher_id', currentUser.id).eq('id', incidentId).maybeSingle();
   if(error || !inc){ showToast('تعذّر تحميل بيانات الحادثة', 'error'); return; }
 
   let student = crmStudents.find(s => s.id === inc.student_id);
@@ -2050,6 +2059,7 @@ async function openReferralLetter(incidentId){
 
   const { data: priorList } = await sb.from('classroom_incidents')
     .select('incident_date, occurrence_number')
+    .eq('teacher_id', currentUser.id)
     .eq('student_id', inc.student_id)
     .eq('incident_type_id', inc.incident_type_id)
     .eq('semester_label', inc.semester_label)
@@ -2253,20 +2263,20 @@ async function deleteReferralReceiptPhoto(){
 }
 
 async function deleteCrmIncident(id){
-  const ok = await showConfirm('حذف هذه الحادثة؟ سيُعاد حساب رقم التكرار تلقائيًا للحوادث المتبقية من نفس النوع مستقبلًا. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
+  const ok = await showConfirm('حذف هذه المخالفة؟ سيُعاد حساب رقم التكرار تلقائيًا للمخالفات المتبقية من نفس النوع مستقبلًا. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
   if(!ok) return;
 
   /* نجلب نسخة كاملة من الحادثة قبل حذفها — لا تُحفَظ بقائمة محلية دائمة
      حتى نتمكن من إعادة إدراجها إن طُلب التراجع */
-  const { data: incident } = await sb.from('classroom_incidents').select('*').eq('id', id).maybeSingle();
+  const { data: incident } = await sb.from('classroom_incidents').select('*').eq('teacher_id', currentUser.id).eq('id', id).maybeSingle();
 
-  const { error } = await sb.from('classroom_incidents').delete().eq('id', id);
+  const { error } = await sb.from('classroom_incidents').delete().eq('teacher_id', currentUser.id).eq('id', id);
   if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
   await renderCrmRecentIncidents();
   await refreshCrmPendingBadges();
 
   if(!incident) return; /* لم نلتقط نسخة محلية من الحادثة — لا نعرض تراجعًا وهميًا */
-  const shouldFinalize = await showUndoToast('تم حذف الحادثة', 5);
+  const shouldFinalize = await showUndoToast('تم حذف المخالفة', 5);
   if(!shouldFinalize){
     try{
       const { error: restoreErr } = await sb.from('classroom_incidents').insert(incident);
@@ -2281,98 +2291,115 @@ async function deleteCrmIncident(id){
 }
 
 let crmIncidentFilter = 'all';
+const CRM_INCIDENT_FILTERS = ['all', 'week', 'pending'];
 
 function jumpToCrmFilter(mode){
   setCrmIncidentFilter(mode);
-  const body = document.getElementById('crmIncidentsListBody');
-  const arrow = document.getElementById('crmIncidentsListBody_arrow');
-  if(body){ body.style.display = 'block'; }
-  if(arrow){ arrow.textContent = '▾'; }
   const el = document.getElementById('crmIncidentsListSection');
-  if(el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if(el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function setCrmIncidentFilter(mode){
+  if(!CRM_INCIDENT_FILTERS.includes(mode)) mode = 'all'; /* "غير موثّق" أُلغي */
   setListFilter({ setValue: v => { crmIncidentFilter = v; }, btnPrefix: 'crmFilterBtn_', render: renderCrmRecentIncidents }, mode);
 }
 
-function goToCrmStudentFromModal(studentId){
-  const cancelBtn = document.getElementById('confirmCancelBtn');
-  if(cancelBtn) cancelBtn.click();
-
-  const student = crmStudents.find(s => s.id === studentId);
-  document.getElementById('crmIncidentsSearch').value = student ? student.full_name : '';
-  setCrmIncidentFilter('all');
-
-  const body = document.getElementById('crmIncidentsListBody');
-  const arrow = document.getElementById('crmIncidentsListBody_arrow');
-  if(body) body.style.display = 'block';
-  if(arrow) arrow.textContent = '▾';
-
-  const el = document.getElementById('crmIncidentsListSection');
-  if(el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+/* بداية الأسبوع الدراسي (الأحد) لتاريخ محلي */
+function crmWeekStartIso(todayIso){
+  return addDaysIso(todayIso, -weekdayOfIso(todayIso));
 }
 
-async function showCrmTransfersStatusModal(mode){
-  const { data, error } = await sb.from('classroom_incidents')
-    .select('id, student_id, incident_type_id, current_stage, referral_letter_generated, referral_receipt_photo_url')
-    .eq('teacher_id', currentUser.id)
-    .eq('current_stage', 'referred');
-
-  if(error){ showToast('تعذّر التحميل: ' + error.message, 'error'); return; }
-
-  const statusOf = (inc) => {
-    if(!inc.referral_letter_generated) return { text: 'لم يُحوَّل', color: '#8A2C2C', bg: '#FBEAEA', rank: 0 };
-    if(!inc.referral_receipt_photo_url) return { text: 'جارٍ', color: '#6B5420', bg: '#FBF3E6', rank: 1 };
-    return { text: 'مكتمل', color: '#215C34', bg: '#EAF3EC', rank: 2 };
-  };
-
-  let rows = '';
-  if(!data || !data.length){
-    rows = '<div style="padding:14px;text-align:center;color:var(--muted);font-size:12.5px;">لا توجد حالات تحويل مسجّلة بعد.</div>';
-  } else if(mode === 'student'){
-    const byStudent = {};
-    data.forEach(inc => {
-      const st = statusOf(inc);
-      if(!byStudent[inc.student_id] || st.rank < byStudent[inc.student_id].rank){
-        byStudent[inc.student_id] = st;
-      }
-    });
-    rows = Object.keys(byStudent).map(sid => {
-      const student = crmStudents.find(s => s.id === sid);
-      const st = byStudent[sid];
-      return `<div style="padding:9px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;background:${st.bg};">
-        <span style="font-size:12.5px;color:var(--navy);font-weight:600;flex:1;text-decoration:underline;cursor:pointer;" onclick="goToCrmStudentFromModal('${sid}')">${student ? escapeHtml(student.full_name) : 'طالب محذوف'}</span>
-        <span style="font-size:11px;color:${st.color};font-weight:700;white-space:nowrap;">${st.text}</span>
-      </div>`;
-    }).join('');
-  } else {
-    rows = data.map(inc => {
-      const student = crmStudents.find(s => s.id === inc.student_id);
-      const type = crmIncidentTypes.find(t => t.id === inc.incident_type_id);
-      const st = statusOf(inc);
-      return `<div style="padding:9px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;background:${st.bg};">
-        <span style="font-size:12.5px;color:var(--navy);font-weight:600;flex:1;"><span style="text-decoration:underline;cursor:pointer;" onclick="goToCrmStudentFromModal('${inc.student_id}')">${student ? escapeHtml(student.full_name) : 'طالب محذوف'}</span> <span style="font-size:10px;color:var(--muted);font-weight:400;">${type ? escapeHtml(type.problem_name) : ''}</span></span>
-        <span style="font-size:11px;color:${st.color};font-weight:700;white-space:nowrap;">${st.text}</span>
-      </div>`;
-    }).join('');
-  }
-
-  showInfoModal(`
-    <div style="text-align:right;">
-      <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">حالة التحويلات</h3>
-      <p style="font-size:11.5px;color:var(--muted);margin:0 0 10px;line-height:1.8;">
-        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#8A2C2C;vertical-align:middle;"></span> "لم يُحوَّل" = مخالفة تستوجب تحويلًا ولم يُصدَر لها خطاب &nbsp;•&nbsp;
-        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#C9A227;vertical-align:middle;"></span> "جارٍ" = صدر الخطاب ولم تُوثَّق صورة التسليم &nbsp;•&nbsp;
-        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#215C34;vertical-align:middle;"></span> "مكتمل" = صدر الخطاب ووُثِّق
-      </p>
-      <div style="display:flex;gap:6px;margin-bottom:10px;">
-        <button class="btn ${mode === 'incident' ? 'btn-primary' : 'btn-outline'}" style="padding:4px 10px;font-size:11px;flex:1;" onclick="showCrmTransfersStatusModal('incident')">حسب الحادثة</button>
-        <button class="btn ${mode === 'student' ? 'btn-primary' : 'btn-outline'}" style="padding:4px 10px;font-size:11px;flex:1;" onclick="showCrmTransfersStatusModal('student')">حسب الطالب</button>
-      </div>
-      <div style="border:1px solid var(--line);max-height:50vh;overflow:auto;">${rows}</div>
-    </div>`, '430px');
+/* عدّا "الكل" و"هذا الأسبوع" في مربعات الملخص — فشلها يُبقي "—" ولا يعطّل القائمة */
+async function refreshCrmIncidentCounts(){
+  const uid = currentUser && currentUser.id;
+  if(!uid) return;
+  const { data, error } = await fetchAllRows((from, to) => sb.from('classroom_incidents').select('incident_date')
+    .eq('teacher_id', uid).order('created_at', { ascending: false }).range(from, to));
+  if(error || !currentUser || currentUser.id !== uid) return;
+  const weekStart = crmWeekStartIso(localIsoDate());
+  const all = (data || []).length;
+  const week = (data || []).filter(r => r.incident_date && r.incident_date >= weekStart).length;
+  const a = document.getElementById('crmIncAllCount'); if(a) a.textContent = all;
+  const w = document.getElementById('crmIncWeekCount'); if(w) w.textContent = week;
 }
+
+/* ============ لوحة "تسجيل مخالفة" (3 خطوات) ============ */
+async function openCrmIncidentSheet(studentId){
+  const ov = document.getElementById('crmIncidentSheet');
+  if(!ov) return;
+  ov.style.display = 'flex';
+  if(studentId) selectCrmIncidentStudent(studentId);
+  await renderCrmIncidentTypeChips();
+}
+
+function closeCrmIncidentSheet(){
+  const ov = document.getElementById('crmIncidentSheet');
+  if(ov) ov.style.display = 'none';
+  const res = document.getElementById('crmIncidentStudentResults');
+  if(res) res.style.display = 'none';
+}
+
+/* شرائح أكثر 6 مخالفات استخدامًا لدى المعلم + "غيرها…" تفتح القائمة الكاملة.
+   بلا سجل سابق: القائمة الكاملة مباشرة */
+async function renderCrmIncidentTypeChips(){
+  const box = document.getElementById('crmIncidentTypeChips');
+  const sel = document.getElementById('crmIncidentType');
+  if(!box || !sel) return;
+  if(!crmIncidentTypes.length && typeof loadCrmIncidentTypes === 'function') await loadCrmIncidentTypes();
+  const usage = typeof loadCrmIncidentTypeUsage === 'function' ? await loadCrmIncidentTypeUsage() : null;
+  const top = typeof topIncidentTypes === 'function' ? topIncidentTypes(crmIncidentTypes, usage, 6) : [];
+  const hint = document.getElementById('crmIncidentTypeHint');
+  if(hint) hint.textContent = top.length ? '· الأكثر استخدامًا' : '';
+  const cur = sel.value;
+  box.innerHTML = top.map(t => `<button type="button" class="crm-type-chip${cur === t.id ? ' is-on' : ''}" data-type="${t.id}" onclick="pickCrmIncidentType('${t.id}')">${escapeHtml(t.problem_name)}</button>`).join('')
+    + (top.length ? `<button type="button" class="crm-type-chip is-more" onclick="showCrmIncidentTypeSelect()">غيرها…</button>` : '');
+  sel.style.display = top.length && !(cur && !top.some(t => t.id === cur)) ? 'none' : 'block';
+}
+
+function pickCrmIncidentType(id){
+  const sel = document.getElementById('crmIncidentType');
+  if(!sel) return;
+  sel.value = id;
+  sel.style.display = 'none';
+  markCrmIncidentTypeChips();
+  refreshOccurrencePreview();
+}
+
+function showCrmIncidentTypeSelect(){
+  const sel = document.getElementById('crmIncidentType');
+  if(sel){ sel.style.display = 'block'; if(sel.focus) sel.focus(); }
+}
+
+function onCrmIncidentTypeSelect(){
+  markCrmIncidentTypeChips();
+  refreshOccurrencePreview();
+}
+
+function markCrmIncidentTypeChips(){
+  const sel = document.getElementById('crmIncidentType');
+  const box = document.getElementById('crmIncidentTypeChips');
+  if(!sel || !box || !box.querySelectorAll) return;
+  box.querySelectorAll('.crm-type-chip[data-type]').forEach(b => b.classList.toggle('is-on', b.dataset.type === sel.value));
+}
+
+/* خيارات مخالفة (⋯): الخطاب والحذف — الحذف بعيد عن القائمة وبتأكيد وتراجع */
+function openCrmIncidentActions(id){
+  const inc = (crmIncidentsShown || []).find(x => x.id === id);
+  if(!inc) return;
+  const type = crmIncidentTypes.find(t => t.id === inc.incident_type_id);
+  const needsLetter = inc.current_stage === 'referred' && !inc.referral_letter_generated;
+  const hasLetter = inc.current_stage === 'referred' && inc.referral_letter_generated;
+  const opt = (ico, title, onclick, cls) => `<button type="button" class="crm-act-opt${cls ? ' ' + cls : ''}" onclick="${onclick}"><span class="crm-act-ic">${ico}</span><span><b>${title}</b></span></button>`;
+  showInfoModal(`<div style="text-align:right;">
+      <h3 style="margin:0 0 2px;font-size:15px;color:var(--navy);">${type ? escapeHtml(type.problem_name) : 'مخالفة'}</h3>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;">${escapeHtml(inc.incident_date || '')} · المرة ${inc.occurrence_number}</div>
+      ${needsLetter ? opt('📄', 'إصدار خطاب التحويل', `closeCrmModal();openReferralLetter('${inc.id}')`) : ''}
+      ${hasLetter ? opt('📄', 'عرض الخطاب', `closeCrmModal();openReferralLetter('${inc.id}')`) : ''}
+      ${opt('🗑', 'حذف المخالفة', `closeCrmModal();deleteCrmIncident('${inc.id}')`, 'is-red')}
+    </div>`, '400px');
+}
+
+let crmIncidentsShown = [];
 
 async function renderCrmRecentIncidents(){
   const box = document.getElementById('crmRecentIncidents');
@@ -2387,19 +2414,21 @@ async function renderCrmRecentIncidents(){
       .eq('teacher_id', currentUser.id);
     if(crmIncidentFilter === 'pending'){
       q = q.eq('current_stage', 'referred').eq('referral_letter_generated', false);
-    } else if(crmIncidentFilter === 'undocumented'){
-      q = q.eq('current_stage', 'referred').eq('referral_letter_generated', true).is('referral_receipt_photo_url', null);
+    } else if(crmIncidentFilter === 'week'){
+      q = q.gte('incident_date', crmWeekStartIso(localIsoDate()));
     }
     return q.order('created_at', { ascending: false }).range(from, to);
   };
 
+  refreshCrmIncidentCounts();
   const { data, error } = await fetchAllRows(buildQuery);
   if(error){ box.innerHTML = '<div class="empty-state">تعذّر التحميل: ' + escapeHtml(error.message) + '</div>'; return; }
+  crmIncidentsShown = data || [];
 
   const emptyMsg = {
-    all: 'لا توجد حوادث مسجّلة بعد.',
-    pending: 'لا توجد حالات بانتظار تأكيد التحويل حاليًا.',
-    undocumented: 'لا توجد خطابات بدون توثيق تسليم حاليًا.'
+    all: 'لا مخالفات مسجّلة بعد.',
+    week: 'لا مخالفات هذا الأسبوع.',
+    pending: 'لا مخالفات بانتظار التحويل.'
   };
   if(!data || !data.length){ box.innerHTML = '<div class="empty-state">' + emptyMsg[crmIncidentFilter] + '</div>'; return; }
 
@@ -2413,7 +2442,6 @@ async function renderCrmRecentIncidents(){
   if(!filtered.length){ box.innerHTML = '<div class="empty-state">لا نتائج مطابقة.</div>'; return; }
 
   const stageLabel = { warning_1: 'تنبيه أول', warning_2: 'تنبيه ثانٍ', referred: 'محال' };
-  const stageColor = { warning_1: '#C9A227', warning_2: '#C9A227', referred: '#C0392B' };
 
   const groups = {};
   const order = [];
@@ -2423,49 +2451,40 @@ async function renderCrmRecentIncidents(){
     groups[sid].push(inc);
   });
 
+  /* بطاقة لكل طالب: عدده وآخر مخالفة وحالتها؛ المخالفات تحتها والإجراءات في ⋯ */
   box.innerHTML = order.map((sid, gi) => {
     const list = groups[sid];
     const student = crmStudents.find(s => s.id === sid);
     const hasPending = list.some(i => i.current_stage === 'referred' && !i.referral_letter_generated);
     const groupId = 'crmGroup' + gi;
-    const startOpen = hasPending;
+    const latest = list[0];
+    const latestType = crmIncidentTypes.find(t => t.id === latest.incident_type_id);
+    const countText = list.length === 1 ? 'مخالفة واحدة' : list.length === 2 ? 'مخالفتان' : list.length <= 10 ? list.length + ' مخالفات' : list.length + ' مخالفة';
 
     const itemsHtml = list.map(inc => {
       const type = crmIncidentTypes.find(t => t.id === inc.incident_type_id);
-      const needsConfirm = inc.current_stage === 'referred' && !inc.referral_letter_generated;
-      const confirmed = inc.current_stage === 'referred' && inc.referral_letter_generated;
-      const color = stageColor[inc.current_stage] || '#999';
-      return `
-        <div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;">
-          <div style="width:4px;border-radius:2px;background:${color};flex-shrink:0;align-self:stretch;"></div>
-          <div style="flex:1;min-width:0;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
-              <div>${type ? escapeHtml(type.problem_name) : '—'}</div>
-              <button style="border:none;background:none;color:var(--muted);font-size:14px;line-height:1;cursor:pointer;flex-shrink:0;padding:0;" onclick="deleteCrmIncident('${inc.id}')" title="حذف">🗑</button>
-            </div>
-            <div style="color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px;">
-              <span>${inc.incident_date} • المرة ${inc.occurrence_number} • ${stageLabel[inc.current_stage] || inc.current_stage}${needsConfirm ? ' ⚠' : ''}${confirmed ? ' ✅' + (inc.referral_letter_number ? ' رقم ' + escapeHtml(inc.referral_letter_number) : '') + (inc.referral_receipt_photo_url ? ' 📷 موثّق' : ' ⚠ غير موثّق') : ''}</span>
-              ${needsConfirm ? `<button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;background:#8A2C2C;" onclick="openReferralLetter('${inc.id}')">إصدار خطاب 📄</button>` : ''}
-              ${confirmed && inc.referral_receipt_photo_url ? `<button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" onclick="openReferralLetter('${inc.id}')">عرض الخطاب</button>` : ''}
-              ${confirmed && !inc.referral_receipt_photo_url ? `<button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;background:#8A6D1F;" onclick="openReferralLetter('${inc.id}')">📷 توثيق التسليم</button>` : ''}
-            </div>
-            ${inc.notes ? `<div style="color:var(--muted);font-size:11px;margin-top:2px;">${escapeHtml(inc.notes)}</div>` : ''}
+      const needsLetter = inc.current_stage === 'referred' && !inc.referral_letter_generated;
+      const hasLetter = inc.current_stage === 'referred' && inc.referral_letter_generated;
+      return `<div class="crm-inc-item">
+          <div class="crm-inc-item-main">
+            <b>${type ? escapeHtml(type.problem_name) : '—'}</b>
+            <small>${escapeHtml(inc.incident_date || '')} · المرة ${inc.occurrence_number} · ${stageLabel[inc.current_stage] || escapeHtml(inc.current_stage || '')}${hasLetter && inc.referral_letter_number ? ' · خطاب رقم ' + escapeHtml(inc.referral_letter_number) : ''}</small>
+            ${inc.notes ? `<small class="crm-inc-note">${escapeHtml(inc.notes)}</small>` : ''}
+            ${needsLetter ? `<button type="button" class="btn btn-primary crm-mini-btn crm-inc-letter" onclick="openReferralLetter('${inc.id}')">📄 إصدار خطاب التحويل</button>` : ''}
           </div>
-        </div>
-      `;
+          <button type="button" class="crm-lrow-more" aria-label="خيارات المخالفة" onclick="openCrmIncidentActions('${inc.id}')">⋯</button>
+        </div>`;
     }).join('');
 
-    return `
-      <div style="border:1px solid var(--line);margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#F7F5F0;cursor:pointer;" onclick="toggleCrmGroup('${groupId}')">
-          <span style="font-weight:700;font-size:13px;">${student ? escapeHtml(student.full_name) : 'طالب محذوف'} <span style="font-weight:400;color:var(--muted);font-size:11.5px;">(${list.length} ${list.length === 1 ? 'حادثة' : 'حوادث'})</span>${hasPending ? ' <span style="color:#C0392B;">⚠</span>' : ''}</span>
-          <span id="${groupId}_arrow" style="font-size:11px;color:var(--muted);">${startOpen ? '▾' : '▸'}</span>
-        </div>
-        <div id="${groupId}" style="display:${startOpen ? 'block' : 'none'};padding:0 12px;">
-          ${itemsHtml}
-        </div>
-      </div>
-    `;
+    return `<div class="crm-inc-card">
+        <button type="button" class="crm-inc-card-head" onclick="toggleCrmGroup('${groupId}')">
+          <span class="crm-inc-card-main"><b>${student ? escapeHtml(student.full_name) : 'طالب محذوف'}</b>
+            <small>آخرها: ${latestType ? escapeHtml(latestType.problem_name) : '—'} · ${escapeHtml(latest.incident_date || '')}</small></span>
+          <span class="gs-chip">${countText}</span>${hasPending ? '<span class="gs-chip now">بانتظار التحويل</span>' : ''}
+          <span id="${groupId}_arrow" class="crm-inc-arrow">${hasPending ? '▾' : '▸'}</span>
+        </button>
+        <div id="${groupId}" style="display:${hasPending ? 'block' : 'none'};">${itemsHtml}</div>
+      </div>`;
   }).join('');
 }
 

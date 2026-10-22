@@ -1374,7 +1374,7 @@
 .crm-term-chip{border:none;background:#EAF0F5;color:var(--navy);border-radius:11px;padding:5px 12px;font-family:inherit;font-size:12.5px;font-weight:800;cursor:pointer;}
 .crm-tab-btn{min-width:0;padding-left:4px;padding-right:4px;font-size:12.5px;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 @media (max-width:640px){
-  #crmTabsBar{margin:0 12px 12px;}
+  #crmTabsBar{margin:0 16px 12px;}
   .crm-term-wrap{padding:10px 12px 6px;}
   .crm-tab-btn{font-size:12px;}
 }
@@ -1858,3 +1858,38 @@ html, body, *{touch-action:manipulation;}
 .crm-act-ic{width:30px;height:30px;border-radius:10px;background:#F3F0E8;display:flex;align-items:center;justify-content:center;font-size:14px;flex:none;}
 .crm-lrow .crm-mini-btn{border-radius:10px;}
 .crm-lrow.is-done .crm-lrow-no.is-ok::after{content:'✓';font-size:10px;margin-right:1px;}
+
+/* ============ تبويب المخالفات: ملخص كفلتر + بطاقات + لوحة التسجيل ============ */
+.crm-inc-top{padding:0 32px;margin-bottom:6px;}
+.crm-inc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:9px;}
+.crm-inc-stat{border:1px solid #E4DECF;background:#fff;border-radius:13px;padding:8px 4px;text-align:center;font-family:inherit;cursor:pointer;color:var(--muted);}
+.crm-inc-stat b{display:block;font-size:20px;color:var(--navy);line-height:1.3;}
+.crm-inc-stat span{font-size:11px;font-weight:800;}
+.crm-inc-stat.is-on{border:2px solid var(--navy);background:#EAF0F5;}
+.crm-inc-add{display:block;width:100%;border:none;background:var(--navy);color:#fff;border-radius:13px;padding:11px;font-family:inherit;font-size:14.5px;font-weight:900;cursor:pointer;box-shadow:0 4px 10px rgba(27,50,69,.22);}
+.crm-inc-card{border:1px solid #E4DECF;border-radius:14px;background:#fff;margin-bottom:8px;box-shadow:0 2px 0 #F1ECE0;overflow:hidden;}
+.crm-inc-card-head{display:flex;align-items:center;gap:6px;width:100%;border:none;background:none;padding:10px 12px;text-align:right;font-family:inherit;cursor:pointer;}
+.crm-inc-card-main{flex:1;min-width:0;}
+.crm-inc-card-main b{display:block;font-size:13.5px;color:var(--navy);}
+.crm-inc-card-main small{display:block;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.crm-inc-arrow{color:#9A938A;font-size:11px;}
+.crm-inc-item{display:flex;align-items:flex-start;gap:6px;padding:8px 12px;border-top:1px dashed #E8E2D4;background:#FBFAF6;}
+.crm-inc-item-main{flex:1;min-width:0;}
+.crm-inc-item-main b{display:block;font-size:12.5px;color:var(--ink);font-weight:700;line-height:1.6;}
+.crm-inc-item-main small{display:block;font-size:11px;color:var(--muted);line-height:1.7;}
+.crm-inc-note{white-space:pre-wrap;}
+.crm-inc-letter{margin-top:5px;border-radius:10px;background:#8A2C2C;border-color:#8A2C2C;}
+.crm-bsheet-overlay{position:fixed;inset:0;z-index:9600;background:rgba(18,30,42,.45);display:flex;align-items:flex-end;justify-content:center;}
+.crm-bsheet{background:#fff;width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:20px 20px 0 0;padding:10px 16px calc(16px + env(safe-area-inset-bottom, 0px));box-shadow:0 -10px 24px rgba(0,0,0,.18);}
+.crm-bsheet-grab{width:44px;height:5px;border-radius:3px;background:#DAD4C6;margin:0 auto 8px;}
+.crm-bsheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.crm-bsheet-head b{font-size:16px;color:var(--navy);}
+.crm-bsheet-x{border:none;background:#F3F0E8;color:var(--navy);width:32px;height:32px;border-radius:50%;font-size:14px;cursor:pointer;font-family:inherit;}
+.crm-bsheet-step{font-size:12px;font-weight:800;color:var(--muted);margin:10px 0 6px;}
+.crm-bsheet-step span{font-weight:600;}
+.crm-bsheet-save{width:100%;justify-content:center;border-radius:12px;min-height:44px;font-size:15px;}
+.crm-type-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.crm-type-chip{border:1px solid #E4DECF;background:#fff;color:var(--navy);border-radius:11px;padding:6px 10px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;text-align:right;max-width:100%;line-height:1.5;}
+.crm-type-chip.is-on{background:var(--navy);color:#fff;border-color:var(--navy);}
+.crm-type-chip.is-more{color:#0E5F53;border-style:dashed;}
+

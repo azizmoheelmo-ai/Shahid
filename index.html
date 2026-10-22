@@ -729,46 +729,39 @@
 
       <!-- ============ تبويب: تسجيل ============ -->
       <div id="crmTabRecord" style="display:none;">
-        <div id="crmPendingReferralBanner" style="display:none;background:#FBEAEA;border:1px solid #E0B4B4;color:#8A2C2C;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 10px;text-align:center;cursor:pointer;" onclick="jumpToCrmFilter('pending')">
-          ⚠ <span id="crmPendingReferralCount">0</span> حالة بانتظار تأكيد التحويل — اضغط لعرضها
-        </div>
-        <div id="crmUndocumentedBanner" style="display:none;background:#FFF7E6;border:1px solid #E8D19A;color:#8A6D1F;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 14px;text-align:center;cursor:pointer;" onclick="jumpToCrmFilter('undocumented')">
-          📷 <span id="crmUndocumentedCount">0</span> خطاب صادر بدون توثيق تسليم — اضغط لعرضه
-        </div>
-        <div class="section">
-          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCrmGroup('crmRegisterBody')">
-            <h2 style="margin:0;">تسجيل حادثة سلوكية</h2>
-            <span id="crmRegisterBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
+        <!-- ملخص يعمل كفلتر للقائمة (بدل الشريط الوردي والزر والشرائح القديمة) -->
+        <div class="crm-inc-top">
+          <div class="crm-inc-stats">
+            <button type="button" class="crm-inc-stat is-on" id="crmFilterBtn_all" onclick="setCrmIncidentFilter('all')"><b id="crmIncAllCount">—</b><span>الكل</span></button>
+            <button type="button" class="crm-inc-stat" id="crmFilterBtn_week" onclick="setCrmIncidentFilter('week')"><b id="crmIncWeekCount">—</b><span>هذا الأسبوع</span></button>
+            <button type="button" class="crm-inc-stat" id="crmFilterBtn_pending" onclick="setCrmIncidentFilter('pending')"><b id="crmPendingReferralCount">0</b><span>بانتظار التحويل</span></button>
           </div>
-          <div id="crmRegisterBody" style="display:none;margin-top:10px;">
-            <div style="position:relative;margin-bottom:8px;">
-              <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
-              <input type="hidden" id="crmIncidentStudentId">
-              <div id="crmIncidentStudentResults" style="display:none;position:absolute;z-index:5;background:#fff;border:1px solid var(--line);width:100%;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
-            </div>
-            <select class="goal-input" id="crmIncidentType" style="margin-bottom:8px;" onchange="refreshOccurrencePreview()"><option value="">اختر نوع المخالفة</option></select>
-            <div id="crmOccurrencePreview" style="display:none;"></div>
-            <textarea class="goal-input" id="crmIncidentNotes" maxlength="2000" placeholder="ملاحظة (اختياري)" rows="2" style="margin:10px 0;"></textarea>
-            <button class="btn btn-primary" onclick="saveClassroomIncident()">حفظ الحادثة</button>
-          </div>
+          <button type="button" class="crm-inc-add" onclick="openCrmIncidentSheet()">+ تسجيل مخالفة</button>
         </div>
 
-        <div class="section" id="crmIncidentsListSection">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-            <div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleCrmGroup('crmIncidentsListBody')">
-              <h2 style="margin:0;">آخر الحوادث المسجّلة</h2>
-              <span id="crmIncidentsListBody_arrow" style="font-size:11px;color:var(--muted);">▸</span>
+        <div class="section" id="crmIncidentsListSection" style="padding-top:4px;">
+          <input class="goal-input" id="crmIncidentsSearch" placeholder="🔍 ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderCrmRecentIncidents()">
+          <div id="crmRecentIncidents"></div>
+        </div>
+
+        <!-- تسجيل مخالفة: لوحة سفلية بثلاث خطوات -->
+        <div id="crmIncidentSheet" class="crm-bsheet-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="crmIncidentSheetTitle" onclick="if(event.target===this)closeCrmIncidentSheet()">
+          <div class="crm-bsheet">
+            <div class="crm-bsheet-grab"></div>
+            <div class="crm-bsheet-head"><b id="crmIncidentSheetTitle">تسجيل مخالفة</b><button type="button" class="crm-bsheet-x" aria-label="إغلاق" onclick="closeCrmIncidentSheet()">✕</button></div>
+            <div class="crm-bsheet-step">١ · الطالب</div>
+            <div style="position:relative;margin-bottom:6px;">
+              <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
+              <input type="hidden" id="crmIncidentStudentId">
+              <div id="crmIncidentStudentResults" style="display:none;position:absolute;z-index:5;background:#fff;border:1px solid var(--line);border-radius:10px;width:100%;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
             </div>
-            <button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" onclick="showCrmTransfersStatusModal('incident')">حالة التحويلات</button>
-          </div>
-          <div id="crmIncidentsListBody" style="display:none;">
-            <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
-              <button class="btn btn-primary" id="crmFilterBtn_all" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('all')">الكل</button>
-              <button class="btn btn-outline" id="crmFilterBtn_pending" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('pending')">⚠ بانتظار التحويل</button>
-              <button class="btn btn-outline" id="crmFilterBtn_undocumented" style="padding:4px 10px;font-size:11.5px;" onclick="setCrmIncidentFilter('undocumented')">📷 غير موثّق</button>
-            </div>
-            <input class="goal-input" id="crmIncidentsSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderCrmRecentIncidents()">
-            <div id="crmRecentIncidents"></div>
+            <div class="crm-bsheet-step">٢ · المخالفة <span id="crmIncidentTypeHint"></span></div>
+            <div id="crmIncidentTypeChips" class="crm-type-chips"></div>
+            <select class="goal-input" id="crmIncidentType" style="margin:6px 0 0;display:none;" onchange="onCrmIncidentTypeSelect()"><option value="">اختر نوع المخالفة</option></select>
+            <div id="crmOccurrencePreview" style="display:none;margin-top:8px;"></div>
+            <div class="crm-bsheet-step">٣ · ملاحظة <span>(اختياري)</span></div>
+            <textarea class="goal-input" id="crmIncidentNotes" maxlength="2000" placeholder="اكتب ملاحظة…" rows="2" style="margin:0 0 10px;"></textarea>
+            <button class="btn btn-primary crm-bsheet-save" id="crmIncidentSaveBtn" onclick="saveClassroomIncident()">حفظ</button>
           </div>
         </div>
       </div>
