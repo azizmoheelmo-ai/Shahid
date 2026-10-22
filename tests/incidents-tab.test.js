@@ -18,7 +18,7 @@ function client(tables, log){
       const q = { table: t, eqs: [], gtes: [], op: 'select' };
       if(log) log.push(q);
       const a = { select: () => a, eq: (k, v) => { q.eqs.push([k, v]); return a; }, in: () => a, gte: (k, v) => { q.gtes.push([k, v]); return a; }, lte: () => a, is: () => a,
-        order: () => a, limit: () => a, range: () => a, delete: () => { q.op = 'delete'; return a; }, insert: () => { q.op = 'insert'; return a; },
+        order: () => a, limit: () => a, range: () => a, delete: () => { q.op = 'delete'; return a; }, insert: () => { q.op = 'insert'; return a; }, update: () => { q.op = 'update'; return a; },
         maybeSingle: () => Promise.resolve({ data: ((tables && tables[t]) || [])[0] || null, error: null }),
         then: (r) => Promise.resolve({ data: q.op === 'select' ? ((tables && tables[t]) || []) : null, error: null }).then(r) };
       return a;
@@ -106,4 +106,32 @@ test('لوحة التسجيل: شرائح الأكثر استخدامًا + "غ�
   assert.equal(get(app, `document.getElementById('crmIncidentSheet').style.display`), 'flex');
   app.pickCrmIncidentType('T1');
   assert.equal(get(app, `document.getElementById('crmIncidentType').value`), 'T1');
+});
+
+test('المتابعة الأكاديمية والخطابات: لا توثيق تسليم (بلا فلتر ولا وسم ولا قسم رفع)، والصورة القديمة تبقى ظاهرة', async () => {
+  assert.doesNotMatch(html, /acUndocumented|acFilterBtn_undocumented/);
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  assert.equal(get(app, 'RECEIPT_DOCS_ON'), false);
+  assert.equal(app.receiptSectionVisible(true, null), false, 'لا قسم رفع لخطاب بلا صورة');
+  assert.equal(app.receiptSectionVisible(true, 'https://x/y.jpg'), true, 'صورة قديمة تبقى قابلة للعرض والحذف');
+  assert.equal(app.receiptSectionVisible(false, 'https://x/y.jpg'), false);
+  runInAppContext(app, `renderAcCases = () => {};`);
+  app.setAcFilter('undocumented');
+  assert.equal(get(app, 'acFilter'), 'all');
+});
+
+test('حالات المتابعة الأكاديمية: القائمة بلا "غير موثّق"، والتحديث والحذف مقيّدان بالمعلم', async () => {
+  const log = [];
+  const cases = [{ id: 'C1', student_id: 'S', subject: 'رياضيات', weakness_description: 'x', plan_started_at: '2026-10-01', status: 'referred', referral_letter_generated: true, referral_receipt_photo_url: null }];
+  const app = loadApp({ supabaseClient: client({ academic_cases: cases }, log), currentUser: { id: 'u1' } });
+  runInAppContext(app, `acStudents = [{ id: 'S', full_name: 'طالب' }];
+    window.__box = { innerHTML: '' }; const _g = document.getElementById; document.getElementById = id => id === 'acCasesList' ? window.__box : _g(id);
+    document.getElementById('acCasesSearch').value = ''; showConfirm = async () => true; showUndoToast = async () => true; refreshAcBadges = async () => {}; showToast = () => {}; openAcLetter = () => {};`);
+  await app.renderAcCases();
+  assert.doesNotMatch(get(app, 'window.__box.innerHTML'), /موثّق/);
+  await app.referAcademicCase('C1');
+  await app.deleteAcademicCase('C1');
+  const writes = log.filter(q => q.table === 'academic_cases' && q.op !== 'select');
+  assert.ok(writes.length >= 1);
+  log.filter(q => q.table === 'academic_cases').forEach(q => assert.ok(q.eqs.some(([k, v]) => k === 'teacher_id' && v === 'u1'), q.op + ' بلا teacher_id'));
 });

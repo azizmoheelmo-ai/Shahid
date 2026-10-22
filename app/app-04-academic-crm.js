@@ -164,7 +164,15 @@ function setListFilter(cfg, mode){
   cfg.render();
 }
 
+/* توثيق تسليم الخطابات (صورة الخطاب الموقّع) أُلغي من المتابعة بطلب صاحب التطبيق:
+   لا فلتر ولا تنبيه ولا قسم رفع. الصور المرفوعة سابقًا تبقى (تُعرض ويمكن حذفها). */
+const RECEIPT_DOCS_ON = false;
+function receiptSectionVisible(generated, photoUrl){
+  return !!generated && (RECEIPT_DOCS_ON || !!photoUrl);
+}
+
 function setAcFilter(mode){
+  if(mode === 'undocumented' && !RECEIPT_DOCS_ON) mode = 'all';
   setListFilter({ setValue: v => { acFilter = v; }, btnPrefix: 'acFilterBtn_', render: renderAcCases }, mode);
 }
 
@@ -178,7 +186,6 @@ async function renderAcCases(){
   const buildQuery = (from, to) => {
     let q = sb.from('academic_cases').select('*').eq('teacher_id', currentUser.id);
     if(acFilter === 'pending') q = q.eq('status', 'referred').eq('referral_letter_generated', false);
-    else if(acFilter === 'undocumented') q = q.eq('status', 'referred').eq('referral_letter_generated', true).is('referral_receipt_photo_url', null);
     return q.order('created_at', { ascending: false }).range(from, to);
   };
 
@@ -211,7 +218,7 @@ async function renderAcCases(){
           </div>
           <div style="color:var(--muted);margin-top:2px;">${escapeHtml(c.weakness_description)}</div>
           <div style="color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            <span>${c.plan_started_at} • ${statusLabel[c.status]}${needsConfirm ? ' ⚠' : ''}${confirmed ? (c.referral_receipt_photo_url ? ' ✅📷 موثّق' : ' ✅⚠ غير موثّق') : ''}</span>
+            <span>${c.plan_started_at} • ${statusLabel[c.status]}${needsConfirm ? ' ⚠' : ''}${confirmed ? ' ✅ صدر الخطاب' : ''}</span>
             ${c.status === 'plan_active' ? `<button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;background:#8A2C2C;" onclick="referAcademicCase('${c.id}')">لم يتقن المهارة → إحالة للموجه</button>` : ''}
             ${needsConfirm ? `<button class="btn btn-primary" style="padding:2px 8px;font-size:10.5px;background:#8A2C2C;" onclick="openAcLetter('${c.id}')">إصدار خطاب 📄</button>` : ''}
             ${confirmed ? `<button class="btn btn-outline" style="padding:2px 8px;font-size:10.5px;" onclick="openAcLetter('${c.id}')">عرض الخطاب</button>` : ''}
@@ -225,7 +232,7 @@ async function renderAcCases(){
 async function referAcademicCase(id){
   const ok = await showConfirm('تأكيد أن الطالب لم يتقن المهارة (أو أكثر) رغم تنفيذ الخطة العلاجية، وتحويله للموجه الطلابي وفق الإجراء (1.9.2)؟');
   if(!ok) return;
-  const { error } = await sb.from('academic_cases').update({ status: 'referred' }).eq('id', id);
+  const { error } = await sb.from('academic_cases').update({ status: 'referred' }).eq('teacher_id', currentUser.id).eq('id', id);
   if(error){ showToast('تعذّر التحديث: ' + error.message, 'error'); return; }
   showToast('تم تحويل الحالة — جاهز لإصدار خطاب الإحالة', 'ok');
   await renderAcCases();
@@ -237,7 +244,7 @@ async function deleteAcademicCase(id){
   const kase = acCasesCache.find(c => String(c.id) === String(id));
   const ok = await showConfirm('حذف هذه الحالة؟ يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
   if(!ok) return;
-  const { error } = await sb.from('academic_cases').delete().eq('id', id);
+  const { error } = await sb.from('academic_cases').delete().eq('teacher_id', currentUser.id).eq('id', id);
   if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
   await renderAcCases();
   await refreshAcBadges();
@@ -323,8 +330,9 @@ const AC_TRANSFER_CFG = {
   homeBadgeId: 'academicHomeBadge',
   pendingBannerId: 'acPendingBanner',
   pendingCountId: 'acPendingCount',
-  undocumentedBannerId: 'acUndocumentedBanner',
-  undocumentedCountId: 'acUndocumentedCount'
+  undocumentedBannerId: null,
+  undocumentedCountId: null,
+  countUndocumented: false
 };
 
 const CRM_TRANSFER_CFG = {
@@ -349,7 +357,7 @@ async function refreshAcBadges(){
 
 /* ---- خطاب الإحالة الأكاديمية ---- */
 async function openAcLetter(caseId){
-  const { data: kase, error } = await sb.from('academic_cases').select('*').eq('id', caseId).maybeSingle();
+  const { data: kase, error } = await sb.from('academic_cases').select('*').eq('teacher_id', currentUser.id).eq('id', caseId).maybeSingle();
   if(error || !kase){ showToast('تعذّر تحميل بيانات الحالة', 'error'); return; }
 
   let student = acStudents.find(s => s.id === kase.student_id);
@@ -380,7 +388,7 @@ async function openAcLetter(caseId){
 
   const photoSection = document.getElementById('acPhotoUploadSection');
   const photoBox = document.getElementById('acPhotoPreviewBox');
-  if(kase.referral_letter_generated){
+  if(receiptSectionVisible(kase.referral_letter_generated, kase.referral_receipt_photo_url)){
     photoSection.style.display = 'block';
     if(kase.referral_receipt_photo_url){
       document.getElementById('acPhotoPreviewImg').src = kase.referral_receipt_photo_url;
@@ -616,7 +624,7 @@ async function confirmLetterIssued(cfg){
   const { error } = await sb.from(cfg.table).update({
     referral_letter_generated: true,
     referral_letter_number: num
-  }).eq('id', entity.id);
+  }).eq('teacher_id', currentUser.id).eq('id', entity.id);
   if(error){ showToast('تعذّر الحفظ: ' + error.message, 'error'); return; }
 
   const nextNum = (parseInt(num, 10) || 0) + 1;
@@ -626,8 +634,12 @@ async function confirmLetterIssued(cfg){
   entity.referral_letter_number = num;
   await cfg.refreshBadges();
 
-  showToast('تم تأكيد إصدار الخطاب — الآن ارفع صورة التوقيع بعد الطباعة', 'ok');
-  document.getElementById(cfg.uploadSectionId).style.display = 'block';
+  if(RECEIPT_DOCS_ON){
+    showToast('تم تأكيد إصدار الخطاب — الآن ارفع صورة التوقيع بعد الطباعة', 'ok');
+    document.getElementById(cfg.uploadSectionId).style.display = 'block';
+  } else {
+    showToast('تم تأكيد إصدار الخطاب ✓', 'ok');
+  }
 }
 
 async function uploadLetterReceiptPhoto(event, cfg){
@@ -657,7 +669,7 @@ async function uploadLetterReceiptPhoto(event, cfg){
     if(upErr) throw upErr;
     const { data: pub } = sb.storage.from('shawahid-photos').getPublicUrl(path);
 
-    const { error } = await sb.from(cfg.table).update({ referral_receipt_photo_url: pub.publicUrl }).eq('id', entity.id);
+    const { error } = await sb.from(cfg.table).update({ referral_receipt_photo_url: pub.publicUrl }).eq('teacher_id', currentUser.id).eq('id', entity.id);
     if(error) throw error;
 
     entity.referral_receipt_photo_url = pub.publicUrl;
@@ -677,7 +689,7 @@ async function deleteLetterReceiptPhoto(cfg){
   const entity = ref[cfg.entityKey];
   const ok = await showConfirm('حذف صورة إثبات التسليم؟');
   if(!ok) return;
-  const { error } = await sb.from(cfg.table).update({ referral_receipt_photo_url: null }).eq('id', entity.id);
+  const { error } = await sb.from(cfg.table).update({ referral_receipt_photo_url: null }).eq('teacher_id', currentUser.id).eq('id', entity.id);
   if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
   entity.referral_receipt_photo_url = null;
   document.getElementById(cfg.previewBoxId).style.display = 'none';
@@ -2091,7 +2103,7 @@ async function openReferralLetter(incidentId){
 
   const photoSection = document.getElementById('rlPhotoUploadSection');
   const photoBox = document.getElementById('rlPhotoPreviewBox');
-  if(inc.referral_letter_generated){
+  if(receiptSectionVisible(inc.referral_letter_generated, inc.referral_receipt_photo_url)){
     photoSection.style.display = 'block';
     if(inc.referral_receipt_photo_url){
       document.getElementById('rlPhotoPreviewImg').src = inc.referral_receipt_photo_url;

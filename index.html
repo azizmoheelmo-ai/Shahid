@@ -381,9 +381,6 @@
       <div id="acPendingBanner" style="display:none;background:#FBEAEA;border:1px solid #E0B4B4;color:#8A2C2C;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 10px;text-align:center;cursor:pointer;" onclick="jumpToAcFilter('pending')">
         ⚠ <span id="acPendingCount">0</span> حالة أُحيلت ولم يُصدَر لها خطاب — اضغط لعرضها
       </div>
-      <div id="acUndocumentedBanner" style="display:none;background:#FFF7E6;border:1px solid #E8D19A;color:#8A6D1F;padding:10px 14px;font-size:12.5px;font-weight:700;margin:0 32px 14px;text-align:center;cursor:pointer;" onclick="jumpToAcFilter('undocumented')">
-        📷 <span id="acUndocumentedCount">0</span> خطاب صادر بدون توثيق تسليم — اضغط لعرضه
-      </div>
 
       <!-- ============ تبويب: تسجيل حالة ============ -->
       <div id="acTabRegister" style="display:none;">
@@ -424,7 +421,6 @@
         <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
           <button class="btn btn-primary" id="acFilterBtn_all" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('all')">الكل</button>
           <button class="btn btn-outline" id="acFilterBtn_pending" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('pending')">⚠ بانتظار الخطاب</button>
-          <button class="btn btn-outline" id="acFilterBtn_undocumented" style="padding:4px 10px;font-size:11.5px;" onclick="setAcFilter('undocumented')">📷 غير موثّق</button>
         </div>
         <input class="goal-input" id="acCasesSearch" placeholder="ابحث عن طالب بالاسم..." style="margin-bottom:10px;" oninput="debouncedRenderAcCases()">
         <div id="acCasesList"></div>
