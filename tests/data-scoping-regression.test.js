@@ -18,7 +18,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadApp } = require('./load-app.js');
+const { loadApp, runInAppContext } = require('./load-app.js');
 
 /* عميل وهمي يطبّق فلاتر .eq()/.range() فعليًا على بيانات مزروعة لأكثر من
    مستخدم — يحاكي RLS + "المسؤول يشوف الكل" معًا، تمامًا كحال حساب مسؤول
@@ -117,6 +117,8 @@ describe('عزل بيانات المستخدم في شاشاته الشخصية 
     };
     const app = loadApp({ supabaseClient: makeScopedClient(seed), currentUser: { id: 'u1' } });
     installLiveDom(app);
+    /* المتابعة الأكاديمية موقوفة حاليًا — نشغّلها هنا ليبقى تقييد استعلامها مختبرًا لو أُعيدت */
+    runInAppContext(app, 'ACADEMIC_ON = true;');
 
     const data = await app.loadAttentionData();
     assert.ok(data, 'التحميل يجب أن ينجح');

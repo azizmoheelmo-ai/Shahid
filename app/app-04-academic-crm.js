@@ -1,10 +1,14 @@
 /* ============ المتابعة الأكاديمية ============ */
+/* موقوفة بالكامل حاليًا بطلب صاحب التطبيق (لا حالات مسجّلة لأي معلم عند الإيقاف).
+   الكود والجدول باقيان كما هما؛ إعادتها = true هنا. خطابات المخالفات لا تتأثر. */
+let ACADEMIC_ON = false; /* let: اختبار العزل يشغّلها ليتحقق من تقييد استعلامها */
 let acStudents = [];
 let acCasesCache = [];
 let acFilter = 'all';
 let acCurrentCase = null;
 
 async function showAcademicTracking(){
+  if(!ACADEMIC_ON){ showClassroomManagement(); return; }
   hideAllMainViews();
   setActiveBottomTab('classroom'); /* لا تبويب سفلي خاص بها بعد الآن — تُفتح من إدارة الصف ← المتابعات */
   document.getElementById('academicView').style.display = 'block';
@@ -352,11 +356,13 @@ async function getAcTransferCounts(){
 }
 
 async function refreshAcBadges(){
+  if(!ACADEMIC_ON) return;
   return refreshTransferBadges(AC_TRANSFER_CFG);
 }
 
 /* ---- خطاب الإحالة الأكاديمية ---- */
 async function openAcLetter(caseId){
+  if(!ACADEMIC_ON) return;
   const { data: kase, error } = await sb.from('academic_cases').select('*').eq('teacher_id', currentUser.id).eq('id', caseId).maybeSingle();
   if(error || !kase){ showToast('تعذّر تحميل بيانات الحالة', 'error'); return; }
 
