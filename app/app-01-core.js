@@ -282,6 +282,46 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
   });
 }
 
+/* تثبيت التطبيق على الجهاز (PWA): كروم/أندرويد/ويندوز يطلقون beforeinstallprompt
+   فنحفظه ونُظهر زر التثبيت بقائمة الحساب. سفاري آيفون لا يدعم هذا الحدث، فيظهر
+   الزر مع تعليمات "إضافة إلى الشاشة الرئيسية". يُخفى الزر كليًا إن كان التطبيق
+   مثبّتًا ومفتوحًا كتطبيق (standalone). */
+let deferredInstallPrompt = null;
+function isStandaloneApp(){
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+}
+function setInstallBtnVisible(show){
+  const b = document.getElementById('installAppBtn');
+  if(b) b.style.display = show ? '' : 'none';
+}
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if(!isStandaloneApp()) setInstallBtnVisible(true);
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  setInstallBtnVisible(false);
+  showToast('تم تثبيت التطبيق ✓', 'ok');
+});
+document.addEventListener('DOMContentLoaded', () => {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(isIOS && !isStandaloneApp()) setInstallBtnVisible(true);
+});
+async function installApp(){
+  if(deferredInstallPrompt){
+    const p = deferredInstallPrompt;
+    deferredInstallPrompt = null;
+    setInstallBtnVisible(false);
+    try{
+      p.prompt();
+      await p.userChoice;
+    }catch(e){ /* تجاهل — المتصفح يتعامل مع الرفض */ }
+    return;
+  }
+  showToast('من متصفح سفاري: اضغط زر المشاركة ثم «إضافة إلى الشاشة الرئيسية».', 'ok');
+}
+
 /* ============================================
    (1) الحفظ التلقائي للمسودة محليًا
    يحمي عمل المعلم من: انقطاع النت، إغلاق الصفحة بالخطأ، نفاد بطارية الجوال

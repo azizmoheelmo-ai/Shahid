@@ -17,13 +17,14 @@
      Service Worker خارج HTTPS/localhost، وهذا سلوك متصفح طبيعي متوقّع.
 */
 
-const CACHE_NAME = 'shahid-shell-v3';
+const CACHE_NAME = 'shahid-shell-v4';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
   './icon-180.png',
-  './icon-192.png'
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 /* الملفات التي تحمل منطق التطبيق نفسه (الصفحة + سكربتات app/*.js) —
