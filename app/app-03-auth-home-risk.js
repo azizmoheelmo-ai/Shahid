@@ -986,6 +986,7 @@ function showSettingsSection(name){
   const ids = { menu: 'settingsMenu', customize: 'settingsCustomizeBody', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', connector: 'settingsConnectorBody', calendarFeed: 'settingsCalendarFeedBody' };
   Object.values(ids).forEach(id => { document.getElementById(id).style.display = 'none'; });
   document.getElementById(ids[name] || ids.menu).style.display = 'block';
+  if(name === 'security') applyPasswordSectionMode();
 }
 
 /* ============ موصل الذكاء الاصطناعي (رموز وصول شخصية، قراءة فقط) ============

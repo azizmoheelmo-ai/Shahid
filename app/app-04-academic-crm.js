@@ -819,13 +819,35 @@ async function changeEmail(){
   }
 }
 
+/* هل لحساب المستخدم كلمة مرور فعلًا؟ حساب Google فقط ليس له هوية «email» —
+   فلا توجد «كلمة مرور حالية» يُتحقَّق منها. عند غياب معلومات الهويات نفترض
+   وجودها (السلوك القديم الأكثر تحفظًا). */
+function userHasPasswordLogin(user){
+  if(!user) return true;
+  if(Array.isArray(user.identities)) return user.identities.some(i => i && i.provider === 'email');
+  const providers = user.app_metadata && user.app_metadata.providers;
+  if(Array.isArray(providers)) return providers.includes('email');
+  return true;
+}
+
+/* يبدّل نموذج كلمة المرور بين «تغيير» (له كلمة حالية) و«تعيين» (حساب Google فقط) */
+function applyPasswordSectionMode(){
+  const hasPw = userHasPasswordLogin(currentUser);
+  document.getElementById('pePwLabel').textContent = hasPw ? 'تغيير كلمة المرور' : 'تعيين كلمة مرور';
+  document.getElementById('pePwGoogleNote').style.display = hasPw ? 'none' : 'block';
+  document.getElementById('peCurrentPassword').style.display = hasPw ? '' : 'none';
+  document.getElementById('pePwBtn').textContent = hasPw ? 'تحديث كلمة المرور' : 'تعيين كلمة المرور';
+}
+
 async function changePassword(){
+  const hasPw = userHasPasswordLogin(currentUser);
   const currentPw = document.getElementById('peCurrentPassword').value;
   const p1 = document.getElementById('peNewPassword').value;
   const p2 = document.getElementById('peNewPassword2').value;
   const msg = document.getElementById('passwordChangeMsg');
+  const btn = document.getElementById('pePwBtn');
 
-  if(!currentPw){
+  if(hasPw && !currentPw){
     msg.style.color = '#8A2C2C';
     msg.textContent = 'أدخل كلمة المرور الحالية أولًا للتأكيد.';
     return;
@@ -846,35 +868,43 @@ async function changePassword(){
     msg.textContent = 'كلمتا المرور غير متطابقتين.';
     return;
   }
-  if(currentPw === p1){
+  if(hasPw && currentPw === p1){
     msg.style.color = '#8A2C2C';
     msg.textContent = 'كلمة المرور الجديدة يجب أن تختلف عن الحالية.';
     return;
   }
 
+  btn.disabled = true;
   msg.style.color = 'var(--muted)';
-  msg.textContent = 'جارٍ التحقق من كلمة المرور الحالية...';
   try{
-    const { error: verifyError } = await sb.auth.signInWithPassword({ email: currentUser.email, password: currentPw });
-    if(verifyError){
-      msg.style.color = '#8A2C2C';
-      msg.textContent = 'كلمة المرور الحالية غير صحيحة.';
-      return;
+    if(hasPw){
+      msg.textContent = 'جارٍ التحقق من كلمة المرور الحالية...';
+      const { error: verifyError } = await sb.auth.signInWithPassword({ email: currentUser.email, password: currentPw });
+      if(verifyError){
+        msg.style.color = '#8A2C2C';
+        msg.textContent = 'كلمة المرور الحالية غير صحيحة.';
+        return;
+      }
     }
 
     msg.textContent = 'جارٍ التحديث...';
-    const { error } = await sb.auth.updateUser({ password: p1 });
+    const { data, error } = await sb.auth.updateUser({ password: p1 });
     if(error) throw error;
+    /* تحديث المستخدم المحلي: صار له هوية «email» فيتحوّل النموذج لوضع «تغيير» */
+    if(data && data.user) currentUser = data.user;
     msg.style.color = '#215C34';
-    msg.textContent = 'تم تحديث كلمة المرور بنجاح ✓';
+    msg.textContent = hasPw ? 'تم تحديث كلمة المرور بنجاح ✓' : 'تم تعيين كلمة المرور بنجاح ✓ يمكنك الدخول بها (مع بريدك) في «مُصحّح» أيضًا.';
     document.getElementById('peCurrentPassword').value = '';
     document.getElementById('peNewPassword').value = '';
     document.getElementById('peNewPassword2').value = '';
     document.getElementById('peNewPwBox').style.display = 'none';
-    showToast('تم تحديث كلمة المرور', 'ok');
+    applyPasswordSectionMode();
+    showToast(hasPw ? 'تم تحديث كلمة المرور' : 'تم تعيين كلمة المرور', 'ok');
   } catch(err){
     msg.style.color = '#8A2C2C';
     msg.textContent = 'خطأ: ' + translateAuthError(err.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 

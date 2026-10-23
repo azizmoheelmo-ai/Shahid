@@ -580,7 +580,8 @@
           <span id="emailChangeMsg" style="font-size:12px;display:block;margin-top:6px;"></span>
         </div>
         <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
-          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">تغيير كلمة المرور</label>
+          <label id="pePwLabel" style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">تغيير كلمة المرور</label>
+          <div id="pePwGoogleNote" style="display:none;background:#EEF5EF;border:1px solid #BFD8C4;border-radius:8px;padding:9px;font-size:12px;line-height:1.7;color:#215C34;margin-bottom:10px;">دخلتَ عبر Google. يمكنك تعيين كلمة مرور لتسجّل بها أيضًا في «مُصحّح» وتطبيقات أخرى.</div>
           <input class="goal-input" id="peCurrentPassword" type="password" placeholder="كلمة المرور الحالية" style="margin-bottom:8px;">
           <input class="goal-input" id="peNewPassword" type="password" placeholder="كلمة المرور الجديدة" style="margin-bottom:6px;" oninput="updatePasswordStrengthUI('peNewPassword','peNewPwBar','peNewPwLabel','peNewPwBox')">
           <div id="peNewPwBox" style="display:none;margin:0 0 10px;">
@@ -590,7 +591,7 @@
             <div id="peNewPwLabel" style="font-size:10.5px;margin-top:3px;"></div>
           </div>
           <input class="goal-input" id="peNewPassword2" type="password" placeholder="تأكيد كلمة المرور الجديدة" style="margin-bottom:8px;">
-          <button class="btn btn-outline" onclick="changePassword()">تحديث كلمة المرور</button>
+          <button class="btn btn-outline" id="pePwBtn" onclick="changePassword()">تحديث كلمة المرور</button>
           <span id="passwordChangeMsg" style="font-size:12px;margin-right:8px;"></span>
         </div>
       </div>
