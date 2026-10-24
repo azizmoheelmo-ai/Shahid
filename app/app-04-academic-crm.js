@@ -2147,7 +2147,7 @@ async function refreshOccurrencePreview(){
   box.dataset.stage = stage;
   box.innerHTML = `
     <div class="crm-prev${referred ? ' is-ref' : ''}">
-      <div class="crm-prev-k">المرة رقم ${occurrence} لهذه المخالفة هذا الفصل (${escapeHtml(semester)})</div>
+      <div class="crm-prev-k">المرة رقم ${occurrence} لهذه المخالفة هذا الفصل <span class="crm-prev-sem">(${escapeHtml(semester)})</span></div>
       <div class="crm-prev-v">${escapeHtml(actionText)}</div>
       ${referred ? '<div class="crm-prev-w">⚠ يلزم إصدار خطاب تحويل بعد الحفظ</div>' : ''}
     </div>
@@ -2577,6 +2577,16 @@ async function renderCrmIncidentTypeChips(){
     return `<button type="button" class="crm-type-row${on ? ' is-on' : ''}" role="radio" aria-checked="${on}" data-type="${t.id}" onclick="pickCrmIncidentType('${t.id}')"><span class="crm-type-rad" aria-hidden="true"></span><span class="crm-type-t">${escapeHtml(t.problem_name)}</span>${crmDegreeBadge(t)}</button>`;
   }).join('')
     + `<button type="button" class="crm-type-row is-more" onclick="openCrmTypePicker()"><span>كل المخالفات (${crmIncidentTypes.length}) وبحث</span><span aria-hidden="true">‹</span></button>`;
+  revealCrmPickedType();
+}
+
+/* الخيار المحدَّد يبقى ظاهرًا كاملًا (لا مقصوصًا تحت العنوان) ويومض لحظة */
+function revealCrmPickedType(){
+  const box = document.getElementById('crmIncidentTypeChips');
+  const row = box && box.querySelector ? box.querySelector('.crm-type-row.is-on') : null;
+  if(!row || !row.scrollIntoView) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  row.classList.remove('is-flash'); void row.offsetWidth; row.classList.add('is-flash');
 }
 
 function pickCrmIncidentType(id){
@@ -2584,6 +2594,7 @@ function pickCrmIncidentType(id){
   if(!sel) return;
   sel.value = id;
   markCrmIncidentTypeChips();
+  revealCrmPickedType();
   refreshOccurrencePreview();
   updateCrmIncidentSaveState();
 }

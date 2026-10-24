@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadApp, runInAppContext } = require('./load-app');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
 const get = (app, e) => runInAppContext(app, e);
 
 function client(tables, log){
@@ -304,4 +305,12 @@ test('الحفظ يمرّر معرّف السجل الجديد لإشعار ال
     getCrmSemesterLabel = () => 'x'; invalidateAttention = () => {}; refreshAttention = () => {};`);
   const r = await app.insertClassroomIncident({ studentId: 'S', typeId: 'T', notes: '' });
   assert.equal(r.id, 'NEW9');
+});
+
+test('انحدار: بطاقة المرحلة داخل الجزء الثابت فوق زر الحفظ (لا تختفي أسفل القائمة الطويلة)، وتاريخ الفصل لا ينكسر', async () => {
+  const sheet = html.slice(html.indexOf('id="crmIncidentSheet"'), html.indexOf('id="crmTypePicker"'));
+  const foot = sheet.indexOf('class="crm-bsheet-foot"');
+  const prev = sheet.indexOf('id="crmOccurrencePreview"');
+  assert.ok(prev > foot && prev < sheet.indexOf('id="crmIncidentSaveBtn"'), 'البطاقة في الجزء الثابت قبل الحفظ');
+  assert.match(css, /\.crm-prev-sem\{white-space:nowrap/);
 });
