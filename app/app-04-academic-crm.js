@@ -1096,9 +1096,7 @@ function onCrmSemesterChange(){
 async function onCrmYearChange(){
   saveCrmSemester();
   updateCrmTermChip();
-  document.getElementById('crmIncidentStudentId').value = '';
-  document.getElementById('crmIncidentStudentSearch').value = '';
-  document.getElementById('crmOccurrencePreview').style.display = 'none';
+  resetCrmIncidentForm();
   document.getElementById('crmLinkReviewBox').style.display = 'none';
   await refreshCrmStructureAndStudents();
   renderCrmTimetableEditor();
@@ -1934,26 +1932,72 @@ function renderCrmIncidentStudentResults(){
   const box = document.getElementById('crmIncidentStudentResults');
   if(!q){ box.style.display = 'none'; box.innerHTML=''; return; }
   const matches = crmStudents.filter(s => s.full_name.includes(q)).slice(0, 20);
-  if(!matches.length){ box.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted);">لا نتائج</div>'; box.style.display='block'; return; }
+  if(!matches.length){ box.innerHTML = '<div style="padding:10px 12px;font-size:12.5px;color:var(--muted);">لا نتائج</div>'; box.style.display='block'; return; }
   box.innerHTML = matches.map(s => `
-    <div style="padding:8px 10px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--line);" onclick="selectCrmIncidentStudent('${s.id}')">
-      ${escapeHtml(s.full_name)} <span style="color:var(--muted);font-size:11px;">— ${escapeHtml(s.grade_level || '')} / الشعبة ${escapeHtml(s.section_number || '')}</span>
-    </div>
+    <button type="button" class="crm-stu-res" onclick="selectCrmIncidentStudent('${s.id}')">
+      ${escapeHtml(s.full_name)}<small>${escapeHtml(s.grade_level || '')} / الشعبة ${escapeHtml(s.section_number || '')}</small>
+    </button>
   `).join('');
   box.style.display = 'block';
 }
 
+/* "مخالفة واحدة / مخالفتان / 3 مخالفات / 11 مخالفة" — للقائمة وبطاقة الطالب */
+function crmIncidentCountText(n){
+  return n === 1 ? 'مخالفة واحدة' : n === 2 ? 'مخالفتان' : n <= 10 ? n + ' مخالفات' : n + ' مخالفة';
+}
+
 function selectCrmIncidentStudent(id){
   const s = crmStudents.find(x => x.id === id);
+  if(!s) return;
   document.getElementById('crmIncidentStudentId').value = id;
-  document.getElementById('crmIncidentStudentSearch').value = s ? (s.full_name + ' — ' + (s.grade_level||'') + ' / الشعبة ' + (s.section_number||'')) : '';
+  document.getElementById('crmIncidentStudentSearch').value = '';
   document.getElementById('crmIncidentStudentResults').style.display = 'none';
+  document.getElementById('crmIncidentStudentBox').style.display = 'none';
+  const card = document.getElementById('crmIncidentStudentCard');
+  card.style.display = 'flex';
+  card.innerHTML = `<span class="crm-stu-av" aria-hidden="true">${escapeHtml((s.full_name || '؟').trim().charAt(0))}</span>
+    <span class="crm-stu-main"><b>${escapeHtml(s.full_name)}</b>
+      <small>${escapeHtml(s.grade_level || '')} / الشعبة ${escapeHtml(s.section_number || '')}</small>
+      <small id="crmIncidentStudentStat"></small></span>
+    <button type="button" class="crm-stu-clear" aria-label="تغيير الطالب" onclick="clearCrmIncidentStudent(true)">✕</button>`;
+  loadCrmIncidentStudentStat(id);
   refreshOccurrencePreview();
+  updateCrmIncidentSaveState();
 }
+
+/* بطاقة الطالب: عدد مخالفاته بهذا الفصل — من سجلات هذا المعلم فقط */
+async function loadCrmIncidentStudentStat(studentId){
+  const semester = getCrmSemesterLabel();
+  const { data, error } = await sb.from('classroom_incidents')
+    .select('id')
+    .eq('teacher_id', currentUser.id)
+    .eq('student_id', studentId)
+    .eq('semester_label', semester);
+  /* المعلم غيّر الطالب أثناء الانتظار: لا نكتب إحصاء طالب على بطاقة آخر */
+  if(error || document.getElementById('crmIncidentStudentId').value !== studentId) return;
+  const el = document.getElementById('crmIncidentStudentStat');
+  if(!el) return;
+  const n = (data || []).length;
+  el.textContent = n ? 'لديه ' + crmIncidentCountText(n) + ' هذا الفصل' : 'لا مخالفات له هذا الفصل';
+  el.classList.toggle('is-warn', n > 0);
+}
+
+function clearCrmIncidentStudent(focusSearch){
+  document.getElementById('crmIncidentStudentId').value = '';
+  document.getElementById('crmIncidentStudentSearch').value = '';
+  document.getElementById('crmIncidentStudentResults').style.display = 'none';
+  document.getElementById('crmIncidentStudentCard').style.display = 'none';
+  document.getElementById('crmIncidentStudentBox').style.display = 'block';
+  refreshOccurrencePreview();
+  updateCrmIncidentSaveState();
+  if(focusSearch){ const inp = document.getElementById('crmIncidentStudentSearch'); if(inp && inp.focus) inp.focus(); }
+}
+
+const CRM_DEGREE_LABELS = { 1: 'الدرجة الأولى', 2: 'الدرجة الثانية', 3: 'الدرجة الثالثة', 4: 'الدرجة الرابعة', 5: 'الدرجة الخامسة' };
 
 function renderCrmIncidentTypeSelect(){
   const sel = document.getElementById('crmIncidentType');
-  const degreeLabels = { 1: 'الدرجة الأولى', 2: 'الدرجة الثانية', 3: 'الدرجة الثالثة', 4: 'الدرجة الرابعة', 5: 'الدرجة الخامسة' };
+  const degreeLabels = CRM_DEGREE_LABELS;
   const groups = {};
   crmIncidentTypes.forEach(t => {
     groups[t.problem_degree] = groups[t.problem_degree] || [];
@@ -2026,25 +2070,52 @@ async function refreshOccurrencePreview(){
   const studentId = document.getElementById('crmIncidentStudentId').value;
   const typeId = document.getElementById('crmIncidentType').value;
   const box = document.getElementById('crmOccurrencePreview');
-  if(!studentId || !typeId){ box.style.display = 'none'; return; }
+  if(!studentId || !typeId){ box.style.display = 'none'; delete box.dataset.stage; updateCrmIncidentSaveState(); return; }
   const semester = getCrmSemesterLabel();
 
   let occurrence;
   try{ occurrence = await computeIncidentOccurrence(studentId, typeId, semester); }
   catch(error){ showToast('خطأ في الحساب: ' + error.message, 'error'); return; }
+  /* تغيّر الاختيار أثناء الحساب: نتيجة قديمة لا تُعرض ولا تُكتب فوق الأحدث */
+  if(document.getElementById('crmIncidentStudentId').value !== studentId || document.getElementById('crmIncidentType').value !== typeId) return;
   const type = crmIncidentTypes.find(t => t.id === typeId);
   const { stage, actionText } = incidentStageFor(type, occurrence);
+  const referred = stage === 'referred';
 
   box.style.display = 'block';
   box.dataset.occurrence = occurrence;
   box.dataset.stage = stage;
   box.innerHTML = `
-    <div style="background:#F7F5F0;border:1px solid var(--line);padding:10px 13px;font-size:12.5px;line-height:1.8;margin-top:2px;">
-      <b>المرة رقم:</b> ${occurrence} لهذه المخالفة هذا الفصل (${escapeHtml(semester)})<br>
-      <b>الإجراء المقترح:</b> ${escapeHtml(actionText)}
-      ${stage === 'referred' ? '<div style="margin-top:6px;color:#8A2C2C;font-weight:700;">⚠ هذه الحادثة تتطلب إصدار خطاب تحويل</div>' : ''}
+    <div class="crm-prev${referred ? ' is-ref' : ''}">
+      <div class="crm-prev-k">المرة رقم ${occurrence} لهذه المخالفة هذا الفصل (${escapeHtml(semester)})</div>
+      <div class="crm-prev-v">${escapeHtml(actionText)}</div>
+      ${referred ? '<div class="crm-prev-w">⚠ يلزم إصدار خطاب تحويل بعد الحفظ</div>' : ''}
     </div>
   `;
+  updateCrmIncidentSaveState();
+}
+
+/* الزر معطّل حتى يكتمل الاختيار، ونصه يقول ما ينقص */
+function updateCrmIncidentSaveState(){
+  const btn = document.getElementById('crmIncidentSaveBtn');
+  if(!btn) return;
+  const hasStudent = !!document.getElementById('crmIncidentStudentId').value;
+  const hasType = !!document.getElementById('crmIncidentType').value;
+  const box = document.getElementById('crmOccurrencePreview');
+  const referred = hasStudent && hasType && box.style.display !== 'none' && box.dataset.stage === 'referred';
+  btn.disabled = crmIncidentSaving || !hasStudent || !hasType;
+  btn.textContent = crmIncidentSaving ? 'جارٍ الحفظ…'
+    : !hasStudent && !hasType ? 'اختر الطالب والمخالفة'
+    : !hasStudent ? 'اختر الطالب'
+    : !hasType ? 'اختر المخالفة'
+    : referred ? 'حفظ — يلزم خطاب تحويل' : 'حفظ المخالفة';
+  btn.classList.toggle('is-referral', !!referred);
+}
+
+function autoGrowCrmIncidentNotes(el){
+  if(!el || !el.style) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight || 0, 140) + 'px';
 }
 
 let crmIncidentSaving = false;
@@ -2058,8 +2129,7 @@ async function saveClassroomIncident(){
   /* نقرة مزدوجة كانت تُسجّل نفس المخالفة مرتين (وترفع رقم التكرار خطأً) */
   if(crmIncidentSaving) return;
   crmIncidentSaving = true;
-  const saveBtn = document.getElementById('crmIncidentSaveBtn');
-  if(saveBtn) saveBtn.disabled = true;
+  updateCrmIncidentSaveState();
   let result;
   try{
     result = await insertClassroomIncident({ studentId, typeId, notes });
@@ -2068,14 +2138,10 @@ async function saveClassroomIncident(){
     return;
   } finally {
     crmIncidentSaving = false;
-    if(saveBtn) saveBtn.disabled = false;
+    updateCrmIncidentSaveState();
   }
   showToast(result.stage === 'referred' ? 'تم الحفظ — الحالة تتطلب تحويل' : 'تم حفظ التنبيه', 'ok');
-  document.getElementById('crmIncidentNotes').value = '';
-  box.style.display = 'none';
-  document.getElementById('crmIncidentStudentId').value = '';
-  document.getElementById('crmIncidentStudentSearch').value = '';
-  document.getElementById('crmIncidentType').value = '';
+  resetCrmIncidentForm();
   closeCrmIncidentSheet();
   await renderCrmRecentIncidents();
   await refreshCrmPendingBadges();
@@ -2377,6 +2443,7 @@ async function openCrmIncidentSheet(studentId){
   if(!ov) return;
   ov.style.display = 'flex';
   if(studentId) selectCrmIncidentStudent(studentId);
+  updateCrmIncidentSaveState();
   await renderCrmIncidentTypeChips();
 }
 
@@ -2385,10 +2452,32 @@ function closeCrmIncidentSheet(){
   if(ov) ov.style.display = 'none';
   const res = document.getElementById('crmIncidentStudentResults');
   if(res) res.style.display = 'none';
+  closeCrmTypePicker();
 }
 
-/* شرائح أكثر 6 مخالفات استخدامًا لدى المعلم + "غيرها…" تفتح القائمة الكاملة.
-   بلا سجل سابق: القائمة الكاملة مباشرة */
+/* تصفير النموذج كله (بعد الحفظ أو تغيير السنة) */
+function resetCrmIncidentForm(){
+  const notes = document.getElementById('crmIncidentNotes');
+  notes.value = '';
+  if(notes.style) notes.style.height = '';
+  document.getElementById('crmIncidentType').value = '';
+  const box = document.getElementById('crmOccurrencePreview');
+  box.style.display = 'none';
+  delete box.dataset.stage;
+  clearCrmIncidentStudent(false);
+  markCrmIncidentTypeChips();
+}
+
+const crmDegDigits = '٠١٢٣٤٥٦٧٨٩';
+function crmDegreeBadge(type){
+  const d = Number(type && type.problem_degree);
+  if(!d) return '';
+  const ar = String(d).replace(/\d/g, c => crmDegDigits[c]);
+  return `<span class="crm-type-deg"><i class="crm-dot${d >= 1 && d <= 5 ? ' d' + d : ''}"></i>د${ar}</span>`;
+}
+
+/* أكثر 6 مخالفات استخدامًا لدى المعلم كصفوف بعرض كامل + "كل المخالفات" تفتح ورقة
+   البحث. بلا سجل سابق: زر "كل المخالفات" وحده */
 async function renderCrmIncidentTypeChips(){
   const box = document.getElementById('crmIncidentTypeChips');
   const sel = document.getElementById('crmIncidentType');
@@ -2399,35 +2488,91 @@ async function renderCrmIncidentTypeChips(){
   const hint = document.getElementById('crmIncidentTypeHint');
   if(hint) hint.textContent = top.length ? '· الأكثر استخدامًا' : '';
   const cur = sel.value;
-  box.innerHTML = top.map(t => `<button type="button" class="crm-type-chip${cur === t.id ? ' is-on' : ''}" data-type="${t.id}" onclick="pickCrmIncidentType('${t.id}')">${escapeHtml(t.problem_name)}</button>`).join('')
-    + (top.length ? `<button type="button" class="crm-type-chip is-more" onclick="showCrmIncidentTypeSelect()">غيرها…</button>` : '');
-  sel.style.display = top.length && !(cur && !top.some(t => t.id === cur)) ? 'none' : 'block';
+  /* المختار من ورقة البحث وليس من الأكثر استخدامًا: يظهر أول القائمة */
+  const picked = cur && !top.some(t => t.id === cur) ? crmIncidentTypes.find(t => t.id === cur) : null;
+  const rows = (picked ? [picked] : []).concat(top);
+  box.innerHTML = rows.map(t => {
+    const on = cur === t.id;
+    return `<button type="button" class="crm-type-row${on ? ' is-on' : ''}" role="radio" aria-checked="${on}" data-type="${t.id}" onclick="pickCrmIncidentType('${t.id}')"><span class="crm-type-rad" aria-hidden="true"></span><span class="crm-type-t">${escapeHtml(t.problem_name)}</span>${crmDegreeBadge(t)}</button>`;
+  }).join('')
+    + `<button type="button" class="crm-type-row is-more" onclick="openCrmTypePicker()"><span>كل المخالفات (${crmIncidentTypes.length}) وبحث</span><span aria-hidden="true">‹</span></button>`;
 }
 
 function pickCrmIncidentType(id){
   const sel = document.getElementById('crmIncidentType');
   if(!sel) return;
   sel.value = id;
-  sel.style.display = 'none';
   markCrmIncidentTypeChips();
   refreshOccurrencePreview();
-}
-
-function showCrmIncidentTypeSelect(){
-  const sel = document.getElementById('crmIncidentType');
-  if(sel){ sel.style.display = 'block'; if(sel.focus) sel.focus(); }
+  updateCrmIncidentSaveState();
 }
 
 function onCrmIncidentTypeSelect(){
   markCrmIncidentTypeChips();
   refreshOccurrencePreview();
+  updateCrmIncidentSaveState();
 }
 
 function markCrmIncidentTypeChips(){
   const sel = document.getElementById('crmIncidentType');
   const box = document.getElementById('crmIncidentTypeChips');
   if(!sel || !box || !box.querySelectorAll) return;
-  box.querySelectorAll('.crm-type-chip[data-type]').forEach(b => b.classList.toggle('is-on', b.dataset.type === sel.value));
+  const rows = [...box.querySelectorAll('.crm-type-row[data-type]')];
+  /* اختيار من خارج الصفوف الحالية (ورقة البحث) أو ما زال المحدد القديم ظاهرًا: نعيد الرسم */
+  if(sel.value && !rows.some(b => b.dataset.type === sel.value)){ renderCrmIncidentTypeChips(); return; }
+  rows.forEach(b => {
+    const on = b.dataset.type === sel.value;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+/* ============ ورقة "كل المخالفات": بحث + تصفية بالدرجة ============ */
+let crmTypePickerDegree = 0;
+
+function openCrmTypePicker(){
+  const ov = document.getElementById('crmTypePicker');
+  if(!ov) return;
+  crmTypePickerDegree = 0;
+  document.getElementById('crmTypePickerSearch').value = '';
+  ov.style.display = 'flex';
+  renderCrmTypePicker();
+  const inp = document.getElementById('crmTypePickerSearch');
+  if(inp && inp.focus) inp.focus();
+}
+
+function closeCrmTypePicker(){
+  const ov = document.getElementById('crmTypePicker');
+  if(ov) ov.style.display = 'none';
+}
+
+function setCrmTypePickerDegree(d){
+  crmTypePickerDegree = Number(d) || 0;
+  renderCrmTypePicker();
+}
+
+function renderCrmTypePicker(){
+  const list = document.getElementById('crmTypePickerList');
+  const pills = document.getElementById('crmTypePickerPills');
+  if(!list || !pills) return;
+  const q = (document.getElementById('crmTypePickerSearch').value || '').trim();
+  const cur = document.getElementById('crmIncidentType').value;
+  const degrees = [...new Set(crmIncidentTypes.map(t => Number(t.problem_degree)).filter(Boolean))].sort((a, b) => a - b);
+  pills.innerHTML = [`<button type="button" class="crm-pill${crmTypePickerDegree === 0 ? ' is-on' : ''}" onclick="setCrmTypePickerDegree(0)">الكل</button>`]
+    .concat(degrees.map(d => `<button type="button" class="crm-pill${crmTypePickerDegree === d ? ' is-on' : ''}" onclick="setCrmTypePickerDegree(${d})">${escapeHtml(CRM_DEGREE_LABELS[d] || ('الدرجة ' + d))}</button>`)).join('');
+  const shown = crmIncidentTypes.filter(t => (!crmTypePickerDegree || Number(t.problem_degree) === crmTypePickerDegree) && (!q || String(t.problem_name || '').includes(q)));
+  if(!shown.length){ list.innerHTML = '<div class="empty-state">لا مخالفات مطابقة.</div>'; return; }
+  const groups = {};
+  shown.forEach(t => { (groups[t.problem_degree] = groups[t.problem_degree] || []).push(t); });
+  list.innerHTML = Object.keys(groups).sort((a, b) => a - b).map(deg =>
+    `<div class="crm-picker-grp"><i class="crm-dot${Number(deg) >= 1 && Number(deg) <= 5 ? ' d' + Number(deg) : ''}"></i>${escapeHtml(CRM_DEGREE_LABELS[deg] || ('الدرجة ' + deg))}</div>`
+    + groups[deg].map(t => `<button type="button" class="crm-picker-item${t.id === cur ? ' is-on' : ''}" onclick="pickCrmIncidentTypeFromPicker('${t.id}')"><span>${escapeHtml(t.problem_name)}</span>${t.regulation_article ? `<small>${escapeHtml(String(t.regulation_article))}</small>` : ''}</button>`).join('')
+  ).join('');
+}
+
+function pickCrmIncidentTypeFromPicker(id){
+  pickCrmIncidentType(id);
+  closeCrmTypePicker();
 }
 
 /* خيارات مخالفة (⋯): الخطاب والحذف — الحذف بعيد عن القائمة وبتأكيد وتراجع */
@@ -2507,7 +2652,7 @@ async function renderCrmRecentIncidents(){
     const groupId = 'crmGroup' + gi;
     const latest = list[0];
     const latestType = crmIncidentTypes.find(t => t.id === latest.incident_type_id);
-    const countText = list.length === 1 ? 'مخالفة واحدة' : list.length === 2 ? 'مخالفتان' : list.length <= 10 ? list.length + ' مخالفات' : list.length + ' مخالفة';
+    const countText = crmIncidentCountText(list.length);
 
     const itemsHtml = list.map(inc => {
       const type = crmIncidentTypes.find(t => t.id === inc.incident_type_id);

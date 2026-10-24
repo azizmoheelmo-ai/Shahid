@@ -742,24 +742,40 @@
           <div id="crmRecentIncidents"></div>
         </div>
 
-        <!-- تسجيل مخالفة: لوحة سفلية بثلاث خطوات -->
+        <!-- تسجيل مخالفة: لوحة سفلية بثلاث خطوات (العنوان والحفظ ثابتان، والوسط يتحرك) -->
         <div id="crmIncidentSheet" class="crm-bsheet-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="crmIncidentSheetTitle" onclick="if(event.target===this)closeCrmIncidentSheet()">
           <div class="crm-bsheet">
             <div class="crm-bsheet-grab"></div>
             <div class="crm-bsheet-head"><b id="crmIncidentSheetTitle">تسجيل مخالفة</b><button type="button" class="crm-bsheet-x" aria-label="إغلاق" onclick="closeCrmIncidentSheet()">✕</button></div>
-            <div class="crm-bsheet-step">١ · الطالب</div>
-            <div style="position:relative;margin-bottom:6px;">
-              <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
+            <div class="crm-bsheet-body">
+              <div class="crm-bsheet-step">١ · الطالب</div>
+              <div id="crmIncidentStudentBox" style="position:relative;">
+                <input class="goal-input" id="crmIncidentStudentSearch" placeholder="اكتب اسم الطالب للبحث..." autocomplete="off" oninput="debouncedRenderCrmIncidentStudentResults()" onfocus="renderCrmIncidentStudentResults()">
+                <div id="crmIncidentStudentResults" class="crm-stu-results" style="display:none;"></div>
+              </div>
               <input type="hidden" id="crmIncidentStudentId">
-              <div id="crmIncidentStudentResults" style="display:none;position:absolute;z-index:5;background:#fff;border:1px solid var(--line);border-radius:10px;width:100%;max-height:220px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.08);"></div>
+              <div id="crmIncidentStudentCard" class="crm-stu-card" style="display:none;"></div>
+              <div class="crm-bsheet-step">٢ · المخالفة <span id="crmIncidentTypeHint"></span></div>
+              <div id="crmIncidentTypeChips" class="crm-type-rows" role="radiogroup" aria-label="المخالفة"></div>
+              <select id="crmIncidentType" style="display:none;" aria-hidden="true" tabindex="-1" onchange="onCrmIncidentTypeSelect()"><option value="">اختر نوع المخالفة</option></select>
+              <div id="crmOccurrencePreview" style="display:none;margin-top:8px;"></div>
+              <div class="crm-bsheet-step">٣ · ملاحظة <span>(اختياري)</span></div>
+              <textarea class="goal-input crm-bsheet-notes" id="crmIncidentNotes" maxlength="2000" placeholder="اكتب ملاحظة…" rows="2" oninput="autoGrowCrmIncidentNotes(this)"></textarea>
             </div>
-            <div class="crm-bsheet-step">٢ · المخالفة <span id="crmIncidentTypeHint"></span></div>
-            <div id="crmIncidentTypeChips" class="crm-type-chips"></div>
-            <select class="goal-input" id="crmIncidentType" style="margin:6px 0 0;display:none;" onchange="onCrmIncidentTypeSelect()"><option value="">اختر نوع المخالفة</option></select>
-            <div id="crmOccurrencePreview" style="display:none;margin-top:8px;"></div>
-            <div class="crm-bsheet-step">٣ · ملاحظة <span>(اختياري)</span></div>
-            <textarea class="goal-input" id="crmIncidentNotes" maxlength="2000" placeholder="اكتب ملاحظة…" rows="2" style="margin:0 0 10px;"></textarea>
-            <button class="btn btn-primary crm-bsheet-save" id="crmIncidentSaveBtn" onclick="saveClassroomIncident()">حفظ</button>
+            <div class="crm-bsheet-foot">
+              <button class="btn btn-primary crm-bsheet-save" id="crmIncidentSaveBtn" onclick="saveClassroomIncident()" disabled>اختر الطالب والمخالفة</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- كل المخالفات: بحث وتصفية بالدرجة (بدل القائمة المنسدلة الأصلية) -->
+        <div id="crmTypePicker" class="crm-bsheet-overlay crm-picker" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="crmTypePickerTitle" onclick="if(event.target===this)closeCrmTypePicker()">
+          <div class="crm-bsheet">
+            <div class="crm-bsheet-grab"></div>
+            <div class="crm-bsheet-head"><b id="crmTypePickerTitle">اختر المخالفة</b><button type="button" class="crm-bsheet-x" aria-label="إغلاق" onclick="closeCrmTypePicker()">✕</button></div>
+            <input class="goal-input" id="crmTypePickerSearch" placeholder="🔍 ابحث عن مخالفة..." autocomplete="off" oninput="renderCrmTypePicker()">
+            <div id="crmTypePickerPills" class="crm-picker-pills"></div>
+            <div id="crmTypePickerList" class="crm-bsheet-body"></div>
           </div>
         </div>
       </div>
