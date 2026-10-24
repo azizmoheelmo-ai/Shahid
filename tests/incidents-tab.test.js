@@ -117,8 +117,55 @@ test('لوحة التسجيل: أكثر الأنواع استخدامًا كصف
   assert.match(rows, /نوع &lt;3&gt;/, 'اسم النوع مهرَّب');
   assert.doesNotMatch(rows, /نوع <3>/);
   assert.equal(get(app, `document.getElementById('crmIncidentSheet').style.display`), 'flex');
-  app.pickCrmIncidentType('T1');
+  await app.pickCrmIncidentType('T1');
   assert.equal(get(app, `document.getElementById('crmIncidentType').value`), 'T1');
+});
+
+test('بعد اختيار المخالفة تنطوي القائمة إلى صف واحد مع "تغيير"، وتعود كاملة عند الضغط، وبعد التصفير', async () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  stubSheetDom(app);
+  runInAppContext(app, `crmIncidentTypes = Array.from({ length: 9 }, (_, i) => ({ id: 'T' + i, problem_name: 'نوع <' + i + '>', problem_degree: 2 }));
+    loadCrmIncidentTypeUsage = async () => new Map([['T3', 5], ['T1', 2], ['T8', 1]]);
+    refreshOccurrencePreview = async () => {};`);
+  await app.openCrmIncidentSheet();
+  const rows = () => get(app, `document.getElementById('crmIncidentTypeChips').innerHTML`);
+  const ids = () => [...rows().matchAll(/data-type="(T\d)"/g)].map(m => m[1]);
+  assert.deepEqual(ids(), ['T3', 'T1', 'T8'], 'قبل الاختيار: القائمة كاملة');
+  await app.pickCrmIncidentType('T1');
+  await new Promise(r => setTimeout(r, 5));
+  assert.deepEqual(ids(), ['T1'], 'بعد الاختيار: الصف المختار وحده');
+  assert.match(rows(), /تغيير ‹/);
+  assert.match(rows(), /expandCrmIncidentTypes\(\)/);
+  assert.doesNotMatch(rows(), /كل المخالفات/, 'لا قائمة طويلة تدفع التحذير والملاحظة تحت الحافة');
+  assert.match(rows(), /نوع &lt;1&gt;/, 'الاسم مهرَّب');
+  assert.equal(get(app, `document.getElementById('crmIncidentTypeHint').textContent`), '', 'لا "الأكثر استخدامًا" فوق صف واحد');
+  app.expandCrmIncidentTypes();
+  await new Promise(r => setTimeout(r, 5));
+  assert.deepEqual(ids(), ['T3', 'T1', 'T8'], 'تغيير: القائمة كاملة والمختارة معلَّمة');
+  assert.match(rows(), /class="crm-type-row is-on"[^>]*data-type="T1"/);
+  assert.match(rows(), /كل المخالفات \(9\) وبحث/);
+  await app.pickCrmIncidentType('T3');
+  await new Promise(r => setTimeout(r, 5));
+  assert.deepEqual(ids(), ['T3'], 'اختيار غيرها ينطوي من جديد');
+  app.resetCrmIncidentForm();
+  await new Promise(r => setTimeout(r, 5));
+  assert.deepEqual(ids(), ['T3', 'T1', 'T8'], 'بعد الحفظ/التصفير: القائمة كاملة بلا اختيار قديم');
+  await app.pickCrmIncidentType('T1');
+  await app.openCrmIncidentSheet(); /* إغلاق ثم إعادة فتح دون حفظ: المختارة تبقى منطوية */
+  assert.deepEqual(ids(), ['T1']);
+});
+
+test('التمرير للملاحظة بعد ظهور بطاقة التحذير: فقط إن اختير الطالب (وإلا لا نبعده عن النظر)', async () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  stubSheetDom(app);
+  runInAppContext(app, `crmIncidentTypes = [{ id: 'T1', problem_name: 'ن', problem_degree: 1 }];
+    loadCrmIncidentTypeUsage = async () => new Map(); refreshOccurrencePreview = async () => {};
+    window.__scrolls = 0; document.getElementById('crmIncidentNotes').scrollIntoView = () => { window.__scrolls++; };`);
+  await app.pickCrmIncidentType('T1');
+  assert.equal(get(app, 'window.__scrolls'), 0, 'بلا طالب لا تمرير');
+  runInAppContext(app, `document.getElementById('crmIncidentStudentId').value = 's1'`);
+  await app.pickCrmIncidentType('T1');
+  assert.equal(get(app, 'window.__scrolls'), 1);
 });
 
 test('ورقة كل المخالفات: بحث وتصفية بالدرجة، والاختيار منها يظهر أول الصفوف', async () => {
@@ -143,8 +190,12 @@ test('ورقة كل المخالفات: بحث وتصفية بالدرجة، و�
   assert.equal(get(app, `document.getElementById('crmTypePicker').style.display`), 'none');
   assert.equal(get(app, `document.getElementById('crmIncidentType').value`), 'C');
   await new Promise(r => setTimeout(r, 10));
-  const rows = get(app, `document.getElementById('crmIncidentTypeChips').innerHTML`);
-  assert.deepEqual([...rows.matchAll(/data-type="(\w)"/g)].map(m => m[1]), ['C', 'A'], 'المختار من الورقة أول الصفوف');
+  let rows = get(app, `document.getElementById('crmIncidentTypeChips').innerHTML`);
+  assert.deepEqual([...rows.matchAll(/data-type="(\w)"/g)].map(m => m[1]), ['C'], 'المختار من الورقة: يظهر وحده منطويًا لتظهر الملاحظة');
+  app.expandCrmIncidentTypes();
+  await new Promise(r => setTimeout(r, 10));
+  rows = get(app, `document.getElementById('crmIncidentTypeChips').innerHTML`);
+  assert.deepEqual([...rows.matchAll(/data-type="(\w)"/g)].map(m => m[1]), ['C', 'A'], 'وبعد "تغيير": المختار من الورقة أول الصفوف');
 });
 
 test('زر الحفظ معطّل ونصه يقول ما ينقص، ويتحول لأحمر عند التحويل', () => {

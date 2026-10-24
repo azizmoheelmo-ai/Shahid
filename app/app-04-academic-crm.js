@@ -2523,6 +2523,7 @@ async function openCrmIncidentSheet(studentId){
   const ov = document.getElementById('crmIncidentSheet');
   if(!ov) return;
   ov.style.display = 'flex';
+  crmIncTypesOpen = false;
   if(studentId) selectCrmIncidentStudent(studentId);
   updateCrmIncidentSaveState();
   await renderCrmIncidentTypeChips();
@@ -2546,6 +2547,7 @@ function resetCrmIncidentForm(){
   box.style.display = 'none';
   delete box.dataset.stage;
   clearCrmIncidentStudent(false);
+  crmIncTypesOpen = false;
   markCrmIncidentTypeChips();
 }
 
@@ -2557,20 +2559,35 @@ function crmDegreeBadge(type){
   return `<span class="crm-type-deg"><i class="crm-dot${d >= 1 && d <= 5 ? ' d' + d : ''}"></i>د${ar}</span>`;
 }
 
+/* بعد اختيار المخالفة تنطوي القائمة إلى صف واحد (المختارة) مع "تغيير" — وإلا كانت
+   القائمة الطويلة تدفع بطاقة التحذير والملاحظة تحت حافة الشاشة بلا أي إشارة */
+let crmIncTypesOpen = false;
+let crmTypeChipsToken = 0;
+
 /* أكثر 6 مخالفات استخدامًا لدى المعلم كصفوف بعرض كامل + "كل المخالفات" تفتح ورقة
-   البحث. بلا سجل سابق: زر "كل المخالفات" وحده */
+   البحث. بلا سجل سابق: زر "كل المخالفات" وحده. وبعد الاختيار: الصف المختار وحده */
 async function renderCrmIncidentTypeChips(){
   const box = document.getElementById('crmIncidentTypeChips');
   const sel = document.getElementById('crmIncidentType');
   if(!box || !sel) return;
+  const token = ++crmTypeChipsToken;
   if(!crmIncidentTypes.length && typeof loadCrmIncidentTypes === 'function') await loadCrmIncidentTypes();
   const usage = typeof loadCrmIncidentTypeUsage === 'function' ? await loadCrmIncidentTypeUsage() : null;
-  const top = typeof topIncidentTypes === 'function' ? topIncidentTypes(crmIncidentTypes, usage, 6) : [];
-  const hint = document.getElementById('crmIncidentTypeHint');
-  if(hint) hint.textContent = top.length ? '· الأكثر استخدامًا' : '';
+  if(token !== crmTypeChipsToken) return; /* رسم أحدث بدأ أثناء الانتظار */
   const cur = sel.value;
+  const hint = document.getElementById('crmIncidentTypeHint');
+  const chosen = cur ? crmIncidentTypes.find(t => t.id === cur) : null;
+  if(chosen && !crmIncTypesOpen){
+    box.dataset.collapsed = 'true';
+    if(hint) hint.textContent = '';
+    box.innerHTML = `<button type="button" class="crm-type-row is-on" role="radio" aria-checked="true" data-type="${chosen.id}" onclick="expandCrmIncidentTypes()"><span class="crm-type-rad" aria-hidden="true"></span><span class="crm-type-t">${escapeHtml(chosen.problem_name)}</span>${crmDegreeBadge(chosen)}<span class="crm-type-chg">تغيير ‹</span></button>`;
+    return;
+  }
+  box.dataset.collapsed = 'false';
+  const top = typeof topIncidentTypes === 'function' ? topIncidentTypes(crmIncidentTypes, usage, 6) : [];
+  if(hint) hint.textContent = top.length ? '· الأكثر استخدامًا' : '';
   /* المختار من ورقة البحث وليس من الأكثر استخدامًا: يظهر أول القائمة */
-  const picked = cur && !top.some(t => t.id === cur) ? crmIncidentTypes.find(t => t.id === cur) : null;
+  const picked = chosen && !top.some(t => t.id === cur) ? chosen : null;
   const rows = (picked ? [picked] : []).concat(top);
   box.innerHTML = rows.map(t => {
     const on = cur === t.id;
@@ -2579,16 +2596,34 @@ async function renderCrmIncidentTypeChips(){
     + `<button type="button" class="crm-type-row is-more" onclick="openCrmTypePicker()"><span>كل المخالفات (${crmIncidentTypes.length}) وبحث</span><span aria-hidden="true">‹</span></button>`;
 }
 
-function pickCrmIncidentType(id){
+/* "تغيير": تعود القائمة كاملة (المختارة تبقى معلَّمة) لاختيار غيرها */
+function expandCrmIncidentTypes(){
+  crmIncTypesOpen = true;
+  renderCrmIncidentTypeChips();
+}
+
+async function pickCrmIncidentType(id){
   const sel = document.getElementById('crmIncidentType');
   if(!sel) return;
   sel.value = id;
+  crmIncTypesOpen = false;
   markCrmIncidentTypeChips();
-  refreshOccurrencePreview();
   updateCrmIncidentSaveState();
+  await refreshOccurrencePreview();
+  revealCrmIncidentBelow();
+}
+
+/* بعد ظهور بطاقة التحذير (التي تدفع ما تحتها): لو بقيت الملاحظة خارج الشاشة نمرّر لها بنعومة، ولا نتحرك إن كانت ظاهرة */
+function revealCrmIncidentBelow(){
+  try{
+    const notes = document.getElementById('crmIncidentNotes');
+    if(!document.getElementById('crmIncidentStudentId').value) return; /* بلا طالب لا بطاقة تحذير بعد: لا نبعد الطالب عن النظر */
+    if(notes && typeof notes.scrollIntoView === 'function') notes.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch(e){}
 }
 
 function onCrmIncidentTypeSelect(){
+  crmIncTypesOpen = false;
   markCrmIncidentTypeChips();
   refreshOccurrencePreview();
   updateCrmIncidentSaveState();
@@ -2599,8 +2634,10 @@ function markCrmIncidentTypeChips(){
   const box = document.getElementById('crmIncidentTypeChips');
   if(!sel || !box || !box.querySelectorAll) return;
   const rows = [...box.querySelectorAll('.crm-type-row[data-type]')];
-  /* اختيار من خارج الصفوف الحالية (ورقة البحث) أو ما زال المحدد القديم ظاهرًا: نعيد الرسم */
-  if(sel.value && !rows.some(b => b.dataset.type === sel.value)){ renderCrmIncidentTypeChips(); return; }
+  /* شكل القائمة الظاهر (منطوية/مفتوحة) لا يطابق المطلوب، أو المختار من خارج الصفوف الحالية
+     (ورقة البحث)، أو ما زال المحدد القديم ظاهرًا: نعيد الرسم */
+  const wantCollapsed = !!sel.value && !crmIncTypesOpen;
+  if(wantCollapsed !== ((box.dataset || {}).collapsed === 'true') || (sel.value && !rows.some(b => b.dataset.type === sel.value))){ renderCrmIncidentTypeChips(); return; }
   rows.forEach(b => {
     const on = b.dataset.type === sel.value;
     b.classList.toggle('is-on', on);

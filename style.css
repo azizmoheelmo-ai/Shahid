@@ -1912,6 +1912,7 @@ html, body, *{touch-action:manipulation;}
 .crm-type-row.is-on .crm-type-rad{border:5px solid var(--navy);}
 .crm-type-t{flex:1;min-width:0;}
 .crm-type-deg{flex:none;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--muted);}
+.crm-type-chg{flex:none;font-size:12px;font-weight:800;color:#0E5F53;margin-inline-start:2px;}
 .crm-type-row.is-more{color:#0E5F53;border-style:dashed;justify-content:space-between;}
 .crm-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#9A938A;}
 .crm-dot.d1{background:#2E7D5B;}.crm-dot.d2{background:#B58A00;}.crm-dot.d3{background:#C26A12;}.crm-dot.d4{background:#B03A2E;}.crm-dot.d5{background:#6E1F1F;}
