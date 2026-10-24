@@ -57,8 +57,13 @@
 
 <div id="betaNoticeBar" onclick="showBetaInfoModal()" style="position:fixed;top:0;right:0;left:0;z-index:9999;background:#C9A227;color:#2A2114;text-align:center;padding:6px 12px;font-size:11.5px;font-weight:700;cursor:pointer;">
   🧪 نسخة تجريبية — اضغط للتفاصيل
+  <button type="button" class="beta-bar-x" aria-label="إغلاق الشريط" onclick="event.stopPropagation();closeBetaNoticeBar()">✕</button>
 </div>
-<div style="height:30px;"></div>
+<div id="betaNoticeSpacer" style="height:30px;"></div>
+<script>
+/* الشريط التجريبي قابل للإغلاق، ويبقى مغلقًا بعد ذلك على هذا الجهاز */
+(function(){ try{ if(localStorage.getItem('beta_bar_closed') === '1'){ document.documentElement.classList.add('beta-closed'); } } catch(e){} })();
+</script>
 
 <div id="toastContainer" class="toast-container" role="status" aria-live="polite"></div>
 
@@ -789,22 +794,32 @@
         <div class="section">
           <!-- شعبي: بحث في كل الطلاب، وبطاقة لكل شعبة -->
           <div id="crmStuHome">
-            <input class="goal-input crm-stu-search" id="crmStudentSearch" placeholder="🔍 ابحث عن طالب في كل شعبك..." oninput="debouncedRenderCrmStudentsList()">
+            <div class="crm-stu-searchrow">
+              <input class="goal-input crm-stu-search" id="crmStudentSearch" placeholder="🔍 ابحث عن طالب في كل شعبك..." oninput="debouncedRenderCrmStudentsList()">
+              <button type="button" class="crm-ic-btn" id="crmStuStructureBtn" aria-label="المراحل والشعب" title="المراحل والشعب: أضف مرحلة أو شعبة، أو احذفها" onclick="openCrmStructure()">⚙</button>
+            </div>
             <div id="crmStudentsList"></div>
-            <button type="button" class="crm-stu-setup" onclick="openCrmStructure()">
-              <span>⚙ المراحل والشعب<small>أضف مرحلة أو شعبة، أو احذفها</small></span><span class="crm-stu-chev" aria-hidden="true">‹</span>
-            </button>
           </div>
 
           <!-- صفحة الشعبة: طلابها، والإضافة والاستيراد لها مباشرة -->
           <div id="crmStuSection" style="display:none;">
-            <div class="crm-stu-top"><button type="button" class="btn btn-outline crm-mini-btn" onclick="closeCrmStuSection()">→ شعبي</button><span id="crmStuSectionCount"></span></div>
-            <h3 class="crm-stu-title" id="crmStuSectionTitle"></h3>
-            <div class="crm-stu-sub">اضغط على الطالب لملفه، و⋯ للنقل أو الحذف</div>
-            <div class="crm-stu-actions" id="crmStuSectionActions">
+            <div class="crm-stu-secbar" id="crmStuSecBar">
+              <button type="button" class="crm-ic-btn" aria-label="رجوع إلى شعبي" onclick="closeCrmStuSection()">→</button>
+              <div class="crm-stu-secbar-t"><b id="crmStuSectionTitle"></b><small id="crmStuSectionCount"></small></div>
+              <div class="crm-stu-actions" id="crmStuSectionActions">
+                <button type="button" class="crm-ic-btn" id="crmStuAddBtn" aria-label="إضافة طلاب" title="إضافة طالب أو استيراد من Excel" aria-expanded="false" onclick="toggleCrmStuAddMenu()">＋</button>
+                <button type="button" class="crm-ic-btn" id="crmStuSelectBtn" aria-label="تحديد عدة طلاب" title="تحديد عدة طلاب لنقلهم" aria-pressed="false" onclick="toggleCrmStuSelect()">☑</button>
+                <input type="file" id="crmExcelInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importStudentsExcel(event)">
+              </div>
+            </div>
+            <div id="crmStuAddMenu" class="crm-stu-addmenu" style="display:none;">
               <button type="button" class="btn btn-primary" onclick="toggleAddStudentForm()">+ طالب</button>
               <button type="button" class="btn btn-outline" onclick="toggleCrmImportBox()">استيراد Excel</button>
-              <input type="file" id="crmExcelInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importStudentsExcel(event)">
+            </div>
+            <div id="crmStuSelectBar" class="crm-stu-selbar" style="display:none;">
+              <span id="crmStuSelectCount">لم يُحدَّد أحد</span>
+              <button type="button" class="btn btn-outline crm-mini-btn" onclick="crmStuSelectAll()">تحديد الكل</button>
+              <button type="button" class="btn btn-primary crm-mini-btn" id="crmStuBulkMoveBtn" onclick="openCrmBulkTransfer()" disabled>⇄ نقل المحدّدين</button>
             </div>
 
             <div id="addStudentBox" class="crm-stu-form" style="display:none;">
