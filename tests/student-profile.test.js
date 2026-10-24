@@ -40,7 +40,8 @@ test('saveClassroomIncident — نقرة مزدوجة لا تُسجّل مرتي
         in(){ return chain; }, is(){ return chain; }, limit(){ return chain; },
         insert(){
           if(table === 'classroom_incidents') inserts++;
-          return { then(res){ setTimeout(() => res({ data: null, error: null }), 20); } };
+          const done = { select(){ return done; }, maybeSingle(){ return done; }, then(res){ setTimeout(() => res({ data: { id: 'new1' }, error: null }), 20); } };
+          return done;
         },
         then(res){ res({ data: [], error: null, count: 0 }); }
       };

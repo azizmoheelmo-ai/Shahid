@@ -2059,11 +2059,11 @@ async function insertClassroomIncident({ studentId, typeId, notes, incidentDate 
     referral_letter_generated: false
   };
   if(incidentDate) row.incident_date = incidentDate;
-  const { error } = await sb.from('classroom_incidents').insert(row);
+  const { data: created, error } = await sb.from('classroom_incidents').insert(row).select('id').maybeSingle();
   if(error) throw error;
   crmIncidentTypeUsage = null; /* "الأكثر استخدامًا" تُعاد قراءتها */
   if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
-  return { stage, occurrence };
+  return { stage, occurrence, id: created && created.id };
 }
 
 async function refreshOccurrencePreview(){
@@ -2140,11 +2140,32 @@ async function saveClassroomIncident(){
     crmIncidentSaving = false;
     updateCrmIncidentSaveState();
   }
-  showToast(result.stage === 'referred' ? 'تم الحفظ — الحالة تتطلب تحويل' : 'تم حفظ التنبيه', 'ok');
   resetCrmIncidentForm();
   closeCrmIncidentSheet();
+  if(result.id){
+    /* الإشعار نفسه يحمل "تراجع" لبضع ثوانٍ؛ لا ننتظره حتى تتحدّث القائمة فورًا */
+    offerCrmIncidentUndo(result.id, result.stage === 'referred' ? 'تم الحفظ — الحالة تتطلب تحويل' : 'تم حفظ التنبيه');
+  } else {
+    showToast(result.stage === 'referred' ? 'تم الحفظ — الحالة تتطلب تحويل' : 'تم حفظ التنبيه', 'ok');
+  }
   await renderCrmRecentIncidents();
   await refreshCrmPendingBadges();
+}
+
+/* تراجع عن مخالفة سُجّلت للتوّ: يحذف سجلها هي فقط (بمعلمها)، ولا يحذف إن صدر لها خطاب */
+async function offerCrmIncidentUndo(incidentId, msg){
+  let keep = true;
+  try{ keep = await showUndoToast(msg, 6); }
+  catch(e){ return; }
+  if(keep) return;
+  const { error } = await sb.from('classroom_incidents').delete()
+    .eq('teacher_id', currentUser.id).eq('id', incidentId).eq('referral_letter_generated', false);
+  if(error){ showToast('تعذّر التراجع: ' + error.message, 'error'); return; }
+  crmIncidentTypeUsage = null;
+  if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
+  await renderCrmRecentIncidents();
+  await refreshCrmPendingBadges();
+  showToast('تم التراجع عن التسجيل', 'ok');
 }
 
 async function getCrmTransferCounts(){

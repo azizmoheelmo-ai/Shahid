@@ -284,3 +284,24 @@ test('حالات المتابعة الأكاديمية: القائمة بلا "�
   assert.ok(writes.length >= 1);
   log.filter(q => q.table === 'academic_cases').forEach(q => assert.ok(q.eqs.some(([k, v]) => k === 'teacher_id' && v === 'u1'), q.op + ' بلا teacher_id'));
 });
+
+test('التراجع بعد الحفظ: يحذف سجل المخالفة الجديدة فقط بمعلمها وبلا خطاب، ولا حذف إن لم يُضغط تراجع', async () => {
+  for(const undo of [true, false]){
+    const log = [];
+    const app = loadApp({ supabaseClient: client({}, log), currentUser: { id: 'u1' } });
+    runInAppContext(app, `showUndoToast = async () => ${undo ? 'false' : 'true'}; renderCrmRecentIncidents = async () => {}; refreshCrmPendingBadges = async () => {}; showToast = () => {};`);
+    await app.offerCrmIncidentUndo('NEW1', 'تم حفظ التنبيه');
+    const del = log.filter(q => q.table === 'classroom_incidents' && q.op === 'delete');
+    if(!undo){ assert.equal(del.length, 0, 'بلا تراجع لا حذف'); continue; }
+    assert.equal(del.length, 1);
+    for(const kv of [['teacher_id', 'u1'], ['id', 'NEW1'], ['referral_letter_generated', false]]) assert.ok(del[0].eqs.some(([k, v]) => k === kv[0] && v === kv[1]), kv[0]);
+  }
+});
+
+test('الحفظ يمرّر معرّف السجل الجديد لإشعار التراجع', async () => {
+  const app = loadApp({ supabaseClient: { ...client({}), from: () => { const a = { select: () => a, eq: () => a, order: () => a, range: () => a, insert: () => a, maybeSingle: () => a, then: r => Promise.resolve({ data: { id: 'NEW9' }, error: null }).then(r) }; return a; } }, currentUser: { id: 'u1' } });
+  runInAppContext(app, `crmIncidentTypes = [{ id: 'T', problem_name: 'x', action_sequence: 'immediate_referral', regulation_article: 'م1' }]; crmStudents = [{ id: 'S', full_name: 'أ', section_id: 'sec' }];
+    getCrmSemesterLabel = () => 'x'; invalidateAttention = () => {}; refreshAttention = () => {};`);
+  const r = await app.insertClassroomIncident({ studentId: 'S', typeId: 'T', notes: '' });
+  assert.equal(r.id, 'NEW9');
+});
