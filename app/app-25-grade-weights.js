@@ -97,7 +97,7 @@ function closeCrmGradeSettings(){
 }
 
 function crmGradeSettingsHtml(g){
-  const back = `<p class="crm-gs-note" style="margin:0 0 8px;"><a href="#" onclick="event.preventDefault();closeCrmGradeSettings()">→ الكشف</a></p>`;
+  const back = `<div style="margin:0 0 10px;"><button type="button" class="gs-back-btn" onclick="closeCrmGradeSettings()">→ الرجوع إلى الكشف</button></div>`;
   if(!hasBaseGradeColumns(g.allColumns || g.columns)) return back + crmGradeCreateCardHtml();
   const caps = appGradeCaps();
   const comps = perfComponentsFor(g.allColumns || g.columns, typeof crmCustomTools !== 'undefined' ? crmCustomTools : []);
