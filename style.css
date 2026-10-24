@@ -1649,7 +1649,9 @@ html.booting #authView{display:none !important;}
 .crm-stu-form{background:#F7F5F0;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;}
 .crm-stu-list{border-top:1px solid #EEE9DF;}
 .crm-stu-row{display:flex;align-items:center;gap:8px;border-bottom:1px solid #EEE9DF;}
-.crm-stu-name{flex:1;text-align:right;background:none;border:0;padding:12px 4px;font-family:inherit;font-size:14px;color:inherit;cursor:pointer;}
+.crm-stu-name{flex:1;display:flex;align-items:center;gap:8px;text-align:right;background:none;border:0;padding:9px 4px;min-height:46px;font-family:inherit;font-size:14px;color:inherit;cursor:pointer;}
+.crm-stu-lbl{flex:1;min-width:0;overflow-wrap:anywhere;}
+.crm-stu-name .crm-stu-chev{margin-inline-start:auto;font-size:18px;}
 .crm-stu-name small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px;}
 .crm-stu-num{color:var(--muted);font-size:11.5px;}
 .crm-stu-more{border:1px solid var(--line);background:#fff;border-radius:8px;color:var(--muted);font-size:17px;line-height:1;padding:6px 10px;cursor:pointer;}
@@ -1960,3 +1962,44 @@ html, body, *{touch-action:manipulation;}
 .sh-fab{pointer-events:auto;display:block;width:100%;border:none;background:var(--navy);color:#fff;border-radius:14px;padding:12px;font-family:inherit;font-size:15px;font-weight:900;cursor:pointer;box-shadow:0 6px 14px rgba(27,50,69,.3);}
 #listView .list-header{padding:10px 14px;}
 #listView #listTitle{font-size:14px;color:var(--muted);font-weight:800;}
+
+
+/* ===== تنظيف إدارة الصف (طلاب/درجات): شريط شعبة ثابت، أيقونات، تحديد متعدد، إغلاق الشريط التجريبي ===== */
+:root{--crm-sticky-top:80px;}
+html.beta-closed{--crm-sticky-top:50px;}
+html.beta-closed #crmTabsBar{top:4px;}
+.beta-bar-x{position:absolute;left:8px;top:50%;transform:translateY(-50%);background:none;border:0;color:#2A2114;font-size:14px;line-height:1;padding:4px 8px;cursor:pointer;opacity:.7;}
+.crm-ic-btn{flex:none;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:#fff;border-radius:9px;color:var(--navy);font-size:16px;font-family:inherit;cursor:pointer;padding:0;}
+.crm-ic-btn:hover{background:#FAF8F3;}
+.crm-ic-btn.is-on{background:var(--navy);color:#fff;border-color:var(--navy);}
+.crm-stu-searchrow{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.crm-stu-searchrow .crm-stu-search{flex:1;margin-bottom:0;}
+.crm-stu-secbar,.crm-sticky-sec{position:sticky;top:var(--crm-sticky-top);z-index:50;background:#fff;}
+.crm-stu-secbar{display:flex;align-items:center;gap:8px;padding:6px 0;margin-bottom:6px;border-bottom:1px solid #EEE9DF;}
+.crm-stu-secbar-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3;}
+.crm-stu-secbar-t b{font-size:15px;color:var(--navy);}
+.crm-stu-secbar-t small{font-size:11.5px;color:var(--muted);}
+.crm-stu-secbar .crm-stu-actions{margin:0;gap:6px;}
+.crm-sticky-sec{padding:4px 0 8px;}
+.crm-sticky-sec select{margin:0;}
+.crm-stu-addmenu{display:flex;gap:8px;margin-bottom:10px;}
+.crm-stu-addmenu .btn{flex:1;justify-content:center;}
+.crm-stu-selbar{display:flex;align-items:center;gap:8px;background:#EAF0F5;border:1px solid #B9C7DC;border-radius:10px;padding:6px 10px;margin-bottom:8px;font-size:12.5px;color:var(--navy);position:sticky;top:calc(var(--crm-sticky-top) + 46px);z-index:49;}
+.crm-stu-selbar span{flex:1;font-weight:700;}
+.crm-stu-row.is-sel{background:#F1F6FA;}
+.crm-stu-box{font-size:18px;color:var(--navy);line-height:1;}
+.crm-gs-distline{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:2px 0 8px;}
+.crm-gs-sum{display:flex;gap:8px;margin-bottom:8px;}
+.crm-gs-sum div{flex:1;background:#F7F5F0;border:1px solid var(--line);border-radius:10px;text-align:center;padding:5px 2px;font-size:11px;color:var(--muted);}
+.crm-gs-sum b{display:block;font-size:17px;color:var(--navy);}
+.crm-gs-sum b.gs-tone-lo{color:#8A2C2C;}
+.crm-gs-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;}
+.crm-gs-chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 12px;font-size:12px;font-family:inherit;color:var(--muted);cursor:pointer;}
+.crm-gs-chip.on{background:var(--navy);color:#fff;border-color:var(--navy);}
+.crm-gs-iname{flex:1;min-width:0;}
+.crm-gs-mini{display:block;height:4px;background:#EEE9DF;border-radius:3px;margin-top:5px;position:relative;overflow:hidden;}
+.crm-gs-mini i{position:absolute;right:0;top:0;bottom:0;border-radius:3px;}
+.crm-gs-score{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;}
+.crm-gs-part{font-size:10.5px;color:var(--muted);font-weight:400;}
+.crm-gs-item{padding:9px 12px;}
+html.beta-closed #betaNoticeBar,html.beta-closed #betaNoticeSpacer{display:none;}

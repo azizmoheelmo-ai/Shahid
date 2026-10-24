@@ -67,6 +67,11 @@ function showSignupReturnBar(kind, email){
   bar.style.display = 'flex';
 }
 
+function closeBetaNoticeBar(){
+  document.documentElement.classList.add('beta-closed');
+  try{ localStorage.setItem('beta_bar_closed', '1'); } catch(e){}
+}
+
 /* ============ شروط الاستخدام وسياسة الخصوصية ============ */
 function showBetaInfoModal(){
   showInfoModal(`

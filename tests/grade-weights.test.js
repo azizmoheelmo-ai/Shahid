@@ -154,7 +154,7 @@ test('الكشف المبسّط — زر "⚙ إعداد الدرجات" ولا 
   runInAppContext(app, `crmStudents = [{ id: 'a', full_name: 'أ', section_id: 'S' }];`);
   const g = { sectionId: 'S', columns: baseCols('S'), allColumns: baseCols('S'), hiddenColumns: [], scores: [] };
   const html = app.crmGradeSimpleHtml(g);
-  assert.match(html, /openCrmGradeSettings\(\)">⚙ إعداد الدرجات/);
+  assert.match(html, /aria-label="إعداد الدرجات"[^>]*onclick="openCrmGradeSettings\(\)">⚙<\/button>/);
   assert.doesNotMatch(html, /openCrmGradeColumnEditor\('tests'/);
 });
 

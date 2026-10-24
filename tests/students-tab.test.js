@@ -2,7 +2,7 @@
 /* ============================================================
    تبويب الطلاب (إعادة تنظيم بطلب صاحب التطبيق):
    - "شعبي": بحث في كل الطلاب، وبطاقة لكل شعبة بعدد طلابها تحت مرحلتها.
-   - صفحة الشعبة: طلابها، و"+ طالب" و"استيراد Excel" لها مباشرة، والنقل والحذف تحت ⋯.
+   - صفحة الشعبة: طلابها، و«＋» (طالب/استيراد Excel) و☑ للتحديد والنقل الجماعي؛ والنقل والحذف الفرديان من ملف الطالب.
    - "⚙ المراحل والشعب": الإضافة بخانة داخل الصفحة (لا نافذة المتصفح)، بلا تكرار.
    - الجدول الأسبوعي انتقل لتبويب "اليوم".
    ============================================================ */
@@ -18,7 +18,7 @@ function client(log, opts){
     from(table){
       let op = 'select', values = null; const f = [];
       const api = { select: () => api, eq: (c, v) => { f.push([c, v]); return api; }, in: () => api, order: () => api, limit: () => api,
-        insert: v => { op = 'insert'; values = v; return api; }, delete: () => { op = 'delete'; return api; },
+        insert: v => { op = 'insert'; values = v; return api; }, update: v => { op = 'update'; values = v; return api; }, delete: () => { op = 'delete'; return api; },
         then: (res, rej) => {
           if(op !== 'select') log.push({ table, op, values, filters: f.slice() });
           const p = opts.delay ? new Promise(r => setTimeout(r, opts.delay)) : Promise.resolve();
@@ -92,11 +92,14 @@ test('صفحة الشعبة — طلابها فقط مرتبين، و+ طالب/
   const h = html(app, 'crmSectionStudentsList');
   assert.ok(h.indexOf('أحمد عمر') < h.indexOf('سامي'), 'مرتبون أبجديًا');
   assert.doesNotMatch(h, /خالد/);
-  assert.match(h, /onclick="openCrmStudentMenu\('a'\)">⋯/);
+  assert.doesNotMatch(h, /⋯|openCrmStudentMenu/, 'لا زر ⋯ في كل صف');
+  assert.match(h, /openCrmStudentProfile\('a'/);
   assert.equal(shown(app, 'crmStuSectionActions'), 'flex');
+  assert.equal(get(app, `document.getElementById('crmStuAddBtn').style.display`), '');
   app.openCrmStuSection('__unlinked');
   assert.match(html(app, 'crmSectionStudentsList'), /فهد بلا شعبة/);
-  assert.equal(shown(app, 'crmStuSectionActions'), 'none');
+  assert.equal(get(app, `document.getElementById('crmStuAddBtn').style.display`), 'none', 'غير المربوطين بلا إضافة');
+  assert.equal(get(app, `document.getElementById('crmStuSelectBtn').style.display`), '', 'لكن التحديد للنقل متاح لهم');
   app.openCrmStuSection('S7');
   runInAppContext(app, `crmSections = crmSections.filter(s => s.id !== 'S7');`);
   app.renderCrmStudentsList();
@@ -104,14 +107,125 @@ test('صفحة الشعبة — طلابها فقط مرتبين، و+ طالب/
   assert.equal(shown(app, 'crmStuHome'), 'block');
 });
 
-test('قائمة ⋯ — ملف الطالب، والنقل، والحذف (بالاسم مُهرَّبًا)', async () => {
+test('قائمة ملف الطالب — النقل والحذف فقط (بالاسم مُهرَّبًا)، ولا قائمة ⋯ في الصفوف', async () => {
   const app = appWith();
-  app.openCrmStudentMenu('a');
+  assert.equal(typeof app.openCrmStudentMenu, 'undefined');
+  app.openCrmProfileMenu('a');
   const m = get(app, 'window.__modal[0]');
   assert.match(m, /سامي &lt;b&gt;علي/);
   assert.match(m, /openCrmTransferModal\('a'\)/);
   assert.match(m, /deleteCrmStudent\('a'\)/);
-  assert.match(m, /openCrmStudentProfile\('a'/);
+  assert.doesNotMatch(m, /openCrmStudentProfile/, 'ملف الطالب مكرر: أنت داخله أصلًا');
+});
+
+test('وضع التحديد ☑ — الضغط يحدّد لا يفتح الملف، وتحديد الكل، والزر معطّل بلا تحديد، والخروج من الشعبة يُصفّره', async () => {
+  const app = appWith();
+  app.openCrmStuSection('S6');
+  assert.equal(shown(app, 'crmStuSelectBar'), 'none');
+  app.toggleCrmStuSelect();
+  assert.equal(shown(app, 'crmStuSelectBar'), 'flex');
+  assert.equal(get(app, `document.getElementById('crmStuBulkMoveBtn').disabled`), true);
+  let h = html(app, 'crmSectionStudentsList');
+  assert.doesNotMatch(h, /openCrmStudentProfile/, 'في وضع التحديد لا يفتح الضغط ملفًا');
+  assert.match(h, /crmStuToggleStudent\('a'\)/);
+  app.crmStuToggleStudent('a');
+  assert.equal(get(app, `document.getElementById('crmStuBulkMoveBtn').disabled`), false);
+  assert.match(html(app, 'crmSectionStudentsList'), /aria-pressed="true" onclick="crmStuToggleStudent\('a'\)"/);
+  app.crmStuToggleStudent('c'); /* من شعبة أخرى: يُتجاهل */
+  assert.equal(get(app, 'crmStuSel.ids.size'), 1);
+  app.crmStuSelectAll();
+  assert.equal(get(app, 'crmStuSel.ids.size'), 2);
+  app.crmStuSelectAll();
+  assert.equal(get(app, 'crmStuSel.ids.size'), 0, 'الضغط الثاني يلغي الكل');
+  app.crmStuToggleStudent('a');
+  app.closeCrmStuSection();
+  assert.equal(get(app, 'crmStuSel.on'), false);
+  assert.equal(get(app, 'crmStuSel.ids.size'), 0);
+  app.openCrmStuSection('S6');
+  assert.equal(shown(app, 'crmStuSelectBar'), 'none', 'شعبة جديدة بلا تحديد قديم');
+});
+
+test('النقل الجماعي — لكل محدّد نقل مستقل، ومن فشل يبقى محدّدًا، ونقرتان = نقل واحد', async () => {
+  const app = appWith(undefined, { delay: 10 });
+  runInAppContext(app, `
+    window.__moved = []; afterCrmStudentMoved = async () => {};
+    moveCrmStudentToSection = async (st, t) => { window.__moved.push(st.id + '>' + t.id); return st.id === 'b' ? { error: { stage: 'student', message: 'x' } } : { gradesRes: { moved: 1, stay: st.id === 'a' ? [{}] : [] }, fErr: null }; };`);
+  app.openCrmStuSection('S6');
+  app.toggleCrmStuSelect();
+  app.crmStuSelectAll();
+  app.openCrmBulkTransfer();
+  const m = get(app, 'window.__modal[0]');
+  assert.match(m, /طالبان/);
+  assert.doesNotMatch(m, new RegExp('value="S6"'), 'شعبتهم الحالية ليست هدفًا');
+  runInAppContext(app, `document.getElementById('crmBulkTarget').value = 'S7';`);
+  await Promise.all([app.transferCrmBulk(), app.transferCrmBulk()]);
+  assert.deepEqual([...get(app, 'window.__moved')], ['a>S7', 'b>S7'], 'نقرتان = نقل واحد لكل طالب');
+  assert.deepEqual([...get(app, 'crmStuSel.ids')], ['b'], 'من فشل نقله يبقى محدّدًا لإعادة المحاولة');
+  assert.equal(get(app, 'crmStuSel.on'), true);
+  const toasts = get(app, 'window.__toasts').join(' | ');
+  assert.match(toasts, /error:نُقل 1 إلى ثاني ثانوي — الشعبة 7 — تعذّر نقل 1/);
+  assert.match(get(app, 'window.__modal[1]'), /لـ 1 من الطلاب درجات لم تُنقل/);
+});
+
+test('moveCrmStudentToSection — الدرجات أولًا: فشلها لا ينقل الطالب؛ والنجاح يحدّث الطالب ومتابعاته باسم المعلم', async () => {
+  const log = [];
+  const app = appWith(log);
+  const target = { id: 'S7', gradeName: 'ثاني ثانوي', sectionName: '7' };
+  runInAppContext(app, `moveStudentGrades = async () => { throw new Error('boom'); };`);
+  const bad = await app.moveCrmStudentToSection({ id: 'a' }, target);
+  assert.equal(bad.error.stage, 'grades');
+  assert.equal(log.filter(l => l.table === 'classroom_students').length, 0, 'لم يُنقل الطالب');
+  runInAppContext(app, `moveStudentGrades = async () => ({ moved: 2, stay: [] });`);
+  const ok = await app.moveCrmStudentToSection({ id: 'a' }, target);
+  assert.equal(ok.gradesRes.moved, 2);
+  const st = log.find(l => l.table === 'classroom_students');
+  assert.deepEqual({ ...st.values }, { section_id: 'S7', grade_level: 'ثاني ثانوي', section_number: '7' });
+  assert.ok(st.filters.some(f => f[0] === 'teacher_id' && f[1] === 'u1'), 'مقيّد بالمعلم الحالي');
+  assert.ok(log.some(l => l.table === 'classroom_followups' && l.filters.some(f => f[0] === 'teacher_id' && f[1] === 'u1')));
+});
+
+test('حذف الطالب من داخل ملفه — يُغلق الملف (لا يبقى ملف طالب محذوف مفتوحًا)', async () => {
+  const app = appWith();
+  runInAppContext(app, `
+    window.__closed = 0; closeCrmStudentProfile = () => { window.__closed++; };
+    showConfirm = async () => true; showUndoToast = async () => true;
+    refreshCrmPendingBadges = async () => {}; refreshAcBadges = async () => {};
+    crmProfile = { studentId: 'a', returnTo: { type: 'tab', tab: 'students' }, token: 1 };`);
+  await app.deleteCrmStudent('a');
+  assert.equal(get(app, 'window.__closed'), 1);
+  runInAppContext(app, `window.__closed = 0; crmProfile = { studentId: 'zzz', returnTo: {}, token: 2 };`);
+  await app.deleteCrmStudent('b');
+  assert.equal(get(app, 'window.__closed'), 0, 'ملف طالب آخر لا يُغلق');
+});
+
+test('الأرقام — "الشعبة ٦" المخزّنة تُعرض 6 مع باقي الأعداد، والمخزَّن لا يتغيّر', async () => {
+  const app = appWith();
+  assert.equal(app.crmDigits('٦'), '6');
+  assert.equal(app.crmDigits('۱۲'), '12');
+  assert.equal(app.crmDigits('أ'), 'أ');
+  runInAppContext(app, `crmSections = [{ id: 'X', name: '٦', grade_level_id: 'g2' }];`);
+  assert.equal(app.crmSectionOptionLabel({ id: 'X', name: '٦', grade_level_id: 'g2' }), 'ثاني ثانوي — الشعبة 6');
+  app.renderCrmStudentsList();
+  assert.match(html(app, 'crmStudentsList'), /<b>الشعبة 6<\/b>/);
+  assert.equal(get(app, `crmSections[0].name`), '٦');
+});
+
+test('الشعبة المفتوحة من الطلاب هي نفسها في الدرجات؛ وغير المربوطين لا يُحفظون', async () => {
+  const app = appWith();
+  runInAppContext(app, `window.__ls = {}; localStorage.setItem = (k, v) => { window.__ls[k] = v; };`);
+  app.openCrmStuSection('S7');
+  assert.equal(get(app, `window.__ls.crm_grades_section`), 'S7');
+  app.openCrmStuSection('__unlinked');
+  assert.equal(get(app, `window.__ls.crm_grades_section`), 'S7');
+});
+
+test('الطلاب — شريط الشعبة الثابت وزر ⚙ في الصفحة الرئيسية، ولا جملة شرح ولا بطاقة إعداد وسط القائمة', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(src, /id="crmStuStructureBtn"[^>]*onclick="openCrmStructure\(\)">⚙/);
+  assert.doesNotMatch(src, /اضغط على الطالب لملفه، و⋯/);
+  assert.doesNotMatch(src, /class="crm-stu-setup"/);
+  assert.match(src, /class="crm-stu-secbar" id="crmStuSecBar"/);
+  assert.match(src, /id="betaNoticeBar"[\s\S]*?closeBetaNoticeBar\(\)/, 'الشريط التجريبي قابل للإغلاق');
 });
 
 test('+ طالب — يُضاف لشعبة الصفحة باسم المعلم، ونقرتان = طالب واحد، وبلا شعبة مفتوحة لا يُضاف', async () => {

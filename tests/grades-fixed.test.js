@@ -68,8 +68,10 @@ test('الكشف المبسّط — قائمة أسماء بمجموع كل طا
   const app = appWithSheet(`crmStudents.push({ id: 'c', full_name: 'خالد', section_id: 'S' });`);
   const scores = [S('p', 'a', 10), S('h', 'a', 7), S('t1', 'a', 17), S('t2', 'a', 19), S('t3', 'a', 9), S('p', 'b', 4)];
   const html = app.crmGradeSimpleHtml(G(COLS, scores));
-  assert.match(html, /id="crmGsRow_a" onclick="openCrmGradeStudentDetail\('a'\)">\s*<span class="crm-gs-iname">سامي &lt;b&gt;علي&lt;\/b&gt;<\/span>\s*<span class="crm-gs-itot"><b class="gs-tone-hi">35<\/b> <small>من 60<\/small>/, 'سامي: 17 + 18 = 35، رُصد له 40 (أخضر)');
-  assert.match(html, /<b class="gs-tone-lo">4<\/b> <small>من 60<\/small>/, 'فهد: 4 من 10 مرصودة (أحمر) — الاختبارات لم تُرصد فلا تُحسب عليه');
+  assert.match(html, /id="crmGsRow_a" onclick="openCrmGradeStudentDetail\('a'\)">\s*<span class="crm-gs-iname">سامي &lt;b&gt;علي&lt;\/b&gt;[\s\S]*?<span class="crm-gs-itot"><span class="crm-gs-score"><b class="gs-tone-hi">35<\/b><small class="crm-gs-part">رُصد من 40 فقط<\/small>/, 'سامي: 17 + 18 = 35، رُصد له 40 (أخضر) — ويُذكر "رُصد من" كي لا يُقرأ 35 على 60 كاملة');
+  assert.match(html, /الدرجة من 60/, '"من 60" مرة واحدة في رأس القائمة لا في كل صف');
+  assert.doesNotMatch(html, /<small>من 60<\/small>/);
+  assert.match(html, /<b class="gs-tone-lo">4<\/b><small class="crm-gs-part">رُصد من 10 فقط<\/small>/, 'فهد: 4 من 10 مرصودة (أحمر) — الاختبارات لم تُرصد فلا تُحسب عليه');
   assert.match(html, /id="crmGsRow_c"[\s\S]*?— لم يُرصد/, 'خالد بلا أي رصد');
   assert.doesNotMatch(html, /crm-gs-table/, 'لا جدول أعمدة');
   assert.doesNotMatch(html, /نور/);
@@ -86,7 +88,29 @@ test('الكشف المبسّط — الاختبارات مخفية من الت�
   const html = app.crmGradeSimpleHtml(G(COLS, [S('p', 'a', 10), S('t1', 'a', 20)]));
   assert.doesNotMatch(html, /الاختبارات<small>/);
   assert.doesNotMatch(html, /openCrmGradeColumnEditor\('tests'/);
-  assert.match(html, /<b class="gs-tone-hi">10<\/b> <small>من 40<\/small>/);
+  assert.match(html, /<b class="gs-tone-hi">10<\/b>/);
+  assert.match(html, /الدرجة من 40/);
+});
+
+test('الكشف المبسّط — ملخص الشعبة (متوسط، تحت النصف، لم يُرصد) وأزرار الفرز', async () => {
+  const app = appWithSheet(`crmStudents.push({ id: 'c', full_name: 'خالد', section_id: 'S' });`);
+  const html = app.crmGradeSimpleHtml(G(COLS, [S('p', 'a', 10), S('p', 'b', 4)]));
+  assert.match(html, /<b>7<\/b>متوسط الشعبة/, '(10 + 4) / 2 للمرصود لهم فقط');
+  assert.match(html, /<b class="gs-tone-lo">1<\/b>تحت النصف/);
+  assert.match(html, /<b>1<\/b>لم يُرصد/);
+  assert.match(html, /setCrmGradesSort\('low'\)/);
+  assert.doesNotMatch(html, /اضغط على الاسم لترى درجاته/, 'السهم يكفي');
+});
+
+test('sortGradeRows وgradeListSummary — الأضعف/الأعلى أولًا، ومن لم يُرصد آخرًا دائمًا، والأصل لا يتغيّر', () => {
+  const app = loadApp();
+  const rows = [{ id: 1, points: 20, tone: 'mid' }, { id: 2, points: null, tone: 'none' }, { id: 3, points: 5, tone: 'lo' }, { id: 4, points: 20, tone: 'mid' }];
+  assert.deepEqual(app.sortGradeRows(rows, 'low').map(r => r.id), [3, 1, 4, 2]);
+  assert.deepEqual(app.sortGradeRows(rows, 'high').map(r => r.id), [1, 4, 3, 2], 'المتساوون بترتيبهم الأصلي');
+  assert.deepEqual(app.sortGradeRows(rows, 'name').map(r => r.id), [1, 2, 3, 4]);
+  assert.deepEqual(rows.map(r => r.id), [1, 2, 3, 4]);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.gradeListSummary(rows))), { avg: 15, low: 1, none: 1 });
+  assert.equal(app.gradeListSummary([{ points: null, tone: 'none' }]).avg, null);
 });
 
 test('صفحة الطالب — المجموع، والأداء والاختبارات بأشرطة ونِسَب وطريقة الحساب، والسابق/التالي، والاسم مُهرَّب', async () => {

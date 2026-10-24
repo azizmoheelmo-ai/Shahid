@@ -287,7 +287,10 @@ async function renderCrmStudentProfile(){
   body.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
       <div class="crm-sheet-head">${escapeHtml(student.full_name)}</div>
-      <button class="btn btn-outline crm-mini-btn" onclick="printCrmStudentReport(event)" title="صفحة واحدة للاجتماع مع الموجه أو الوكيل">🖨 تقرير</button>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn btn-outline crm-mini-btn" onclick="printCrmStudentReport(event)" title="صفحة واحدة للاجتماع مع الموجه أو الوكيل">🖨 تقرير</button>
+        ${student.is_active === false ? '' : `<button type="button" class="crm-ic-btn" aria-label="خيارات الطالب" title="نقل أو حذف" onclick="openCrmProfileMenu('${student.id}')">⋯</button>`}
+      </div>
     </div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(label.grade)} — الشعبة ${escapeHtml(label.section)}</div>
 
@@ -573,7 +576,7 @@ function transferTargetSections(sections, gradeLevels, currentSectionId){
     .filter(sec => sec.id !== currentSectionId)
     .map(sec => {
       const grade = (gradeLevels || []).find(g => g.id === sec.grade_level_id);
-      return { id: sec.id, label: (grade ? grade.name + ' — ' : '') + 'الشعبة ' + sec.name, gradeName: grade ? grade.name : '', sectionName: sec.name };
+      return { id: sec.id, label: (grade ? grade.name + ' — ' : '') + 'الشعبة ' + crmDigits(sec.name), gradeName: grade ? grade.name : '', sectionName: sec.name };
     })
     .sort((a, b) => a.label.localeCompare(b.label, 'ar', { numeric: true }));
 }
@@ -640,6 +643,23 @@ async function afterCrmStudentMoved(){
   if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
 }
 
+/* نقل طالب واحد (للنقل الفردي والجماعي معًا). يرجع { error: { stage, message } }
+   أو { gradesRes, fErr }. الدرجات أولًا: لو فشل نقلها لا يُنقل الطالب، وإعادة
+   النقل تكمل ما بقي (ما نُقل لا يُنقل مرتين) — فلا يصير طالب في شعبة ودرجاته
+   في أخرى بصمت. المتابعات المفتوحة تتبعه: نتيجتها تُقاس من حصص شعبته الجديدة. */
+async function moveCrmStudentToSection(student, target){
+  let gradesRes;
+  try{ gradesRes = await moveStudentGrades(student.id, target.id); }
+  catch(e){ return { error: { stage: 'grades', message: gradeDbErrorMessage(e) } }; }
+  const { error } = await sb.from('classroom_students')
+    .update({ section_id: target.id, grade_level: target.gradeName, section_number: target.sectionName })
+    .eq('teacher_id', currentUser.id).eq('id', student.id);
+  if(error) return { error: { stage: 'student', message: error.message } };
+  const { error: fErr } = await sb.from('classroom_followups').update({ section_id: target.id })
+    .eq('teacher_id', currentUser.id).eq('student_id', student.id).eq('status', 'open');
+  return { gradesRes, fErr };
+}
+
 async function transferCrmStudent(){
   const tr = crmTransfer;
   if(!tr || tr.saving) return;
@@ -651,28 +671,16 @@ async function transferCrmStudent(){
   if(!target) return;
   tr.saving = true;
   document.getElementById('crmTransferBtn').disabled = true;
-  /* الدرجات أولًا: لو فشل نقلها لا يُنقل الطالب، وإعادة النقل تكمل ما بقي
-     (ما نُقل لا يُنقل مرتين) — فلا يصير طالب في شعبة ودرجاته في أخرى بصمت */
-  let gradesRes;
-  try{ gradesRes = await moveStudentGrades(student.id, target.id); }
-  catch(e){
-    showToast('تعذّر نقل درجاته، فلم يُنقل الطالب. أعد المحاولة: ' + gradeDbErrorMessage(e), 'error');
+  const moved = await moveCrmStudentToSection(student, target);
+  if(moved.error){
+    showToast(moved.error.stage === 'grades'
+      ? 'تعذّر نقل درجاته، فلم يُنقل الطالب. أعد المحاولة: ' + moved.error.message
+      : 'تعذّر نقل الطالب — أعد المحاولة لإكمال النقل: ' + moved.error.message, 'error');
     tr.saving = false;
     document.getElementById('crmTransferBtn').disabled = false;
     return;
   }
-  const { error } = await sb.from('classroom_students')
-    .update({ section_id: target.id, grade_level: target.gradeName, section_number: target.sectionName })
-    .eq('teacher_id', currentUser.id).eq('id', student.id);
-  if(error){
-    showToast('تعذّر نقل الطالب — أعد المحاولة لإكمال النقل: ' + error.message, 'error');
-    tr.saving = false;
-    document.getElementById('crmTransferBtn').disabled = false;
-    return;
-  }
-  /* المتابعات المفتوحة تتبعه: نتيجتها تُقاس من حصص شعبته الجديدة */
-  const { error: fErr } = await sb.from('classroom_followups').update({ section_id: target.id })
-    .eq('teacher_id', currentUser.id).eq('student_id', student.id).eq('status', 'open');
+  const { gradesRes, fErr } = moved;
   closeCrmModal();
   const gradesNote = gradesRes.moved ? ' مع ' + gradesRes.moved + ' ' + (gradesRes.moved === 1 ? 'درجة' : 'درجات') : '';
   showToast(fErr ? 'نُقل الطالب، لكن تعذّر تحديث متابعاته المفتوحة' : 'نُقل ' + student.full_name + ' إلى ' + target.label + gradesNote, fErr ? 'error' : 'ok');
@@ -701,6 +709,78 @@ async function archiveCrmStudent(){
   }
   closeCrmModal();
   showToast(student.full_name + ': نُقل خارج المدرسة — سجله محفوظ', 'ok');
+  await afterCrmStudentMoved();
+}
+
+/* النقل والحذف: من ملف الطالب فقط (لا زر ⋯ في كل صف قائمة) */
+function openCrmProfileMenu(studentId){
+  const st = crmStudents.find(x => x.id === studentId);
+  if(!st) return;
+  showInfoModal(`<div style="text-align:right;">
+    <h3 style="margin:0 0 12px;font-size:15px;color:var(--navy);">${escapeHtml(st.full_name)}</h3>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmTransferModal('${st.id}')">⇄ نقل لشعبة أخرى</button>
+      <button class="btn btn-outline" style="justify-content:center;color:#8A2C2C;" onclick="closeCrmModal();deleteCrmStudent('${st.id}')">🗑 حذف الطالب</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin:10px 0 0;line-height:1.7;text-align:center;">الحذف يطلب تأكيدًا ويوضح ما سيُفقد، ويمكنك التراجع عنه لبضع ثوانٍ.</p>
+  </div>`, '360px');
+}
+
+/* ============ النقل الجماعي (من وضع التحديد ☑ في صفحة الشعبة) ============ */
+let crmBulk = null;
+
+function openCrmBulkTransfer(){
+  if(crmStuView.mode !== 'section' || !crmStuSel.ids.size) return;
+  const from = crmStuView.sectionId === CRM_UNLINKED ? null : crmStuView.sectionId;
+  const targets = transferTargetSections(crmSections, crmGradeLevels, from);
+  const ids = [...crmStuSel.ids];
+  crmBulk = { ids, saving: false };
+  showInfoModal(`<div style="text-align:right;">
+    <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">نقل ${escapeHtml(arabicCountPhrase(ids.length, CRM_STUDENT_COUNT_FORMS))}</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">يُنقلون معًا إلى شعبة واحدة.</div>
+    <label class="crm-field-label">إلى شعبة</label>
+    <select class="goal-input" id="crmBulkTarget" style="margin-bottom:8px;">
+      <option value="">اختر الشعبة</option>
+      ${targets.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary" id="crmBulkBtn" style="width:100%;justify-content:center;margin-bottom:6px;" onclick="transferCrmBulk()">نقل المحدّدين</button>
+    <p style="font-size:11px;color:var(--muted);margin:0;line-height:1.7;">يبقى غياب كل طالب ومخالفاته السابقة في شعبته القديمة، وتنتقل معه متابعاته المفتوحة ودرجاته. لا يُحذف أحد.</p>
+  </div>`, '430px');
+}
+
+async function transferCrmBulk(){
+  const bulk = crmBulk;
+  if(!bulk || bulk.saving) return;
+  const targetId = document.getElementById('crmBulkTarget').value;
+  if(!targetId){ showToast('اختر الشعبة', 'error'); return; }
+  const target = transferTargetSections(crmSections, crmGradeLevels, null).find(t => t.id === targetId);
+  if(!target) return;
+  bulk.saving = true;
+  document.getElementById('crmBulkBtn').disabled = true;
+  let moved = 0, stayCount = 0, followErr = 0;
+  const failed = [];
+  for(const id of bulk.ids){
+    const st = crmStudents.find(x => x.id === id); /* أحدث نسخة: قد يكون نُقل/حُذف من جهاز آخر */
+    if(!st || st.section_id === target.id) continue;
+    const r = await moveCrmStudentToSection(st, target);
+    if(r.error){ failed.push(id); continue; }
+    moved++;
+    if(r.gradesRes && r.gradesRes.stay && r.gradesRes.stay.length) stayCount++;
+    if(r.fErr) followErr++;
+  }
+  closeCrmModal();
+  crmBulk = null;
+  /* من فشل يبقى محدّدًا لإعادة المحاولة؛ والبقية يخرجون من التحديد */
+  crmStuSel = { on: failed.length > 0, ids: new Set(failed) };
+  let msg = moved ? 'نُقل ' + moved + ' إلى ' + target.label : '';
+  if(failed.length) msg += (msg ? ' — ' : '') + 'تعذّر نقل ' + failed.length + '، أعد المحاولة (ما زالوا محدّدين)';
+  if(followErr) msg += ' — تعذّر تحديث متابعات بعضهم المفتوحة';
+  if(!moved && !failed.length) msg = 'لا أحد للنقل';
+  showToast(msg, failed.length || followErr ? 'error' : 'ok');
+  if(stayCount){
+    showInfoModal(`<div style="text-align:right;"><h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">درجات بقيت في الشعبة القديمة</h3>
+      <p style="font-size:12px;color:var(--muted);margin:0;line-height:1.7;">لـ ${stayCount} من الطلاب درجات لم تُنقل لأن الشعبة الجديدة لا تملك عمودًا بنفس الاسم — لم تُحذف. افتح ملف الطالب لمراجعتها، أو أضف العمود في الشعبة الجديدة.</p></div>`, '420px');
+  }
   await afterCrmStudentMoved();
 }
 

@@ -1172,7 +1172,10 @@ function crmUnlinkedStudents(){
 
 function openCrmStuSection(sectionId){
   crmStuView = { mode: 'section', sectionId };
-  ['addStudentBox', 'crmImportBox'].forEach(id => { document.getElementById(id).style.display = 'none'; });
+  crmStuSel = { on: false, ids: new Set() };
+  ['addStudentBox', 'crmImportBox', 'crmStuAddMenu'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; });
+  /* الشعبة المفتوحة هنا هي نفسها التي يفتحها تبويب الدرجات (اختيار واحد لا اثنان) */
+  if(sectionId !== CRM_UNLINKED){ try{ localStorage.setItem('crm_grades_section', sectionId); } catch(e){} }
   renderCrmStudentsList();
   const box = document.getElementById('crmStuSection');
   if(box && box.scrollIntoView) box.scrollIntoView({ block: 'start' });
@@ -1180,36 +1183,71 @@ function openCrmStuSection(sectionId){
 
 function closeCrmStuSection(){
   crmStuView = { mode: 'home', sectionId: null };
+  crmStuSel = { on: false, ids: new Set() };
   renderCrmStudentsList();
 }
 
 function openCrmStructure(){
   crmStuView = { mode: 'structure', sectionId: null };
+  crmStuSel = { on: false, ids: new Set() };
   crmStructAdd = null;
   renderCrmStudentsList();
 }
 
 function closeCrmStructure(){ closeCrmStuSection(); }
 
-/* سطر طالب: الاسم يفتح ملفه، و⋯ للنقل والحذف (بعيدًا عن النقرة الخاطئة) */
-function crmStudentRowHtml(s, sub){
+/* حالة التحديد المتعدد في صفحة الشعبة (للنقل الجماعي فقط) */
+let crmStuSel = { on: false, ids: new Set() };
+
+/* سطر طالب: الاسم يفتح ملفه (ومنه النقل والحذف — بعيدًا عن النقرة الخاطئة)؛
+   وفي وضع التحديد يصير الضغط تحديدًا لا فتحًا للملف */
+function crmStudentRowHtml(s, sub, selectable){
+  const label = `<span class="crm-stu-lbl">${escapeHtml(s.full_name)}${s.student_number ? ` <span class="crm-stu-num">#${escapeHtml(s.student_number)}</span>` : ''}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</span>`;
+  if(selectable && crmStuSel.on){
+    const on = crmStuSel.ids.has(s.id);
+    return `<div class="crm-stu-row${on ? ' is-sel' : ''}">
+    <button type="button" class="crm-stu-name crm-stu-pick" aria-pressed="${on}" onclick="crmStuToggleStudent('${s.id}')"><span class="crm-stu-box" aria-hidden="true">${on ? '☑' : '☐'}</span>${label}</button>
+  </div>`;
+  }
   return `<div class="crm-stu-row">
-    <button type="button" class="crm-stu-name" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">${escapeHtml(s.full_name)}${s.student_number ? ` <span class="crm-stu-num">#${escapeHtml(s.student_number)}</span>` : ''}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</button>
-    <button type="button" class="crm-stu-more" aria-label="خيارات ${escapeHtml(s.full_name)}" onclick="openCrmStudentMenu('${s.id}')">⋯</button>
+    <button type="button" class="crm-stu-name" onclick="openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">${label}<span class="crm-stu-chev" aria-hidden="true">‹</span></button>
   </div>`;
 }
 
-function openCrmStudentMenu(studentId){
-  const s = crmStudents.find(x => x.id === studentId);
-  if(!s) return;
-  showInfoModal(`<div style="text-align:right;">
-    <h3 style="margin:0 0 12px;font-size:15px;color:var(--navy);">${escapeHtml(s.full_name)}</h3>
-    <div style="display:flex;flex-direction:column;gap:8px;">
-      <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmStudentProfile('${s.id}', { type: 'tab', tab: 'students' })">ملف الطالب</button>
-      <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmTransferModal('${s.id}')">⇄ نقل لشعبة أخرى</button>
-      <button class="btn btn-outline" style="justify-content:center;color:#8A2C2C;" onclick="closeCrmModal();deleteCrmStudent('${s.id}')">🗑 حذف الطالب</button>
-    </div>
-  </div>`, '360px');
+function crmStuSectionStudentIds(){
+  const id = crmStuView.sectionId;
+  return (id === CRM_UNLINKED ? crmUnlinkedStudents() : crmStudents.filter(x => x.section_id === id)).map(x => x.id);
+}
+
+function toggleCrmStuAddMenu(){
+  const menu = document.getElementById('crmStuAddMenu');
+  const open = menu.style.display === 'none';
+  menu.style.display = open ? 'flex' : 'none';
+  document.getElementById('crmStuAddBtn').setAttribute('aria-expanded', String(open));
+  if(!open){ ['addStudentBox', 'crmImportBox'].forEach(id => { document.getElementById(id).style.display = 'none'; }); }
+}
+
+function toggleCrmStuSelect(){
+  if(crmStuView.mode !== 'section') return;
+  crmStuSel = { on: !crmStuSel.on, ids: new Set() };
+  if(crmStuSel.on){ /* لا تحديد مع نموذج إضافة مفتوح */
+    ['addStudentBox', 'crmImportBox', 'crmStuAddMenu'].forEach(id => { document.getElementById(id).style.display = 'none'; });
+  }
+  renderCrmStuSectionPage();
+}
+
+function crmStuToggleStudent(id){
+  if(!crmStuSel.on) return;
+  if(!crmStuSectionStudentIds().includes(id)) return;
+  if(crmStuSel.ids.has(id)) crmStuSel.ids.delete(id); else crmStuSel.ids.add(id);
+  renderCrmStuSectionPage();
+}
+
+function crmStuSelectAll(){
+  if(!crmStuSel.on) return;
+  const all = crmStuSectionStudentIds();
+  crmStuSel.ids = crmStuSel.ids.size === all.length ? new Set() : new Set(all);
+  renderCrmStuSectionPage();
 }
 
 function renderCrmStudentsList(){
@@ -1252,7 +1290,7 @@ function renderCrmStuHome(){
     secs.forEach(sec => {
       const n = crmStudents.filter(s => s.section_id === sec.id).length;
       html += `<button type="button" class="crm-stu-card" onclick="openCrmStuSection('${sec.id}')">
-        <span><b>الشعبة ${escapeHtml(sec.name)}</b> <small>· ${n ? arabicCountPhrase(n, CRM_STUDENT_COUNT_FORMS) : 'لا طلاب بعد — أضفهم'}</small></span><span class="crm-stu-chev" aria-hidden="true">‹</span></button>`;
+        <span><b>الشعبة ${escapeHtml(crmDigits(sec.name))}</b> <small>· ${n ? arabicCountPhrase(n, CRM_STUDENT_COUNT_FORMS) : 'لا طلاب بعد — أضفهم'}</small></span><span class="crm-stu-chev" aria-hidden="true">‹</span></button>`;
     });
   });
   const unlinked = crmUnlinkedStudents();
@@ -1268,14 +1306,27 @@ function renderCrmStuSectionPage(){
   const unlinked = id === CRM_UNLINKED;
   const sec = unlinked ? null : crmSectionById(id);
   const list = (unlinked ? crmUnlinkedStudents() : crmStudents.filter(s => s.section_id === id)).slice().sort((a, b) => crmByArabic(a.full_name, b.full_name));
+  /* من اختفى من الشعبة (نُقل/حُذف من جهاز آخر) يسقط من التحديد */
+  const here = new Set(list.map(s => s.id));
+  crmStuSel.ids = new Set([...crmStuSel.ids].filter(x => here.has(x)));
+  if(!list.length) crmStuSel.on = false;
   document.getElementById('crmStuSectionTitle').textContent = unlinked ? 'طلاب غير مربوطين بشعبة' : crmSectionOptionLabel(sec);
   document.getElementById('crmStuSectionCount').textContent = list.length ? arabicCountPhrase(list.length, CRM_STUDENT_COUNT_FORMS) : '';
-  /* الإضافة والاستيراد لشعبة حقيقية فقط */
-  document.getElementById('crmStuSectionActions').style.display = unlinked ? 'none' : 'flex';
+  /* الإضافة والاستيراد لشعبة حقيقية فقط؛ والتحديد (للنقل) يخدم "غير المربوطين" أيضًا */
+  document.getElementById('crmStuAddBtn').style.display = unlinked ? 'none' : '';
+  document.getElementById('crmStuSelectBtn').style.display = list.length ? '' : 'none';
+  document.getElementById('crmStuSelectBtn').setAttribute('aria-pressed', String(crmStuSel.on));
+  document.getElementById('crmStuSelectBtn').classList.toggle('is-on', crmStuSel.on);
+  document.getElementById('crmStuSectionActions').style.display = 'flex';
+  const bar = document.getElementById('crmStuSelectBar');
+  bar.style.display = crmStuSel.on ? 'flex' : 'none';
+  const n = crmStuSel.ids.size;
+  document.getElementById('crmStuSelectCount').textContent = n ? arabicCountPhrase(n, CRM_STUDENT_COUNT_FORMS) + ' محدّد' : 'اضغط الطلاب لتحديدهم';
+  document.getElementById('crmStuBulkMoveBtn').disabled = !n;
   const box = document.getElementById('crmSectionStudentsList');
   box.innerHTML = list.length
-    ? (unlinked ? '<div class="crm-stu-none">حُذفت شعبتهم أو لم تُحدَّد — انقل كل طالب لشعبته من ⋯.</div>' : '') + `<div class="crm-stu-list">${list.map(s => crmStudentRowHtml(s)).join('')}</div>`
-    : '<div class="empty-state">لا طلاب في هذه الشعبة بعد — أضفهم بـ"+ طالب" أو "استيراد Excel".</div>';
+    ? (unlinked ? '<div class="crm-stu-none">حُذفت شعبتهم أو لم تُحدَّد — افتح ملف الطالب لنقله، أو حدّد عدة طلاب (☑) وانقلهم معًا.</div>' : '') + `<div class="crm-stu-list">${list.map(s => crmStudentRowHtml(s, undefined, true)).join('')}</div>`
+    : '<div class="empty-state">لا طلاب في هذه الشعبة بعد — أضفهم بـ«＋» أعلاه (طالب أو استيراد Excel).</div>';
 }
 
 /* الطلاب المنقولون خارج المدرسة: قائمة مطوية أسفل الطلاب، مع "إعادة" لمن عاد */
@@ -1415,9 +1466,16 @@ function planStudentImport(rows, existingStudents, sectionId){
 let crmLinkGroups = [];
 const CRM_STUDENT_COUNT_FORMS = { one: 'طالب واحد', two: 'طالبان', few: '{n} طلاب', many: '{n} طالبًا' };
 
+/* دالة صرفة: أرقام عربية/فارسية ← لاتينية للعرض فقط (المخزَّن لا يُمسّ) — فلا يختلط "الشعبة ٦" مع "33 طالبًا" */
+function crmDigits(v){
+  return String(v == null ? '' : v)
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0));
+}
+
 function crmSectionOptionLabel(sec){
   const grade = crmGradeLevels.find(g => g.id === sec.grade_level_id);
-  return (grade ? grade.name + ' — ' : '') + 'الشعبة ' + sec.name;
+  return (grade ? grade.name + ' — ' : '') + 'الشعبة ' + crmDigits(sec.name);
 }
 
 function renderCrmLinkBanner(){
@@ -1765,6 +1823,8 @@ async function deleteCrmStudent(id){
   await loadCrmStudents();
   renderCrmStudentsList();
   if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
+  /* حُذف من داخل ملفه: لا يبقى ملف طالب غير موجود مفتوحًا أمام المعلم */
+  if(typeof crmProfile !== 'undefined' && crmProfile && String(crmProfile.studentId) === String(id)) closeCrmStudentProfile();
 
   if(!student) return; /* لم نلتقط نسخة محلية من الطالب — لا نعرض تراجعًا وهميًا */
   const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length || relatedPositives.length || relatedPrivate.length || relatedFollowups.length || relatedGrades.length) ? ' وسجلاته المرتبطة' : '';
