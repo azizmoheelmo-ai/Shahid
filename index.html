@@ -763,11 +763,11 @@
               <div class="crm-bsheet-step">٢ · المخالفة <span id="crmIncidentTypeHint"></span></div>
               <div id="crmIncidentTypeChips" class="crm-type-rows" role="radiogroup" aria-label="المخالفة"></div>
               <select id="crmIncidentType" style="display:none;" aria-hidden="true" tabindex="-1" onchange="onCrmIncidentTypeSelect()"><option value="">اختر نوع المخالفة</option></select>
-              <div id="crmOccurrencePreview" style="display:none;margin-top:8px;"></div>
               <div class="crm-bsheet-step">٣ · ملاحظة <span>(اختياري)</span></div>
               <textarea class="goal-input crm-bsheet-notes" id="crmIncidentNotes" maxlength="2000" placeholder="اكتب ملاحظة…" rows="2" oninput="autoGrowCrmIncidentNotes(this)"></textarea>
             </div>
             <div class="crm-bsheet-foot">
+              <div id="crmOccurrencePreview" style="display:none;margin-bottom:8px;"></div>
               <button class="btn btn-primary crm-bsheet-save" id="crmIncidentSaveBtn" onclick="saveClassroomIncident()" disabled>اختر الطالب والمخالفة</button>
             </div>
           </div>
