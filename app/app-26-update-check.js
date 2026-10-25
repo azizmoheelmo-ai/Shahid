@@ -10,7 +10,7 @@
    - "لاحقًا" يؤجلها ساعة لنفس الإصدار.
    APP_VERSION يُرفع مع version.json في كل تحديث (اختبار يتحقق من تطابقهما).
    ============================================================ */
-const APP_VERSION = '2.18';
+const APP_VERSION = '2.19';
 const UPDATE_CHECK_EVERY_MS = 30 * 60 * 1000;
 const UPDATE_SNOOZE_MS = 60 * 60 * 1000;
 const UPDATE_SNOOZE_KEY = 'shahid_update_snooze';
@@ -30,6 +30,26 @@ function compareVersions(a, b){
   return 0;
 }
 
+/* يطلب من المتصفح فحص sw.js الآن وينتظر (حتى 8 ثوانٍ) تفعيل النسخة الجديدة،
+   لأن التطبيق يفتح من كاش الجهاز: إعادة التحميل قبل التفعيل تعيد النسخة القديمة
+   فتظهر نافذة التحديث من جديد. أي فشل هنا صامت (بلا Service Worker يعمل التطبيق عاديًا). */
+async function refreshServiceWorker(){
+  try{
+    if(typeof navigator === 'undefined' || !navigator.serviceWorker || !navigator.serviceWorker.getRegistration) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if(!reg) return;
+    await reg.update();
+    const w = reg.installing || reg.waiting;
+    if(!w || w.state === 'activated') return;
+    await new Promise(resolve => {
+      const t = setTimeout(resolve, 8000);
+      w.addEventListener('statechange', () => {
+        if(w.state === 'activated' || w.state === 'redundant'){ clearTimeout(t); resolve(); }
+      });
+    });
+  } catch(e){}
+}
+
 async function checkForUpdate(){
   try{
     const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
@@ -37,6 +57,7 @@ async function checkForUpdate(){
     const info = await res.json();
     if(!info || typeof info.version !== 'string' || compareVersions(info.version, APP_VERSION) <= 0) return null;
     pendingUpdate = { version: info.version, date: String(info.date || ''), notes: Array.isArray(info.notes) ? info.notes.filter(n => typeof n === 'string').slice(0, 6) : [] };
+    refreshServiceWorker(); /* تجهيز النسخة الجديدة بالخلفية قبل ضغط "تحديث الآن" */
     maybeShowUpdateSheet();
     return pendingUpdate;
   } catch(e){ return null; } /* بلا إنترنت: لا شيء — يُعاد الفحص لاحقًا */
@@ -97,6 +118,7 @@ async function applyUpdate(){
     if(typeof crmSheet !== 'undefined' && crmSheet && typeof crmSheetPendingWrites === 'function'){
       await Promise.allSettled(crmSheetPendingWrites(crmSheet));
     }
+    await refreshServiceWorker();
   } finally {
     location.reload();
   }

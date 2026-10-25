@@ -1,50 +1,95 @@
 /* Service Worker لتطبيق "شاهد على الأداء الوظيفي"
    ------------------------------------------------------------
-   الهدف الوحيد: تخزين "شكل" التطبيق الثابت (الصفحة، الأيقونات، الـ manifest)
-   محليًا على جهاز المستخدم — عشان:
-   1) فتح أسرع بالمرات القادمة (يُخدَّم من الكاش فورًا بينما يتحقق من وجود
-      نسخة أحدث بالخلفية — stale-while-revalidate).
-   2) لا تظهر صفحة بيضاء/خطأ متصفح لو انفتح التطبيق بدون إنترنت مؤقتًا.
+   الهدف: فتح فوري كتطبيق حقيقي. ملفات التطبيق كلها (الصفحة، التنسيق،
+   سكربتات app/*.js، الأيقونات) تُخزَّن على الجهاز، ويُفتح التطبيق منها
+   مباشرة بلا انتظار الشبكة ("الكاش أولًا").
 
-   ما لا يفعله هذا الملف عمدًا (تصميم آمن ومحافظ):
-   - لا يخزّن أي طلب لـ Supabase (API أو تخزين) إطلاقًا — البيانات دائمًا
-     حيّة ومباشرة، صفر خطر لعرض بيانات قديمة/خاطئة أو مشاكل مصادقة مخزَّنة.
-   - لا يخزّن أي مكتبة خارجية (jsDelivr, Google Fonts) — هذه تُدار بكاش
-     المتصفح العادي (HTTP cache) وليس من مسؤولية هذا الملف.
-   - لا يتدخل بأي طلب غير GET (لا يوجد أي POST/PUT/DELETE لنفس أصل الصفحة
-     أصلًا بهذا التطبيق، لكن كإجراء أمان إضافي صريح).
-   - لا يعمل إطلاقًا لو فُتح الملف عبر file:// — المتصفح نفسه يمنع تسجيل
-     Service Worker خارج HTTPS/localhost، وهذا سلوك متصفح طبيعي متوقّع.
+   كيف نضمن وصول التحديثات (درس حادثة سابقة: تحديث ظهر عند المطوّر ولم يظهر
+   عند المستخدم لأن كاشًا قديمًا حجبه):
+   1) اسم الكاش يحمل رقم الإصدار (CACHE_NAME). كل إصدار جديد يغيّر هذا الملف
+      فيكتشفه المتصفح ويثبّت Service Worker جديدًا.
+   2) التثبيت "كل شيء أو لا شيء": تُجلب كل الملفات من الشبكة مباشرة
+      (cache:'no-store') إلى كاش الإصدار الجديد، فإن فشل أيٌّ منها يفشل
+      التثبيت كله ويبقى الإصدار القديم سليمًا — فلا يحدث أبدًا خليط
+      (صفحة جديدة مع سكربتات قديمة).
+   3) عند التفعيل يُحذف كاش الإصدارات القديمة.
+   4) نافذة "تحديث جديد متاح" (app-26) تعتمد على version.json من الشبكة،
+      و"تحديث الآن" تنتظر تفعيل هذا الملف الجديد قبل إعادة التحميل.
+   رقم الإصدار هنا يُرفع مع version.json وAPP_VERSION (اختبار يتحقق من التطابق).
+
+   ما لا يفعله هذا الملف عمدًا:
+   - لا يخزّن أي طلب لـ Supabase (API أو تخزين) ولا أي بيانات — البيانات
+     دائمًا حيّة ومباشرة، صفر خطر لعرض بيانات قديمة أو بيانات مستخدم آخر.
+   - لا يتدخل بأي طلب غير GET، ولا بأي طلب لنفس الأصل خارج قائمة APP_SHELL.
+   - لا يخزّن version.json أبدًا (نافذة التحديث تقرؤه من الشبكة).
+   - لا يعمل لو فُتح الملف عبر file:// — المتصفح نفسه يمنع ذلك خارج
+     HTTPS/localhost، وهذا سلوك طبيعي متوقّع.
 */
 
-const CACHE_NAME = 'shahid-shell-v4';
+const APP_VERSION_SW = '2.19';
+const CACHE_NAME = 'shahid-shell-v' + APP_VERSION_SW;
+/* مكتبة Supabase والخطوط (خارجية): نخدمها من الكاش فورًا ونحدّثها بالخلفية.
+   كاش منفصل لا يُحذف بتغيّر الإصدار. */
+const EXT_CACHE = 'shahid-ext-v1';
+const EXT_HOSTS = ['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 const APP_SHELL = [
   './',
   './index.html',
+  './style.css',
   './manifest.json',
   './icon-180.png',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './app/app-01-core.js',
+  './app/app-02-templates-data.js',
+  './app/app-03-auth-home-risk.js',
+  './app/app-04-academic-crm.js',
+  './app/app-05-plan-goals.js',
+  './app/app-06-self-assessment.js',
+  './app/app-07-backup-export.js',
+  './app/app-08-admin.js',
+  './app/app-09-shahid-form.js',
+  './app/app-10-programs.js',
+  './app/app-11-support.js',
+  './app/app-12-calendar.js',
+  './app/app-13-tasks.js',
+  './app/app-14-classroom-today.js',
+  './app/app-15-student-profile.js',
+  './app/app-16-attention-followups.js',
+  './app/app-17-grades.js',
+  './app/app-18-section-summary.js',
+  './app/app-19-lesson-plans.js',
+  './app/app-20-participation-homework.js',
+  './app/app-21-performance-tasks.js',
+  './app/app-22-customize.js',
+  './app/app-23-custom-tools.js',
+  './app/app-24-tests-sheet.js',
+  './app/app-25-grade-weights.js',
+  './app/app-26-update-check.js',
+  './app/app-27-grade-periods.js',
+  './app/app-28-grade-wizard.js'
 ];
 
-/* الملفات التي تحمل منطق التطبيق نفسه (الصفحة + سكربتات app/*.js) —
-   هذه تحديدًا يجب أن تُخدَّم "الشبكة أولًا" لا "الكاش أولًا": لو خُدِّمت من
-   كاش قديم بعد نشر تحديث، يشتغل المستخدم بكود قديم بصمت دون أي علامة على
-   أن هناك نسخة أحدث، وهذا وقع فعليًا (تحديث خطاب الإحالة ظهر بالمعاينة
-   على جهاز المطوّر لكن لم يظهر عند المستخدم لحظة النشر). أما بقية الملفات
-   (الأيقونات، manifest) فتبقى "كاش أولًا" لأنها نادرًا ما تتغير وتفيد
-   بالعمل بلا اتصال بسرعة.
-   ملف التنسيق (style.css) مثلها: كود جديد مع تنسيق قديم من الكاش أظهر أزرارًا
-   جديدة بلا ألوان (لا يُعرف المختار منها) حتى إعادة الفتح — وقع فعليًا. */
-function isAppLogicRequest(url){
-  return url.pathname.endsWith('.html') || url.pathname === '/' || /\/app\/.*\.js$/.test(url.pathname) || url.pathname.endsWith('.css');
+/* بعض الاستضافات تحوّل /index.html إلى / فتأتي الاستجابة "redirected"، والمتصفح
+   يرفض تسليمها لطلب تنقّل — نعيد بناءها نسخةً عادية قبل تخزينها */
+async function cleanResponse(res){
+  if(!res.redirected) return res;
+  return new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .catch(() => { /* لو تعذّر تخزين أحد الملفات لا نوقف التثبيت بالكامل */ })
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(APP_SHELL.map((u) =>
+        fetch(new Request(u, { cache: 'no-store' })).then((res) => {
+          if(!res.ok) throw new Error('shell fetch failed: ' + u + ' ' + res.status);
+          return cleanResponse(res).then((clean) => cache.put(u, clean));
+        })
+      ))
+    ).catch((err) =>
+      /* لا نُبقي كاشًا ناقصًا: يفشل التثبيت ويستمر الإصدار القديم */
+      caches.delete(CACHE_NAME).then(() => { throw err; })
+    )
   );
   self.skipWaiting();
 });
@@ -52,7 +97,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k !== CACHE_NAME && k !== EXT_CACHE).map((k) => caches.delete(k)))
     )
   );
   self.clients.claim();
@@ -61,45 +106,34 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
+  if(req.method !== 'GET') return;
 
-  /* نخدم فقط طلبات GET لنفس أصل الصفحة — أي شيء آخر (Supabase، jsDelivr،
-     الخطوط...) يُترك تمامًا لسلوك الشبكة الطبيعي بدون أي تدخل من هنا */
-  if(req.method !== 'GET' || url.origin !== self.location.origin) return;
-  /* رقم الإصدار يُقرأ من الشبكة دائمًا (نافذة التحديث) — لا يُخزَّن ولا يُخدَّم من الكاش */
-  if(url.pathname.endsWith('/version.json')) return;
-
-  if(isAppLogicRequest(url)){
-    /* الشبكة أولًا: أي تحديث منشور يظهر فورًا بلا أي كاش قديم يحجبه.
-       يُلجأ للكاش فقط لو تعذّر الاتصال فعلاً (عمل بلا إنترنت).
-
-       cache:'no-store' ضروري هنا فعليًا لا تجميلًا: fetch() العادي يمرّ
-       أولًا عبر كاش HTTP القياسي بالمتصفح نفسه (منفصل كليًا عن كاش
-       Service Worker أعلاه) — لو خدم المتصفح نسخة HTML/JS قديمة من ذلك
-       الكاش، يفشل "الشبكة أولًا" بصمت رغم أن الكود هنا يظنّ أنه يجلب من
-       الشبكة فعليًا. هذا بالضبط سبب الحادثة الموثّقة أعلاه (ظهور تحديث
-       بجهاز المطوّر دون جهاز المستخدم لحظة النشر). */
+  /* مكتبات وخطوط خارجية: الكاش أولًا مع تحديث بالخلفية. الاستجابة المعتمة
+     (no-cors) مقبولة هنا لأنها وسوم script/link لا نقرأ محتواها */
+  if(url.origin !== self.location.origin){
+    if(EXT_HOSTS.indexOf(url.hostname) === -1) return;
     event.respondWith(
-      fetch(req, { cache: 'no-store' }).then((response) => {
-        if(response && response.ok){
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
-        }
-        return response;
-      }).catch(() => caches.match(req))
+      caches.open(EXT_CACHE).then((cache) =>
+        cache.match(req).then((cached) => {
+          const networkFetch = fetch(req).then((res) => {
+            if(res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
+            return res;
+          }).catch(() => cached);
+          return cached || networkFetch;
+        })
+      )
     );
     return;
   }
 
+  /* رقم الإصدار يُقرأ من الشبكة دائمًا (نافذة التحديث) — لا يُخزَّن ولا يُخدَّم من الكاش */
+  if(url.pathname.endsWith('/version.json')) return;
+
+  /* ملفات التطبيق: من كاش الإصدار الحالي. ما ليس فيه (كاستدعاءات api) يذهب للشبكة كما هو.
+     التنقّل يتجاهل ?query فيفتح من الكاش حتى برابط فيه معاملات */
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const networkFetch = fetch(req).then((response) => {
-        if(response && response.ok){
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
-        }
-        return response;
-      }).catch(() => cached);
-      return cached || networkFetch;
-    })
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(req, { ignoreSearch: req.mode === 'navigate' }).then((cached) => cached || fetch(req))
+    )
   );
 });

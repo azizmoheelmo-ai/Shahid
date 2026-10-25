@@ -104,7 +104,7 @@ test('بلا إنترنت: لا خطأ ولا نافذة', async () => {
 test('Service Worker لا يخزّن version.json ولا يخدمه من الكاش', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
   let handler = null;
-  const ctx = { self: { addEventListener: (t, fn) => { if(t === 'fetch') handler = fn; }, location: { origin: 'https://x' }, skipWaiting(){}, clients: { claim(){} } }, caches: {}, URL, fetch: () => Promise.resolve() };
+  const ctx = { self: { addEventListener: (t, fn) => { if(t === 'fetch') handler = fn; }, location: { origin: 'https://x' }, skipWaiting(){}, clients: { claim(){} } }, caches: { open: async () => ({ match: async () => undefined }) }, URL, fetch: () => Promise.resolve() };
   vm.runInNewContext(src, ctx);
   let responded = false;
   handler({ request: { method: 'GET', url: 'https://x/version.json?t=1' }, respondWith(){ responded = true; } });
