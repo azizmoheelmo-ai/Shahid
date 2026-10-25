@@ -410,7 +410,6 @@ function crmGradeSimpleHtml(g){
     </button>`;
   });
   html += '</div>';
-  html += '<p class="crm-gs-note">"—" = لم يُرصد بعد. اللون حسب ما رُصد فقط. الرصد من ورقة الحصة، والإعداد من ⚙. كل الأعمدة والتعديل اليدوي في «جدول كامل».</p>';
   return html;
 }
 
