@@ -1300,6 +1300,37 @@
 .crm-lesson-row.is-skipped > span:first-child{color:var(--muted);}
 .crm-skip-note{font-size:11px;color:var(--muted);margin-top:2px;}
 .crm-mini-btn{padding:6px 12px;font-size:12px;min-height:36px;}
+/* خططي (app-19): بطاقات مجمّعة حسب الحالة */
+.plan-list{margin-bottom:12px;}
+.plan-grp{margin:12px 2px 6px;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.plan-grp i{width:8px;height:8px;border-radius:50%;background:var(--navy);display:inline-block;}
+.plan-grp.is-overdue{color:#8A6D1F;}.plan-grp.is-overdue i{background:#C9962F;}
+.plan-grp.is-today{color:#0F5C4D;}.plan-grp.is-today i{background:#0F5C4D;}
+.plan-cnt{background:#fff;border:1px solid #E4DECF;border-radius:99px;font-size:11px;padding:0 8px;color:var(--muted);font-weight:700;}
+.plan-hint{font-size:11px;color:var(--muted);font-weight:400;margin-inline-start:auto;}
+.plan-card{display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #E4DECF;border-radius:14px;padding:9px 10px;margin-bottom:7px;cursor:pointer;}
+.plan-card.is-overdue{border-color:#E3CF9A;background:#FFFBF0;}
+.plan-card.is-today{border-color:#9CC9BD;background:#F2FAF7;}
+.plan-date{flex:none;width:50px;height:54px;border-radius:11px;background:#F1EEE6;color:var(--navy);display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;}
+.plan-date small{font-size:10.5px;font-weight:700;color:var(--muted);}.plan-date b{font-size:20px;font-weight:800;}
+.plan-card.is-overdue .plan-date{background:#F3E6BE;}.plan-card.is-overdue .plan-date small{color:#8A6D1F;}
+.plan-card.is-today .plan-date{background:#0F5C4D;color:#fff;}.plan-card.is-today .plan-date small{color:#CFE9E1;}
+.plan-body{flex:1;min-width:0;}
+.plan-title{font-size:14.5px;font-weight:800;color:var(--navy);margin-bottom:3px;overflow-wrap:anywhere;}
+.plan-chips{display:flex;gap:5px;flex-wrap:wrap;}
+.plan-chip{font-size:11px;font-weight:600;background:#F1EEE6;color:#4A463B;border-radius:8px;padding:1px 8px;}
+.plan-chip.is-cls{background:#EAF0F6;color:var(--navy);}
+.plan-act{flex:none;}
+.plan-doc-btn{background:#0F5C4D;color:#fff;border:none;border-radius:10px;font-family:inherit;font-weight:700;font-size:12px;padding:7px 12px;min-height:36px;cursor:pointer;}
+.plan-chev{color:#9A957F;font-size:22px;line-height:1;}
+.plan-new-btn{display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;background:#EEF7F4;border:1.5px dashed #86BDB0;border-radius:14px;padding:10px 12px;font-family:inherit;text-align:right;cursor:pointer;}
+.plan-new-plus{width:30px;height:30px;border-radius:50%;background:#0F5C4D;color:#fff;font-size:20px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;}
+.plan-new-btn b{display:block;font-size:14px;color:#0F5C4D;}.plan-new-btn small{font-size:11px;color:var(--muted);}
+.plan-empty{text-align:center;padding:22px 14px 14px;background:#fff;border:1px solid #E4DECF;border-radius:16px;margin-bottom:12px;}
+.plan-empty-ic{width:58px;height:58px;border-radius:50%;background:#EEF3F7;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:28px;}
+.plan-empty b{display:block;font-size:15px;color:var(--navy);margin-bottom:4px;}
+.plan-empty p{margin:0 0 14px;font-size:12.5px;color:var(--muted);line-height:1.8;}
+.plan-empty-btn{width:100%;background:var(--navy);color:#fff;border:none;border-radius:12px;font-family:inherit;font-weight:700;font-size:14px;padding:11px;min-height:44px;cursor:pointer;}
 .crm-sheet-head{font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px;}
 .crm-sheet-note{font-size:11.5px;background:#EDF1F7;border:1px solid #B9C7DC;color:#2C4A72;padding:6px 10px;margin-bottom:8px;line-height:1.7;}
 .crm-sheet-counts{font-size:12.5px;font-weight:700;margin-bottom:6px;}
