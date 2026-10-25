@@ -1847,7 +1847,20 @@ html, body, *{touch-action:manipulation;}
 .crm-lrow-main .gs-chips{margin-top:4px;}
 .crm-lrow.is-skipped .crm-lrow-main b{color:var(--muted);}
 .crm-lrow-more{border:none;background:none;color:#9A938A;font-size:17px;font-weight:900;padding:2px 4px;cursor:pointer;font-family:inherit;}
-.crm-extra-btn{display:block;width:100%;border:1.5px dashed #9FC9BF;background:#F1F8F6;color:#0E5F53;border-radius:13px;padding:8px;font-family:inherit;font-weight:800;font-size:13px;cursor:pointer;margin:4px 0 10px;}
+.crm-extra-btn{display:flex;align-items:center;gap:10px;width:100%;border:1.5px solid #9FC9BF;background:#F1F8F6;color:#0E5F53;border-radius:16px;padding:11px 14px;font-family:inherit;font-weight:800;font-size:14px;cursor:pointer;margin:4px 0 10px;text-align:right;}
+.crm-extra-plus{width:26px;height:26px;border-radius:50%;background:#0E5F53;color:#fff;display:grid;place-items:center;font-size:18px;line-height:1;flex:none;}
+.crm-extra-chev{margin-inline-start:auto;font-size:12px;opacity:.7;}
+.crm-extra-box{background:#fff;border:1.5px solid #9FC9BF;border-radius:16px;padding:12px 14px 14px;margin:-4px 0 12px;}
+.crm-extra-hint{font-size:12px;color:var(--muted);margin-bottom:10px;}
+.crm-extra-grp{margin-bottom:12px;}
+.crm-extra-grp:last-child{margin-bottom:0;}
+.crm-extra-grp h4{margin:0 0 7px;font-size:13px;color:var(--navy);display:flex;align-items:center;gap:8px;}
+.crm-extra-grp h4::after{content:"";flex:1;height:1px;background:var(--line);}
+.crm-extra-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.crm-extra-chip{border:1.5px solid var(--line);background:var(--paper);border-radius:12px;padding:7px 0;text-align:center;font-family:inherit;font-weight:800;font-size:15px;color:var(--navy);cursor:pointer;}
+.crm-extra-chip small{display:block;font-weight:600;font-size:10.5px;color:var(--muted);margin-bottom:-2px;}
+.crm-extra-chip:active{background:var(--navy);border-color:var(--navy);color:#fff;}
+.crm-extra-chip:active small{color:#cfd8e0;}
 .crm-mtiles{display:flex;gap:7px;margin-bottom:10px;}
 .crm-mtile{flex:1;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #E4DECF;border-radius:14px;padding:8px 10px;text-align:right;font-family:inherit;cursor:pointer;min-width:0;}
 .crm-mtile.is-open{border-color:var(--navy);}

@@ -456,8 +456,8 @@ function paintCrmToday(){
   }
 
   let html = '';
-  const extraBtn = `<button type="button" class="crm-extra-btn" onclick="toggleCrmExtraLesson()">+ رصد حصة خارج الجدول</button>
-    <div id="crmExtraLessonBox" style="display:none;margin:-4px 0 10px;">${crmSectionButtonsHtml(todayIso)}</div>`;
+  const extraBtn = `<button type="button" class="crm-extra-btn" onclick="toggleCrmExtraLesson()"><span class="crm-extra-plus">+</span>رصد حصة خارج الجدول<span class="crm-extra-chev">▾</span></button>
+    <div id="crmExtraLessonBox" class="crm-extra-box" style="display:none;">${crmSectionButtonsHtml(todayIso)}</div>`;
 
   if(d.holidayName){
     d.focus = null;
@@ -738,9 +738,22 @@ async function undoCrmLessonSkip(skipId){
 
 function crmSectionButtonsHtml(dateIso){
   const sorted = crmSections.slice().sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar', { numeric: true }));
-  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${sorted.map(sec =>
-    `<button class="btn btn-outline crm-mini-btn" onclick="openCrmLessonSheet('${sec.id}','${dateIso}',null)">رصد: ${escapeHtml(crmSectionOptionLabel(sec))}</button>`
-  ).join('')}</div>`;
+  /* تجميع حسب الصف (grade_level_id) — الحدث نفسه: openCrmLessonSheet(sectionId, date, null) */
+  const groups = [];
+  sorted.forEach(sec => {
+    let g = groups.find(x => x.gradeId === (sec.grade_level_id || null));
+    if(!g){
+      const grade = crmGradeLevels.find(x => x.id === sec.grade_level_id);
+      g = { gradeId: sec.grade_level_id || null, name: grade ? grade.name : 'شعب أخرى', secs: [] };
+      groups.push(g);
+    }
+    g.secs.push(sec);
+  });
+  return `<div class="crm-extra-hint">اختر الشعبة لرصد حصتها</div>` + groups.map(g =>
+    `<div class="crm-extra-grp"><h4>${escapeHtml(g.name)}</h4><div class="crm-extra-chips">${g.secs.map(sec =>
+      `<button type="button" class="crm-extra-chip" aria-label="${escapeHtml('رصد: ' + crmSectionOptionLabel(sec))}" onclick="openCrmLessonSheet('${sec.id}','${dateIso}',null)"><small>شعبة</small>${escapeHtml(crmDigits(sec.name))}</button>`
+    ).join('')}</div></div>`
+  ).join('');
 }
 
 function toggleCrmExtraLesson(){
