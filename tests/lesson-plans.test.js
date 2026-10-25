@@ -144,3 +144,34 @@ test('startNewShahid — يلغي سياق توثيق خطة سابقة (لا ي
   try{ app.startNewShahid(); } catch(e){}
   assert.equal(runInAppContext(app, 'planShahidContext'), null);
 });
+
+/* ===== عرض "خططي" في اليوم: بطاقات مجمّعة ===== */
+function plansApp(){
+  const app = loadApp();
+  app.crmSectionLabel = id => 'ثالث ثانوي — الشعبة ' + id;
+  return app;
+}
+const planRow = (o) => Object.assign({ id: 'p1', status: 'planned', title: 'تقويم عملي', planned_date: '2026-10-26', section_id: '4', period: 2 }, o);
+
+test('lessonPlansTodayHtml — حالة فارغة قصيرة بزر واحد', async () => {
+  const html = plansApp().lessonPlansTodayHtml([], '2026-10-25');
+  assert.match(html, /لا خطط قادمة/);
+  assert.equal((html.match(/<button/g) || []).length, 1);
+});
+
+test('lessonPlansTodayHtml — تجميع المتأخرة/اليوم/القادمة وزر "وثّق" لغير القادمة فقط', async () => {
+  const app = plansApp();
+  const html = app.lessonPlansTodayHtml([
+    planRow({ id: 'a', planned_date: '2026-10-22' }), planRow({ id: 'b', planned_date: '2026-10-25' }), planRow({ id: 'c' })
+  ], '2026-10-25');
+  assert.match(html, /لم توثّق بعد/); assert.match(html, /اليوم/); assert.match(html, /القادمة/);
+  assert.match(html, /documentLessonPlan\('a'\)/); assert.match(html, /documentLessonPlan\('b'\)/);
+  assert.doesNotMatch(html, /documentLessonPlan\('c'\)/);
+  assert.match(html, /openLessonPlanView\('c'\)/); /* البطاقة كلها تفتح الخطة */
+});
+
+test('lessonPlansTodayHtml — عنوان الخطة يمرّ عبر escapeHtml (لا حقن)', async () => {
+  const html = plansApp().lessonPlansTodayHtml([planRow({ title: '<img src=x onerror=alert(1)>' })], '2026-10-25');
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+});

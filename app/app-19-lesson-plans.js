@@ -173,22 +173,43 @@ async function saveLessonPlan(){
 }
 
 /* ============ العرض في "اليوم" ============ */
+const PLAN_MONTHS_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+
+/* بطاقة خطة: كلها قابلة للّمس (تفتح الخطة)؛ زر "وثّق" المباشر لخطط اليوم والمتأخرة فقط */
+function planCardHtml(p, kind, todayIso){
+  const day = kind === 'today' ? 'اليوم' : CRM_WEEKDAY_NAMES[weekdayOfIso(p.planned_date)];
+  const where = p.section_id
+    ? (p.period ? `<span class="plan-chip">الحصة ${p.period}</span>` : '') + `<span class="plan-chip is-cls">${escapeHtml(crmSectionLabel(p.section_id))}</span>`
+    : '<span class="plan-chip">بلا حصة محددة</span>';
+  const act = kind === 'upcoming'
+    ? '<span class="plan-chev" aria-hidden="true">‹</span>'
+    : `<button type="button" class="plan-doc-btn" onclick="event.stopPropagation();documentLessonPlan('${p.id}')">وثّق ✓</button>`;
+  return `<div class="plan-card is-${kind}" role="button" tabindex="0" onclick="openLessonPlanView('${p.id}')" onkeydown="if(event.key==='Enter'){openLessonPlanView('${p.id}')}">
+    <div class="plan-date"><small>${day}</small><b>${Number(p.planned_date.slice(8, 10))}</b><small>${PLAN_MONTHS_AR[Number(p.planned_date.slice(5, 7)) - 1]}</small></div>
+    <div class="plan-body"><div class="plan-title">${escapeHtml(p.title)}</div><div class="plan-chips">${where}</div></div>
+    <div class="plan-act">${act}</div></div>`;
+}
+
+function planGroupHtml(label, kind, list, hint){
+  return `<div class="plan-grp is-${kind}"><i></i>${label}<span class="plan-cnt">${list.length}</span>${hint ? `<span class="plan-hint">${hint}</span>` : ''}</div>`;
+}
+
+const PLAN_NEW_BTN = `<button type="button" class="plan-new-btn" onclick="startNewShahid()"><span class="plan-new-plus">+</span>
+  <span><b>خطة جديدة</b><small>من نموذج جاهز لحصة قادمة</small></span></button>`;
+
 function lessonPlansTodayHtml(plans, todayIso){
   if(!plans) return '';
   const c = classifyPlans(plans, todayIso);
   if(!c.today.length && !c.upcoming.length && !c.overdue.length){
-    return `<div class="crm-today-card"><div class="crm-today-title">📋 خططي</div>
-      <div class="crm-today-empty">لا خطط قادمة. من نموذج الشاهد: اختر نموذجًا ثم "📅 احفظها كخطة لحصة قادمة". <a href="#" onclick="event.preventDefault();startNewShahid()">شاهد/خطة جديدة</a></div></div>`;
+    return `<div class="plan-empty"><div class="plan-empty-ic">📋</div><b>لا خطط قادمة</b>
+      <p>خطّط لحصتك القادمة مرة واحدة، وتجدها جاهزة في يومها مع زر توثيق.</p>
+      <button type="button" class="plan-empty-btn" onclick="startNewShahid()">+ خطة جديدة</button></div>`;
   }
-  const row = (p, extra) => `<div class="crm-lesson-row"><span><a href="#" onclick="event.preventDefault();openLessonPlanView('${p.id}')">${escapeHtml(p.title)}</a>
-      <span class="crm-tl-meta"> · ${escapeHtml(planLessonLabel(p))}${extra || ''}</span></span>
-      <button class="btn btn-outline crm-mini-btn" onclick="openLessonPlanView('${p.id}')">فتح</button></div>`;
-  let html = '<div class="crm-today-card"><div class="crm-today-title">📋 خططي</div>';
-  if(c.overdue.length) html += `<div class="crm-field-label" style="color:#8A6D1F;">لم توثّق بعد (${c.overdue.length})</div>` + c.overdue.map(p => row(p, ' · ' + shortDateAr(p.planned_date))).join('');
-  if(c.today.length) html += '<div class="crm-field-label">اليوم</div>' + c.today.map(p => row(p)).join('');
-  if(c.upcoming.length) html += '<div class="crm-field-label">القادمة</div>' + c.upcoming.slice(0, 8).map(p => row(p, ' · ' + shortDateAr(p.planned_date))).join('');
-  html += `<div style="margin-top:6px;"><a href="#" style="font-size:11.5px;" onclick="event.preventDefault();startNewShahid()">+ خطة جديدة</a></div></div>`;
-  return html;
+  let html = '<div class="plan-list">';
+  if(c.overdue.length) html += planGroupHtml('لم توثّق بعد', 'overdue', c.overdue, 'نفّذتها؟ وثّقها كشاهد') + c.overdue.map(p => planCardHtml(p, 'overdue', todayIso)).join('');
+  if(c.today.length) html += planGroupHtml('اليوم', 'today', c.today) + c.today.map(p => planCardHtml(p, 'today', todayIso)).join('');
+  if(c.upcoming.length) html += planGroupHtml('القادمة', 'upcoming', c.upcoming) + c.upcoming.slice(0, 8).map(p => planCardHtml(p, 'upcoming', todayIso)).join('');
+  return html + PLAN_NEW_BTN + '</div>';
 }
 
 /* علامة الخطة تحت صف حصتها في "حصص اليوم" */
