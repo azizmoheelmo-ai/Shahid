@@ -2030,6 +2030,13 @@ html.beta-closed #betaNoticeBar,html.beta-closed #betaNoticeSpacer{display:none;
 .crm-gs-menuitem{display:flex;gap:10px;align-items:center;width:100%;text-align:right;background:none;border:0;border-bottom:1px solid #EEE9DF;padding:11px 2px;font-family:inherit;font-size:14px;font-weight:700;color:var(--navy);cursor:pointer;}
 .crm-gs-menuitem:last-child{border-bottom:0;}
 .crm-gs-menuitem i{font-style:normal;width:26px;text-align:center;font-size:18px;}
+.crm-gs-ic{flex:none;width:30px;height:30px;border-radius:9px;background:#F1ECDF;display:grid;place-items:center;}
+.crm-gs-ic svg{width:17px;height:17px;fill:none;stroke:var(--navy);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.crm-gs-tx{flex:1;min-width:0;}
+.crm-gs-sub{font-size:11.5px;color:var(--muted);margin-bottom:8px;}
+.crm-gs-grp{font-size:11px;font-weight:800;color:var(--gold);letter-spacing:.04em;margin:12px 0 0;border-top:1px solid #EEE9DF;padding-top:8px;}
+.crm-gs-state{flex:none;font-size:10.5px;font-weight:700;background:#E7F0EA;color:#2F6B4F;padding:1px 8px;border-radius:99px;}
+.crm-gs-menuitem.is-off{opacity:.6;cursor:default;}
 .crm-gs-menuitem small{display:block;font-weight:400;font-size:11.5px;color:var(--muted);}
 .crm-gs-cell-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:var(--navy);}
 .crm-gs-cell-top span{font-size:11.5px;color:var(--muted);}

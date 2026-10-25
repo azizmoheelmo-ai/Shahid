@@ -595,24 +595,48 @@ function onCrmGradesSectionChange(id){
 function crmGradesModeBarHtml(){
   const seg = (detail, label) => `<button type="button" class="${crmGradesDetail === detail ? 'is-on' : ''}" aria-pressed="${crmGradesDetail === detail}" onclick="setCrmGradesDetail(${detail})">${label}</button>`;
   return `<div class="crm-gs-modebar"><div class="crm-seg">${seg(false, 'قائمة الطلاب')}${seg(true, 'جدول كامل')}</div>
-    <button type="button" class="crm-ic-btn" aria-label="أدوات الكشف" title="أدوات الكشف: إضافة عمود، استيراد، إعداد" onclick="openCrmGradeToolsMenu()">⋮</button></div>`;
+    <button type="button" class="crm-ic-btn" aria-label="أدوات الكشف" title="أدوات الكشف: اختبار جديد، استيراد، قالب، تصدير، إعداد" onclick="openCrmGradeToolsMenu()">⋮</button></div>`;
 }
 
-/* أدوات الكشف في مكان واحد: إضافة عمود/اختبار، استيراد Excel، إعداد الدرجات */
+/* أدوات الكشف: يفتح على «اختبار جديد» (مهمة الأسبوع)، وتحته النقل والإعداد النادران */
 function openCrmGradeToolsMenu(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
-  const perfFull = gradeCategoryTotal(g.allColumns || g.columns, 'performance') >= gradeCap('performance');
-  const item = (icon, title, sub, attrs) => `<button type="button" class="crm-gs-menuitem" ${attrs}><i>${icon}</i><span>${title}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
-  let html = '<div style="text-align:right;"><h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">أدوات الكشف</h3>';
-  if(!perfFull) html += item('＋', 'إضافة عمود أداء', `المتاح من ${formatScore(gradeCap('performance'))}: ${formatScore(gradeCap('performance') - gradeCategoryTotal(g.allColumns || g.columns, 'performance'))}`, `onclick="closeCrmModal();openCrmGradeColumnEditor('performance', null)"`);
-  if(appToolOn('tests')) html += item('＋', 'إضافة اختبار', '', `onclick="closeCrmModal();openCrmGradeColumnEditor('tests', null)"`);
+  const all = g.allColumns || g.columns;
+  const perfLeft = gradeCap('performance') - gradeCategoryTotal(all, 'performance');
+  const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+  const ICON = {
+    plus: 'M12 5v14M5 12h14',
+    down: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+    file: 'M6 3h9l4 4v14H6zM14 3v5h5M9 14h6M9 17h6',
+    gear: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1'
+  };
+  const body = (icon, title, sub, state) => `<span class="crm-gs-ic">${svg(ICON[icon])}</span><span class="crm-gs-tx">${title}${sub ? `<small class="hb-sub">${sub}</small>` : ''}</span>${state ? `<span class="crm-gs-state">${state}</span>` : ''}`;
+  const item = (icon, title, sub, attrs) => `<button type="button" class="crm-gs-menuitem" ${attrs}>${body(icon, title, sub)}</button>`;
+  const testsOn = appToolOn('tests');
+  let html = `<div style="text-align:right;"><h3 style="margin:0 0 2px;font-size:15px;color:var(--navy);">${testsOn ? 'اختبار جديد' : 'أدوات الكشف'}</h3>
+    <div class="crm-gs-sub">${escapeHtml(crmSectionLabel(g.sectionId))}</div>`;
+  if(testsOn){
+    html += crmGradeColumnFormHtml('tests', null);
+    crmGradeColumnDraft = { id: null, category: 'tests', saving: false };
+  }
+  html += '<div class="crm-gs-grp">إضافة</div>';
+  /* السقف الممتلئ يبقى ظاهرًا ومعطّلًا بسببه، بدل أن يختفي */
+  html += perfLeft > 0
+    ? item('plus', 'عمود أداء', `المتاح من ${formatScore(gradeCap('performance'))}: ${formatScore(perfLeft)}`, `onclick="closeCrmModal();openCrmGradeColumnEditor('performance', null)"`)
+    : `<div class="crm-gs-menuitem is-off" aria-disabled="true">${body('plus', 'عمود أداء', 'اكتمل توزيع الأداء', 'مكتمل')}</div>`;
+  html += '<div class="crm-gs-grp">نقل الدرجات</div>';
   if(g.columns.length){
-    html += `<label class="crm-gs-menuitem"><i>📥</i><span>استيراد من Excel<small>ملف درجات جاهز</small></span>
+    html += `<label class="crm-gs-menuitem">${body('down', 'استيراد من Excel', 'ملف Excel أو CSV — تراجع الأسماء والدرجات قبل الحفظ')}
       <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="startCrmGradeImport(event);closeCrmModal()"></label>`;
   }
-  html += item('⚙', 'إعداد الدرجات', 'التوزيع والفترات لكل شعبك', `onclick="closeCrmModal();openCrmGradeSettings()"`);
-  showInfoModal(html + '</div>', '380px');
+  if(g.columns.length){
+    html += item('down', 'قالب Excel جاهز', 'بأسماء طلاب هذه الشعبة وأعمدة الرصد — عبّئه ثم استورده', `onclick="exportCrmGradeSheet('template', this)"`);
+  }
+  html += item('file', 'تصدير الكشف', 'ملف Excel بدرجات هذه الشعبة ومجاميعها', `onclick="exportCrmGradeSheet('sheet', this)"`);
+  html += '<div class="crm-gs-grp">إعدادات</div>';
+  html += item('gear', 'إعداد الدرجات', 'التوزيع والفترات — يُطبَّق على كل شعبك لهذا الفصل', `onclick="closeCrmModal();openCrmGradeSettings()"`);
+  showInfoModal(html + '</div>', '420px');
 }
 
 /* ============ الكشف التفصيلي: كل الأعمدة (للتعديل اليدوي والاستيراد) ============ */
@@ -911,32 +935,42 @@ function openCrmGradeColumnMenu(columnId){
 }
 
 /* ============ إضافة/تعديل عمود ============ */
-function openCrmGradeColumnEditor(category, columnId){
-  if(!crmGrades) return;
-  const c = columnId ? crmGrades.columns.find(x => x.id === columnId) : null;
-  if(columnId && !c) return;
+/* نموذج العمود/الاختبار: يُستعمل في نافذة الإعداد وفي أدوات الكشف (الحقول بنفس المعرّفات لـsaveCrmGradeColumn) */
+function crmGradeColumnFormHtml(category, c){
   const allCols = crmGrades.allColumns || crmGrades.columns;
   const isTest = category === 'tests';
-  const remaining = gradeCap(category) - gradeCategoryTotal(allCols, category, columnId);
+  const remaining = gradeCap(category) - gradeCategoryTotal(allCols, category, c ? c.id : null);
   const hiddenHere = (crmGrades.hiddenColumns || []).filter(x => x.category === category);
-  crmGradeColumnDraft = { id: columnId || null, category, saving: false };
-  showInfoModal(`
-    <div style="text-align:right;">
-      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${isTest ? (c ? 'تعديل اختبار' : 'اختبار جديد') : `${c ? 'تعديل عمود' : 'عمود جديد'} · ${GRADE_CATEGORY_LABELS[category]}`}</h3>
+  /* الاختبار الجديد يقترح درجة آخر اختبار أضفتَه */
+  const lastTest = isTest && !c ? allCols.filter(x => x.category === 'tests').slice(-1)[0] : null;
+  const defMax = c ? formatScore(c.max_score) : isTest ? (lastTest ? formatScore(lastTest.max_score) : GRADE_TEST_DEFAULT_MAX) : (remaining > 0 ? formatScore(remaining) : '');
+  return `
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.7;">${isTest
         ? `يدخل محصلة الاختبارات (من ${formatScore(gradeCap('tests'))}) تلقائيًا — بلا حد لعدد الاختبارات.`
         : `المتاح من السقف (${formatScore(gradeCap(category))}): ${formatScore(remaining)}${hiddenHere.length ? ' · يشمل أعمدة مخفية: ' + hiddenHere.map(x => escapeHtml(x.name) + ' (' + formatScore(x.max_score) + ')').join('، ') : ''}`}</div>
       <label class="crm-field-label">${isTest ? 'اسم الاختبار' : 'الاسم'}</label>
       <input class="goal-input" id="crmGradeColName" maxlength="60" value="${c ? escapeHtml(c.name) : ''}" placeholder="${isTest ? 'مثال: الفترة الأولى، اختبار قصير 1' : 'مثال: مشروع'}" style="margin-bottom:8px;">
       <label class="crm-field-label">${isTest ? 'الدرجة الكاملة' : 'الدرجة القصوى'}</label>
-      <input class="goal-input" id="crmGradeColMax" inputmode="decimal" value="${c ? formatScore(c.max_score) : isTest ? GRADE_TEST_DEFAULT_MAX : (remaining > 0 ? formatScore(remaining) : '')}" style="margin-bottom:8px;">
+      <input class="goal-input" id="crmGradeColMax" inputmode="decimal" value="${defMax}" style="margin-bottom:8px;">
       ${category === 'performance' && !(c && c.tool_id) ? `<label class="crm-field-label">النوع</label>
       <select class="goal-input" id="crmGradeColKind" style="margin-bottom:8px;">${Object.keys(GRADE_KIND_LABELS).filter(k => k === 'manual' || (c && c.kind === k) || appToolOn(GRADE_KIND_TOOL[k])).map(k => `<option value="${k}"${(c ? (c.kind || 'manual') : 'manual') === k ? ' selected' : ''}>${GRADE_KIND_LABELS[k]}</option>`).join('')}</select>` : ''}
       ${isTest && !c ? '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="crmGradeColAll" checked> أضفه لكل شعبي (لها كشف هذا الفصل)</label>' : ''}
       <label class="crm-field-label">ماذا يقيس؟ (اختياري)</label>
       <input class="goal-input" id="crmGradeColMeasures" maxlength="120" value="${c && c.measures ? escapeHtml(c.measures) : ''}" placeholder="مثال: زمن الماضي البسيط" style="margin-bottom:10px;">
       <div id="crmGradeColError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:8px;line-height:1.7;"></div>
-      <button class="btn btn-primary" id="crmGradeColSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmGradeColumn()">حفظ</button>
+      <button class="btn btn-primary" id="crmGradeColSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmGradeColumn()">${c ? 'حفظ' : 'إضافة'}</button>`;
+}
+
+function openCrmGradeColumnEditor(category, columnId){
+  if(!crmGrades) return;
+  const c = columnId ? crmGrades.columns.find(x => x.id === columnId) : null;
+  if(columnId && !c) return;
+  const isTest = category === 'tests';
+  crmGradeColumnDraft = { id: columnId || null, category, saving: false };
+  showInfoModal(`
+    <div style="text-align:right;">
+      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${isTest ? (c ? 'تعديل اختبار' : 'اختبار جديد') : `${c ? 'تعديل عمود' : 'عمود جديد'} · ${GRADE_CATEGORY_LABELS[category]}`}</h3>
+      ${crmGradeColumnFormHtml(category, c)}
     </div>`, '420px');
 }
 
@@ -1318,6 +1352,74 @@ function planGradeImport(rows, nameKey, mapping, students, columns, existing, ma
     });
   });
   return { upserts, invalid, unmatched, duplicates, partial, unchanged, overwrite };
+}
+
+/* ============ قالب Excel وتصدير الكشف ============ */
+/* القالب: أسماء طلاب الشعبة وأعمدة الرصد اليدوي بأسمائها الدقيقة، فيُطابَق كل شيء تلقائيًا عند الاستيراد */
+function gradeTemplateRows(students, columns){
+  const cols = (columns || []).filter(c => !isComputedGradeColumn(c));
+  return [['اسم الطالب'].concat(cols.map(c => c.name))].concat((students || []).map(s => [s.full_name]));
+}
+
+/* التصدير: كل أعمدة الكشف الظاهرة والمجاميع، والخانة غير المرصودة تبقى فارغة (لا صفرًا) */
+function gradeExportRows(columns, scores, students, caps, testsOn){
+  const head = ['الطالب'].concat((columns || []).map(c => c.name), ['مجموع الأداء', 'مجموع الاختبارات', 'المجموع']);
+  const rows = (students || []).map(st => {
+    const mine = new Map((scores || []).filter(x => x.student_id === st.id).map(x => [x.column_id, Number(x.score)]));
+    const res = studentGradeResult(columns, scores, st.id, caps);
+    const sum = studentGradeSummary(columns, scores, st.id);
+    const t = studentGradeTotal(res, testsOn, caps);
+    return [st.full_name].concat((columns || []).map(c => mine.has(c.id) ? mine.get(c.id) : ''),
+      [sum.performance.count ? sum.performance.sum : '', res.tests.points === null ? '' : res.tests.points, t.points === null ? '' : t.points]);
+  });
+  return [head].concat(rows);
+}
+
+/* ورقة تعريف الأعمدة: حدّها الأعلى ومصدرها (تبقى خارج الورقة الأولى فلا تدخل في الاستيراد) */
+function gradeColumnsInfoRows(columns){
+  return [['العمود', 'الفئة', 'الدرجة العليا', 'طريقة الرصد']].concat((columns || []).map(c =>
+    [c.name, GRADE_CATEGORY_SHORT[c.category] || '', Number(c.max_score), isComputedGradeColumn(c) ? 'محسوب تلقائيًا' : 'يدوي']));
+}
+
+let crmGradeFileBusy = false;
+async function exportCrmGradeSheet(kind, btn){
+  const g = crmGrades;
+  if(crmGradeFileBusy || !g) return;
+  const students = crmStudentsOfSection(g.sectionId);
+  if(!students.length){ showToast('لا طلاب مربوطون بهذه الشعبة', 'error'); return; }
+  const isTemplate = kind === 'template';
+  if(isTemplate && !g.columns.some(c => !isComputedGradeColumn(c))){ showToast('لا أعمدة تُرصد يدويًا في هذا الكشف', 'error'); return; }
+  crmGradeFileBusy = true;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    await ensureXlsxLib();
+    const testsOn = appToolOn('tests');
+    const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
+    const wb = XLSX.utils.book_new();
+    wb.Workbook = { Views: [{ RTL: true }] };
+    const main = XLSX.utils.aoa_to_sheet(isTemplate ? gradeTemplateRows(students, g.columns) : gradeExportRows(g.columns, g.scores, students, caps, testsOn));
+    main['!cols'] = [{ wch: 28 }].concat(Array(main['!ref'] ? XLSX.utils.decode_range(main['!ref']).e.c : 0).fill({ wch: 14 }));
+    XLSX.utils.book_append_sheet(wb, main, isTemplate ? 'الدرجات' : 'الكشف');
+    const info = XLSX.utils.aoa_to_sheet(gradeColumnsInfoRows(isTemplate ? g.columns.filter(c => !isComputedGradeColumn(c)) : g.columns));
+    info['!cols'] = [{ wch: 26 }, { wch: 12 }, { wch: 14 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, info, 'الأعمدة');
+    const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${isTemplate ? 'قالب-درجات' : 'كشف-درجات'}-${String(crmSectionLabel(g.sectionId)).replace(/[\\\/:*?"<>|\s]+/g, '-')}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast(isTemplate ? 'نُزّل القالب — عبّئه ثم استورده' : 'نُزّل الكشف', 'ok');
+    closeCrmModal();
+  } catch(err){
+    showToast('تعذّر التجهيز: ' + (err.message || ''), 'error');
+  } finally {
+    crmGradeFileBusy = false;
+    endExportBusy(btn);
+  }
 }
 
 /* ============ شاشة الاستيراد ============ */
