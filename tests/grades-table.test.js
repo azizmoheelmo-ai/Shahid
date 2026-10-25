@@ -1,7 +1,7 @@
 'use strict';
 /* ============================================================
    الكشف الجدولي («جدول كامل») وأدواته:
-   - مبدّل «قائمة الطلاب | جدول كامل» وزر ⋮ ظاهران دائمًا (لا رابط مخبّأ آخر الصفحة).
+   - لا مبدّل «جدول كامل»: القائمة وحدها، وزر ＋ بجانب الشعبة (الكود القديم للجدول باقٍ خاملاً).
    - الجدول: اسم ومجموع ثابتان، شريط مجموعات، ألوان، متوسط الشعبة.
    - تعديل خانة واحدة: يكتب بمعرّف المعلم، لا يكتب غير المتغيّر، ولا يرسم فوق شاشة أخرى.
    ============================================================ */
@@ -52,21 +52,20 @@ function openCell(app, g, columnId, studentId, value){
     crmGradeCell = { sheet: __g, columnId: ${JSON.stringify(columnId)}, studentId: ${JSON.stringify(studentId)}, saving: false };`);
 }
 
-test('المكان: المبدّل وزر ⋮ في القائمة والجدول، ولا رابط "الكشف التفصيلي" آخر الصفحة', async () => {
+test('المكان: لا «جدول كامل» ولا مبدّل؛ زر ＋ بجانب الشعبة، وترس واحد، وأزرار «رصد» للأعمدة اليدوية فقط', async () => {
   const app = appWith([]);
   const g = G(COLS, [S('p', 'a', 8)]);
-  const simple = app.crmGradeSimpleHtml(g);
-  runInAppContext(app, 'crmGradesDetail = true');
-  const detail = app.crmGradeDetailHtml(g);
-  for(const html of [simple, detail]){
-    assert.match(html, /قائمة الطلاب/);
-    assert.match(html, /جدول كامل/);
-    assert.match(html, /openCrmGradeToolsMenu\(\)/);
-  }
-  assert.doesNotMatch(simple, /الكشف التفصيلي \(كل الأعمدة/);
-  assert.doesNotMatch(detail, /→ الكشف المبسّط/);
-  assert.match(simple, /setCrmGradesDetail\(true\)/);
-  assert.match(detail, /setCrmGradesDetail\(false\)/);
+  runInAppContext(app, 'crmGradesDetail = true'); /* حتى لو بقيت الحالة القديمة: القائمة هي المعروضة */
+  const page = app.crmGradesPageHtml(g);
+  assert.doesNotMatch(page, /جدول كامل|setCrmGradesDetail|crm-grade-table/);
+  assert.match(page, /crm-gs-topbar[\s\S]*<select[\s\S]*crm-gs-plus[^>]*onclick="openCrmGradeToolsMenu\(\)">＋</, '＋ في صف اختيار الشعبة نفسه');
+  assert.equal((page.match(/openCrmGradeSettings\(\)/g) || []).length, 1, 'ترس واحد للإعداد');
+  assert.doesNotMatch(page, />⋮</);
+  assert.match(page, /التوزيع: <b>الأداء 40<\/b> · <b>الاختبارات 20<\/b>/, 'سطر توزيع قصير');
+  assert.doesNotMatch(page, /مشاركة 10 \+ واجبات/, 'لا سطر تفصيل طويل');
+  assert.match(page, /openCrmGradeEntry\('p'\)">مشاركة</, 'المشاركة تُرصد يدويًا');
+  assert.match(page, /openCrmGradeEntry\('t1'\)">اختبار ١</);
+  assert.doesNotMatch(page, /openCrmGradeEntry\('h'\)|openCrmGradeEntry\('k'\)/, 'الواجبات والمهام محسوبة تلقائيًا فلا زر رصد');
 });
 
 test('الجدول: مجموع ثابت، شريط مجموعات، خانات ملوّنة، متوسط الشعبة؛ والمحسوب لا يُعدَّل بالضغط', async () => {
@@ -83,55 +82,66 @@ test('الجدول: مجموع ثابت، شريط مجموعات، خانات �
   assert.doesNotMatch(html, /<b>علي<\/b>/, 'الاسم مُهرَّب');
 });
 
-test('زر ＋: قائمة مطوية بكل ما يُضاف أو يُنقل (لا نموذج مفتوح)، والسقف الممتلئ يبقى ظاهرًا ومعطّلًا بسببه', async () => {
+test('زر ＋: ثلاثة أسطر مطوية (اختبار جديد، عمود أداء، نقل الدرجات)، والسقف الممتلئ يبقى ظاهرًا ومعطّلًا بسببه', async () => {
   const app = appWith([]);
   app.__g = G(COLS, []);
   runInAppContext(app, `crmGrades = __g; appToolOn = () => true;`);
   app.openCrmGradeToolsMenu();
   let html = runInAppContext(app, 'window.__modal[window.__modal.length - 1]');
-  assert.match(html, /ماذا تريد أن تضيف؟/);
-  assert.match(html, /openCrmGradeColumnEditor\('tests', null\)/, 'اختبار جديد خيار يفتح خطوته');
-  assert.doesNotMatch(html, /id="crmGradeColName"|id="crmGradeColAll"|crmGradeColMax/, 'لا نموذج مفتوح داخل القائمة');
+  assert.match(html, />إضافة<\/h3>/);
+  assert.match(html, /data-am="test"/); assert.match(html, /data-am="move"/);
+  assert.equal((html.match(/class="crm-am-head"[^>]*aria-expanded="false"/g) || []).length, 2, 'الأقسام القابلة للفتح مطوية');
+  assert.doesNotMatch(html, /class="crm-am-item open"/, 'لا قسم مفتوح عند الفتح');
   assert.match(html, /اكتمل توزيع الأداء/, 'الأداء 40 من 40: سبب ظاهر');
   assert.doesNotMatch(html, /openCrmGradeColumnEditor\('performance'/, 'ولا زر يرفضه الخادم');
-  assert.match(html, /استيراد من Excel/);
-  assert.match(html, /قالب Excel جاهز/);
+  assert.match(html, /استيراد من Excel[\s\S]*ارفع ملفك/);
+  assert.match(html, /قالب جاهز/);
   assert.match(html, /تصدير الكشف/);
-  assert.doesNotMatch(html, /openCrmGradeSettings\(\)/, 'الإعداد صار زر ترس في شريط الوضع');
+  assert.match(html, /exportCrmGradeSheet\('template', this\)/); assert.match(html, /exportCrmGradeSheet\('sheet', this\)/);
+  assert.doesNotMatch(html, /openCrmGradeSettings\(\)/, 'الإعداد على الترس لا في هذه القائمة');
   assert.match(html, /ثاني\/٦/, 'اسم الشعبة ظاهر');
-  /* الاختبارات مخفية وفي الأداء متّسع: لا خيار اختبار، ويظهر عمود الأداء */
+  assert.deepEqual(JSON.parse(JSON.stringify(runInAppContext(app, 'crmGradeColumnDraft'))), { id: null, category: 'tests', saving: false });
+  /* الاختبارات مخفية وفي الأداء متّسع: لا اختبار جديد، ويظهر عمود الأداء */
   app.__g = G([C('p', 'performance', 10, { name: 'مشاركة' })], []);
-  runInAppContext(app, `crmGrades = __g; appToolOn = k => k !== 'tests';`);
+  runInAppContext(app, `crmGrades = __g; appToolOn = k => k !== 'tests'; crmGradeColumnDraft = null;`);
   app.openCrmGradeToolsMenu();
   html = runInAppContext(app, 'window.__modal[window.__modal.length - 1]');
   assert.match(html, /openCrmGradeColumnEditor\('performance', null\)/);
-  assert.doesNotMatch(html, /openCrmGradeColumnEditor\('tests'/);
+  assert.doesNotMatch(html, /data-am="test"|crmGradeColName/);
+  assert.equal(runInAppContext(app, 'crmGradeColumnDraft'), null);
 });
 
-test('اختبار جديد خطوة خطوة: الاسم أولًا، ثم الدرجة ومفتاح «كل شعبي» (مغلق افتراضيًا)، والوصف خلف ＋، والحفظ بالمعرّفات نفسها', async () => {
+test('اختبار جديد: اسم ودرجة وزر واحد، وأزرار 5·10·20·40، والمفتاح (مغلق افتراضيًا) والوصف تحت «خيارات أخرى»، والحفظ بالمعرّفات نفسها', async () => {
   const app = appWith([]);
   app.__g = G(COLS, []);
   runInAppContext(app, `crmGrades = __g; appToolOn = () => true;`);
   app.openCrmGradeColumnEditor('tests', null);
   const html = runInAppContext(app, 'window.__modal[window.__modal.length - 1]');
   assert.match(html, /اختبار جديد/);
-  assert.match(html, /id="crmSt1"/); assert.match(html, /id="crmSt2"/);
   assert.match(html, /id="crmGradeColName"/);
   assert.match(html, /id="crmGradeColMax"[^>]*value="10"/, 'يقترح درجة آخر اختبار');
-  assert.match(html, /id="crmGradeColAll"><span class="crm-sw"/, 'مفتاح شعبي');
+  assert.match(html, /class="crm-nt-q on" onclick="setCrmNewTestMax\(10\)">10</, 'زر 10 محدد');
+  for(const v of [5, 20, 40]) assert.match(html, new RegExp('class="crm-nt-q" onclick="setCrmNewTestMax\\(' + v + '\\)">' + v + '<'));
+  assert.match(html, /id="crmGradeColSaveBtn"[^>]*onclick="saveCrmGradeColumn\(\)">إضافة الاختبار</);
+  assert.doesNotMatch(html, /disabled>إضافة الاختبار/, 'الحفظ متاح من أول لحظة (لا خطوات)');
+  assert.match(html, /class="crm-nt-more" hidden>[\s\S]*id="crmGradeColAll"[\s\S]*id="crmGradeColMeasures"/, 'المفتاح والوصف مطويان');
   assert.doesNotMatch(html, /id="crmGradeColAll" checked/, 'مغلق افتراضيًا: لا يُضاف لشعب لم تقصدها');
-  assert.match(html, /id="crmGradeMeasuresBox" hidden/, 'الوصف الاختياري مطوي');
-  assert.match(html, /id="crmGradeColSaveBtn"[^>]*onclick="saveCrmGradeColumn\(\)" disabled>إضافة الاختبار</, 'الحفظ معطّل حتى الخطوة الثانية');
+  assert.doesNotMatch(html, /crmSt1|crmNewTestStep/, 'لا خطوات');
   assert.deepEqual(JSON.parse(JSON.stringify(runInAppContext(app, 'crmGradeColumnDraft'))), { id: null, category: 'tests', saving: false });
 });
 
-test('شريط الوضع: زر ＋ للإضافة والنقل وزر ترس للإعداد (لا ⋮)', async () => {
+test('صفحة الطالب: ضغط الدرجة اليدوية يفتح تعديلها (بدل الجدول)، والمحسوب تلقائيًا للقراءة فقط', async () => {
   const app = appWith([]);
-  const g = G(COLS, [S('p', 'a', 8)]);
-  const simple = app.crmGradeSimpleHtml(g);
-  assert.match(simple, /crm-add-btn[^>]*onclick="openCrmGradeToolsMenu\(\)">＋</);
-  assert.match(simple, /aria-label="إعداد الدرجات"[^>]*onclick="openCrmGradeSettings\(\)"/);
-  assert.doesNotMatch(simple, />⋮</);
+  runInAppContext(app, `crmGradesSectionId = () => 'S';`);
+  const g = G(COLS, [S('p', 'a', 8), S('h', 'a', 6), S('t1', 'a', 7)]);
+  const html = app.crmGradeStudentPageHtml(g, 'a');
+  assert.match(html, /اضغط على أي درجة لتعديلها/);
+  assert.match(html, /is-edit"[^>]*onclick="openCrmGradeCell\('p', 'a'\)"[^>]*>[\s\S]*مشاركة[\s\S]*✎/);
+  assert.match(html, /openCrmGradeCell\('t1', 'a'\)/);
+  assert.doesNotMatch(html, /openCrmGradeCell\('h'|openCrmGradeCell\('k'/, 'الواجبات والمهام محسوبة');
+  /* ما لم يُرصد بعد يحمل ＋ */
+  const empty = app.crmGradeStudentPageHtml(G(COLS, []), 'a');
+  assert.match(empty, /openCrmGradeCell\('t1', 'a'\)[\s\S]*اختبار ١[\s\S]*لم يُرصد بعد[\s\S]*crm-gs-pen[^>]*>＋/);
 });
 
 test('نافذة تعديل اختبار قائم لا تتغيّر بعد استخراج النموذج: قيمته هو وزر «حفظ»', async () => {

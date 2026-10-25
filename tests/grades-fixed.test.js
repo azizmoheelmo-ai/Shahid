@@ -92,14 +92,20 @@ test('الكشف المبسّط — الاختبارات مخفية من الت�
   assert.match(html, /الدرجة من 40/);
 });
 
-test('الكشف المبسّط — ملخص الشعبة (متوسط، تحت النصف، لم يُرصد) وأزرار الفرز', async () => {
+test('الكشف المبسّط — شريط واحد (متوسط، تحت النصف، لم يُرصد) وزر ترتيب واحد يدور بين الأوضاع', async () => {
   const app = appWithSheet(`crmStudents.push({ id: 'c', full_name: 'خالد', section_id: 'S' });`);
   const html = app.crmGradeSimpleHtml(G(COLS, [S('p', 'a', 10), S('p', 'b', 4)]));
-  assert.match(html, /<b>7<\/b>متوسط الشعبة/, '(10 + 4) / 2 للمرصود لهم فقط');
-  assert.match(html, /<b class="gs-tone-lo">1<\/b>تحت النصف/);
-  assert.match(html, /<b>1<\/b>لم يُرصد/);
-  assert.match(html, /setCrmGradesSort\('low'\)/);
+  assert.match(html, /متوسط الشعبة<b>7<\/b>/, '(10 + 4) / 2 للمرصود لهم فقط');
+  assert.match(html, /تحت النصف<b class="gs-tone-lo">1<\/b>/);
+  assert.match(html, /لم يُرصد<b>1<\/b>/);
+  assert.equal((html.match(/class="crm-gs-sortbtn"/g) || []).length, 1, 'زر ترتيب واحد بدل ثلاثة أزرار');
+  assert.match(html, /cycleCrmGradesSort\(\)">أبجدي ⇅</);
+  assert.doesNotMatch(html, /setCrmGradesSort\('low'\)/);
   assert.doesNotMatch(html, /اضغط على الاسم لترى درجاته/, 'السهم يكفي');
+  app.cycleCrmGradesSort();
+  assert.equal(runInAppContext(app, 'crmGradesSortMode()'), 'low');
+  app.cycleCrmGradesSort(); assert.equal(runInAppContext(app, 'crmGradesSortMode()'), 'high');
+  app.cycleCrmGradesSort(); assert.equal(runInAppContext(app, 'crmGradesSortMode()'), 'name');
 });
 
 test('sortGradeRows وgradeListSummary — الأضعف/الأعلى أولًا، ومن لم يُرصد آخرًا دائمًا، والأصل لا يتغيّر', () => {
@@ -121,7 +127,7 @@ test('صفحة الطالب — المجموع، والأداء والاختبا
   const html = runInAppContext(app, `document.getElementById('crmGradesBody').innerHTML`);
   assert.match(html, /1 من 2/);
   assert.match(html, /المجموع<\/span><span><b>35<\/b> <small>من 60<\/small>/);
-  assert.match(html, /اختبار قصير ١<\/span><span>17 من 20 · 85%<\/span>/);
+  assert.match(html, /اختبار قصير ١<\/span><span>17 من 20 · 85%<span class="crm-gs-pen" aria-hidden="true">✎<\/span><\/span>/);
   assert.match(html, /<i class="gs-bg-hi" style="width:85%"><\/i>/);
   assert.match(html, /المحصلة: 45 من 50 = 90% × 20 = <b>18<\/b>/);
   assert.match(html, /مهام أدائية<\/span><span><span class="crm-gs-none">لم يُرصد بعد/);
