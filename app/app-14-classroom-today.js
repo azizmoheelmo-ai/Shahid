@@ -802,23 +802,23 @@ async function renderCrmTimetableEditor(){
   const sorted = crmSections.slice().sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar', { numeric: true }));
   const dayChips = CRM_WEEKDAYS.map(d => {
     const count = crmTimetableSlots.filter(s => s.weekday === d.value).length;
-    return `<button class="btn ${d.value === crmTimetableDay ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="setCrmTimetableDay(${d.value})">${d.label}${count ? ' (' + count + ')' : ''}</button>`;
+    return `<button type="button" class="crm-tt-day${d.value === crmTimetableDay ? ' is-on' : ''}" onclick="setCrmTimetableDay(${d.value})">${d.label}<small>${count ? count : '—'}</small></button>`;
   }).join('');
   const rows = [];
   for(let p = 1; p <= CRM_MAX_PERIODS; p++){
     const slot = crmTimetableSlots.find(s => s.weekday === crmTimetableDay && s.period === p);
-    rows.push(`<div class="crm-lesson-row">
-      <span style="min-width:62px;"><b>الحصة ${p}</b></span>
-      <select class="goal-input" style="margin:0;flex:1;" onchange="saveCrmTimetableSlot(${crmTimetableDay}, ${p}, this)">
+    rows.push(`<div class="crm-tt-row${slot ? ' has-slot' : ''}">
+      <span class="crm-tt-n" title="الحصة ${p}">${p}</span>
+      <select class="goal-input crm-tt-sel" aria-label="الحصة ${p}" onchange="saveCrmTimetableSlot(${crmTimetableDay}, ${p}, this)">
         <option value="">— لا حصة —</option>
         ${sorted.map(sec => `<option value="${sec.id}"${slot && slot.section_id === sec.id ? ' selected' : ''}>${escapeHtml(crmSectionOptionLabel(sec))}</option>`).join('')}
       </select>
     </div>`);
   }
   box.innerHTML = `
-    <p style="font-size:11.5px;color:var(--muted);margin:0 0 8px;line-height:1.8;">جدول ${semester === 2 ? 'الفصل الثاني' : 'الفصل الأول'} — اختر لكل حصة شعبتها. يُحفظ كل تغيير فورًا. الجدول اختياري: بدونه ترصد من أزرار الشعب مباشرة.</p>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">${dayChips}</div>
-    ${rows.join('')}`;
+    <p class="crm-tt-hint">${semester === 2 ? 'الفصل الثاني' : 'الفصل الأول'} · اختر شعبة كل حصة، ويُحفظ تلقائيًا.</p>
+    <div class="crm-tt-days">${dayChips}</div>
+    <div class="crm-tt-list">${rows.join('')}</div>`;
 }
 
 async function saveCrmTimetableSlot(weekday, period, selectEl){

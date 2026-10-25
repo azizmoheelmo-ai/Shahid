@@ -2090,3 +2090,20 @@ html.beta-closed #betaNoticeBar,html.beta-closed #betaNoticeSpacer{display:none;
 .crm-nt-more{padding-top:4px;}.crm-nt-more[hidden]{display:none;}
 .crm-am .crm-gs-tx{display:block;flex:1;min-width:0;}
 .crm-am .crm-gs-tx small{display:block;font-weight:400;font-size:11.5px;color:var(--muted);margin-top:1px;}
+
+/* الجدول الأسبوعي (تبويب اليوم): أيام ثابتة، صفوف مدمجة، تمييز الحصة المعبّأة */
+.crm-tt-hint{font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;}
+.crm-tt-days{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;position:sticky;top:84px;z-index:50;background:#fff;padding:6px 0 8px;margin-bottom:6px;}
+html.beta-closed .crm-tt-days{top:54px;}
+.crm-tt-day{display:flex;flex-direction:column;align-items:center;gap:0;min-width:0;border:none;background:#F3F0E8;color:#6B6457;border-radius:10px;padding:6px 2px 5px;font-family:inherit;font-size:12.5px;font-weight:800;line-height:1.5;cursor:pointer;}
+.crm-tt-day small{font-size:10.5px;font-weight:700;opacity:.85;}
+.crm-tt-day.is-on{background:var(--navy);color:#fff;box-shadow:0 2px 6px rgba(27,50,69,.25);}
+.crm-tt-list{display:flex;flex-direction:column;gap:6px;}
+.crm-tt-row{display:flex;align-items:center;gap:8px;}
+.crm-tt-n{flex:none;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#F3F0E8;color:#6B6457;font-size:12px;font-weight:800;}
+.crm-tt-row.has-slot .crm-tt-n{background:var(--navy);color:#fff;}
+.crm-tt-sel{margin:0;flex:1;min-width:0;min-height:40px;padding-top:6px;padding-bottom:6px;border:1px dashed var(--line);background:transparent;color:var(--muted);border-radius:10px;}
+.crm-tt-row.has-slot .crm-tt-sel{background:#EDF1F7;border:1px solid var(--navy);border-right-width:3px;color:var(--ink);font-weight:600;}
+@media (max-width:640px){
+  #crmTimetableSection{padding-left:14px;padding-right:14px;}
+}
