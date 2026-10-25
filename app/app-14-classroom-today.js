@@ -456,7 +456,12 @@ function paintCrmToday(){
   }
 
   let html = '';
-  const extraBtn = `<button type="button" class="crm-extra-btn" onclick="toggleCrmExtraLesson()"><span class="crm-extra-plus">+</span>رصد حصة خارج الجدول<span class="crm-extra-chev">▾</span></button>
+  const extraBtn = `<div class="crm-extra-head">
+      <button type="button" class="crm-extra-btn" onclick="toggleCrmExtraLesson()"><span class="crm-extra-plus">+</span>رصد حصة خارج الجدول</button>
+      <button type="button" class="crm-extra-q" id="crmExtraHelpBtn" aria-label="ما فائدة هذه الميزة؟" aria-expanded="false" onclick="toggleCrmExtraHelp()">؟</button>
+      <button type="button" class="crm-extra-btn crm-extra-chev" aria-label="عرض الشعب" onclick="toggleCrmExtraLesson()">▾</button>
+    </div>
+    <div id="crmExtraHelp" class="crm-extra-help" style="display:none;"><b>متى أستخدمها؟</b>لرصد حصة لم تكن ضمن جدولك الأسبوعي، مثل:<ul><li>حصة احتياط أو تعويضية</li><li>تبديل حصة مع زميل</li><li>حصة في يوم ليس في جدولك</li></ul><span class="crm-extra-help-x">تُرصد وتُحفظ في سجل الشعبة مثل أي حصة عادية.</span></div>
     <div id="crmExtraLessonBox" class="crm-extra-box" style="display:none;">${crmSectionButtonsHtml(todayIso)}</div>`;
 
   if(d.holidayName){
@@ -754,6 +759,15 @@ function crmSectionButtonsHtml(dateIso){
       `<button type="button" class="crm-extra-chip" aria-label="${escapeHtml('رصد: ' + crmSectionOptionLabel(sec))}" onclick="openCrmLessonSheet('${sec.id}','${dateIso}',null)"><small>شعبة</small>${escapeHtml(crmDigits(sec.name))}</button>`
     ).join('')}</div></div>`
   ).join('');
+}
+
+function toggleCrmExtraHelp(){
+  const box = document.getElementById('crmExtraHelp');
+  const btn = document.getElementById('crmExtraHelpBtn');
+  if(!box) return;
+  const show = box.style.display === 'none';
+  box.style.display = show ? 'block' : 'none';
+  if(btn){ btn.classList.toggle('on', show); btn.setAttribute('aria-expanded', show ? 'true' : 'false'); }
 }
 
 function toggleCrmExtraLesson(){
