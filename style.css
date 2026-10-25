@@ -2041,15 +2041,6 @@ html.beta-closed #betaNoticeBar,html.beta-closed #betaNoticeSpacer{display:none;
 .crm-gs-chev{flex:none;color:var(--muted);font-size:18px;}
 .crm-add-btn{background:var(--navy);color:#fff;border-color:var(--navy);font-size:22px;line-height:1;}
 .crm-add-btn:hover{background:var(--navy);}
-.crm-st{border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px;background:#fff;transition:border-color .2s,box-shadow .2s;}
-.crm-st.on{border-color:var(--navy);box-shadow:0 0 0 3px rgba(28,50,73,.1);}
-.crm-st:not(.on):not(.done){opacity:.55;}
-.crm-st-h{display:flex;align-items:center;gap:8px;min-height:32px;}.crm-st-h b{flex:1;font-size:14px;color:var(--navy);}
-.crm-st-n{width:26px;height:26px;border-radius:50%;background:#EEE9DE;color:var(--muted);display:grid;place-items:center;font-size:13px;font-weight:700;flex:none;}
-.crm-st.on .crm-st-n{background:var(--navy);color:#fff;}.crm-st.done .crm-st-n{background:#F6EFD9;color:var(--gold);}
-.crm-st-v{background:#F6EFD9;border-radius:99px;padding:2px 12px;font-size:13px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.crm-st:not(.done) .crm-st-v,.crm-st:not(.done) .crm-st-chg{display:none;}.crm-st.done .crm-st-b,.crm-st:not(.on) .crm-st-b{display:none;}
-.crm-st-b{margin-top:8px;animation:crmStIn .22s ease-out;}@keyframes crmStIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.crm-st-b{animation:none;}}
 .crm-switch{display:flex;align-items:center;gap:10px;font-size:13px;margin:2px 0 10px;cursor:pointer;}
 .crm-switch input{position:absolute;opacity:0;width:1px;height:1px;}
 .crm-sw{flex:none;width:44px;height:26px;border-radius:13px;background:#CFC9BC;position:relative;transition:background .2s;}
@@ -2067,3 +2058,33 @@ html.beta-closed #betaNoticeBar,html.beta-closed #betaNoticeSpacer{display:none;
 .crm-gs-cell-btns{display:flex;gap:6px;}
 .crm-gs-cell-btns .btn{flex:1;justify-content:center;padding-inline:6px;}
 .crm-gs-cell-btns .btn:disabled{opacity:.4;cursor:default;}
+
+/* ============ كشف الدرجات: قائمة الطلاب فقط، زر ＋ ، رصد بأزرار ============ */
+.crm-gs-topbar{display:flex;gap:8px;align-items:center;}.crm-gs-topbar select{flex:1;min-width:0;}
+.crm-gs-plus{flex:none;width:46px;height:46px;border-radius:12px;border:0;background:var(--navy);color:#fff;font-size:26px;line-height:1;cursor:pointer;font-family:inherit;display:grid;place-items:center;}
+.crm-gs-strip{display:flex;justify-content:space-between;gap:6px;background:#F7F5F0;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:12px;color:var(--muted);margin-bottom:8px;}
+.crm-gs-strip b{color:var(--navy);font-size:16px;margin-inline-start:4px;}.crm-gs-strip b.gs-tone-lo{color:#8A2C2C;}
+.crm-gs-rec{display:flex;gap:8px;align-items:center;overflow-x:auto;white-space:nowrap;margin:0 0 10px;padding-bottom:2px;font-size:12.5px;color:var(--muted);}
+.crm-gs-recchip{flex:none;border:1px solid var(--line);background:#fff;border-radius:99px;padding:6px 14px;min-height:36px;color:var(--navy);font-weight:700;font-family:inherit;font-size:12.5px;cursor:pointer;}
+.crm-gs-listrow{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.crm-gs-sortbtn{flex:none;border:1px solid var(--line);background:#fff;border-radius:99px;padding:5px 12px;min-height:34px;font-size:12.5px;font-weight:700;color:var(--navy);font-family:inherit;cursor:pointer;}
+.crm-gs-prow.is-edit{cursor:pointer;}.crm-gs-pen{color:var(--gold);margin-inline-start:8px;font-size:15px;}
+.crm-gs-hint{font-size:12px;color:var(--muted);background:#F6EFD9;border-radius:10px;padding:6px 10px;margin:0 0 8px;}
+/* قائمة ＋ */
+.crm-am-item{margin-bottom:8px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff;}
+.crm-am-item.open{border:1.5px solid var(--navy);box-shadow:0 0 0 3px rgba(28,50,73,.1);}
+.crm-am-head{display:flex;gap:12px;align-items:center;width:100%;min-height:58px;padding:8px 12px;background:none;border:0;text-align:right;font-family:inherit;font-size:14.5px;font-weight:700;color:var(--navy);cursor:pointer;}
+.crm-am-head.crm-am-solo{margin-bottom:8px;border:1px solid var(--line);border-radius:14px;width:100%;}
+.crm-am-head.is-off{opacity:.55;cursor:default;}
+.crm-am-chev{flex:none;color:var(--muted);font-size:17px;transition:transform .2s;}.crm-am-item.open .crm-am-chev{transform:rotate(180deg);}
+.crm-am-body{display:none;padding:2px 12px 14px;}.crm-am-item.open .crm-am-body{display:block;animation:crmStIn .22s ease-out;}
+@keyframes crmStIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.crm-am-item.open .crm-am-body{animation:none;}}
+.crm-am-opt{display:flex;gap:12px;align-items:center;width:100%;min-height:52px;padding:6px 2px;background:none;border:0;border-bottom:1px solid #EEE9DF;text-align:right;font-family:inherit;font-size:14px;font-weight:700;color:var(--navy);cursor:pointer;}
+.crm-am-opt:last-child{border-bottom:0;}
+.crm-nt-row{display:flex;gap:8px;}.crm-nt-name{flex:1;min-width:0;}.crm-nt-max{width:92px;}.crm-nt-max input{text-align:center;}
+.crm-nt-quick{display:flex;gap:8px;margin-top:8px;}
+.crm-nt-q{flex:1;border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 0;min-height:36px;font-size:14px;color:var(--navy);font-family:inherit;cursor:pointer;}
+.crm-nt-q.on{background:var(--navy);color:#fff;border-color:var(--navy);}
+.crm-nt-more{padding-top:4px;}.crm-nt-more[hidden]{display:none;}
+.crm-am .crm-gs-tx{display:block;flex:1;min-width:0;}
+.crm-am .crm-gs-tx small{display:block;font-weight:400;font-size:11.5px;color:var(--muted);margin-top:1px;}
