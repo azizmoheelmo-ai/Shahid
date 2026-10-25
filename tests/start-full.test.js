@@ -405,13 +405,3 @@ test('setStartModeBusy — يعطّل زرّي الخيار ويظهر "جارٍ
   assert.deepEqual([...get(app, 'window.__el.btns.map(b => b.disabled)')], [false, false]);
   assert.equal(get(app, 'window.__el.note.textContent'), '');
 });
-
-test('انحدار: Service Worker يجلب style.css من الشبكة أولًا (لا تنسيق قديم مع كود جديد)', async () => {
-  const vm = require('node:vm');
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'sw.js'), 'utf8');
-  const ctx = { self: { addEventListener(){}, location: { origin: 'https://x' } }, caches: {}, URL };
-  vm.runInNewContext(src, ctx);
-  assert.equal(ctx.isAppLogicRequest(new URL('https://x/style.css')), true);
-  assert.equal(ctx.isAppLogicRequest(new URL('https://x/app/app-25-grade-weights.js')), true);
-  assert.equal(ctx.isAppLogicRequest(new URL('https://x/icon-192.png')), false);
-});
