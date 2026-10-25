@@ -236,3 +236,81 @@ test('فشل الحفظ: تبقى الورقة والرقم، والأزرار �
   assert.match(runInAppContext(app, `document.getElementById('crmGradeCellErr').textContent`), /تعذّر الحفظ/);
   assert.equal(runInAppContext(app, 'crmGradeCell.saving'), false, 'ضغطة ثانية ممكنة بعد الفشل');
 });
+
+/* ============ قالب Excel وتصدير الكشف ============ */
+const CP = [C('p', 'performance', 10, { name: 'مشاركة' }), C('h', 'performance', 10, { name: 'واجبات', kind: 'homework' }), C('t1', 'tests', 20, { name: 'اختبار قصير ١' })];
+
+test('القالب: أسماء الطلاب وأعمدة الرصد اليدوي فقط، وأسماؤها تُطابَق تلقائيًا عند الاستيراد', async () => {
+  const app = appWith([]);
+  runInAppContext(app, `appToolOn = () => true;`);
+  const rows = JSON.parse(JSON.stringify(app.gradeTemplateRows([{ full_name: 'سامي' }, { full_name: 'فهد' }], CP)));
+  assert.deepEqual(rows, [['اسم الطالب', 'مشاركة', 'اختبار قصير ١'], ['سامي'], ['فهد']], 'الواجبات محسوبة فلا عمود لها');
+  const map = JSON.parse(JSON.stringify(app.autoMapGradeHeaders(rows[0], CP, 'اسم الطالب')));
+  assert.deepEqual(map, { 'مشاركة': 'p', 'اختبار قصير ١': 't1' }, 'كل عمود يُربط دون تدخل');
+});
+
+test('التصدير: الخانة غير المرصودة فارغة لا صفر، والصفر المرصود يبقى صفرًا، ولا يدخل غير طلاب الكشف', async () => {
+  const app = appWith([]);
+  const caps = { performance: 40, tests: 20 };
+  const rows = JSON.parse(JSON.stringify(app.gradeExportRows(CP, [S('p', 'a', 0), S('t1', 'a', 10), S('p', 'zzz', 9)], [{ id: 'a', full_name: 'سامي' }, { id: 'b', full_name: 'فهد' }], caps, true)));
+  assert.deepEqual(rows[0], ['الطالب', 'مشاركة', 'واجبات', 'اختبار قصير ١', 'مجموع الأداء', 'مجموع الاختبارات', 'المجموع']);
+  assert.deepEqual(rows[1].slice(0, 4), ['سامي', 0, '', 10], 'صفر مرصود ≠ بلا درجة');
+  assert.deepEqual(rows[2], ['فهد', '', '', '', '', '', ''], 'طالب بلا رصد: كله فارغ');
+  assert.equal(rows.length, 3);
+  const info = JSON.parse(JSON.stringify(app.gradeColumnsInfoRows(CP)));
+  assert.deepEqual(info[2], ['واجبات', 'أدائي', 10, 'محسوب تلقائيًا']);
+});
+
+function exportEnv(app, cols, students){
+  app.__g = G(cols, []);
+  runInAppContext(app, `
+    crmGrades = __g; appToolOn = () => true;
+    crmStudentsOfSection = () => ${JSON.stringify(students)};
+    window.__sheets = []; window.__files = []; window.__busy = [];
+    ensureXlsxLib = async () => {};
+    XLSX = { utils: { book_new: () => ({}), aoa_to_sheet: a => ({ aoa: a, '!ref': 'A1:C3' }), book_append_sheet: (wb, ws, n) => window.__sheets.push([n, ws.aoa]), decode_range: () => ({ e: { c: 2 } }) }, write: () => new Uint8Array(1) };
+    Blob = function(){}; URL = { createObjectURL: () => 'blob:x', revokeObjectURL(){} };
+    document.createElement = () => ({ remove(){}, click(){ window.__files.push(this.download); }, set href(v){}, get href(){ return ''; } });
+    if(!window.__b0){ window.__b0 = beginExportBusy; window.__e0 = endExportBusy; }
+    beginExportBusy = (b, t) => { window.__busy.push('begin'); window.__b0(b, t); }; endExportBusy = b => { window.__busy.push('end'); window.__e0(b); };`);
+}
+
+test('exportCrmGradeSheet: يبني الورقتين، يُنزّل ملفًا باسم الشعبة، ويعطّل الزر أثناء التجهيز', async () => {
+  const app = appWith([]);
+  exportEnv(app, CP, [{ id: 'a', full_name: 'سامي' }]);
+  const btn = { disabled: false, dataset: {}, textContent: 'x', querySelector: () => null };
+  await app.exportCrmGradeSheet('template', btn);
+  assert.deepEqual(JSON.parse(JSON.stringify(runInAppContext(app, 'window.__sheets.map(x => x[0])'))), ['الدرجات', 'الأعمدة']);
+  assert.match(runInAppContext(app, 'window.__files[0]'), /^قالب-درجات-ثاني-٦-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  assert.deepEqual(JSON.parse(JSON.stringify(runInAppContext(app, 'window.__busy'))), ['begin', 'end']);
+  assert.equal(btn.disabled, false, 'يعود الزر بعد الانتهاء');
+  assert.equal(runInAppContext(app, 'window.__closed'), 1);
+  await app.exportCrmGradeSheet('sheet', btn);
+  assert.deepEqual(JSON.parse(JSON.stringify(runInAppContext(app, 'window.__sheets.slice(2).map(x => x[0])'))), ['الكشف', 'الأعمدة']);
+  assert.match(runInAppContext(app, 'window.__files[1]'), /^كشف-درجات-/);
+});
+
+test('exportCrmGradeSheet: نقرتان متتاليتان تُنتجان ملفًا واحدًا، وبلا طلاب لا يُنزَّل شيء', async () => {
+  const app = appWith([]);
+  exportEnv(app, CP, [{ id: 'a', full_name: 'سامي' }]);
+  await Promise.all([app.exportCrmGradeSheet('sheet', null), app.exportCrmGradeSheet('sheet', null)]);
+  assert.equal(runInAppContext(app, 'window.__files.length'), 1);
+  exportEnv(app, CP, []);
+  await app.exportCrmGradeSheet('sheet', null);
+  assert.equal(runInAppContext(app, 'window.__files.length'), 0);
+  assert.match(runInAppContext(app, 'window.__toasts.join("|")'), /لا طلاب/);
+  exportEnv(app, [C('h', 'performance', 10, { kind: 'homework' })], [{ id: 'a', full_name: 'سامي' }]);
+  await app.exportCrmGradeSheet('template', null);
+  assert.equal(runInAppContext(app, 'window.__files.length'), 0, 'كل الأعمدة محسوبة: لا قالب فارغ');
+});
+
+test('قائمة الأدوات: القالب والتصدير ظاهران بنص الحالة داخل سطر الشرح فقط', async () => {
+  const app = appWith([]);
+  app.__g = G(COLS, []);
+  runInAppContext(app, `crmGrades = __g; appToolOn = () => true;`);
+  app.openCrmGradeToolsMenu();
+  const html = runInAppContext(app, 'window.__modal[window.__modal.length - 1]');
+  assert.match(html, /exportCrmGradeSheet\('template', this\)/);
+  assert.match(html, /exportCrmGradeSheet\('sheet', this\)/);
+  assert.match(html, /<small class="hb-sub">/);
+});

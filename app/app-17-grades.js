@@ -595,7 +595,7 @@ function onCrmGradesSectionChange(id){
 function crmGradesModeBarHtml(){
   const seg = (detail, label) => `<button type="button" class="${crmGradesDetail === detail ? 'is-on' : ''}" aria-pressed="${crmGradesDetail === detail}" onclick="setCrmGradesDetail(${detail})">${label}</button>`;
   return `<div class="crm-gs-modebar"><div class="crm-seg">${seg(false, 'قائمة الطلاب')}${seg(true, 'جدول كامل')}</div>
-    <button type="button" class="crm-ic-btn" aria-label="أدوات الكشف" title="أدوات الكشف: اختبار جديد، استيراد، إعداد" onclick="openCrmGradeToolsMenu()">⋮</button></div>`;
+    <button type="button" class="crm-ic-btn" aria-label="أدوات الكشف" title="أدوات الكشف: اختبار جديد، استيراد، قالب، تصدير، إعداد" onclick="openCrmGradeToolsMenu()">⋮</button></div>`;
 }
 
 /* أدوات الكشف: يفتح على «اختبار جديد» (مهمة الأسبوع)، وتحته النقل والإعداد النادران */
@@ -608,9 +608,10 @@ function openCrmGradeToolsMenu(){
   const ICON = {
     plus: 'M12 5v14M5 12h14',
     down: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+    file: 'M6 3h9l4 4v14H6zM14 3v5h5M9 14h6M9 17h6',
     gear: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1'
   };
-  const body = (icon, title, sub, state) => `<span class="crm-gs-ic">${svg(ICON[icon])}</span><span class="crm-gs-tx">${title}${sub ? `<small>${sub}</small>` : ''}</span>${state ? `<span class="crm-gs-state">${state}</span>` : ''}`;
+  const body = (icon, title, sub, state) => `<span class="crm-gs-ic">${svg(ICON[icon])}</span><span class="crm-gs-tx">${title}${sub ? `<small class="hb-sub">${sub}</small>` : ''}</span>${state ? `<span class="crm-gs-state">${state}</span>` : ''}`;
   const item = (icon, title, sub, attrs) => `<button type="button" class="crm-gs-menuitem" ${attrs}>${body(icon, title, sub)}</button>`;
   const testsOn = appToolOn('tests');
   let html = `<div style="text-align:right;"><h3 style="margin:0 0 2px;font-size:15px;color:var(--navy);">${testsOn ? 'اختبار جديد' : 'أدوات الكشف'}</h3>
@@ -629,6 +630,10 @@ function openCrmGradeToolsMenu(){
     html += `<label class="crm-gs-menuitem">${body('down', 'استيراد من Excel', 'ملف Excel أو CSV — تراجع الأسماء والدرجات قبل الحفظ')}
       <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="startCrmGradeImport(event);closeCrmModal()"></label>`;
   }
+  if(g.columns.length){
+    html += item('down', 'قالب Excel جاهز', 'بأسماء طلاب هذه الشعبة وأعمدة الرصد — عبّئه ثم استورده', `onclick="exportCrmGradeSheet('template', this)"`);
+  }
+  html += item('file', 'تصدير الكشف', 'ملف Excel بدرجات هذه الشعبة ومجاميعها', `onclick="exportCrmGradeSheet('sheet', this)"`);
   html += '<div class="crm-gs-grp">إعدادات</div>';
   html += item('gear', 'إعداد الدرجات', 'التوزيع والفترات — يُطبَّق على كل شعبك لهذا الفصل', `onclick="closeCrmModal();openCrmGradeSettings()"`);
   showInfoModal(html + '</div>', '420px');
@@ -1347,6 +1352,74 @@ function planGradeImport(rows, nameKey, mapping, students, columns, existing, ma
     });
   });
   return { upserts, invalid, unmatched, duplicates, partial, unchanged, overwrite };
+}
+
+/* ============ قالب Excel وتصدير الكشف ============ */
+/* القالب: أسماء طلاب الشعبة وأعمدة الرصد اليدوي بأسمائها الدقيقة، فيُطابَق كل شيء تلقائيًا عند الاستيراد */
+function gradeTemplateRows(students, columns){
+  const cols = (columns || []).filter(c => !isComputedGradeColumn(c));
+  return [['اسم الطالب'].concat(cols.map(c => c.name))].concat((students || []).map(s => [s.full_name]));
+}
+
+/* التصدير: كل أعمدة الكشف الظاهرة والمجاميع، والخانة غير المرصودة تبقى فارغة (لا صفرًا) */
+function gradeExportRows(columns, scores, students, caps, testsOn){
+  const head = ['الطالب'].concat((columns || []).map(c => c.name), ['مجموع الأداء', 'مجموع الاختبارات', 'المجموع']);
+  const rows = (students || []).map(st => {
+    const mine = new Map((scores || []).filter(x => x.student_id === st.id).map(x => [x.column_id, Number(x.score)]));
+    const res = studentGradeResult(columns, scores, st.id, caps);
+    const sum = studentGradeSummary(columns, scores, st.id);
+    const t = studentGradeTotal(res, testsOn, caps);
+    return [st.full_name].concat((columns || []).map(c => mine.has(c.id) ? mine.get(c.id) : ''),
+      [sum.performance.count ? sum.performance.sum : '', res.tests.points === null ? '' : res.tests.points, t.points === null ? '' : t.points]);
+  });
+  return [head].concat(rows);
+}
+
+/* ورقة تعريف الأعمدة: حدّها الأعلى ومصدرها (تبقى خارج الورقة الأولى فلا تدخل في الاستيراد) */
+function gradeColumnsInfoRows(columns){
+  return [['العمود', 'الفئة', 'الدرجة العليا', 'طريقة الرصد']].concat((columns || []).map(c =>
+    [c.name, GRADE_CATEGORY_SHORT[c.category] || '', Number(c.max_score), isComputedGradeColumn(c) ? 'محسوب تلقائيًا' : 'يدوي']));
+}
+
+let crmGradeFileBusy = false;
+async function exportCrmGradeSheet(kind, btn){
+  const g = crmGrades;
+  if(crmGradeFileBusy || !g) return;
+  const students = crmStudentsOfSection(g.sectionId);
+  if(!students.length){ showToast('لا طلاب مربوطون بهذه الشعبة', 'error'); return; }
+  const isTemplate = kind === 'template';
+  if(isTemplate && !g.columns.some(c => !isComputedGradeColumn(c))){ showToast('لا أعمدة تُرصد يدويًا في هذا الكشف', 'error'); return; }
+  crmGradeFileBusy = true;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
+  try{
+    await ensureXlsxLib();
+    const testsOn = appToolOn('tests');
+    const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
+    const wb = XLSX.utils.book_new();
+    wb.Workbook = { Views: [{ RTL: true }] };
+    const main = XLSX.utils.aoa_to_sheet(isTemplate ? gradeTemplateRows(students, g.columns) : gradeExportRows(g.columns, g.scores, students, caps, testsOn));
+    main['!cols'] = [{ wch: 28 }].concat(Array(main['!ref'] ? XLSX.utils.decode_range(main['!ref']).e.c : 0).fill({ wch: 14 }));
+    XLSX.utils.book_append_sheet(wb, main, isTemplate ? 'الدرجات' : 'الكشف');
+    const info = XLSX.utils.aoa_to_sheet(gradeColumnsInfoRows(isTemplate ? g.columns.filter(c => !isComputedGradeColumn(c)) : g.columns));
+    info['!cols'] = [{ wch: 26 }, { wch: 12 }, { wch: 14 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, info, 'الأعمدة');
+    const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${isTemplate ? 'قالب-درجات' : 'كشف-درجات'}-${String(crmSectionLabel(g.sectionId)).replace(/[\\\/:*?"<>|\s]+/g, '-')}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast(isTemplate ? 'نُزّل القالب — عبّئه ثم استورده' : 'نُزّل الكشف', 'ok');
+    closeCrmModal();
+  } catch(err){
+    showToast('تعذّر التجهيز: ' + (err.message || ''), 'error');
+  } finally {
+    crmGradeFileBusy = false;
+    endExportBusy(btn);
+  }
 }
 
 /* ============ شاشة الاستيراد ============ */
