@@ -138,8 +138,8 @@ test('التصدير: بلا أسماء افتراضيًا، ومع الأسما
     window.__pdf = gradeAnalysisPdfHtml(crmGradeAnalysis, __v, false);`);
   const flat = rows => JSON.stringify(rows);
   assert.doesNotMatch(flat(app.__plain), /"الطالب"/);
-  assert.match(flat(app.__named), /\["الطالب","الدرجة","النسبة %","الفئة"\]/);
-  assert.match(flat(app.__named), /\["a",10,25,"يحتاج دعمًا"\]/);
+  assert.match(flat(app.__named), /\["الطالب","الدرجة","النسبة %","الفئة","التقدير"\]/);
+  assert.match(flat(app.__named), /\["a",10,25,"يحتاج دعمًا","هـ"\]/);
   assert.doesNotMatch(app.__pdf, /\(10\)/, 'PDF بلا أسماء');
 });
 
@@ -149,5 +149,7 @@ test('الإصدار والملف الجديد: version.json = APP_VERSION = APP
   assert.match(fs.readFileSync(path.join(root, 'app/app-26-update-check.js'), 'utf8'), new RegExp(`APP_VERSION = '${v}'`));
   assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), new RegExp(`APP_VERSION_SW = '${v}'`));
   assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), /app-29-grade-analysis\.js/);
+  assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), /app-30-grade-compare\.js/);
+  assert.match(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), /app-30-grade-compare\.js/);
   assert.match(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), /app-29-grade-analysis\.js/);
 });
