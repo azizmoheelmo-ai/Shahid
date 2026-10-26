@@ -16,7 +16,7 @@ const GRADE_ANALYSIS_RULES = {
 const GRADE_ANALYSIS_BANDS = ['أقل من 50%', '50–59%', '60–69%', '70–79%', '80–89%', '90% فأكثر'];
 const GRADE_ANALYSIS_GROUPS = [
   { key: 'low', label: 'يحتاج دعمًا', tone: 'lo' },
-  { key: 'edge', label: 'على الحافة', tone: 'mid' },
+  { key: 'edge', label: 'قريبون من النصف', tone: 'mid' },
   { key: 'top', label: 'متفوقون', tone: 'hi' }
 ];
 
@@ -191,7 +191,7 @@ function crmGradeAnalysisHtml(a){
     ${tile(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى', 'من ' + formatScore(v.displayMax))}
     ${tile(s.passed, 'ناجحون', pctOf(s.passed), 'hi')}
     ${tile(s.groups.low.length, gradeAnalysisLowLabel(), pctOf(s.groups.low.length), s.groups.low.length ? 'lo' : '')}
-    ${tile(s.groups.edge.length, 'على الحافة', 'نجحوا بهامش قليل')}
+    ${tile(s.groups.edge.length, 'قريبون من النصف', 'فوق النصف بهامش قليل')}
   </div>
   ${gaDistHtml(a, v)}
   <div class="crm-ga-sechead"><span class="crm-ga-sec">من هم؟</span><button type="button" class="crm-ic-btn" aria-label="حدود التحليل" title="حدود التحليل: النجاح والحافة والمتفوق" onclick="openCrmGaRulesEditor()">⚙</button></div>`;
@@ -227,7 +227,7 @@ function gradeAnalysisExportRows(a, v, withNames){
     ['المرصود', s.recorded, 'من', s.total],
     ['المتوسط', s.avg === null ? '' : s.avg], ['الوسيط', s.median === null ? '' : s.median],
     ['الأعلى', s.max === null ? '' : s.max], ['الأدنى', s.min === null ? '' : s.min],
-    ['ناجحون', s.passed], [gradeAnalysisLowLabel(), s.groups.low.length], ['على الحافة', s.groups.edge.length], [s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.groups.top.length],
+    ['ناجحون', s.passed], [gradeAnalysisLowLabel(), s.groups.low.length], ['قريبون من النصف', s.groups.edge.length], [s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.groups.top.length],
     [], ['الفئة', 'العدد']
   ].concat(GRADE_ANALYSIS_BANDS.map((b, i) => [b, s.bands[i]]));
   const letters = gradeLettersNow();
@@ -235,7 +235,7 @@ function gradeAnalysisExportRows(a, v, withNames){
   rows.push([], ['التقدير', 'من %', 'العدد']);
   letters.forEach((l, i) => rows.push([l.label, l.min, lc[i]]));
   if(withNames){
-    const grpOf = r => r.points === null ? 'لم يُرصد' : r.pct < s.passPct ? 'يحتاج دعمًا' : r.pct < s.passPct + s.rules.edge ? 'على الحافة' : r.pct >= s.rules.top ? 'متفوق' : '';
+    const grpOf = r => r.points === null ? 'لم يُرصد' : r.pct < s.passPct ? 'يحتاج دعمًا' : r.pct < s.passPct + s.rules.edge ? 'قريبون من النصف' : r.pct >= s.rules.top ? 'متفوق' : '';
     rows.push([], ['الطالب', 'الدرجة', 'النسبة %', 'الفئة', 'التقدير']);
     v.rows.forEach(r => rows.push([r.name, r.points === null ? '' : r.points, r.pct === null ? '' : Math.round(r.pct), grpOf(r), r.pct === null ? '' : letters[gradeLetterIndex(r.pct, letters)].label]));
   }
@@ -256,7 +256,7 @@ function gradeAnalysisPdfHtml(a, v, withNames){
       <div style="font-size:12px;opacity:.9;margin-top:4px;">${escapeHtml(a.label)} · ${escapeHtml(v.colLabel)}</div></div>
     <p style="font-size:11.5px;color:#6B6659;margin:10px 0;">المحلَّل ${s.recorded} من ${s.total} طالبًا (لم يُرصد: ${s.missing}). نسبة النجاح من ${s.passPct}%.</p>
     <table style="width:100%;border-collapse:collapse;"><tr>${cell(formatScore(s.avg), 'المتوسط')}${cell(formatScore(s.median), 'الوسيط')}${cell(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى')}</tr>
-    <tr>${cell(s.passed + ' (' + s.passRate + '%)', 'ناجحون')}${cell(s.groups.low.length, gradeAnalysisLowLabel())}${cell(s.groups.edge.length, 'على الحافة')}</tr></table>
+    <tr>${cell(s.passed + ' (' + s.passRate + '%)', 'ناجحون')}${cell(s.groups.low.length, gradeAnalysisLowLabel())}${cell(s.groups.edge.length, 'قريبون من النصف')}</tr></table>
     <div style="font-size:13px;font-weight:800;color:#1B3245;margin:14px 0 6px;">توزيع الطلاب حسب النسبة</div>
     <table style="width:100%;border-collapse:collapse;">${bars}</table>${names}</div>`;
 }

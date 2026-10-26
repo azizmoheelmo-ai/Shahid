@@ -10,7 +10,7 @@
 
 const GRADE_RULES_DEFAULT = { pass: 50, edge: 10, top: 90, fallback: false };
 const GRADE_RULES_BOUNDS = { pass: [1, 99], edge: [1, 30], top: [50, 100] };
-const GRADE_RULES_LABELS = { pass: 'يحتاج دعمًا: أقل من', edge: 'على الحافة: حتى', top: 'متفوقون: من' };
+const GRADE_RULES_LABELS = { pass: 'يحتاج دعمًا: أقل من', edge: 'قريبون من النصف: حتى', top: 'متفوقون: من' };
 const GRADE_RULES_UNITS = { pass: '%', edge: '% فوق ذلك', top: '%' };
 const GRADE_TOP_PRESETS = [80, 85, 90, 95];
 
