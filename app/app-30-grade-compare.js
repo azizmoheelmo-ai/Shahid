@@ -198,9 +198,9 @@ function setCrmGaMode(mode){
   paintCrmGradeAnalysis();
 }
 
-function gaHist(counts, labels, toneOf){
+function gaHist(counts, labels, toneOf, big){
   const max = Math.max.apply(null, counts.concat(1));
-  return `<div class="crm-ga-hist">${counts.map((n, i) => `<div class="crm-ga-col"><span>${n || ''}</span><i class="gs-bg-${toneOf(i)}" style="height:${n ? Math.max(4, Math.round(100 * n / max)) : 0}%"></i><small>${escapeHtml(labels[i])}</small></div>`).join('')}</div>`;
+  return `<div class="crm-ga-hist${big ? ' is-big' : ''}">${counts.map((n, i) => `<div class="crm-ga-col"><span>${n || ''}</span><i class="gs-bg-${toneOf(i)}" style="height:${n ? Math.max(4, Math.round(100 * n / max)) : 0}%"></i><small>${escapeHtml(labels[i])}</small></div>`).join('')}</div>`;
 }
 
 /* توزيع الطلاب: بالنسبة أو بالتقدير (الأدنى يمينًا في الحالتين) */
@@ -210,8 +210,8 @@ function gaDistHtml(a, v){
   if(a.mode === 'letters'){
     const letters = gradeLettersNow();
     const counts = gradeLetterCounts(v.rows, letters);
-    html += gaHist(counts, letters.map(l => l.label), i => i === letters.length - 1 ? 'lo' : i === 0 ? 'hi' : 'mid');
-    html += `<div class="crm-ga-lnote">من ${letters.map(l => `${escapeHtml(l.label)} ${formatScore(l.min)}%`).join(' · ')}<button type="button" class="crm-ga-link" onclick="openCrmGaLettersEditor()">تعديل التقديرات</button></div>`;
+    html += gaHist(counts, letters.map(l => l.label), i => i === letters.length - 1 ? 'lo' : i === 0 ? 'hi' : 'mid', true);
+    html += '<div class="crm-ga-lnote"><button type="button" class="crm-ga-link" onclick="openCrmGaLettersEditor()">تعديل التقديرات والحدود</button></div>';
     return html;
   }
   return html + gaHist(v.stats.bands, GRADE_ANALYSIS_BANDS, i => i === 0 ? 'lo' : i === 5 ? 'hi' : 'mid');
@@ -285,7 +285,7 @@ function gaPrevHtml(a){
     const list = sum[k];
     const on = a.prevOpen === k && list.length;
     html += `<div class="crm-ga-grp gs-grp-${t}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" ${list.length ? '' : 'disabled'} aria-expanded="${!!on}" onclick="toggleCrmGaPrevGroup('${k}')"><span>${label}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
-    if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(names.get(r.id) || '')}<small>من ${Math.round(r.prev)}% إلى ${Math.round(r.now)}%</small></span><b class="gs-tone-${t}"><bdi dir="ltr">${r.delta > 0 ? '+' : ''}${r.delta}</bdi></b></button>`).join('') + '</div>';
+    if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(names.get(r.id) || '')}<small>من <bdi dir="ltr">${Math.round(r.prev)}%</bdi> إلى <bdi dir="ltr">${Math.round(r.now)}%</bdi></small></span><b class="gs-tone-${t}"><bdi dir="ltr">${r.delta > 0 ? '+' : ''}${r.delta}</bdi></b></button>`).join('') + '</div>';
     html += '</div>';
   });
   return html + `<p class="crm-ga-fine">قارنّا ${sum.compared} طالبًا؛ متوسط التغيّر <bdi dir="ltr">${sum.avgDelta > 0 ? '+' : ''}${sum.avgDelta}</bdi> نقطة مئوية. التغيّر المعتبر ${GRADE_COMPARE_RULES.changePct} نقاط فأكثر، والنسبة مما رُصد في كل فصل.</p>`;
