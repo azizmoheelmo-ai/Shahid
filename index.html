@@ -19,11 +19,11 @@
      بالضبط الأسلوب المستخدم غالبًا لاستغلال ثغرات XSS عمليًا. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
-  script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+  script-src 'self' 'unsafe-inline';
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
   img-src 'self' data: blob: https://urpsznuywezkqxhnwkyo.supabase.co;
-  connect-src 'self' https://urpsznuywezkqxhnwkyo.supabase.co wss://urpsznuywezkqxhnwkyo.supabase.co https://cdn.jsdelivr.net;
+  connect-src 'self' https://urpsznuywezkqxhnwkyo.supabase.co wss://urpsznuywezkqxhnwkyo.supabase.co;
   base-uri 'self';
   form-action 'self';
   frame-ancestors 'self';
@@ -34,7 +34,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="vendor/supabase.umd.js"></script>
 <link rel="stylesheet" href="style.css">
 <script>
 /* دخول مباشر: من له جلسة محفوظة (أو عائد من Google) لا تظهر له شاشة الدخول أثناء
