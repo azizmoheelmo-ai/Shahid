@@ -73,6 +73,9 @@ function normalizeFeatures(raw){
   /* الفترات لكل مكوّن في كل فصل (app-27) */
   const pr = typeof normalizePeriodsFeature === 'function' ? normalizePeriodsFeature(raw && raw.periods) : null;
   if(pr) out.periods = pr;
+  /* تقديرات الحروف التي عدّلها المعلم (app-30) */
+  const gl = typeof normalizeGradeLetters === 'function' ? normalizeGradeLetters(raw && raw.gradeLetters) : null;
+  if(gl) out.gradeLetters = gl;
   return out;
 }
 

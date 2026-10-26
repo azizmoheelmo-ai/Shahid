@@ -93,7 +93,7 @@ let crmGradeAnalysisBusy = false;
 function openCrmGradeAnalysis(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
-  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, exportOpen: false, withNames: false, label: crmSectionLabel(g.sectionId) };
+  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, exportOpen: false, withNames: false, mode: 'bands', cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
   const a = crmGradeAnalysis;
   a.open = gradeAnalysisDefaultOpen(a);
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
@@ -147,6 +147,7 @@ function gradeAnalysisTone(pct){
 }
 
 function crmGradeAnalysisHtml(a){
+  if(a.editing) return gaLettersEditorHtml(a); /* app-30 */
   const v = gradeAnalysisView(a);
   const s = v.stats;
   if(!s.total) return '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>';
@@ -156,8 +157,6 @@ function crmGradeAnalysisHtml(a){
   let notes = '';
   if(s.missing) notes += `المحلَّل ${s.recorded} من ${s.total} طالبًا — لم يُرصد لـ ${s.missing} فلا يدخلون في الحساب (لا يُعدّون أصفارًا). `;
   if(s.partial) notes += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فقط، ونسبة كل منهم مما رُصد له.`;
-  const maxBand = Math.max.apply(null, s.bands);
-  const hist = s.bands.map((n, i) => `<div class="crm-ga-col"><span>${n || ''}</span><i class="gs-bg-${i === 0 ? 'lo' : i === 5 ? 'hi' : 'mid'}" style="height:${n ? Math.max(4, Math.round(100 * n / maxBand)) : 0}%"></i><small>${GRADE_ANALYSIS_BANDS[i]}</small></div>`).join('');
   let html = (notes ? `<div class="crm-ga-note">${notes}</div>` : '') + `<div class="crm-ga-tiles">
     ${tile(formatScore(s.avg), 'المتوسط', s.avgPct === null ? '' : s.avgPct + '%')}
     ${tile(formatScore(s.median), 'الوسيط')}
@@ -166,7 +165,7 @@ function crmGradeAnalysisHtml(a){
     ${tile(s.groups.low.length, 'تحت النصف', pctOf(s.groups.low.length), s.groups.low.length ? 'lo' : '')}
     ${tile(s.groups.edge.length, 'على الحافة', 'نجحوا بهامش قليل')}
   </div>
-  <div class="crm-ga-sec">توزيع الطلاب حسب النسبة</div><div class="crm-ga-hist">${hist}</div>
+  ${gaDistHtml(a, v)}
   <div class="crm-ga-sec">من هم؟</div>`;
   GRADE_ANALYSIS_GROUPS.forEach(gr => {
     const list = s.groups[gr.key];
@@ -175,6 +174,7 @@ function crmGradeAnalysisHtml(a){
     if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}${r.partial ? `<small>رُصد من ${formatScore(r.recordedMax)} فقط</small>` : ''}</span><b class="gs-tone-${gradeAnalysisTone(r.pct)}">${formatScore(r.points)} · ${Math.round(r.pct)}%</b></button>`).join('') + '</div>';
     html += '</div>';
   });
+  html += gaCompareHtml(a, v);
   html += a.exportOpen
     ? `<div class="crm-ga-exp"><label class="crm-ga-chk"><input type="checkbox" id="crmGaNames"${a.withNames ? ' checked' : ''} onchange="crmGradeAnalysis.withNames = this.checked"> مع أسماء الطلاب</label>
         <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('pdf', this)">PDF صفحة واحدة</button>
@@ -202,10 +202,14 @@ function gradeAnalysisExportRows(a, v, withNames){
     ['ناجحون', s.passed], ['تحت النصف', s.groups.low.length], ['على الحافة', s.groups.edge.length], ['متفوقون', s.groups.top.length],
     [], ['الفئة', 'العدد']
   ].concat(GRADE_ANALYSIS_BANDS.map((b, i) => [b, s.bands[i]]));
+  const letters = gradeLettersNow();
+  const lc = gradeLetterCounts(v.rows, letters);
+  rows.push([], ['التقدير', 'من %', 'العدد']);
+  letters.forEach((l, i) => rows.push([l.label, l.min, lc[i]]));
   if(withNames){
     const grpOf = r => r.points === null ? 'لم يُرصد' : r.pct < s.passPct ? 'يحتاج دعمًا' : r.pct < s.passPct + GRADE_ANALYSIS_RULES.edgeAbovePct ? 'على الحافة' : r.pct >= GRADE_ANALYSIS_RULES.topPct ? 'متفوق' : '';
-    rows.push([], ['الطالب', 'الدرجة', 'النسبة %', 'الفئة']);
-    v.rows.forEach(r => rows.push([r.name, r.points === null ? '' : r.points, r.pct === null ? '' : Math.round(r.pct), grpOf(r)]));
+    rows.push([], ['الطالب', 'الدرجة', 'النسبة %', 'الفئة', 'التقدير']);
+    v.rows.forEach(r => rows.push([r.name, r.points === null ? '' : r.points, r.pct === null ? '' : Math.round(r.pct), grpOf(r), r.pct === null ? '' : letters[gradeLetterIndex(r.pct, letters)].label]));
   }
   return rows;
 }
