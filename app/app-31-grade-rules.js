@@ -56,7 +56,7 @@ function gaRulesEditorHtml(a){
     <input type="number" inputmode="numeric" id="crmGaRule_${k}" min="${GRADE_RULES_BOUNDS[k][0]}" max="${GRADE_RULES_BOUNDS[k][1]}" value="${escapeHtml(String(d[k]))}" aria-label="${GRADE_RULES_LABELS[k]}" oninput="crmGaRuleSet('${k}', this.value)">
     <button type="button" aria-label="إنقاص" onclick="crmGaRuleStep('${k}', -1)">−</button></span><span class="crm-ga-ru">${GRADE_RULES_UNITS[k]}</span></div>`;
   return `<div class="crm-ga-sec">حدود التحليل</div>
-    <p class="crm-ga-fine" style="margin-top:0">تُطبَّق على كل شعبك، وللتحليل فقط — ألوان الكشف وتنبيهاته كما هي.</p>
+    <p class="crm-ga-fine" style="margin-top:0">تُطبَّق على كل شعبك، وللتحليل فقط — ألوان الكشف وتنبيهاته كما هي.<br>النسب محسوبة من الدرجة الكاملة (من ${escapeHtml(formatScore(gradeAnalysisView(a).displayMax))}): مثلًا ${d.pass}% = ${escapeHtml(formatScore(Math.round(Number(d.pass) * gradeAnalysisView(a).displayMax) / 100))} درجة.</p>
     ${row('pass')}${row('edge')}${row('top')}
     <div class="crm-ga-pre">${GRADE_TOP_PRESETS.map(p => `<button type="button" class="${Number(d.top) === p ? 'is-on' : ''}" onclick="crmGaRulePreset(${p})">${p}</button>`).join('')}</div>
     <label class="crm-ga-chk"><input type="checkbox"${d.fallback ? ' checked' : ''} onchange="crmGaRuleFallback(this.checked)"> إن لم يبلغ أحد حدّ المتفوق، اعرض أعلى 3 في الشعبة</label>
