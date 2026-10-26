@@ -10,7 +10,7 @@
    - "لاحقًا" يؤجلها ساعة لنفس الإصدار.
    APP_VERSION يُرفع مع version.json في كل تحديث (اختبار يتحقق من تطابقهما).
    ============================================================ */
-const APP_VERSION = '2.23';
+const APP_VERSION = '2.24';
 const UPDATE_CHECK_EVERY_MS = 30 * 60 * 1000;
 const UPDATE_SNOOZE_MS = 60 * 60 * 1000;
 const UPDATE_SNOOZE_KEY = 'shahid_update_snooze';
