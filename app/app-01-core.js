@@ -48,14 +48,14 @@ function printNow(){
   window.print();
 }
 async function ensureZipLib(){
-  await loadScriptOnce('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+  await loadScriptOnce('vendor/jszip.min.js');
 }
 async function ensureXlsxLib(){
-  await loadScriptOnce('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+  await loadScriptOnce('vendor/xlsx.full.min.js');
 }
 async function ensurePdfLibs(){
-  await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
-  await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+  await loadScriptOnce('vendor/html2canvas.min.js');
+  await loadScriptOnce('vendor/jspdf.umd.min.js');
   /* الخطوط العربية (Cairo/Amiri) تُحمَّل من Google Fonts — لو صادف أن مستخدمًا
      صدّر PDF قبل ما يكتمل تحميلها (اتصال بطيء، أو خلال أول ثانية من فتح
      الصفحة)، يلتقط html2canvas خطًا بديلًا بدل الخط الفعلي. ننتظر اكتمال كل

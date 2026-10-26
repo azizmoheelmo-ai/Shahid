@@ -111,9 +111,9 @@ test('sw: التفعيل يحذف كاش الإصدارات القديمة وي�
   assert.ok(keys.some(k => k === 'shahid-shell-v' + JSON.parse(fs.readFileSync(path.join(root, 'version.json'), 'utf8')).version));
 });
 
-test('sw: مكتبات jsDelivr والخطوط فقط تُخدم من كاش خارجي؛ غيرها من الخارج يُترك', () => {
+test('sw: الخطوط فقط تُخدم من كاش خارجي (المكتبات صارت محلية)؛ غيرها من الخارج يُترك', () => {
   const env = fakeEnv();
-  assert.ok(runFetch(env, { method: 'GET', url: 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js' }));
+  assert.equal(runFetch(env, { method: 'GET', url: 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js' }), null);
   assert.ok(runFetch(env, { method: 'GET', url: 'https://fonts.gstatic.com/s/cairo/x.woff2' }));
   assert.equal(runFetch(env, { method: 'GET', url: 'https://evil.example/x.js' }), null);
 });

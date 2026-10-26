@@ -105,7 +105,7 @@ function extractAppScript(htmlDir, html) {
       continue;
     }
     const src = srcMatch[1];
-    if (/^https?:\/\//.test(src)) continue; // مكتبة خارجية (CDN) — غير مطلوبة لهذه الاختبارات
+    if (/^https?:\/\//.test(src) || /^(\.\/)?vendor\//.test(src)) continue; // مكتبة خارجية أو محلية (vendor/) — غير مطلوبة لهذه الاختبارات، وعميل Supabase وهمي
     parts.push(fs.readFileSync(path.join(htmlDir, src), 'utf-8'));
   }
   if (!parts.length) throw new Error('لم يُعثر على أي كود تطبيق (لا <script> داخلي ولا ملفات محلية) بـ index.html');

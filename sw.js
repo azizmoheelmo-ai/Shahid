@@ -26,12 +26,12 @@
      HTTPS/localhost، وهذا سلوك طبيعي متوقّع.
 */
 
-const APP_VERSION_SW = '2.29';
+const APP_VERSION_SW = '2.30';
 const CACHE_NAME = 'shahid-shell-v' + APP_VERSION_SW;
-/* مكتبة Supabase والخطوط (خارجية): نخدمها من الكاش فورًا ونحدّثها بالخلفية.
+/* الخطوط (خارجية): نخدمها من الكاش فورًا ونحدّثها بالخلفية.
    كاش منفصل لا يُحذف بتغيّر الإصدار. */
 const EXT_CACHE = 'shahid-ext-v1';
-const EXT_HOSTS = ['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
+const EXT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 const APP_SHELL = [
   './',
   './index.html',
@@ -40,6 +40,11 @@ const APP_SHELL = [
   './icon-180.png',
   './icon-192.png',
   './icon-512.png',
+  './vendor/supabase.umd.js',
+  './vendor/jszip.min.js',
+  './vendor/xlsx.full.min.js',
+  './vendor/html2canvas.min.js',
+  './vendor/jspdf.umd.min.js',
   './app/app-01-core.js',
   './app/app-02-templates-data.js',
   './app/app-03-auth-home-risk.js',
