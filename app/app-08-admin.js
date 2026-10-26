@@ -321,13 +321,14 @@ function adminRenderRecCard(r){
     </div>`;
 }
 
-function adminPrintRecord(id, evt){
+async function adminPrintRecord(id, evt){
   const rec = adminAllRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
+    await settlePhotosIn(document.getElementById('printArea'));
     printNow();
   } finally { endExportBusy(btn); }
 }
@@ -964,7 +965,7 @@ async function exportBackup(evt){
       photosDone++;
       setProgress(Math.round((photosDone / Math.max(1, allPhotos.length)) * 90), `جارٍ تحميل الصور (${photosDone} من ${allPhotos.length})...`);
       try{
-        const res = await fetch(p.url);
+        const res = await photoFetch(p.url);
         if(!res.ok) throw new Error('fetch failed');
         const blob = await res.blob();
         const ext = (p.url.split('.').pop() || 'jpg').split('?')[0].slice(0, 4);
