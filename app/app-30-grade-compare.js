@@ -206,7 +206,7 @@ function gaHist(counts, labels, toneOf, big){
 /* توزيع الطلاب: بالنسبة أو بالتقدير (الأدنى يمينًا في الحالتين) */
 function gaDistHtml(a, v){
   const seg = (mode, label) => `<button type="button" class="${a.mode === mode ? 'is-on' : ''}" aria-pressed="${a.mode === mode}" onclick="setCrmGaMode('${mode}')">${label}</button>`;
-  let html = `<div class="crm-ga-sechead"><span class="crm-ga-sec">توزيع الطلاب</span><span class="crm-ga-tog">${seg('bands', 'بالنسبة')}${seg('letters', 'بالتقدير')}</span></div>`;
+  let html = `<div class="crm-ga-sechead"><span class="crm-ga-sec">${a.mode === 'letters' ? 'توزيع الطلاب' : 'توزيع الطلاب حسب النسبة المئوية'}</span><span class="crm-ga-tog">${seg('bands', 'بالنسبة')}${seg('letters', 'بالتقدير')}</span></div>`;
   if(a.mode === 'letters'){
     const letters = gradeLettersNow();
     const counts = gradeLetterCounts(v.rows, letters);
@@ -214,7 +214,7 @@ function gaDistHtml(a, v){
     html += '<div class="crm-ga-lnote"><button type="button" class="crm-ga-link" onclick="openCrmGaLettersEditor()">تعديل التقديرات والحدود</button></div>';
     return html;
   }
-  return html + gaHist(v.stats.bands, GRADE_ANALYSIS_BANDS, i => i === 0 ? 'lo' : i === 5 ? 'hi' : 'mid');
+  return html + `<div class="crm-ga-fine" style="margin:0 0 6px">النسبة = درجة الطالب ÷ الدرجة الكاملة (${formatScore(v.displayMax)}) × 100</div>` + gaHist(v.stats.bands, GRADE_ANALYSIS_BANDS, i => i === 0 ? 'lo' : i === 5 ? 'hi' : 'mid');
 }
 
 function gaCmpBar(label, pct, sub, tone, mark){

@@ -26,7 +26,7 @@
      HTTPS/localhost، وهذا سلوك طبيعي متوقّع.
 */
 
-const APP_VERSION_SW = '2.28';
+const APP_VERSION_SW = '2.29';
 const CACHE_NAME = 'shahid-shell-v' + APP_VERSION_SW;
 /* مكتبة Supabase والخطوط (خارجية): نخدمها من الكاش فورًا ونحدّثها بالخلفية.
    كاش منفصل لا يُحذف بتغيّر الإصدار. */

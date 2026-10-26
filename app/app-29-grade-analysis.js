@@ -13,7 +13,7 @@ const GRADE_ANALYSIS_RULES = {
   edgeAbovePct: 10, /* «على الحافة»: نجح بهامش أقل من 10 نقاط مئوية فوق حد النجاح */
   topPct: 90        /* متفوق: 90% فأكثر */
 };
-const GRADE_ANALYSIS_BANDS = ['أقل من 50', '50–59', '60–69', '70–79', '80–89', '90 فأكثر'];
+const GRADE_ANALYSIS_BANDS = ['أقل من 50%', '50–59%', '60–69%', '70–79%', '80–89%', '90% فأكثر'];
 const GRADE_ANALYSIS_GROUPS = [
   { key: 'low', label: 'يحتاج دعمًا', tone: 'lo' },
   { key: 'edge', label: 'على الحافة', tone: 'mid' },
@@ -162,6 +162,17 @@ function gradeAnalysisTone(pct){
   return pct < pass ? 'lo' : pct < gradeAnalysisRulesNow().top ? 'mid' : 'hi';
 }
 
+/* حدّ الفئة بالنسبة وما يقابله بالدرجات (لا يُعرض لـ«الأعلى درجات» الاحتياطية: ليس لها حدّ) */
+function gaGroupRangeHtml(key, s, displayMax){
+  if(key === 'top' && s.topIsFallback) return '';
+  const pts = p => formatScore(Math.round(p * displayMax) / 100);
+  const r = s.rules;
+  const txt = key === 'low' ? `أقل من ${r.pass}% أي أقل من ${pts(r.pass)} درجة`
+    : key === 'edge' ? `من ${r.pass}% إلى أقل من ${r.pass + r.edge}%`
+    : `${r.top}% فأكثر أي ${pts(r.top)} درجة فأكثر`;
+  return `<small>${txt}</small>`;
+}
+
 function crmGradeAnalysisHtml(a){
   if(a.editing) return gaLettersEditorHtml(a); /* app-30 */
   if(a.rulesEdit) return gaRulesEditorHtml(a); /* app-31 */
@@ -175,9 +186,9 @@ function crmGradeAnalysisHtml(a){
   if(s.missing) notes += `المحلَّل ${s.recorded} من ${s.total} طالبًا — لم يُرصد لـ ${s.missing} فلا يدخلون في الحساب (لا يُعدّون أصفارًا). `;
   if(s.partial) notes += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فقط، ونسبة كل منهم مما رُصد له.`;
   let html = (notes ? `<div class="crm-ga-note">${notes}</div>` : '') + `<div class="crm-ga-tiles">
-    ${tile(formatScore(s.avg), 'المتوسط', s.avgPct === null ? '' : s.avgPct + '%')}
-    ${tile(formatScore(s.median), 'الوسيط')}
-    ${tile(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى')}
+    ${tile(formatScore(s.avg), 'المتوسط', 'من ' + formatScore(v.displayMax) + (s.avgPct === null ? '' : ' · ' + s.avgPct + '%'))}
+    ${tile(formatScore(s.median), 'الوسيط', 'من ' + formatScore(v.displayMax))}
+    ${tile(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى', 'من ' + formatScore(v.displayMax))}
     ${tile(s.passed, 'ناجحون', pctOf(s.passed), 'hi')}
     ${tile(s.groups.low.length, gradeAnalysisLowLabel(), pctOf(s.groups.low.length), s.groups.low.length ? 'lo' : '')}
     ${tile(s.groups.edge.length, 'على الحافة', 'نجحوا بهامش قليل')}
@@ -187,7 +198,7 @@ function crmGradeAnalysisHtml(a){
   GRADE_ANALYSIS_GROUPS.forEach(gr => {
     const list = s.groups[gr.key];
     const on = a.open === gr.key && list.length;
-    html += `<div class="crm-ga-grp gs-grp-${gr.tone}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${!!on}" ${list.length ? '' : 'disabled'} onclick="toggleCrmGaGroup('${gr.key}')"><span>${gr.key === 'top' && s.topIsFallback ? 'الأعلى درجات' : gr.label}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
+    html += `<div class="crm-ga-grp gs-grp-${gr.tone}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${!!on}" ${list.length ? '' : 'disabled'} onclick="toggleCrmGaGroup('${gr.key}')"><span>${gr.key === 'top' && s.topIsFallback ? 'الأعلى درجات' : gr.label}${gaGroupRangeHtml(gr.key, s, v.displayMax)}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
     if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${Math.round(r.pct)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button>`).join('') + '</div>';
     html += '</div>';
   });

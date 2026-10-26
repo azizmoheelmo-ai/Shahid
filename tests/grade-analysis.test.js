@@ -105,7 +105,19 @@ test('فتح النافذة: عمود المجموع افتراضيًا، وفئ
   assert.equal(app.__st.open, 'low');
   assert.match(app.__body, /سامي &lt;b&gt;علي&lt;\/b&gt;/);
   assert.doesNotMatch(app.__body, /<b>علي<\/b>/);
-  assert.match(app.__body, /يحتاج دعمًا<\/span><b>1<\/b>/);
+  assert.match(app.__body, /يحتاج دعمًا<small>[^<]*<\/small><\/span><b>1<\/b>/);
+});
+
+test('النسب واضحة: علامة % على النطاقات، و«من كم» تحت البطاقات، وشرح الحساب وحدّ كل فئة بالدرجات', async () => {
+  const app = openedApp(SCORES);
+  runInAppContext(app, `openCrmGradeAnalysis(); window.__body = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(app.__body, /توزيع الطلاب حسب النسبة المئوية/);
+  assert.match(app.__body, /النسبة = درجة الطالب ÷ الدرجة الكاملة \(60\) × 100/);
+  assert.match(app.__body, /<small>أقل من 50%<\/small>/);
+  assert.match(app.__body, /<small>90% فأكثر<\/small>/);
+  assert.match(app.__body, /<span>المتوسط<\/span><small>من 60 · \d+%<\/small>/);
+  assert.match(app.__body, /أقل من 50% أي أقل من 30 درجة/);
+  assert.match(app.__body, /90% فأكثر أي 54 درجة فأكثر/);
 });
 
 test('النافذة تذكر من لم يُرصد له ولا تعدّه صفرًا، وتبدّل العمود دون إغلاق', async () => {
