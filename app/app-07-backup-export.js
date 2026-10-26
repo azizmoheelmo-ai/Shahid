@@ -550,7 +550,7 @@ for each row execute function public.set_shahid_updated_at();
 -- الصور فقط — تقييدها لصور فقط كان سيكسر هذه الميزة الموجودة أصلاً.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
-  'shawahid-photos', 'shawahid-photos', true,
+  'shawahid-photos', 'shawahid-photos', false,
   8388608, -- 8MB كحد أقصى لكل ملف (حماية من إساءة استخدام المساحة)
   array[
     'image/jpeg','image/png','image/webp','image/heic','image/heif','image/gif',
@@ -578,7 +578,7 @@ drop policy if exists "الصور قابلة للعرض للجميع (رابط �
 drop policy if exists "المعلم يقرأ ملفاته فقط" on storage.objects;
 create policy "المعلم يقرأ ملفاته فقط"
   on storage.objects for select
-  using (bucket_id = 'shawahid-photos' and (select auth.uid())::text = (storage.foldername(name))[1]);
+  using (bucket_id = 'shawahid-photos' and ((select auth.uid())::text = (storage.foldername(name))[1] or public.is_admin((select auth.uid()))));
 
 -- الرفع مسموح فقط ضمن مجلد المستخدم نفسه (أول جزء من المسار = auth.uid())
 drop policy if exists "المعلم يرفع ضمن مجلده فقط" on storage.objects;
@@ -887,7 +887,7 @@ for each row execute function public.log_shahid_delete();
 
 -- ============ 8) مساحة تخزين الصور ============
 insert into storage.buckets (id, name, public)
-values ('shawahid-photos','shawahid-photos', true)
+values ('shawahid-photos','shawahid-photos', false)
 on conflict (id) do nothing;
 
 drop policy if exists "أي مستخدم مسجل يرفع صوره في مجلده فقط" on storage.objects;
@@ -904,7 +904,7 @@ drop policy if exists "الصور قابلة للعرض للجميع (رابط �
 drop policy if exists "المعلم يقرأ ملفاته فقط" on storage.objects;
 create policy "المعلم يقرأ ملفاته فقط"
   on storage.objects for select
-  using (bucket_id = 'shawahid-photos' and (select auth.uid())::text = (storage.foldername(name))[1]);
+  using (bucket_id = 'shawahid-photos' and ((select auth.uid())::text = (storage.foldername(name))[1] or public.is_admin((select auth.uid()))));
 
 drop policy if exists "المعلم يحذف صوره فقط" on storage.objects;
 create policy "المعلم يحذف صوره فقط"
@@ -2319,7 +2319,7 @@ async function exportFullBackup(){
       const pct = 30 + Math.round((done / Math.max(1, allPhotos.length)) * 62);
       updateBackupProgress(pct, `جارٍ تحميل الصور (${done} من ${allPhotos.length})...`);
       try{
-        const res = await fetch(p.url);
+        const res = await photoFetch(p.url);
         if(!res.ok) throw new Error('fetch failed');
         const blob = await res.blob();
         const ext = (p.url.split('.').pop() || 'jpg').split('?')[0].slice(0, 4);

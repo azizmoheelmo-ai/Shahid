@@ -1312,7 +1312,7 @@ async function goToPlanForElement(elementKey){
 }
 
 /* ============ طباعة شاهد محفوظ بعينه ============ */
-function printCurrentForm(evt){
+async function printCurrentForm(evt){
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
@@ -1340,17 +1340,19 @@ function printCurrentForm(evt){
   };
 
   document.getElementById('printArea').innerHTML = buildPdfHtml(draft, photoSrcs);
+  await settlePhotosIn(document.getElementById('printArea'));
   printNow();
   } finally { endExportBusy(btn); }
 }
 
-function printRecord(id, evt){
+async function printRecord(id, evt){
   const rec = myRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
+    await settlePhotosIn(document.getElementById('printArea'));
     printNow();
   } finally { endExportBusy(btn); }
 }
@@ -1361,7 +1363,7 @@ window.addEventListener('afterprint', () => {
 /* ============ تحويل رابط صورة إلى Data URL (لتفادي مشاكل CORS داخل PDF) ============ */
 async function toDataUrl(url){
   try{
-    const res = await fetch(url);
+    const res = await photoFetch(url);
     const blob = await res.blob();
     return await new Promise((resolve) => {
       const reader = new FileReader();

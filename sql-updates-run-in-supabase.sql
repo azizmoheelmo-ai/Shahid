@@ -28,7 +28,7 @@ alter table public.shawahid add constraint shawahid_photo_urls_valid
 -- لأن ميزة "إضافة مرفق" بالتطبيق تسمح بإرفاق مستندات كشاهد وليس صور فقط.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
-  'shawahid-photos', 'shawahid-photos', true,
+  'shawahid-photos', 'shawahid-photos', false,
   8388608, -- 8MB كحد أقصى لكل ملف
   array[
     'image/jpeg','image/png','image/webp','image/heic','image/heif','image/gif',
@@ -56,7 +56,7 @@ drop policy if exists "الصور قابلة للعرض للجميع (رابط �
 drop policy if exists "المعلم يقرأ ملفاته فقط" on storage.objects;
 create policy "المعلم يقرأ ملفاته فقط"
   on storage.objects for select
-  using (bucket_id = 'shawahid-photos' and (select auth.uid())::text = (storage.foldername(name))[1]);
+  using (bucket_id = 'shawahid-photos' and ((select auth.uid())::text = (storage.foldername(name))[1] or public.is_admin((select auth.uid()))));
 
 drop policy if exists "المعلم يرفع ضمن مجلده فقط" on storage.objects;
 create policy "المعلم يرفع ضمن مجلده فقط"
