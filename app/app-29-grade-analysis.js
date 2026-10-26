@@ -141,6 +141,9 @@ function paintCrmGradeAnalysis(){
   if(box && crmGradeAnalysis) box.innerHTML = crmGradeAnalysisHtml(crmGradeAnalysis);
 }
 
+/* درجة بمنزلة عشرية واحدة كحد أقصى (2.33 ← 2.3) */
+function gradeAnalysisPts(n){ return String(Math.round(Number(n) * 10) / 10); }
+
 function gradeAnalysisTone(pct){
   const pass = gradeAnalysisPassPct();
   return pct < pass ? 'lo' : pct < GRADE_ANALYSIS_RULES.topPct ? 'mid' : 'hi';
@@ -171,7 +174,7 @@ function crmGradeAnalysisHtml(a){
     const list = s.groups[gr.key];
     const on = a.open === gr.key && list.length;
     html += `<div class="crm-ga-grp gs-grp-${gr.tone}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${!!on}" ${list.length ? '' : 'disabled'} onclick="toggleCrmGaGroup('${gr.key}')"><span>${gr.label}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
-    if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}${r.partial ? `<small>رُصد من ${formatScore(r.recordedMax)} فقط</small>` : ''}</span><b class="gs-tone-${gradeAnalysisTone(r.pct)}">${formatScore(r.points)} · ${Math.round(r.pct)}%</b></button>`).join('') + '</div>';
+    if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${Math.round(r.pct)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button>`).join('') + '</div>';
     html += '</div>';
   });
   html += gaCompareHtml(a, v);
