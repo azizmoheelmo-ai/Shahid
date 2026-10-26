@@ -22,8 +22,17 @@ const GRADE_ANALYSIS_GROUPS = [
 
 /* ============ دوال صرفة ============ */
 
-function gradeAnalysisPassPct(){
-  return typeof ATTENTION_RULES !== 'undefined' ? ATTENTION_RULES.gradeLowPct : 50;
+/* الحدود الفعلية: ما ضبطه المعلم (app-31) وإلا الافتراضي */
+function gradeAnalysisRulesNow(){
+  return typeof gradeRulesNow === 'function' ? gradeRulesNow() : { pass: 50, edge: GRADE_ANALYSIS_RULES.edgeAbovePct, top: GRADE_ANALYSIS_RULES.topPct, fallback: false };
+}
+
+function gradeAnalysisPassPct(){ return gradeAnalysisRulesNow().pass; }
+
+/* «تحت النصف» ما دام الحدّ 50، وإلا «تحت 60%» مثلًا */
+function gradeAnalysisLowLabel(){
+  const p = gradeAnalysisPassPct();
+  return p === 50 ? 'تحت النصف' : `تحت ${p}%`;
 }
 
 function gradeAnalysisBandIndex(pct){
@@ -60,7 +69,8 @@ function gradeAnalysisRows(g, students, key, caps, testsOn){
 /* أرقام وفئات من الصفوف: لمن رُصد له فقط */
 function analyzeGradeRows(rows, displayMax){
   const rec = rows.filter(r => r.points !== null);
-  const pass = gradeAnalysisPassPct();
+  const rules = gradeAnalysisRulesNow();
+  const pass = rules.pass;
   const r2 = n => Math.round(n * 100) / 100;
   const pts = rec.map(r => r.points).sort((a, b) => a - b);
   const mid = pts.length >> 1;
@@ -70,9 +80,12 @@ function analyzeGradeRows(rows, displayMax){
   const byPct = (a, b) => a.pct - b.pct || a.name.localeCompare(b.name, 'ar');
   const groups = {
     low: rec.filter(r => r.pct < pass).sort(byPct),
-    edge: rec.filter(r => r.pct >= pass && r.pct < pass + GRADE_ANALYSIS_RULES.edgeAbovePct).sort(byPct),
-    top: rec.filter(r => r.pct >= GRADE_ANALYSIS_RULES.topPct).sort((a, b) => -byPct(a, b))
+    edge: rec.filter(r => r.pct >= pass && r.pct < pass + rules.edge).sort(byPct),
+    top: rec.filter(r => r.pct >= rules.top).sort((a, b) => -byPct(a, b))
   };
+  /* لا أحد بلغ حدّ المتفوق: اختياريًا تُعرض أعلى 3 (ممن نجحوا) باسم «الأعلى درجات» */
+  const topIsFallback = !groups.top.length && rules.fallback;
+  if(topIsFallback) groups.top = rec.filter(r => r.pct >= pass).sort((a, b) => -byPct(a, b)).slice(0, 3);
   return {
     total: rows.length, recorded: rec.length, missing: rows.length - rec.length,
     partial: rec.filter(r => r.partial).length,
@@ -82,7 +95,7 @@ function analyzeGradeRows(rows, displayMax){
     min: pts.length ? pts[0] : null, max: pts.length ? pts[pts.length - 1] : null,
     passed: rec.length - groups.low.length,
     passRate: rec.length ? Math.round(100 * (rec.length - groups.low.length) / rec.length) : null,
-    bands, groups, passPct: pass
+    bands, groups, passPct: pass, topIsFallback, rules
   };
 }
 
@@ -93,7 +106,7 @@ let crmGradeAnalysisBusy = false;
 function openCrmGradeAnalysis(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
-  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, exportOpen: false, withNames: false, mode: 'bands', cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
+  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, exportOpen: false, withNames: false, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
   const a = crmGradeAnalysis;
   a.open = gradeAnalysisDefaultOpen(a);
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
@@ -146,11 +159,12 @@ function gradeAnalysisPts(n){ return String(Math.round(Number(n) * 10) / 10); }
 
 function gradeAnalysisTone(pct){
   const pass = gradeAnalysisPassPct();
-  return pct < pass ? 'lo' : pct < GRADE_ANALYSIS_RULES.topPct ? 'mid' : 'hi';
+  return pct < pass ? 'lo' : pct < gradeAnalysisRulesNow().top ? 'mid' : 'hi';
 }
 
 function crmGradeAnalysisHtml(a){
   if(a.editing) return gaLettersEditorHtml(a); /* app-30 */
+  if(a.rulesEdit) return gaRulesEditorHtml(a); /* app-31 */
   const v = gradeAnalysisView(a);
   const s = v.stats;
   if(!s.total) return '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>';
@@ -165,15 +179,15 @@ function crmGradeAnalysisHtml(a){
     ${tile(formatScore(s.median), 'الوسيط')}
     ${tile(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى')}
     ${tile(s.passed, 'ناجحون', pctOf(s.passed), 'hi')}
-    ${tile(s.groups.low.length, 'تحت النصف', pctOf(s.groups.low.length), s.groups.low.length ? 'lo' : '')}
+    ${tile(s.groups.low.length, gradeAnalysisLowLabel(), pctOf(s.groups.low.length), s.groups.low.length ? 'lo' : '')}
     ${tile(s.groups.edge.length, 'على الحافة', 'نجحوا بهامش قليل')}
   </div>
   ${gaDistHtml(a, v)}
-  <div class="crm-ga-sec">من هم؟</div>`;
+  <div class="crm-ga-sechead"><span class="crm-ga-sec">من هم؟</span><button type="button" class="crm-ic-btn" aria-label="حدود التحليل" title="حدود التحليل: النجاح والحافة والمتفوق" onclick="openCrmGaRulesEditor()">⚙</button></div>`;
   GRADE_ANALYSIS_GROUPS.forEach(gr => {
     const list = s.groups[gr.key];
     const on = a.open === gr.key && list.length;
-    html += `<div class="crm-ga-grp gs-grp-${gr.tone}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${!!on}" ${list.length ? '' : 'disabled'} onclick="toggleCrmGaGroup('${gr.key}')"><span>${gr.label}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
+    html += `<div class="crm-ga-grp gs-grp-${gr.tone}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${!!on}" ${list.length ? '' : 'disabled'} onclick="toggleCrmGaGroup('${gr.key}')"><span>${gr.key === 'top' && s.topIsFallback ? 'الأعلى درجات' : gr.label}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
     if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${Math.round(r.pct)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button>`).join('') + '</div>';
     html += '</div>';
   });
@@ -202,7 +216,7 @@ function gradeAnalysisExportRows(a, v, withNames){
     ['المرصود', s.recorded, 'من', s.total],
     ['المتوسط', s.avg === null ? '' : s.avg], ['الوسيط', s.median === null ? '' : s.median],
     ['الأعلى', s.max === null ? '' : s.max], ['الأدنى', s.min === null ? '' : s.min],
-    ['ناجحون', s.passed], ['تحت النصف', s.groups.low.length], ['على الحافة', s.groups.edge.length], ['متفوقون', s.groups.top.length],
+    ['ناجحون', s.passed], [gradeAnalysisLowLabel(), s.groups.low.length], ['على الحافة', s.groups.edge.length], [s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.groups.top.length],
     [], ['الفئة', 'العدد']
   ].concat(GRADE_ANALYSIS_BANDS.map((b, i) => [b, s.bands[i]]));
   const letters = gradeLettersNow();
@@ -210,7 +224,7 @@ function gradeAnalysisExportRows(a, v, withNames){
   rows.push([], ['التقدير', 'من %', 'العدد']);
   letters.forEach((l, i) => rows.push([l.label, l.min, lc[i]]));
   if(withNames){
-    const grpOf = r => r.points === null ? 'لم يُرصد' : r.pct < s.passPct ? 'يحتاج دعمًا' : r.pct < s.passPct + GRADE_ANALYSIS_RULES.edgeAbovePct ? 'على الحافة' : r.pct >= GRADE_ANALYSIS_RULES.topPct ? 'متفوق' : '';
+    const grpOf = r => r.points === null ? 'لم يُرصد' : r.pct < s.passPct ? 'يحتاج دعمًا' : r.pct < s.passPct + s.rules.edge ? 'على الحافة' : r.pct >= s.rules.top ? 'متفوق' : '';
     rows.push([], ['الطالب', 'الدرجة', 'النسبة %', 'الفئة', 'التقدير']);
     v.rows.forEach(r => rows.push([r.name, r.points === null ? '' : r.points, r.pct === null ? '' : Math.round(r.pct), grpOf(r), r.pct === null ? '' : letters[gradeLetterIndex(r.pct, letters)].label]));
   }
@@ -231,7 +245,7 @@ function gradeAnalysisPdfHtml(a, v, withNames){
       <div style="font-size:12px;opacity:.9;margin-top:4px;">${escapeHtml(a.label)} · ${escapeHtml(v.colLabel)}</div></div>
     <p style="font-size:11.5px;color:#6B6659;margin:10px 0;">المحلَّل ${s.recorded} من ${s.total} طالبًا (لم يُرصد: ${s.missing}). نسبة النجاح من ${s.passPct}%.</p>
     <table style="width:100%;border-collapse:collapse;"><tr>${cell(formatScore(s.avg), 'المتوسط')}${cell(formatScore(s.median), 'الوسيط')}${cell(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى')}</tr>
-    <tr>${cell(s.passed + ' (' + s.passRate + '%)', 'ناجحون')}${cell(s.groups.low.length, 'تحت النصف')}${cell(s.groups.edge.length, 'على الحافة')}</tr></table>
+    <tr>${cell(s.passed + ' (' + s.passRate + '%)', 'ناجحون')}${cell(s.groups.low.length, gradeAnalysisLowLabel())}${cell(s.groups.edge.length, 'على الحافة')}</tr></table>
     <div style="font-size:13px;font-weight:800;color:#1B3245;margin:14px 0 6px;">توزيع الطلاب حسب النسبة</div>
     <table style="width:100%;border-collapse:collapse;">${bars}</table>${names}</div>`;
 }

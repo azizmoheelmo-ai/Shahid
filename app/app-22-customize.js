@@ -76,6 +76,9 @@ function normalizeFeatures(raw){
   /* تقديرات الحروف التي عدّلها المعلم (app-30) */
   const gl = typeof normalizeGradeLetters === 'function' ? normalizeGradeLetters(raw && raw.gradeLetters) : null;
   if(gl) out.gradeLetters = gl;
+  /* حدود تحليل الدرجات (app-31) */
+  const ar = typeof normalizeGradeRules === 'function' ? normalizeGradeRules(raw && raw.analysisRules) : null;
+  if(ar) out.analysisRules = ar;
   return out;
 }
 
