@@ -241,7 +241,7 @@ function gaDiffHtml(a){
   const tone = p => p < gradeAnalysisPassPct() ? 'lo' : p < 70 ? 'mid' : 'hi';
   let html = list.map(x => gaCmpBar(escapeHtml(x.name), x.avgPct, '', tone(x.avgPct), hard && hard.id === x.id ? ' ⚠' : '')).join('');
   html += hard
-    ? `<div class="crm-ga-card"><b>أصعب اختبار: ${escapeHtml(hard.name)}</b><br>${hard.low} من ${hard.recorded} تحت النصف (${Math.round(100 * hard.low / hard.recorded)}%).${hard.measures ? `<br>يقيس: ${escapeHtml(hard.measures)}<br><small>← فكّر في إعادة شرحه قبل الانتقال.</small>` : ''}</div>`
+    ? `<div class="crm-ga-card"><b>أصعب اختبار: ${escapeHtml(hard.name)}</b><br>${hard.low} من ${hard.recorded} ${gradeAnalysisLowLabel()} (${Math.round(100 * hard.low / hard.recorded)}%).${hard.measures ? `<br>يقيس: ${escapeHtml(hard.measures)}<br><small>← فكّر في إعادة شرحه قبل الانتقال.</small>` : ''}</div>`
     : list.some(x => x.category === 'tests') ? '<div class="crm-ga-card">لا اختبار تحته 30% من الطلاب دون النصف ✓</div>' : '';
   return html + '<p class="crm-ga-fine">الأعمدة تختلف في صعوبتها أصلًا، فلا تُقارن عمودًا بآخر حكمًا على الطلاب.</p>';
 }
