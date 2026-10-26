@@ -391,10 +391,12 @@ function crmGradeSimpleHtml(g){
     return { id: st.id, name: st.full_name, points: t.points, recordedMax: t.recordedMax, tone: gradeTone(t.points, t.recordedMax) };
   });
   const sum = gradeListSummary(rows);
-  let html = `<div class="crm-gs-strip">
+  /* الشريط نفسه زر «تحليل الدرجات» (app-29): لا زر إضافي بالشاشة */
+  let html = `<button type="button" class="crm-gs-strip crm-gs-strip-btn" aria-label="تحليل الدرجات" onclick="openCrmGradeAnalysis()">
     <span>متوسط الشعبة<b>${sum.avg === null ? '—' : formatScore(sum.avg)}</b></span>
     <span>تحت النصف<b class="${sum.low ? 'gs-tone-lo' : ''}">${sum.low}</b></span>
-    <span>لم يُرصد<b>${sum.none}</b></span></div>` + distHtml;
+    <span>لم يُرصد<b>${sum.none}</b></span>
+    <span class="crm-gs-strip-go">تحليل<b aria-hidden="true">‹</b></span></button>` + distHtml;
   /* «رصد»: أزرار الأعمدة التي تُرصد يدويًا (بديل عناوين الجدول)؛ المحسوب تلقائيًا لا يظهر هنا */
   const recCols = g.columns.filter(c => crmGradeColumnEditable(c));
   if(recCols.length) html += `<div class="crm-gs-rec"><span>رصد:</span>${recCols.map(c => `<button type="button" class="crm-gs-recchip" onclick="openCrmGradeEntry('${c.id}')">${escapeHtml(c.name)}</button>`).join('')}</div>`;
