@@ -339,12 +339,21 @@ function openCrmPeriodPicker(){
   const opts = [1, 2, 3].slice(0, info.cfg.n).map(p => `<button type="button" class="crm-period-opt${p === info.period ? ' is-on' : ''}" onclick="pickCrmPeriod(${p})">
       <span><b>${PERIOD_NAMES[p]}</b><small>${sub(p)}</small></span><span class="crm-period-ck">${p === info.period ? '✓' : ''}</span></button>`).join('');
   showInfoModal(`<div style="text-align:right;">
-    <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">فترات "${escapeHtml(periodCompName(info.key))}"</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 4px;">
+      <h3 style="margin:0;font-size:15px;color:var(--navy);">فترات "${escapeHtml(periodCompName(info.key))}"</h3>
+      <button type="button" class="crm-ic-btn" aria-label="إعداد الدرجات" title="إعداد الدرجات: التوزيع والفترات" onclick="openGradeSettingsFromPeriodPicker()">⚙</button>
+    </div>
     <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">الدرجة في الكشف = معدّل الفترات المنتهية (الجارية تُحسب عند انتهائها). ما رصدته سابقًا يبقى في فترته.</p>
     ${opts}
     ${now === info.cfg.n ? `<button type="button" class="crm-period-opt" onclick="closeCrmModal();endComponentPeriods('${escapeHtml(info.key).replace(/'/g, '&#39;')}', ${!info.cfg.ended})">
       <span><b>${info.cfg.ended ? '↺ ' + PERIOD_NAMES[now] + ' جارية من جديد' : '✓ أنهِ ' + PERIOD_NAMES[now]}</b><small>${info.cfg.ended ? 'لا تُحسب حتى تنهيها' : 'فتُحسب في الدرجة'}</small></span></button>` : ''}
   </div>`, '420px');
+}
+
+/* من نافذة الفترات إلى إعداد الدرجات مباشرة (تُغلق ورقة الحصة والمسودة محفوظة) */
+async function openGradeSettingsFromPeriodPicker(){
+  closeCrmModal();
+  await openGradeSettingsFromAnywhere();
 }
 
 async function pickCrmPeriod(p){

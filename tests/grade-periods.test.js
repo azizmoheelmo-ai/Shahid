@@ -216,6 +216,7 @@ test('شارة الفترة — "ابدأها الآن" يبدأ التالية 
   const modal = get(app, 'window.__modal');
   assert.match(modal, /فترات "المشاركة"[\s\S]*الفترة الأولى[\s\S]*الجارية الآن[\s\S]*الفترة الثانية[\s\S]*ابدأها الآن[\s\S]*الفترة الثالثة[\s\S]*لم تبدأ/);
   assert.doesNotMatch(modal, /\d{1,2}\/\d{1,2}|20\d\d/, 'لا تواريخ');
+  assert.match(modal, /onclick="openGradeSettingsFromPeriodPicker\(\)"/, 'زر إعداد الدرجات بالنافذة');
   await app.pickCrmPeriod(2);
   assert.deepEqual([...get(app, `appFeatures.periods['${TK}']['kind:participation'].starts`)], ['2026-10-26'], 'حصة أمس تُرصد في الثانية');
   assert.equal(get(app, 'crmSheet.part.period'), 2);
