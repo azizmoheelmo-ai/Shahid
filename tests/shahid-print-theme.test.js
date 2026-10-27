@@ -9,19 +9,18 @@ const rec = { school: 'مدرسة <b>س</b>', teacher_name: 'م', element_label:
 test('الافتراضي بطاقة التقرير، والنصوص مهرّبة', () => {
   const app = loadApp();
   const html = app.buildPdfHtml(rec, []);
-  assert.match(html, /مكان صورة الشاهد/);
+  assert.match(html, /لا توجد صور مرفقة/);
+  assert.doesNotMatch(html, /الهدف من هذا الإجراء/, 'القسم الفارغ يُحذف');
   assert.doesNotMatch(html, /<img src=x>/);
   assert.doesNotMatch(html, /<b>س<\/b>/);
 });
 
-test('كل لون يُنتج ألوانه، والكلاسيكي يُرجع القديم، وقيمة مخزّنة غريبة تُهمل', () => {
+test('الكلاسيكي يُرجع القديم، وقيمة مخزّنة غريبة تُهمل', () => {
   const app = loadApp();
-  app.localStorage.setItem('shahid_print_theme', 'plum');
-  assert.match(app.buildPdfHtml(rec, []), /#7B4FB0/);
   app.localStorage.setItem('shahid_print_theme', 'classic');
   assert.match(app.buildPdfHtml(rec, []), /شاهد الأداء الوظيفي/);
   app.localStorage.setItem('shahid_print_theme', '"><script>');
-  assert.equal(app.getShahidPrintTheme(), 'teal');
+  assert.equal(app.getShahidPrintTheme(), 'identity');
 });
 
 test('الصور: أكثر من ٦ تُختصر بملاحظة، والمفرد بعرض كامل', () => {
@@ -30,5 +29,5 @@ test('الصور: أكثر من ٦ تُختصر بملاحظة، والمفرد 
   const html = app.buildPdfHtml(rec, imgs);
   assert.equal((html.match(/<img /g) || []).length, 6);
   assert.match(html, /\+ 2 صور أخرى/);
-  assert.match(app.buildPdfHtml(rec, [imgs[0]]), /width:100%;"><img/);
+  assert.match(app.buildPdfHtml(rec, [imgs[0]]), /width:100%;display:flex/);
 });

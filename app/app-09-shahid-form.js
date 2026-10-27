@@ -1422,19 +1422,17 @@ function buildClassicPdfHtml(rec, photoDataUrls){
   </div>`;
 }
 
-/* ============ تصميم "بطاقة التقرير" (ألوان قابلة للاختيار) ============ */
-/* هيدر ملوّن + عنوان بارز + حقول بإطار تعلوه عناوينها + مربعات صور الشواهد +
-   توقيعان — على غرار نماذج التقارير المدرسية. نفس بيانات الشاهد بلا أي حقل جديد،
-   والتصميم القديم يبقى متاحًا باسم "classic". الاختيار محفوظ بالجهاز فقط. */
+/* ============ تصميم طباعة الشاهد بهوية التطبيق (صفحة A4 واحدة) ============ */
+/* نفس لغة واجهة التطبيق: شريط كحلي بخط ذهبي، عناوين Amiri، أقسام بشريط ذهبي
+   جانبي وصناديق ورقية. الأقسام الفارغة (هدف/خطوات/أثر/تأمل) تُحذف بدل طباعة
+   "—" كي يبقى الشاهد مرتبًا وفي صفحة واحدة. التصميم القديم متاح باسم "classic".
+   الاختيار محفوظ بالجهاز فقط. */
 const SHAHID_PRINT_THEMES = {
-  teal:    { label: 'تركوازي',          main: '#1D4B63', accent: '#1C9A8A', soft: '#EAF6F4' },
-  navy:    { label: 'كحلي وذهبي',       main: '#1B3245', accent: '#A9852E', soft: '#F6F0E1' },
-  plum:    { label: 'بنفسجي',           main: '#4A2C6D', accent: '#7B4FB0', soft: '#F3EDFA' },
-  green:   { label: 'أخضر',             main: '#17472F', accent: '#2F9E5B', soft: '#E8F5EC' },
-  classic: { label: 'الكلاسيكي (القديم)' }
+  identity: { label: 'هوية شاهد (الجديد)' },
+  classic:  { label: 'الكلاسيكي (القديم)' }
 };
 const SHAHID_PRINT_THEME_KEY = 'shahid_print_theme';
-const SHAHID_PRINT_THEME_DEFAULT = 'teal';
+const SHAHID_PRINT_THEME_DEFAULT = 'identity';
 
 function getShahidPrintTheme(){
   let key = null;
@@ -1455,104 +1453,107 @@ function fillShahidPrintThemePicker(){
     `<option value="${k}"${k === cur ? ' selected' : ''}>${escapeHtml(SHAHID_PRINT_THEMES[k].label)}</option>`).join('');
 }
 
-function cardFieldPdf(t, label, valueHtml, extraStyle){
-  return `<div style="position:relative;border:1.5px solid ${t.accent};border-radius:10px;padding:14px 12px 8px;box-sizing:border-box;${extraStyle || ''}">
-    <span style="position:absolute;top:-10px;right:12px;background:#fff;padding:0 6px;font-size:10.5px;font-weight:700;color:${t.accent};">${escapeHtml(label)}</span>
-    <div style="font-size:11.5px;line-height:1.75;color:#232323;">${valueHtml}</div>
+function idSectionPdf(title, bodyHtml, extraStyle){
+  return `<div style="${extraStyle || ''}">
+    <div style="font-size:12px;font-weight:800;color:#1B3245;margin-bottom:5px;display:flex;align-items:center;gap:7px;">
+      <span style="width:4px;height:14px;background:#A9852E;display:inline-block;"></span>${escapeHtml(title)}
+    </div>
+    ${bodyHtml}
   </div>`;
 }
-function cardTextPdf(text){
-  return `<div style="white-space:pre-wrap;">${escapeHtml(text || '—')}</div>`;
+function idBoxPdf(text){
+  return `<div style="font-size:11.5px;line-height:1.8;background:#F7F5F0;border:1px solid #D8D2C4;padding:8px 12px;white-space:pre-wrap;">${escapeHtml(text)}</div>`;
 }
-function buildCardPdfHtml(rec, photoDataUrls, t){
+function idMetaPdf(label, value, flex){
+  return `<div style="flex:${flex || 1};padding:7px 12px;border-left:1px solid #D8D2C4;box-sizing:border-box;">
+    <div style="font-size:9px;color:#6B6659;margin-bottom:2px;">${escapeHtml(label)}</div>
+    <div style="font-size:11.5px;font-weight:600;color:#232323;">${escapeHtml(value || '—')}</div>
+  </div>`;
+}
+function buildIdentityPdfHtml(rec, photoDataUrls){
   const dateDisplay = rec.lesson_date || (rec.created_at ? new Date(rec.created_at).toLocaleDateString('ar-SA') : '');
-  const stepsHtml = (rec.steps && rec.steps.length)
-    ? rec.steps.map((s, i) => `
-        <div style="display:flex;gap:7px;margin-bottom:5px;align-items:flex-start;">
-          <span style="flex:0 0 17px;height:17px;border-radius:50%;background:${t.accent};color:#fff;font-size:9.5px;display:flex;align-items:center;justify-content:center;">${i+1}</span>
-          <span style="flex:1;">${escapeHtml(s)}</span>
-        </div>`).join('')
-    : '—';
-  const impactHtml = `
-    <div style="margin-bottom:6px;"><b style="color:${t.accent};font-size:10.5px;">مؤشر كمي:</b> ${escapeHtml(rec.quant_impact || '—')}</div>
-    <div><b style="color:${t.accent};font-size:10.5px;">ملاحظة نوعية:</b> ${escapeHtml(rec.qual_impact || '—')}</div>`;
+  const has = v => typeof v === 'string' && v.trim() !== '';
+  const steps = (rec.steps || []).filter(has);
 
-  /* الصور: حتى ٦ بمربعات متناسبة مع عددها كي تبقى الصفحة واحدة، والمستندات بأسمائها */
+  /* الصور: حتى ٦ بمربعات تتناسب مع عددها ومع طول النص كي تبقى الصفحة واحدة */
   const imgItems = photoDataUrls.filter(u => typeof u === 'string' && (u.startsWith('data:image') || isImageUrl(u)));
   const docItems = (rec.photo_urls || []).filter(u => !isImageUrl(u));
   const shown = imgItems.slice(0, 6);
+  const textLen = [rec.description, rec.goal, rec.quant_impact, rec.qual_impact, rec.reflection].concat(steps)
+    .reduce((n, v) => n + (v ? String(v).length : 0), 0);
+  const squeeze = textLen > 1100 ? 0.7 : (textLen > 600 ? 0.85 : 1);
   const rows = Math.ceil(shown.length / 2);
-  const frameH = shown.length === 1 ? 250 : (rows === 1 ? 225 : (rows === 2 ? 160 : 110));
-  const frameStyle = `box-sizing:border-box;border:1.5px solid ${t.accent};border-radius:12px;background:${t.soft};height:${frameH}px;padding:6px;`;
+  const baseH = shown.length === 1 ? 240 : (rows === 1 ? 210 : (rows === 2 ? 128 : 92));
+  const frameH = Math.round(baseH * squeeze);
+  const frame = (inner, dashed) => `<div style="box-sizing:border-box;border:1px ${dashed ? 'dashed' : 'solid'} #A9852E;background:#F7F5F0;height:${frameH}px;padding:5px;width:${shown.length === 1 ? '100%' : 'calc(50% - 5px)'};display:flex;align-items:center;justify-content:center;color:#876A25;font-size:11px;">${inner}</div>`;
   const framesHtml = shown.length
-    ? shown.map(u => `<div style="${frameStyle}width:${shown.length === 1 ? '100%' : 'calc(50% - 5px)'};"><img src="${escapeHtml(u)}" style="width:100%;height:100%;object-fit:contain;display:block;"></div>`).join('')
-    : [0, 1].map(() => `<div style="box-sizing:border-box;border:1.5px dashed ${t.accent};border-radius:12px;background:${t.soft};height:110px;width:calc(50% - 5px);display:flex;align-items:center;justify-content:center;color:${t.accent};font-size:12px;">مكان صورة الشاهد</div>`).join('');
+    ? shown.map(u => frame(`<img src="${escapeHtml(u)}" style="max-width:100%;max-height:100%;display:block;">`)).join('')
+    : '';
+  const photosBody = shown.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:10px;">${framesHtml}</div>`
+    : (docItems.length ? '' : `<div style="font-size:11px;color:#6B6659;">لا توجد صور مرفقة</div>`);
   const photosNote = (imgItems.length > shown.length
-      ? `<div style="font-size:10px;color:#6B6659;margin-top:6px;">+ ${imgItems.length - shown.length} صور أخرى محفوظة في التطبيق</div>` : '')
+      ? `<div style="font-size:10px;color:#6B6659;margin-top:5px;">+ ${imgItems.length - shown.length} صور أخرى محفوظة في التطبيق</div>` : '')
     + (docItems.length
-      ? `<div style="font-size:10px;color:#3F3B31;margin-top:6px;"><b>مستندات مرفقة:</b> ${docItems.map(u => escapeHtml(decodeURIComponent((u.split('/').pop() || 'ملف').split('?')[0]))).join(' • ')}</div>` : '');
+      ? `<div style="font-size:10.5px;color:#3F3B31;margin-top:5px;"><b>مستندات مرفقة:</b> ${docItems.map(u => escapeHtml(decodeURIComponent((u.split('/').pop() || 'ملف').split('?')[0]))).join(' • ')}</div>` : '');
+
+  const stepsHtml = steps.map((st, i) => `
+      <div style="display:flex;gap:7px;margin-bottom:4px;align-items:flex-start;font-size:11.5px;line-height:1.7;">
+        <span style="flex:0 0 17px;height:17px;border-radius:50%;background:#1B3245;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;margin-top:2px;">${i+1}</span>
+        <span style="flex:1;">${escapeHtml(st)}</span>
+      </div>`).join('');
+  const impactCells = [
+    has(rec.quant_impact) ? `<div style="flex:1;"><div style="font-size:9.5px;color:#876A25;font-weight:700;margin-bottom:3px;">مؤشر كمي</div>${idBoxPdf(rec.quant_impact)}</div>` : '',
+    has(rec.qual_impact) ? `<div style="flex:1;"><div style="font-size:9.5px;color:#876A25;font-weight:700;margin-bottom:3px;">ملاحظة نوعية</div>${idBoxPdf(rec.qual_impact)}</div>` : ''
+  ].join('');
+
+  const sections = [
+    has(rec.description) ? idSectionPdf('الوصف', idBoxPdf(rec.description)) : '',
+    has(rec.goal) ? idSectionPdf('الهدف من هذا الإجراء', idBoxPdf(rec.goal)) : '',
+    steps.length ? idSectionPdf('خطوات التنفيذ الفعلية', stepsHtml) : '',
+    impactCells ? idSectionPdf('الأثر / النتيجة الملاحظة', `<div style="display:flex;gap:10px;">${impactCells}</div>`) : '',
+    has(rec.reflection) ? idSectionPdf('تأمل المعلم', idBoxPdf(rec.reflection)) : '',
+    idSectionPdf('الشاهد المصوّر', photosBody + photosNote)
+  ].filter(Boolean).map(h => `<div style="padding:0 30px;margin-top:13px;">${h}</div>`).join('');
 
   return `
   <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;box-sizing:border-box;">
-    <div style="background:${t.main};color:#fff;padding:22px 30px 36px;border-radius:0 0 30px 30px;border-bottom:5px solid ${t.accent};display:flex;justify-content:space-between;align-items:center;">
+    <div style="background:#1B3245;padding:20px 30px 16px;border-bottom:4px solid #A9852E;display:flex;justify-content:space-between;align-items:flex-end;">
       <div>
-        <div style="font-size:11px;opacity:.8;">شاهد على الأداء الوظيفي</div>
-        <div style="font-size:19px;font-weight:700;margin-top:4px;">${escapeHtml(rec.school || '—')}</div>
-        <div style="font-size:12px;margin-top:3px;opacity:.9;">${escapeHtml(rec.teacher_name || '')}</div>
+        <div style="font-family:'Amiri',serif;font-size:25px;color:#fff;font-weight:700;line-height:1.3;">شاهد الأداء الوظيفي</div>
+        <div style="font-size:11.5px;color:#C9D2DA;margin-top:3px;">${escapeHtml([rec.school, rec.subject].filter(has).join(' — '))}</div>
       </div>
-      <div style="text-align:left;font-size:11px;line-height:1.9;opacity:.9;">
-        ${dateDisplay ? `<div>التاريخ: ${escapeHtml(dateDisplay)}</div>` : ''}
+      <div style="text-align:left;font-size:10.5px;line-height:1.9;color:#C9D2DA;">
         ${rec.ref_number ? `<div>رقم مرجعي: ${escapeHtml(rec.ref_number)}</div>` : ''}
+        ${dateDisplay ? `<div>التاريخ: ${escapeHtml(dateDisplay)}</div>` : ''}
       </div>
     </div>
-    <div style="text-align:center;margin-top:-20px;">
-      <span style="display:inline-block;background:#fff;border:2px solid ${t.accent};border-radius:999px;padding:9px 30px;font-size:15px;font-weight:700;color:${t.main};max-width:620px;">${escapeHtml(rec.element_label || 'شاهد أداء وظيفي')}</span>
+    <div style="background:#F6F0E1;border-bottom:1px solid #D8D2C4;padding:9px 30px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:10px;color:#876A25;font-weight:700;">عنصر الأداء</span>
+      <span style="font-size:13.5px;font-weight:800;color:#1B3245;">${escapeHtml(rec.element_label || '—')}</span>
     </div>
-    <div style="padding:20px 30px 0;">
-      <div style="display:flex;gap:12px;margin-bottom:14px;">
-        ${cardFieldPdf(t, 'المعلم', escapeHtml(rec.teacher_name || '—'), 'flex:1;')}
-        ${cardFieldPdf(t, 'المادة', escapeHtml(rec.subject || '—'), 'flex:1;')}
-        ${cardFieldPdf(t, 'الصف / الفصل', escapeHtml(rec.class_name || '—'), 'flex:1;')}
+    <div style="margin:14px 30px 0;border:1px solid #D8D2C4;">
+      <div style="display:flex;border-bottom:1px solid #D8D2C4;">
+        ${idMetaPdf('المعلم', rec.teacher_name)}${idMetaPdf('المدرسة', rec.school)}${idMetaPdf('المادة', rec.subject)}
       </div>
-      <div style="display:flex;gap:12px;margin-bottom:14px;">
-        ${cardFieldPdf(t, 'عنوان الدرس / الوحدة', escapeHtml(rec.lesson_title || '—'), 'flex:2;')}
-        ${cardFieldPdf(t, 'التاريخ', escapeHtml(dateDisplay || '—'), 'flex:1;')}
-      </div>
-      <div style="display:flex;gap:12px;margin-bottom:14px;">
-        ${cardFieldPdf(t, 'الوصف', cardTextPdf(rec.description), 'flex:1;')}
-        ${cardFieldPdf(t, 'الهدف من هذا الإجراء', cardTextPdf(rec.goal), 'flex:1;')}
-      </div>
-      <div style="display:flex;gap:12px;margin-bottom:14px;">
-        ${cardFieldPdf(t, 'خطوات التنفيذ الفعلية', stepsHtml, 'flex:1;')}
-        ${cardFieldPdf(t, 'الأثر / النتيجة الملاحظة', impactHtml, 'flex:1;')}
-      </div>
-      ${cardFieldPdf(t, 'تأمل المعلم', cardTextPdf(rec.reflection), 'margin-bottom:16px;')}
-      <div style="text-align:center;font-size:12px;font-weight:700;color:${t.accent};margin-bottom:6px;">الشواهد</div>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;">${framesHtml}</div>
-      ${photosNote}
-      <div style="display:flex;gap:40px;margin-top:22px;padding:0 10px;">
-        <div style="flex:1;text-align:center;">
-          <div style="height:30px;font-size:12px;">${escapeHtml(rec.teacher_name || '')}</div>
-          <div style="border-top:1.5px solid ${t.accent};padding-top:5px;font-size:10.5px;color:#6B6659;">المعلم / الاسم والتوقيع</div>
-        </div>
-        <div style="flex:1;text-align:center;">
-          <div style="height:30px;"></div>
-          <div style="border-top:1.5px solid ${t.accent};padding-top:5px;font-size:10.5px;color:#6B6659;">مدير المدرسة / الاسم والتوقيع</div>
-        </div>
+      <div style="display:flex;">
+        ${idMetaPdf('عنوان الدرس / الوحدة', rec.lesson_title, 2)}${idMetaPdf('الصف / الفصل', rec.class_name)}
       </div>
     </div>
-    <div style="background:${t.main};color:#fff;margin-top:22px;padding:9px 30px;border-radius:16px 16px 0 0;font-size:9.5px;display:flex;justify-content:space-between;opacity:.95;">
-      <span>شاهد على الأداء الوظيفي${rec.subject ? ' — ' + escapeHtml(rec.subject) : ''}</span>
-      <span>${rec.ref_number ? escapeHtml(rec.ref_number) : ''}</span>
+    ${sections}
+    <div style="display:flex;gap:40px;margin:26px 30px 0;">
+      <div style="flex:1;border-top:1px solid #232323;padding-top:5px;font-size:10px;color:#6B6659;">توقيع المعلم${has(rec.teacher_name) ? ' — ' + escapeHtml(rec.teacher_name) : ''}</div>
+      <div style="flex:1;border-top:1px solid #232323;padding-top:5px;font-size:10px;color:#6B6659;">مدير المدرسة</div>
     </div>
+    <div style="margin-top:16px;height:6px;background:#1B3245;border-top:2px solid #A9852E;"></div>
   </div>`;
 }
 
 /* نقطة الدخول الوحيدة لقالب طباعة/تصدير الشاهد — تختار التصميم المحفوظ */
 function buildPdfHtml(rec, photoDataUrls){
-  const key = getShahidPrintTheme();
-  if(key === 'classic') return buildClassicPdfHtml(rec, photoDataUrls);
-  return buildCardPdfHtml(rec, photoDataUrls, SHAHID_PRINT_THEMES[key]);
+  return getShahidPrintTheme() === 'classic'
+    ? buildClassicPdfHtml(rec, photoDataUrls)
+    : buildIdentityPdfHtml(rec, photoDataUrls);
 }
 
 /* ============ توليد PDF للشاهد (لاستخدامه في المشاركة) ============ */
