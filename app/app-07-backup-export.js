@@ -1416,6 +1416,31 @@ alter table public.lesson_plans enable row level security;
 drop policy if exists "المعلم يدير خططه فقط" on public.lesson_plans;
 create policy "المعلم يدير خططه فقط" on public.lesson_plans for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- ============ تجهيز الشواهد دفعة واحدة (مسودات بانتظار الصورة) ============
+-- المعلم يختار 20-30 نموذجًا مرة واحدة فتُحفظ هنا كبطاقات مسودة. المسودة ليست
+-- شاهدًا: جدول مستقل (مثل lesson_plans) فلا تُحسب بالتقدم ولا التصدير ولا
+-- لوحة المسؤول. عند إرفاق صورتها تُنسخ لجدول shawahid بنفس المعرّف (id) وتُحذف
+-- من هنا. الفهرس الفريد يمنع تكرار نفس النموذج بنفس العنصر قيد التجهيز.
+create table if not exists public.shahid_drafts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  element_key text not null,
+  template_name text,
+  title text not null check (char_length(btrim(title)) between 1 and 200),
+  planned_date date,
+  teacher_name text,
+  school text,
+  subject text,
+  class_name text,
+  cycle_year text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists shahid_drafts_uniq on public.shahid_drafts(user_id, element_key, template_name);
+create index if not exists shahid_drafts_user_idx on public.shahid_drafts(user_id, created_at);
+alter table public.shahid_drafts enable row level security;
+drop policy if exists "المعلم يدير مسوداته فقط" on public.shahid_drafts;
+create policy "المعلم يدير مسوداته فقط" on public.shahid_drafts for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- نوع عمود الدرجات: يدوي / مشاركة (+1 من ورقة الحصة) / واجبات ومهام أدائية (محسوبان) — عمود واحد لكل نوع غير اليدوي
 alter table public.classroom_grade_columns add column if not exists kind text not null default 'manual';
 do $$ begin
@@ -2239,7 +2264,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'lesson_plans', 'shahid_drafts', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -2354,6 +2379,7 @@ async function exportFullBackup(){
       '     39. classroom_tool_marks.csv (لازم بعد classroom_custom_tools وclassroom_students وclassroom_sections)',
       '     40. classroom_grade_period_scores.csv (لازم بعد classroom_grade_scores — مشغّله يكتب معدّل الفترتين في الكشف)',
       '     41. deleted_items.csv (سلة المحذوفات — مستقل، يُستعاد في أي وقت؛ صور محذوفاتها لا تُنسخ هنا)',
+      '     42. shahid_drafts.csv (مسودات «تجهيز الشواهد دفعة واحدة» — مستقل، لا يُشير لجدول آخر)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

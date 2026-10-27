@@ -975,6 +975,7 @@ function hideAllMainViews(){
   document.getElementById('programsView').style.display = 'none';
   document.getElementById('calendarView').style.display = 'none';
   document.getElementById('tasksView').style.display = 'none';
+  document.getElementById('batchView').style.display = 'none';
 }
 /* المصدر الوحيد لتبويبات إدارة الصف: زر + لوحة. كل من يُخفي التبويبات أو
    يكتشف المفتوح منها يقرأ من هنا — قوائم مكررة نسيت تبويبًا جديدًا فظهر
@@ -2892,6 +2893,7 @@ async function showList(){
   hideAllMainViews();
   setActiveBottomTab('shahid');
   document.getElementById('listView').style.display = 'block';
+  refreshBatchEntry(); /* زر «تجهيز دفعة» — بالخلفية دون تعطيل عرض القائمة */
   await loadMyShawahid();
 }
 
