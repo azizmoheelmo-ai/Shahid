@@ -189,10 +189,12 @@ async function refreshBatchEntry(){
   const box = document.getElementById('batchEntry');
   if(!box || !currentUser) return;
   const uid = currentUser.id;
+  /* بلا head:true — استعلام HEAD لا يُرجع خطأً عند غياب الجدول (404 بلا جسم)،
+     فكان الزر يظهر قبل تشغيل SQL. هنا يفشل صراحةً، وغياب العدّ نفسه فشل أيضًا. */
   const { count, error } = await sb.from('shahid_drafts')
-    .select('id', { count: 'exact', head: true }).eq('user_id', uid);
+    .select('id', { count: 'exact' }).eq('user_id', uid).limit(1);
   if(!currentUser || currentUser.id !== uid) return;
-  if(error){ box.style.display = 'none'; return; }
+  if(error || typeof count !== 'number'){ box.style.display = 'none'; return; }
   box.style.display = 'block';
   const sub = document.getElementById('batchEntrySub');
   if(sub) sub.textContent = count
@@ -216,7 +218,7 @@ async function showBatch(){
   const ok = await loadBatchDrafts();
   if(seq !== batchViewSeq || !isBatchViewOpen()) return;
   if(!ok){
-    body.innerHTML = '<div class="empty-state">تعذّر تحميل المسودات. تأكد من الاتصال ثم حاول مجددًا.</div>';
+    body.innerHTML = '<div class="empty-state">تعذّر تحميل المسودات. تأكد من الاتصال ثم حاول مجددًا.<br><button type="button" class="btn btn-outline" style="margin-top:14px;" onclick="showList()">→ شواهدي</button></div>';
     return;
   }
   batchPick = {};

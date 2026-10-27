@@ -259,6 +259,28 @@ test('batchOnPhotos — يرفض ما ليس صورة، ويحدّ العدد ب
   assert.equal(client.uploaded.length, 4, 'أقصى 4 صور');
 });
 
+/* ---------- زر الدخول يُخفى لو جدول المسودات غير جاهز ---------- */
+test('refreshBatchEntry — يُخفى الزر عند غياب الجدول، ويظهر عند وجوده', async (t) => {
+  const mk = (result) => {
+    const c = makeBatchClient({});
+    const q = { select() { return q; }, eq() { return q; }, limit() { return q; }, then(r) { r(result); return Promise.resolve(result); } };
+    c.from = () => q;
+    return c;
+  };
+  const run = async (result) => {
+    const client = mk(result);
+    const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+    const registry = {};
+    const live = () => ({ style: {}, textContent: '' });
+    app.document.getElementById = (id) => (registry[id] = registry[id] || live());
+    await app.refreshBatchEntry();
+    return app.document.getElementById('batchEntry').style.display;
+  };
+  await t.test('خطأ صريح (الجدول غير موجود)', async () => assert.equal(await run({ count: null, error: { message: 'relation does not exist' } }), 'none'));
+  await t.test('بلا عدّ وبلا خطأ (HEAD صامت)', async () => assert.equal(await run({ count: null, error: null }), 'none'));
+  await t.test('الجدول جاهز', async () => assert.equal(await run({ count: 0, error: null }), 'block'));
+});
+
 /* ---------- 4) التوصيل ---------- */
 test('التوصيل: الشاشة تُخفى مع بقية الشاشات، والملف بـindex/sw، والإصدار متطابق', () => {
   assert.match(read('app/app-04-academic-crm.js'), /getElementById\('batchView'\)\.style\.display = 'none'/);
