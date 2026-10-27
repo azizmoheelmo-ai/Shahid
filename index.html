@@ -1331,12 +1331,24 @@
           </div>
         </div>
       </div>
+      <div id="batchEntry" class="bt-entry" style="display:none;">
+        <button type="button" class="bt-entry-btn" onclick="showBatch()">
+          <span class="bt-entry-ico">⚡</span>
+          <span class="bt-entry-t"><b>جهّز شواهدك دفعة واحدة</b><small id="batchEntrySub">اختر النماذج مرة واحدة، ثم أضف الصور فقط</small></span>
+          <span class="bt-entry-go">←</span>
+        </button>
+      </div>
       <div id="listBody">
         <div class="loading-state">جارِ التحميل...</div>
       </div>
       <!-- زر ثابت أسفل الشاشة مهما نزلت في القائمة -->
       <div class="sh-fab-wrap"><button type="button" class="sh-fab" onclick="startNewShahid()">+ شاهد جديد</button></div>
     </div>
+  </div>
+
+  <!-- ---------- تجهيز الشواهد دفعة واحدة ---------- -->
+  <div id="batchView" style="display:none;">
+    <div class="bt-wrap" id="batchBody"></div>
   </div>
 
   <!-- ---------- برامج الأنشطة الطلابية متعددة الحصص ---------- -->
@@ -1540,6 +1552,7 @@
 <script src="app/app-30-grade-compare.js"></script>
 <script src="app/app-31-grade-rules.js"></script>
 <script src="app/app-32-trash.js"></script>
+<script src="app/app-33-shahid-batch.js"></script>
 
 </body>
 </html>

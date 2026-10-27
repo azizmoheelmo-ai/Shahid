@@ -338,6 +338,7 @@ async function onLoggedIn(user){
   dutyType = 'none'; // إعادة الضبط صراحة: قد يبقى من جلسة سابقة على نفس الصفحة (تسجيل خروج/دخول)
   calendarRegion = null;
   calendarDataCache = null; // لا نُبقي بيانات تقويم مستخدم سابق على نفس الصفحة
+  if(typeof batchResetState === 'function') batchResetState(); // ولا بطاقات «تجهيز الشواهد» لمستخدم سابق
   try{
     const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){

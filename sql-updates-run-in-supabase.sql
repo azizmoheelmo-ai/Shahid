@@ -276,3 +276,28 @@ $fn$;
 revoke execute on function public.restore_deleted_item(uuid) from public, anon;
 grant execute on function public.restore_deleted_item(uuid) to authenticated;
 revoke execute on function public.trash_soft_refs(text, jsonb) from public, anon, authenticated;
+
+-- ============ تجهيز الشواهد دفعة واحدة (مسودات بانتظار الصورة) ============
+-- المعلم يختار 20-30 نموذجًا مرة واحدة فتُحفظ هنا كبطاقات مسودة. المسودة ليست
+-- شاهدًا: جدول مستقل (مثل lesson_plans) فلا تُحسب بالتقدم ولا التصدير ولا
+-- لوحة المسؤول. عند إرفاق صورتها تُنسخ لجدول shawahid بنفس المعرّف (id) وتُحذف
+-- من هنا. الفهرس الفريد يمنع تكرار نفس النموذج بنفس العنصر قيد التجهيز.
+create table if not exists public.shahid_drafts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  element_key text not null,
+  template_name text,
+  title text not null check (char_length(btrim(title)) between 1 and 200),
+  planned_date date,
+  teacher_name text,
+  school text,
+  subject text,
+  class_name text,
+  cycle_year text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists shahid_drafts_uniq on public.shahid_drafts(user_id, element_key, template_name);
+create index if not exists shahid_drafts_user_idx on public.shahid_drafts(user_id, created_at);
+alter table public.shahid_drafts enable row level security;
+drop policy if exists "المعلم يدير مسوداته فقط" on public.shahid_drafts;
+create policy "المعلم يدير مسوداته فقط" on public.shahid_drafts for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
