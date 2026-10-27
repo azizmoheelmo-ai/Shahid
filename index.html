@@ -521,6 +521,10 @@
             <span class="hb-title">🗓️ الاشتراك بالتقويم (ICS)</span>
             <span class="hb-sub">رابط دائم يضيف تقويمك لجوجل/أوتلوك ويتحدّث تلقائيًا</span>
           </button>
+          <button class="home-btn" style="grid-column:1/-1;" onclick="showTrash()">
+            <span class="hb-title">🗑️ المحذوفات</span>
+            <span class="hb-sub">استرجع ما حذفته بالخطأ خلال 30 يومًا</span>
+          </button>
           <button class="home-btn" style="grid-column:1/-1;" onclick="showSettingsSection('about')">
             <span class="hb-title">ℹ️ عن التطبيق</span>
             <span class="hb-sub">معلومات عن إدارة الأداء الوظيفي</span>
@@ -641,6 +645,18 @@
         </p>
         <button class="btn btn-primary" id="genCalendarFeedBtn" style="margin-bottom:16px;" onclick="generateCalendarFeedToken()">+ توليد رابط جديد</button>
         <div id="calendarFeedTokensList" style="font-size:12.5px;color:var(--muted);">جارٍ التحميل...</div>
+      </div>
+
+      <div id="settingsTrashBody" class="section" style="display:none;">
+        <button class="btn btn-outline" style="margin-bottom:16px;" onclick="showSettingsSection('menu')">→ رجوع لقائمة الإعدادات</button>
+        <p style="font-size:13px;line-height:1.9;color:#413D33;margin:0 0 12px;">
+          ما تحذفه من طلاب وشواهد وبرامج ودرجات ومهام يبقى هنا 30 يومًا، ثم يُمسح نهائيًا (مع صوره).
+        </p>
+        <div id="trashScopeBar" style="display:none;gap:8px;margin-bottom:12px;">
+          <button type="button" class="btn btn-outline" id="trashScopeMine" onclick="setTrashScope('mine')">محذوفاتي</button>
+          <button type="button" class="btn btn-outline" id="trashScopeOthers" onclick="setTrashScope('others')">محذوفات المعلمين</button>
+        </div>
+        <div id="trashList"></div>
       </div>
 
       <div id="settingsAboutBody" class="section" style="display:none;">
@@ -1520,6 +1536,7 @@
 <script src="app/app-29-grade-analysis.js"></script>
 <script src="app/app-30-grade-compare.js"></script>
 <script src="app/app-31-grade-rules.js"></script>
+<script src="app/app-32-trash.js"></script>
 
 </body>
 </html>

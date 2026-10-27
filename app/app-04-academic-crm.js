@@ -245,27 +245,18 @@ async function referAcademicCase(id){
 }
 
 async function deleteAcademicCase(id){
-  const kase = acCasesCache.find(c => String(c.id) === String(id));
-  const ok = await showConfirm('حذف هذه الحالة؟ يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
-  if(!ok) return;
-  const { error } = await sb.from('academic_cases').delete().eq('teacher_id', currentUser.id).eq('id', id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
-  await renderAcCases();
-  await refreshAcBadges();
-
-  if(!kase) return; /* لم نلتقط نسخة محلية من الحالة — لا نعرض تراجعًا وهميًا */
-  const shouldFinalize = await showUndoToast('تم حذف الحالة', 5);
-  if(!shouldFinalize){
-    try{
-      const { error: restoreErr } = await sb.from('academic_cases').insert(kase);
-      if(restoreErr) throw restoreErr;
-      await renderAcCases();
-      await refreshAcBadges();
-      showToast('تم التراجع عن الحذف', 'ok');
-    } catch(err){
-      showToast('تعذّر التراجع: ' + err.message, 'error');
-    }
-  }
+  return trashRunOnce('case:' + id, async () => {
+    const ok = await showConfirm('حذف هذه الحالة؟ تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعها.');
+    if(!ok || !currentUser) return;
+    const uid = currentUser.id;
+    const prot = await trashProtect(() => trashCaptureSingle('academic_case', 'academic_cases', 'teacher_id', id, uid, r => 'حالة: ' + (r.subject || '')));
+    if(!prot) return;
+    const { error } = await sb.from('academic_cases').delete().eq('teacher_id', uid).eq('id', id);
+    if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+    await renderAcCases();
+    await refreshAcBadges();
+    trashOfferUndo('تم حذف الحالة', prot.id, async () => { await renderAcCases(); await refreshAcBadges(); });
+  });
 }
 
 /* ============================================================
@@ -1765,133 +1756,30 @@ async function addClassroomStudent(){
   }
 }
 
+/* حذف الطالب يحذف معه (cascade) حوادثه وحالاته وحضوره وملاحظاته ومتابعاته ودرجاته وواجباته
+   ومهامه ورصد أدواته. قبل الحذف نحفظ لقطة كاملة بسلة المحذوفات (30 يومًا)، ومنها يكون
+   «تراجع» والاسترجاع لاحقًا — لا نسخة ذاكرة. */
 async function deleteCrmStudent(id){
-  /* تنبيه: student_id بجدولي classroom_incidents وacademic_cases معرَّف
-     "on delete cascade" — حذف الطالب يحذف معه كل حوادثه وحالاته الأكاديمية
-     المرتبطة، وليس فقط "فك الربط بالاسم". نلتقط الكل هنا قبل الحذف حتى
-     يكون التراجع كاملاً وليس جزئيًا. */
-  const student = crmStudents.find(s => String(s.id) === String(id));
-  const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية وسجل حضوره وملاحظاته ودرجاته. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
-  if(!ok) return;
-
-  let relatedIncidents = [];
-  let relatedCases = [];
-  let relatedAttendance = [];
-  let relatedPositives = [];
-  let relatedPrivate = [];
-  let relatedFollowups = [];
-  let relatedFuActions = [];
-  let relatedGrades = [];
-  let relatedPeriodGrades = [];
-  let relatedHomework = [];
-  let relatedTasks = [];
-  let relatedToolMarks = [];
-  try{
-    const [incRes, caseRes, attRes, posRes, privRes, fuRes, grRes, hwRes, tkRes, tmRes, pgRes] = await Promise.all([
-      sb.from('classroom_incidents').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('academic_cases').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_attendance').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_positive_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_private_notes').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_followups').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_grade_scores').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_homework_status').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_task_students').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_tool_marks').select('*').eq('student_id', id).eq('teacher_id', currentUser.id),
-      sb.from('classroom_grade_period_scores').select('*').eq('student_id', id).eq('teacher_id', currentUser.id)
-    ]);
-    relatedIncidents = incRes.data || [];
-    relatedCases = caseRes.data || [];
-    relatedAttendance = attRes.data || [];
-    relatedPositives = posRes.data || [];
-    relatedPrivate = privRes.data || [];
-    relatedFollowups = fuRes.data || [];
-    relatedGrades = (grRes && grRes.data) || [];
-    relatedPeriodGrades = (pgRes && pgRes.data) || [];
-    relatedHomework = (hwRes && hwRes.data) || [];
-    relatedTasks = (tkRes && tkRes.data) || [];
-    relatedToolMarks = (tmRes && tmRes.data) || [];
-    if(relatedFollowups.length){
-      const { data: acts } = await sb.from('classroom_followup_actions').select('*')
-        .eq('teacher_id', currentUser.id).in('followup_id', relatedFollowups.map(f => f.id));
-      relatedFuActions = acts || [];
-    }
-  } catch(e){ /* لو تعذّر الالتقاط، يبقى التراجع ممكنًا لبيانات الطالب نفسه فقط */ }
-
-  const { error } = await sb.from('classroom_students').delete().eq('id', id).eq('teacher_id', currentUser.id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
-  await loadCrmStudents();
-  renderCrmStudentsList();
-  if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
-  /* حُذف من داخل ملفه: لا يبقى ملف طالب غير موجود مفتوحًا أمام المعلم */
-  if(typeof crmProfile !== 'undefined' && crmProfile && String(crmProfile.studentId) === String(id)) closeCrmStudentProfile();
-
-  if(!student) return; /* لم نلتقط نسخة محلية من الطالب — لا نعرض تراجعًا وهميًا */
-  const extraNote = (relatedIncidents.length || relatedCases.length || relatedAttendance.length || relatedPositives.length || relatedPrivate.length || relatedFollowups.length || relatedGrades.length) ? ' وسجلاته المرتبطة' : '';
-  const shouldFinalize = await showUndoToast('تم حذف الطالب' + extraNote, 5);
-  if(!shouldFinalize){
-    try{
-      /* ترتيب الإعادة مهم: الطالب أولاً (الحوادث/الحالات تشير إليه بمفتاح خارجي) */
-      const { error: sErr } = await sb.from('classroom_students').insert(student);
-      if(sErr) throw sErr;
-      if(relatedIncidents.length){
-        const { error: iErr } = await sb.from('classroom_incidents').insert(relatedIncidents);
-        if(iErr) throw iErr;
-      }
-      if(relatedCases.length){
-        const { error: cErr } = await sb.from('academic_cases').insert(relatedCases);
-        if(cErr) throw cErr;
-      }
-      if(relatedAttendance.length){
-        const { error: aErr } = await sb.from('classroom_attendance').insert(relatedAttendance);
-        if(aErr) throw aErr;
-      }
-      if(relatedPositives.length){
-        const { error: pErr } = await sb.from('classroom_positive_notes').insert(relatedPositives);
-        if(pErr) throw pErr;
-      }
-      if(relatedPrivate.length){
-        const { error: nErr } = await sb.from('classroom_private_notes').insert(relatedPrivate);
-        if(nErr) throw nErr;
-      }
-      if(relatedFollowups.length){
-        const { error: fErr } = await sb.from('classroom_followups').insert(relatedFollowups);
-        if(fErr) throw fErr;
-      }
-      if(relatedFuActions.length){
-        const { error: faErr } = await sb.from('classroom_followup_actions').insert(relatedFuActions);
-        if(faErr) throw faErr;
-      }
-      if(relatedGrades.length){
-        const { error: gErr } = await sb.from('classroom_grade_scores').insert(relatedGrades);
-        if(gErr) throw gErr;
-      }
-      /* بعد درجات الكشف: مشغّل الفترات يكتب المعدّل فوقها (القيمة نفسها) */
-      if(relatedPeriodGrades.length){
-        const { error: pgErr } = await sb.from('classroom_grade_period_scores').insert(relatedPeriodGrades);
-        if(pgErr) throw pgErr;
-      }
-      if(relatedHomework.length){
-        const { error: hErr } = await sb.from('classroom_homework_status').insert(relatedHomework);
-        if(hErr) throw hErr;
-      }
-      if(relatedTasks.length){
-        const { error: tErr } = await sb.from('classroom_task_students').insert(relatedTasks);
-        if(tErr) throw tErr;
-      }
-      if(relatedToolMarks.length){
-        const { error: mErr } = await sb.from('classroom_tool_marks').insert(relatedToolMarks);
-        if(mErr) throw mErr;
-      }
+  return trashRunOnce('student:' + id, async () => {
+    const ok = await showConfirm('حذف هذا الطالب؟ سيُحذف معه أيضًا كل حوادثه وحالاته الأكاديمية وسجل حضوره وملاحظاته ودرجاته. يبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعه.');
+    if(!ok || !currentUser) return;
+    const uid = currentUser.id;
+    const prot = await trashProtect(() => trashCaptureStudent(id, uid));
+    if(!prot) return;
+    const { error } = await sb.from('classroom_students').delete().eq('id', id).eq('teacher_id', uid);
+    if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+    await loadCrmStudents();
+    renderCrmStudentsList();
+    if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
+    /* حُذف من داخل ملفه: لا يبقى ملف طالب غير موجود مفتوحًا أمام المعلم */
+    if(typeof crmProfile !== 'undefined' && crmProfile && String(crmProfile.studentId) === String(id)) closeCrmStudentProfile();
+    trashOfferUndo('تم حذف الطالب وسجلاته المرتبطة', prot.id, async () => {
       await loadCrmStudents();
       renderCrmStudentsList();
       await refreshCrmPendingBadges();
       await refreshAcBadges();
-      showToast('تم التراجع عن الحذف', 'ok');
-    } catch(err){
-      showToast('تعذّر التراجع الكامل — قد تحتاج مراجعة يدوية: ' + err.message, 'error');
-    }
-  }
+    });
+  });
 }
 
 async function importStudentsExcel(event){
@@ -2458,31 +2346,24 @@ async function deleteReferralReceiptPhoto(){
 }
 
 async function deleteCrmIncident(id){
-  const ok = await showConfirm('حذف هذه المخالفة؟ سيُعاد حساب رقم التكرار تلقائيًا للمخالفات المتبقية من نفس النوع مستقبلًا. يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
-  if(!ok) return;
-
-  /* نجلب نسخة كاملة من الحادثة قبل حذفها — لا تُحفَظ بقائمة محلية دائمة
-     حتى نتمكن من إعادة إدراجها إن طُلب التراجع */
-  const { data: incident } = await sb.from('classroom_incidents').select('*').eq('teacher_id', currentUser.id).eq('id', id).maybeSingle();
-
-  const { error } = await sb.from('classroom_incidents').delete().eq('teacher_id', currentUser.id).eq('id', id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
-  await renderCrmRecentIncidents();
-  await refreshCrmPendingBadges();
-
-  if(!incident) return; /* لم نلتقط نسخة محلية من الحادثة — لا نعرض تراجعًا وهميًا */
-  const shouldFinalize = await showUndoToast('تم حذف المخالفة', 5);
-  if(!shouldFinalize){
-    try{
-      const { error: restoreErr } = await sb.from('classroom_incidents').insert(incident);
-      if(restoreErr) throw restoreErr;
+  return trashRunOnce('incident:' + id, async () => {
+    const ok = await showConfirm('حذف هذه المخالفة؟ سيُعاد حساب رقم التكرار تلقائيًا للمخالفات المتبقية من نفس النوع مستقبلًا. تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعها.');
+    if(!ok || !currentUser) return;
+    const uid = currentUser.id;
+    const prot = await trashProtect(() => trashCaptureSingle('incident', 'classroom_incidents', 'teacher_id', id, uid, r => 'مخالفة ' + (r.incident_date || '')));
+    if(!prot) return;
+    const { error } = await sb.from('classroom_incidents').delete().eq('teacher_id', uid).eq('id', id);
+    if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+    crmIncidentTypeUsage = null;
+    await renderCrmRecentIncidents();
+    await refreshCrmPendingBadges();
+    trashOfferUndo('تم حذف المخالفة', prot.id, async () => {
+      crmIncidentTypeUsage = null;
+      if(typeof invalidateAttention === 'function'){ invalidateAttention(); refreshAttention(); }
       await renderCrmRecentIncidents();
       await refreshCrmPendingBadges();
-      showToast('تم التراجع عن الحذف', 'ok');
-    } catch(err){
-      showToast('تعذّر التراجع: ' + err.message, 'error');
-    }
-  }
+    });
+  });
 }
 
 let crmIncidentFilter = 'all';

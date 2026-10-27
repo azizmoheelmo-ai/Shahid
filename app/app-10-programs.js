@@ -779,6 +779,15 @@ async function markProgramSessionDone(programId, sessionNo, shahidId, doneDate, 
   if(local) local.sessions = sessions;
 }
 
+/* قراءة فقط: حالة الحصة (أو شعبتها) كما هي الآن بالقاعدة — {done, done_date, shahid_id} أو null.
+   تُستعمل قبل حذف شاهد لحفظ تاريخ توثيقه الأصلي بسلة المحذوفات. */
+async function readProgramSessionLink(programId, sessionNo, sectionId){
+  const { data: prog, error } = await sb.from('activity_programs').select('sessions').eq('id', programId).maybeSingle();
+  if(error || !prog) return null;
+  const session = (prog.sessions || []).find(s => s.session_no === sessionNo) || null;
+  return sectionId ? ((session && session.section_status && session.section_status[sectionId]) || null) : session;
+}
+
 /* تُستدعى من deleteRecord (app-09) عند حذف شاهد كان يوثّق حصة من برنامج —
    تُعيد تلك الحصة (أو شعبتها المحدَّدة، لو sectionId موجودة) لحالة "لم
    تُوثَّق بعد" حتى تبقى قابلة لإعادة التوثيق، بدل أن تبقى عالقة للأبد على
@@ -846,15 +855,20 @@ async function deleteActivityProgram(id){
   try{ await deleteActivityProgramConfirmed(id); } finally { programDeleting = false; }
 }
 async function deleteActivityProgramConfirmed(id){
-  const ok = await showConfirm('حذف هذا البرنامج؟ الشواهد المرتبطة بحصصه المُوثَّقة تبقى محفوظة في "الشواهد".');
-  if(!ok) return;
+  const ok = await showConfirm('حذف هذا البرنامج؟ الشواهد المرتبطة بحصصه المُوثَّقة تبقى محفوظة في "الشواهد". يبقى البرنامج في «المحذوفات» ' + TRASH_DAYS + ' يومًا (يُعاد ربط شواهده عند الاسترجاع).');
+  if(!ok || !currentUser) return;
+  const uid = currentUser.id;
 
-  const { error } = await sb.from('activity_programs').delete().eq('id', id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+  const prot = await trashProtect(() => trashCaptureProgram(id, uid));
+  if(!prot) return;
+  const { error } = await sb.from('activity_programs').delete().eq('id', id).eq('user_id', uid);
+  if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
 
   activityPrograms = activityPrograms.filter(p => String(p.id) !== String(id));
-  showToast('تم حذف البرنامج', 'ok');
   showPrograms();
+  trashOfferUndo('تم حذف البرنامج', prot.id, async () => {
+    if(document.getElementById('programsView').style.display !== 'none') await showPrograms();
+  });
 }
 
 /* ============ تصدير ملخص البرنامج — تصميم أصلي خفيف واحترافي (ليس نسخة من النموذج الرسمي) ============ */

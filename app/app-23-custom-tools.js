@@ -541,15 +541,17 @@ async function deleteCustomTool(id){
   const t = customToolById(id);
   if(!t || customToolDeleting || !currentUser) return;
   closeCrmModal();
-  const ok = await showConfirm(`حذف أداة "${t.name}" نهائيًا؟ تُحذف معها أعمدتها في كل الكشوف وكل رصدها. إن أردت إيقافها مؤقتًا فأخفِها بدل حذفها.`);
+  const ok = await showConfirm(`حذف أداة "${t.name}"؟ تُحذف معها أعمدتها في كل الكشوف وكل رصدها، وتبقى في «المحذوفات» ${TRASH_DAYS} يومًا. إن أردت إيقافها مؤقتًا فأخفِها بدل حذفها.`);
   if(!ok || customToolDeleting) return;
   customToolDeleting = true;
   const uid = currentUser.id;
   try{
+    const prot = await trashProtect(() => trashCaptureCustomTool(id, uid));
+    if(!prot) return;
     const { error } = await sb.from('classroom_custom_tools').delete().eq('teacher_id', uid).eq('id', id);
-    if(error) throw error;
-    showToast('حُذفت الأداة', 'ok');
+    if(error){ await trashDiscard(prot.id); throw error; }
     await afterCustomToolsChanged(uid);
+    trashOfferUndo('حُذفت الأداة', prot.id, async () => { await afterCustomToolsChanged(uid); });
   } catch(e){
     showToast('تعذّر الحذف: ' + toolDbErrorMessage(e), 'error');
   } finally {

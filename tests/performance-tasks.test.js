@@ -57,8 +57,9 @@ function fakeClient(seed, log, opts){
   };
 }
 
-function taskApp(seed, log, opts){
-  const app = loadApp({ supabaseClient: fakeClient(seed, log, opts), currentUser: { id: 'u1' } });
+function taskApp(seed, log, opts, wrap){
+  const client = fakeClient(seed, log, opts);
+  const app = loadApp({ supabaseClient: wrap ? wrap(client) : client, currentUser: { id: 'u1' } });
   runInAppContext(app, `
     window.__toasts = []; window.__renders = [];
     showToast = (m, k) => window.__toasts.push(k + ':' + m);
@@ -289,19 +290,24 @@ test('loadSectionTasks — مهام ودرجات المعلم الحالي فق�
   assert.deepEqual([...r.rows].map(x => x.student_id), ['a']);
 });
 
-test('deleteCrmStudent — التراجع يعيد درجات مهامه أيضًا', async () => {
+test('deleteCrmStudent — لقطة السلة تحوي درجات مهامه (لمعلمه فقط)، والتراجع استرجاع منها', async () => {
+  const { withTrashSupport, tick, snapshotRows } = require('./trash-helpers');
+  const store = {};
   const log = [];
-  const seed = { classroom_task_students: [{ id: 'ts1', teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: 6 }] };
-  const app = taskApp(seed, log);
+  const seed = {
+    classroom_students: [{ id: 'a', teacher_id: 'u1', full_name: 'أ', section_id: 'S' }],
+    classroom_task_students: [{ id: 'ts1', teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: 6 }, { id: 'tsx', teacher_id: 'u2', task_id: 'T1', student_id: 'a', score: 1 }],
+  };
+  const app = taskApp(seed, log, null, c => withTrashSupport(c, store));
   runInAppContext(app, `
     showUndoToast = async () => false;
     loadCrmStudents = async () => {}; renderCrmStudentsList = () => {};
     refreshCrmPendingBadges = async () => {}; refreshAcBadges = async () => {};
   `);
   await app.deleteCrmStudent('a');
-  const restored = writes(log, 'classroom_task_students', 'insert')[0];
-  assert.ok(restored, 'درجات المهام تُعاد مع التراجع');
-  assert.equal(restored.rows[0].id, 'ts1');
+  await tick();
+  assert.deepEqual(snapshotRows(store.items[0], 'classroom_task_students').map(r => r.id), ['ts1']);
+  assert.deepEqual(store.restored, ['T1']);
 });
 
 /* ============ المهام الجماعية ============ */
