@@ -1995,6 +1995,8 @@ html, body, *{touch-action:manipulation;}
 .sh-more{position:relative;}
 .sh-more-menu{position:absolute;left:0;top:44px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 24px rgba(16,30,44,.16);padding:6px;white-space:nowrap;}
 .sh-more-menu .btn{border:none;width:100%;justify-content:flex-start;border-radius:9px;}
+.sh-theme-row{display:flex;flex-direction:column;gap:5px;padding:8px 10px 6px;font-size:13px;font-weight:700;color:var(--muted);border-top:1px solid var(--line);margin-top:4px;}
+.sh-theme-row select{font-family:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:inherit;}
 .sh-filter-sum{margin-top:10px;font-size:12px;font-weight:700;color:var(--navy);background:#EAF0F5;border-radius:10px;padding:6px 10px;}
 #listBody{padding:12px 14px 4px;}
 .sh-summary{display:flex;align-items:center;gap:12px;background:#F7F4EC;border-radius:16px;padding:10px 12px;margin-bottom:10px;}

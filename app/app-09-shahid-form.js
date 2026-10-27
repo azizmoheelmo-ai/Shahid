@@ -203,6 +203,7 @@ function toggleShawahidMore(e){
   if(e && e.stopPropagation) e.stopPropagation();
   const m = document.getElementById('shMoreMenu');
   if(m) m.style.display = m.style.display === 'none' ? 'block' : 'none';
+  if(m && m.style.display === 'block') fillShahidPrintThemePicker();
 }
 function closeShawahidMore(){
   const m = document.getElementById('shMoreMenu');
@@ -1371,7 +1372,7 @@ function sectionPdf(title, bodyHtml){
     ${bodyHtml}
   </div>`;
 }
-function buildPdfHtml(rec, photoDataUrls){
+function buildClassicPdfHtml(rec, photoDataUrls){
   const dateDisplay = rec.lesson_date || (rec.created_at ? new Date(rec.created_at).toLocaleDateString('ar-SA') : '');
   const stepsHtml = (rec.steps && rec.steps.length)
     ? rec.steps.map((s, i) => `
@@ -1419,6 +1420,140 @@ function buildPdfHtml(rec, photoDataUrls){
       <div style="border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">توقيع المعلم</div>
     </div>
   </div>`;
+}
+
+/* ============ تصميم طباعة الشاهد بهوية التطبيق (صفحة A4 واحدة) ============ */
+/* نفس لغة واجهة التطبيق: شريط كحلي بخط ذهبي، عناوين Amiri، أقسام بشريط ذهبي
+   جانبي وصناديق ورقية. الأقسام الفارغة (هدف/خطوات/أثر/تأمل) تُحذف بدل طباعة
+   "—" كي يبقى الشاهد مرتبًا وفي صفحة واحدة. التصميم القديم متاح باسم "classic".
+   الاختيار محفوظ بالجهاز فقط. */
+const SHAHID_PRINT_THEMES = {
+  identity: { label: 'هوية شاهد (الجديد)' },
+  classic:  { label: 'الكلاسيكي (القديم)' }
+};
+const SHAHID_PRINT_THEME_KEY = 'shahid_print_theme';
+const SHAHID_PRINT_THEME_DEFAULT = 'identity';
+
+function getShahidPrintTheme(){
+  let key = null;
+  try{ key = localStorage.getItem(SHAHID_PRINT_THEME_KEY); } catch(e){}
+  return Object.prototype.hasOwnProperty.call(SHAHID_PRINT_THEMES, key) ? key : SHAHID_PRINT_THEME_DEFAULT;
+}
+function setShahidPrintTheme(key){
+  if(!Object.prototype.hasOwnProperty.call(SHAHID_PRINT_THEMES, key)) return;
+  try{ localStorage.setItem(SHAHID_PRINT_THEME_KEY, key); } catch(e){}
+  showToast('تم اختيار تصميم الطباعة: ' + SHAHID_PRINT_THEMES[key].label, 'ok');
+}
+/* تعبئة قائمة الاختيار داخل ⋯ (تُستدعى عند فتح القائمة لتعكس الاختيار المحفوظ) */
+function fillShahidPrintThemePicker(){
+  const sel = document.getElementById('shPrintTheme');
+  if(!sel) return;
+  const cur = getShahidPrintTheme();
+  sel.innerHTML = Object.keys(SHAHID_PRINT_THEMES).map(k =>
+    `<option value="${k}"${k === cur ? ' selected' : ''}>${escapeHtml(SHAHID_PRINT_THEMES[k].label)}</option>`).join('');
+}
+
+function idSectionPdf(title, bodyHtml, extraStyle){
+  return `<div style="${extraStyle || ''}">
+    <div style="font-size:12px;font-weight:800;color:#1B3245;margin-bottom:5px;display:flex;align-items:center;gap:7px;">
+      <span style="width:4px;height:14px;background:#A9852E;display:inline-block;"></span>${escapeHtml(title)}
+    </div>
+    ${bodyHtml}
+  </div>`;
+}
+function idBoxPdf(text){
+  return `<div style="font-size:11.5px;line-height:1.8;background:#F7F5F0;border:1px solid #D8D2C4;padding:8px 12px;white-space:pre-wrap;">${escapeHtml(text)}</div>`;
+}
+function idMetaPdf(label, value, flex){
+  return `<div style="flex:${flex || 1};padding:7px 12px;border-left:1px solid #D8D2C4;box-sizing:border-box;">
+    <div style="font-size:9px;color:#6B6659;margin-bottom:2px;">${escapeHtml(label)}</div>
+    <div style="font-size:11.5px;font-weight:600;color:#232323;">${escapeHtml(value || '—')}</div>
+  </div>`;
+}
+function buildIdentityPdfHtml(rec, photoDataUrls){
+  const dateDisplay = rec.lesson_date || (rec.created_at ? new Date(rec.created_at).toLocaleDateString('ar-SA') : '');
+  const has = v => typeof v === 'string' && v.trim() !== '';
+  const steps = (rec.steps || []).filter(has);
+
+  /* الصور: حتى ٦ بمربعات تتناسب مع عددها ومع طول النص كي تبقى الصفحة واحدة */
+  const imgItems = photoDataUrls.filter(u => typeof u === 'string' && (u.startsWith('data:image') || isImageUrl(u)));
+  const docItems = (rec.photo_urls || []).filter(u => !isImageUrl(u));
+  const shown = imgItems.slice(0, 6);
+  const textLen = [rec.description, rec.goal, rec.quant_impact, rec.qual_impact, rec.reflection].concat(steps)
+    .reduce((n, v) => n + (v ? String(v).length : 0), 0);
+  const squeeze = textLen > 1100 ? 0.7 : (textLen > 600 ? 0.85 : 1);
+  const rows = Math.ceil(shown.length / 2);
+  const baseH = shown.length === 1 ? 240 : (rows === 1 ? 210 : (rows === 2 ? 128 : 92));
+  const frameH = Math.round(baseH * squeeze);
+  const frame = (inner, dashed) => `<div style="box-sizing:border-box;border:1px ${dashed ? 'dashed' : 'solid'} #A9852E;background:#F7F5F0;height:${frameH}px;padding:5px;width:${shown.length === 1 ? '100%' : 'calc(50% - 5px)'};display:flex;align-items:center;justify-content:center;color:#876A25;font-size:11px;">${inner}</div>`;
+  const framesHtml = shown.length
+    ? shown.map(u => frame(`<img src="${escapeHtml(u)}" style="max-width:100%;max-height:100%;display:block;">`)).join('')
+    : '';
+  const photosBody = shown.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:10px;">${framesHtml}</div>`
+    : (docItems.length ? '' : `<div style="font-size:11px;color:#6B6659;">لا توجد صور مرفقة</div>`);
+  const photosNote = (imgItems.length > shown.length
+      ? `<div style="font-size:10px;color:#6B6659;margin-top:5px;">+ ${imgItems.length - shown.length} صور أخرى محفوظة في التطبيق</div>` : '')
+    + (docItems.length
+      ? `<div style="font-size:10.5px;color:#3F3B31;margin-top:5px;"><b>مستندات مرفقة:</b> ${docItems.map(u => escapeHtml(decodeURIComponent((u.split('/').pop() || 'ملف').split('?')[0]))).join(' • ')}</div>` : '');
+
+  const stepsHtml = steps.map((st, i) => `
+      <div style="display:flex;gap:7px;margin-bottom:4px;align-items:flex-start;font-size:11.5px;line-height:1.7;">
+        <span style="flex:0 0 17px;height:17px;border-radius:50%;background:#1B3245;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;margin-top:2px;">${i+1}</span>
+        <span style="flex:1;">${escapeHtml(st)}</span>
+      </div>`).join('');
+  const impactCells = [
+    has(rec.quant_impact) ? `<div style="flex:1;"><div style="font-size:9.5px;color:#876A25;font-weight:700;margin-bottom:3px;">مؤشر كمي</div>${idBoxPdf(rec.quant_impact)}</div>` : '',
+    has(rec.qual_impact) ? `<div style="flex:1;"><div style="font-size:9.5px;color:#876A25;font-weight:700;margin-bottom:3px;">ملاحظة نوعية</div>${idBoxPdf(rec.qual_impact)}</div>` : ''
+  ].join('');
+
+  const sections = [
+    has(rec.description) ? idSectionPdf('الوصف', idBoxPdf(rec.description)) : '',
+    has(rec.goal) ? idSectionPdf('الهدف من هذا الإجراء', idBoxPdf(rec.goal)) : '',
+    steps.length ? idSectionPdf('خطوات التنفيذ الفعلية', stepsHtml) : '',
+    impactCells ? idSectionPdf('الأثر / النتيجة الملاحظة', `<div style="display:flex;gap:10px;">${impactCells}</div>`) : '',
+    has(rec.reflection) ? idSectionPdf('تأمل المعلم', idBoxPdf(rec.reflection)) : '',
+    idSectionPdf('الشاهد المصوّر', photosBody + photosNote)
+  ].filter(Boolean).map(h => `<div style="padding:0 30px;margin-top:13px;">${h}</div>`).join('');
+
+  return `
+  <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;box-sizing:border-box;">
+    <div style="background:#1B3245;padding:20px 30px 16px;border-bottom:4px solid #A9852E;display:flex;justify-content:space-between;align-items:flex-end;">
+      <div>
+        <div style="font-family:'Amiri',serif;font-size:25px;color:#fff;font-weight:700;line-height:1.3;">شاهد الأداء الوظيفي</div>
+        <div style="font-size:11.5px;color:#C9D2DA;margin-top:3px;">${escapeHtml([rec.school, rec.subject].filter(has).join(' — '))}</div>
+      </div>
+      <div style="text-align:left;font-size:10.5px;line-height:1.9;color:#C9D2DA;">
+        ${rec.ref_number ? `<div>رقم مرجعي: ${escapeHtml(rec.ref_number)}</div>` : ''}
+        ${dateDisplay ? `<div>التاريخ: ${escapeHtml(dateDisplay)}</div>` : ''}
+      </div>
+    </div>
+    <div style="background:#F6F0E1;border-bottom:1px solid #D8D2C4;padding:9px 30px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:10px;color:#876A25;font-weight:700;">عنصر الأداء</span>
+      <span style="font-size:13.5px;font-weight:800;color:#1B3245;">${escapeHtml(rec.element_label || '—')}</span>
+    </div>
+    <div style="margin:14px 30px 0;border:1px solid #D8D2C4;">
+      <div style="display:flex;border-bottom:1px solid #D8D2C4;">
+        ${idMetaPdf('المعلم', rec.teacher_name)}${idMetaPdf('المدرسة', rec.school)}${idMetaPdf('المادة', rec.subject)}
+      </div>
+      <div style="display:flex;">
+        ${idMetaPdf('عنوان الدرس / الوحدة', rec.lesson_title, 2)}${idMetaPdf('الصف / الفصل', rec.class_name)}
+      </div>
+    </div>
+    ${sections}
+    <div style="display:flex;gap:40px;margin:26px 30px 0;">
+      <div style="flex:1;border-top:1px solid #232323;padding-top:5px;font-size:10px;color:#6B6659;">توقيع المعلم${has(rec.teacher_name) ? ' — ' + escapeHtml(rec.teacher_name) : ''}</div>
+      <div style="flex:1;border-top:1px solid #232323;padding-top:5px;font-size:10px;color:#6B6659;">مدير المدرسة</div>
+    </div>
+    <div style="margin-top:16px;height:6px;background:#1B3245;border-top:2px solid #A9852E;"></div>
+  </div>`;
+}
+
+/* نقطة الدخول الوحيدة لقالب طباعة/تصدير الشاهد — تختار التصميم المحفوظ */
+function buildPdfHtml(rec, photoDataUrls){
+  return getShahidPrintTheme() === 'classic'
+    ? buildClassicPdfHtml(rec, photoDataUrls)
+    : buildIdentityPdfHtml(rec, photoDataUrls);
 }
 
 /* ============ توليد PDF للشاهد (لاستخدامه في المشاركة) ============ */
