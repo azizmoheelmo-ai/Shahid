@@ -68,4 +68,26 @@ describe('صفحة مهامّي: تنظيم القائمة', () => {
     assert.match(html, /class="pg-sp is-on"/);
     assert.doesNotMatch(html, /type="checkbox"/);
   });
+
+  test('الموعد بلغة المعلم: اليوم/غدًا/بعد N أيام، وتاريخ كامل للأبعد', () => {
+    const { app } = setup([]);
+    assert.equal(app.taskDueText('2026-10-27', '2026-10-27'), 'اليوم');
+    assert.equal(app.taskDueText('2026-10-28', '2026-10-27'), 'غدًا');
+    assert.equal(app.taskDueText('2026-10-29', '2026-10-27'), 'بعد يومين');
+    assert.equal(app.taskDueText('2026-11-01', '2026-10-27'), 'بعد 5 أيام');
+    assert.notEqual(app.taskDueText('2026-12-30', '2026-10-27'), 'بعد 64 أيام');
+    assert.equal(app.taskDaysUntil('2026-11-01', '2026-10-30'), 2, 'عبر حدود الشهر');
+  });
+
+  test('شريط "تستحق خلال 3 أيام" يعدّ القريبة فقط (لا المتأخرة ولا المنجزة ولا البعيدة)', () => {
+    const { app, body } = setup([]);
+    const day = n => { const d = new Date(); d.setDate(d.getDate() + n); return app.localIsoDate(d); };
+    app.__t2 = [T('a', 'اليوم', { due_date: day(0) }), T('b', 'بعد يومين', { due_date: day(2) }), T('c', 'بعيدة', { due_date: day(20) }),
+      T('d', 'منجزة قريبة', { due_date: day(1), done: true }), T('e', 'متأخرة', { due_date: day(-2) })];
+    runInAppContext(app, 'myTasks = __t2;');
+    app.renderTasksList();
+    assert.match(body(), /مهمتان تستحقان خلال 3 أيام/);
+    assert.match(body(), /مهمة واحدة تجاوزت الاستحقاق/);
+    assert.match(body(), /الاستحقاق: اليوم/);
+  });
 });

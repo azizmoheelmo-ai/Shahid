@@ -80,13 +80,33 @@ function setTasksFilter(f){
   renderTasksList();
 }
 
+/* نافذة "تستحق قريبًا" بالأيام (غير المتأخرة) لشريط التنبيه الذهبي */
+const TASKS_SOON_DAYS = 3;
+
+/* فرق الأيام بين تاريخين YYYY-MM-DD (محلي بلا UTC). دالة صرفة. */
+function taskDaysUntil(dueIso, todayIso){
+  const [y1, m1, d1] = dueIso.split('-').map(Number);
+  const [y2, m2, d2] = todayIso.split('-').map(Number);
+  return Math.round((Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2)) / 86400000);
+}
+
+/* موعد بلغة المعلم: اليوم/غدًا/بعد N أيام للقريب (حتى 10 أيام)، وإلا التاريخ الكامل */
+function taskDueText(dueIso, todayIso){
+  const n = taskDaysUntil(dueIso, todayIso);
+  if(n === 0) return 'اليوم';
+  if(n === 1) return 'غدًا';
+  if(n === 2) return 'بعد يومين';
+  if(n >= 3 && n <= 10) return 'بعد ' + n + ' أيام';
+  return formatTaskDueDate(dueIso);
+}
+
 function taskCardHtml(t, todayIso){
   const id = escapeHtml(String(t.id));
   const overdue = !t.done && t.due_date && t.due_date < todayIso;
   const prioCls = t.priority === 'high' ? 'high' : (t.priority === 'low' ? 'low' : 'med');
   const linkedLabel = t.linked_goal_id ? '🎯 مرتبطة بهدف أداء' : (t.linked_program_id ? '🟡 مرتبطة ببرنامج نشاط' : '');
   const dueLabel = t.due_date
-    ? (overdue ? '⚠ تجاوز الاستحقاق: ' : 'الاستحقاق: ') + escapeHtml(formatTaskDueDate(t.due_date))
+    ? (overdue ? '⚠ تجاوز الاستحقاق: ' + escapeHtml(formatTaskDueDate(t.due_date)) : 'الاستحقاق: ' + escapeHtml(taskDueText(t.due_date, todayIso)))
     : 'بلا تاريخ استحقاق';
   return `<div class="pg-card ${t.done ? 'tk-done' : ''}" onclick="editTask('${id}')">
     <div class="pg-card-hd">
@@ -113,15 +133,21 @@ function renderTasksList(){
       <p class="fe-sub">أضف مهمتك الأولى وتابع إنجازها من هنا.</p></div>`;
     return;
   }
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = localIsoDate(); /* محلي لا UTC: بعد منتصف الليل وقبل الثالثة فجرًا يعطي UTC تاريخ الأمس */
   const sorted = sortTasksForDisplay(myTasks);
   const open = sorted.filter(t => !t.done);
   const done = sorted.filter(t => t.done);
   const lateCount = open.filter(t => t.due_date && t.due_date < todayIso).length;
 
-  const nowHtml = lateCount
+  /* قريبة = غير منجزة وغير متأخرة وتستحق خلال TASKS_SOON_DAYS (تشمل اليوم) */
+  const soonCount = countTasksNeedingAttention(open, addDaysIso(todayIso, TASKS_SOON_DAYS)) - lateCount;
+  const lateHtml = lateCount
     ? `<div class="pg-now" style="border-right-color:#B23A3A;"><div class="pg-now-t"><b>${lateCount === 1 ? 'مهمة واحدة تجاوزت الاستحقاق' : lateCount === 2 ? 'مهمتان تجاوزتا الاستحقاق' : lateCount + ' مهام تجاوزت الاستحقاق'}</b></div></div>`
     : '';
+  const soonHtml = soonCount > 0
+    ? `<div class="pg-now"><div class="pg-now-t"><b>${soonCount === 1 ? 'مهمة واحدة تستحق' : soonCount === 2 ? 'مهمتان تستحقان' : soonCount + ' مهام تستحق'} خلال ${TASKS_SOON_DAYS} أيام</b></div></div>`
+    : '';
+  const nowHtml = lateHtml + soonHtml;
   const pill = (key, label, n) => `<button type="button" class="pg-pill ${tasksFilter === key ? 'is-on' : ''}" onclick="setTasksFilter('${key}')">${label} ${n}</button>`;
   const pills = `<div class="pg-pills">${pill('all', 'الكل', myTasks.length)}${pill('open', 'مفتوحة', open.length)}${pill('done', 'منجزة', done.length)}</div>`;
 
