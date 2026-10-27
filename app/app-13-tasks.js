@@ -35,6 +35,7 @@ async function showTasks(){
   setActiveBottomTab('work');
   document.getElementById('tasksView').style.display = 'block';
   showTasksSection('list');
+  closeProgramMenus();
   document.getElementById('tasksListBody').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
   await loadMyTasks();
   renderTasksList();
@@ -73,37 +74,91 @@ function countTasksNeedingAttention(tasks, cutoffIso){
   return (tasks || []).filter(t => !t.done && t.due_date && t.due_date <= cutoffIso).length;
 }
 
+let tasksFilter = 'all'; /* all | open | done */
+function setTasksFilter(f){
+  tasksFilter = f;
+  renderTasksList();
+}
+
+/* نافذة "تستحق قريبًا" بالأيام (غير المتأخرة) لشريط التنبيه الذهبي */
+const TASKS_SOON_DAYS = 3;
+
+/* فرق الأيام بين تاريخين YYYY-MM-DD (محلي بلا UTC). دالة صرفة. */
+function taskDaysUntil(dueIso, todayIso){
+  const [y1, m1, d1] = dueIso.split('-').map(Number);
+  const [y2, m2, d2] = todayIso.split('-').map(Number);
+  return Math.round((Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2)) / 86400000);
+}
+
+/* موعد بلغة المعلم: اليوم/غدًا/بعد N أيام للقريب (حتى 10 أيام)، وإلا التاريخ الكامل */
+function taskDueText(dueIso, todayIso){
+  const n = taskDaysUntil(dueIso, todayIso);
+  if(n === 0) return 'اليوم';
+  if(n === 1) return 'غدًا';
+  if(n === 2) return 'بعد يومين';
+  if(n >= 3 && n <= 10) return 'بعد ' + n + ' أيام';
+  return formatTaskDueDate(dueIso);
+}
+
+function taskCardHtml(t, todayIso){
+  const id = escapeHtml(String(t.id));
+  const overdue = !t.done && t.due_date && t.due_date < todayIso;
+  const prioCls = t.priority === 'high' ? 'high' : (t.priority === 'low' ? 'low' : 'med');
+  const linkedLabel = t.linked_goal_id ? '🎯 مرتبطة بهدف أداء' : (t.linked_program_id ? '🟡 مرتبطة ببرنامج نشاط' : '');
+  const dueLabel = t.due_date
+    ? (overdue ? '⚠ تجاوز الاستحقاق: ' + escapeHtml(formatTaskDueDate(t.due_date)) : 'الاستحقاق: ' + escapeHtml(taskDueText(t.due_date, todayIso)))
+    : 'بلا تاريخ استحقاق';
+  return `<div class="pg-card ${t.done ? 'tk-done' : ''}" onclick="editTask('${id}')">
+    <div class="pg-card-hd">
+      <input type="checkbox" class="tk-chk" aria-label="تمّت" ${t.done ? 'checked' : ''} onclick="event.stopPropagation()" onchange="toggleTaskDone('${id}', this.checked)">
+      <div class="pg-card-ttl">${escapeHtml(t.title)}</div>
+      ${t.done ? '' : `<span class="pg-chip ${overdue ? 'late' : prioCls}">${escapeHtml(TASK_PRIORITY_LABELS[t.priority] || t.priority)}</span>`}
+      <div class="pg-menu-wrap">
+        <button type="button" class="sh-icon-btn" style="width:34px;height:34px;" aria-label="المزيد" onclick="toggleProgramMenu('tkMenu-${id}', event)">⋯</button>
+        <div class="pg-menu" id="tkMenu-${id}" style="display:none;" onclick="event.stopPropagation()">
+          <button type="button" onclick="closeProgramMenus(); editTask('${id}')">✎ تعديل</button>
+          <button type="button" class="dng" onclick="closeProgramMenus(); deleteTask('${id}')">🗑 حذف المهمة</button>
+        </div>
+      </div>
+    </div>
+    <div class="pg-meta" style="margin:4px 0 0 0;${overdue ? 'color:#B23A3A;font-weight:700;' : ''}">${dueLabel}${linkedLabel ? ' · ' + escapeHtml(linkedLabel) : ''}</div>
+  </div>`;
+}
+
 function renderTasksList(){
   const body = document.getElementById('tasksListBody');
   if(!myTasks.length){
-    body.innerHTML = '<div class="empty-state">لا توجد مهام بعد. أضف مهمتك الأولى.</div>';
+    body.innerHTML = `<div class="friendly-empty"><div class="fe-icon">✅</div>
+      <div class="fe-title">لا توجد مهام بعد</div>
+      <p class="fe-sub">أضف مهمتك الأولى وتابع إنجازها من هنا.</p></div>`;
     return;
   }
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = localIsoDate(); /* محلي لا UTC: بعد منتصف الليل وقبل الثالثة فجرًا يعطي UTC تاريخ الأمس */
   const sorted = sortTasksForDisplay(myTasks);
-  body.innerHTML = sorted.map(t => {
-    const overdue = !t.done && t.due_date && t.due_date < todayIso;
-    const linkedLabel = t.linked_goal_id ? '🎯 مرتبطة بهدف أداء' : (t.linked_program_id ? '🟡 مرتبطة ببرنامج نشاط' : '');
-    const dueLabel = t.due_date
-      ? (overdue ? '⚠ تجاوز الاستحقاق: ' : 'الاستحقاق: ') + escapeHtml(formatTaskDueDate(t.due_date))
-      : 'بلا تاريخ استحقاق';
-    return `<div class="rec">
-      <div class="rec-top">
-        <span class="rec-title" style="${t.done ? 'text-decoration:line-through;color:var(--muted);' : ''}">
-          <input type="checkbox" ${t.done ? 'checked' : ''} onchange="toggleTaskDone('${t.id}', this.checked)" style="margin-left:6px;vertical-align:middle;">${escapeHtml(t.title)}
-        </span>
-        <span class="plan-badge-count" style="${overdue ? 'background:#B23A3A;color:#fff;' : ''}">${escapeHtml(TASK_PRIORITY_LABELS[t.priority] || t.priority)}</span>
-      </div>
-      <div class="plan-progress-text">
-        <span>${dueLabel}</span>
-        <span>${escapeHtml(linkedLabel)}</span>
-      </div>
-      <div class="rec-actions">
-        <button class="btn btn-outline" onclick="editTask('${t.id}')">تعديل</button>
-        <button class="btn btn-outline" onclick="deleteTask('${t.id}')">حذف</button>
-      </div>
-    </div>`;
-  }).join('');
+  const open = sorted.filter(t => !t.done);
+  const done = sorted.filter(t => t.done);
+  const lateCount = open.filter(t => t.due_date && t.due_date < todayIso).length;
+
+  /* قريبة = غير منجزة وغير متأخرة وتستحق خلال TASKS_SOON_DAYS (تشمل اليوم) */
+  const soonCount = countTasksNeedingAttention(open, addDaysIso(todayIso, TASKS_SOON_DAYS)) - lateCount;
+  const lateHtml = lateCount
+    ? `<div class="pg-now" style="border-right-color:#B23A3A;"><div class="pg-now-t"><b>${lateCount === 1 ? 'مهمة واحدة تجاوزت الاستحقاق' : lateCount === 2 ? 'مهمتان تجاوزتا الاستحقاق' : lateCount + ' مهام تجاوزت الاستحقاق'}</b></div></div>`
+    : '';
+  const soonHtml = soonCount > 0
+    ? `<div class="pg-now"><div class="pg-now-t"><b>${soonCount === 1 ? 'مهمة واحدة تستحق' : soonCount === 2 ? 'مهمتان تستحقان' : soonCount + ' مهام تستحق'} خلال ${TASKS_SOON_DAYS} أيام</b></div></div>`
+    : '';
+  const nowHtml = lateHtml + soonHtml;
+  const pill = (key, label, n) => `<button type="button" class="pg-pill ${tasksFilter === key ? 'is-on' : ''}" onclick="setTasksFilter('${key}')">${label} ${n}</button>`;
+  const pills = `<div class="pg-pills">${pill('all', 'الكل', myTasks.length)}${pill('open', 'مفتوحة', open.length)}${pill('done', 'منجزة', done.length)}</div>`;
+
+  let cards = '';
+  if(tasksFilter !== 'done') cards += open.map(t => taskCardHtml(t, todayIso)).join('');
+  if(done.length && tasksFilter !== 'open'){
+    if(tasksFilter === 'all') cards += `<div class="pg-sechd">منجزة (${done.length})</div>`;
+    cards += done.map(t => taskCardHtml(t, todayIso)).join('');
+  }
+  if(!cards) cards = '<div class="empty-state">لا توجد مهام في هذا التصنيف.</div>';
+  body.innerHTML = nowHtml + pills + cards;
 }
 
 async function toggleTaskDone(id, done){
@@ -206,7 +261,13 @@ async function saveTaskForm(){
   }
 }
 
+let taskDeleting = false; /* يمنع حذفًا مزدوجًا بنقرتين متتاليتين */
 async function deleteTask(id){
+  if(taskDeleting) return;
+  taskDeleting = true;
+  try{ await deleteTaskConfirmed(id); } finally { taskDeleting = false; }
+}
+async function deleteTaskConfirmed(id){
   const ok = await showConfirm('حذف هذه المهمة؟');
   if(!ok) return;
   const { error } = await sb.from('tasks').delete().eq('id', id).eq('user_id', currentUser.id);

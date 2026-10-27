@@ -162,7 +162,7 @@ describe('برامج الأنشطة الطلابية متعددة الحصص', (
 
     app.renderProgramDetail('p1');
     const html = app.document.getElementById('programDetailBody').innerHTML;
-    assert.match(html, /توثيق هذه الحصة/, 'الحصة الأولى يجب أن تصبح قابلة لإعادة التوثيق بعد حذف شاهدها');
+    assert.match(html, /documentProgramSession\('p1', 1\)/, 'الحصة الأولى يجب أن تصبح قابلة لإعادة التوثيق بعد حذف شاهدها');
     assert.match(html, /✓ وُثّقت.*2025-10-08|2025-10-08.*✓ وُثّقت/s, 'الحصة الثانية يجب أن تبقى موثَّقة كما كانت دون أي تأثير');
   });
 
@@ -249,7 +249,7 @@ describe('برامج الأنشطة الطلابية متعددة الحصص', (
 
     html = app.document.getElementById('programDetailBody').innerHTML;
     assert.match(html, /لم تُوثَّق بعد/, 'بعد الحذف: الحصة يجب أن تعود "لم تُوثَّق بعد" فورًا دون انتظار');
-    assert.match(html, /توثيق هذه الحصة/, 'زر توثيق الحصة يجب أن يظهر من جديد فورًا بعد الحذف');
+    assert.match(html, /documentProgramSession\('p1'/, 'زر توثيق الحصة يجب أن يظهر من جديد فورًا بعد الحذف');
   });
 
   test('deleteProgramSessionShahid(): لا يستبدل شاشة برنامج آخر فُتحت أثناء انتظار الحذف (سباق afterDelete)', async () => {

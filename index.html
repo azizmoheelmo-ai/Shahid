@@ -1325,61 +1325,68 @@
 
     <div class="sheet" style="margin-bottom:16px;">
       <div class="band band-title"><h1>أعمالي</h1></div>
-      <div style="display:flex;gap:8px;padding:14px 26px;">
-        <button class="btn btn-outline" style="flex:1;" onclick="showTasks()">مهامّي</button>
-        <button class="btn btn-primary" id="workSubnavProgramsBtnPrograms" style="flex:1;" onclick="showPrograms()">البرامج</button>
+      <div class="pg-seg">
+        <button type="button" onclick="showTasks()">مهامّي</button>
+        <button type="button" class="on" id="workSubnavProgramsBtnPrograms" onclick="showPrograms()">البرامج</button>
       </div>
     </div>
 
     <div id="programsListSection" class="list-card">
-      <div class="list-header">
-        <h2>البرامج</h2>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" onclick="showNewProgramForm()">+ برنامج جديد</button>
-        </div>
-      </div>
       <div id="programsListBody">
         <div class="loading-state">جارِ التحميل...</div>
       </div>
+      <!-- زر ثابت أسفل الشاشة (نفس نمط صفحة الشواهد) -->
+      <div class="sh-fab-wrap"><button type="button" class="sh-fab" onclick="showNewProgramForm()">+ برنامج جديد</button></div>
     </div>
 
-    <div id="programsFormSection" class="list-card" style="display:none;margin-top:16px;">
-      <div class="list-header">
+    <div id="programsFormSection" class="list-card" style="display:none;">
+      <div class="pg-dhead">
+        <button type="button" class="sh-icon-btn" aria-label="رجوع" onclick="cancelProgramForm()">→</button>
         <h2 id="programFormTitle">برنامج جديد</h2>
-        <button class="btn btn-outline" onclick="cancelProgramForm()">إلغاء</button>
       </div>
-      <div style="padding:20px 26px;">
-        <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">اسم البرنامج</label><input type="text" class="goal-input" id="pgName" placeholder="مثال: برنامج الإسعافات الأولية"></div>
-
-        <div class="plan-fields" style="margin-top:14px;">
-          <div><label>عدد الطلبة (اختياري)</label><input type="number" class="goal-input" id="pgStudentCount" min="0" placeholder="مثال: 28"></div>
-          <div><label>ربط بعنصر أداء (اختياري)</label><select class="goal-input" id="pgElementSelect"><option value="">— بلا ربط —</option></select></div>
+      <div class="pg-form">
+        <div class="pg-fc">
+          <div class="pg-fh"><em>1</em>الأساسيات</div>
+          <label class="pg-lbl" for="pgName">اسم البرنامج</label>
+          <input type="text" class="goal-input pg-inp" id="pgName" placeholder="مثال: برنامج الإسعافات الأولية">
+          <label class="pg-lbl" for="pgElementSelect">يخدم عنصر الأداء (اختياري)</label>
+          <select class="goal-input pg-inp" id="pgElementSelect"><option value="">— بلا ربط —</option></select>
         </div>
 
-        <div style="margin-top:18px;">
-          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:6px;">الشُعب المطبَّق عليها البرنامج (اختياري) — لو اخترت شُعبًا، عدد الطلبة أعلاه يُحسب تلقائيًا من عدد طلابها النشطين، وتقدر تعدّله بعدها بنفسك</label>
-          <div id="pgSectionsPicker" style="border:1px solid var(--line);padding:10px;max-height:180px;overflow-y:auto;"></div>
+        <div class="pg-fc">
+          <div class="pg-fh"><em>2</em>الشُعب (اختياري)</div>
+          <div id="pgSectionsPicker"></div>
+          <label class="pg-lbl" for="pgStudentCount" style="margin-top:8px;">عدد الطلبة</label>
+          <input type="number" class="goal-input pg-inp" id="pgStudentCount" min="0" placeholder="مثال: 28">
+          <div class="pg-auto">يُحسب تلقائيًا من الشُعب المختارة، وتقدر تعدّله بنفسك.</div>
         </div>
 
-        <div style="margin-top:18px;">
-          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:6px;">حصص البرنامج — أضف حصة لكل أسبوع مخطَّط له، وتقدر تضيف المزيد لاحقًا بأي وقت</label>
+        <div class="pg-fc">
+          <div class="pg-fh"><em>3</em>حصص البرنامج</div>
           <ul class="steps" id="pgScheduleRows"></ul>
-          <button type="button" class="add-photo-btn" style="margin-top:10px;" onclick="addProgramSessionRow()">+ إضافة حصة</button>
+          <button type="button" class="pg-addrow" onclick="addProgramSessionRow()">+ إضافة حصة</button>
         </div>
 
-        <div style="margin-top:18px;display:flex;gap:10px;">
-          <button class="btn btn-primary" id="pgSaveBtn" onclick="saveProgramForm()">حفظ البرنامج</button>
-        </div>
-        <div id="pgSaveMsg" class="save-msg"></div>
+        <div id="pgSaveMsg" class="save-msg" style="padding:0 2px 8px;"></div>
       </div>
+      <div class="sh-fab-wrap"><button type="button" class="sh-fab" id="pgSaveBtn" onclick="saveProgramForm()">حفظ البرنامج</button></div>
     </div>
 
-    <div id="programsDetailSection" class="list-card" style="display:none;margin-top:16px;">
-      <div class="list-header">
+    <div id="programsDetailSection" class="list-card" style="display:none;">
+      <div class="pg-dhead">
+        <button type="button" class="sh-icon-btn" aria-label="رجوع للقائمة" onclick="showPrograms()">→</button>
         <h2 id="programDetailTitle">البرنامج</h2>
-        <button class="btn btn-outline" onclick="showPrograms()">رجوع للقائمة</button>
+        <div class="pg-menu-wrap">
+          <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleProgramMenu('pgDetailMenu', event)">⋯</button>
+          <div class="pg-menu" id="pgDetailMenu" style="display:none;">
+            <button type="button" onclick="closeProgramMenus(); editProgramSchedule(currentProgramId)">✎ تعديل الجدول</button>
+            <button type="button" onclick="closeProgramMenus(); printProgramSummary(currentProgramId, event)">🖨 طباعة الملخص</button>
+            <button type="button" onclick="closeProgramMenus(); exportProgramSummaryPdf(currentProgramId, event)">⬇ تصدير PDF</button>
+            <button type="button" class="dng" onclick="closeProgramMenus(); deleteActivityProgram(currentProgramId)">🗑 حذف البرنامج</button>
+          </div>
+        </div>
       </div>
-      <div id="programDetailBody" style="padding:20px 26px;"></div>
+      <div id="programDetailBody" style="padding:12px 14px 20px;"></div>
     </div>
 
   </div>
@@ -1421,54 +1428,56 @@
 
     <div class="sheet" style="margin-bottom:16px;">
       <div class="band band-title"><h1>أعمالي</h1></div>
-      <div style="display:flex;gap:8px;padding:14px 26px;">
-        <button class="btn btn-primary" style="flex:1;" onclick="showTasks()">مهامّي</button>
-        <button class="btn btn-outline" id="workSubnavProgramsBtnTasks" style="flex:1;" onclick="showPrograms()">البرامج</button>
+      <div class="pg-seg">
+        <button type="button" class="on" onclick="showTasks()">مهامّي</button>
+        <button type="button" id="workSubnavProgramsBtnTasks" onclick="showPrograms()">البرامج</button>
       </div>
     </div>
 
     <div id="tasksListSection" class="list-card">
-      <div class="list-header">
-        <h2>مهامّي</h2>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" onclick="showNewTaskForm()">+ مهمة جديدة</button>
-        </div>
-      </div>
       <div id="tasksListBody">
         <div class="loading-state">جارِ التحميل...</div>
       </div>
+      <div class="sh-fab-wrap"><button type="button" class="sh-fab" onclick="showNewTaskForm()">+ مهمة جديدة</button></div>
     </div>
 
-    <div id="tasksFormSection" class="list-card" style="display:none;margin-top:16px;">
-      <div class="list-header">
+    <div id="tasksFormSection" class="list-card" style="display:none;">
+      <div class="pg-dhead">
+        <button type="button" class="sh-icon-btn" aria-label="رجوع" onclick="cancelTaskForm()">→</button>
         <h2 id="taskFormTitle">مهمة جديدة</h2>
-        <button class="btn btn-outline" onclick="cancelTaskForm()">إلغاء</button>
       </div>
-      <div style="padding:20px 26px;">
-        <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">العنوان</label><input type="text" class="goal-input" id="tkTitle" maxlength="200" placeholder="مثال: تجهيز اختبار منتصف الفصل"></div>
-        <div style="margin-top:12px;"><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">وصف (اختياري)</label><textarea class="goal-input" id="tkDescription" maxlength="2000" rows="3"></textarea></div>
-
-        <div class="plan-fields" style="margin-top:14px;">
-          <div><label>الأولوية</label>
-            <select class="goal-input" id="tkPriority">
-              <option value="low">منخفضة</option>
-              <option value="medium" selected>متوسطة</option>
-              <option value="high">عالية</option>
-            </select>
-          </div>
-          <div><label>تاريخ الاستحقاق (اختياري)</label><input type="date" class="goal-input" id="tkDueDate"></div>
+      <div class="pg-form">
+        <div class="pg-fc">
+          <div class="pg-fh"><em>1</em>المهمة</div>
+          <label class="pg-lbl" for="tkTitle">العنوان</label>
+          <input type="text" class="goal-input pg-inp" id="tkTitle" maxlength="200" placeholder="مثال: تجهيز اختبار منتصف الفصل">
+          <label class="pg-lbl" for="tkDescription">وصف (اختياري)</label>
+          <textarea class="goal-input pg-inp" id="tkDescription" maxlength="2000" rows="3"></textarea>
         </div>
 
-        <div class="plan-fields" style="margin-top:14px;">
-          <div><label>ربط بهدف أداء (اختياري)</label><select class="goal-input" id="tkLinkedGoal"><option value="">— بلا ربط —</option></select></div>
-          <div><label>ربط ببرنامج نشاط (اختياري)</label><select class="goal-input" id="tkLinkedProgram"><option value="">— بلا ربط —</option></select></div>
+        <div class="pg-fc">
+          <div class="pg-fh"><em>2</em>الأولوية والموعد</div>
+          <label class="pg-lbl" for="tkPriority">الأولوية</label>
+          <select class="goal-input pg-inp" id="tkPriority">
+            <option value="low">منخفضة</option>
+            <option value="medium" selected>متوسطة</option>
+            <option value="high">عالية</option>
+          </select>
+          <label class="pg-lbl" for="tkDueDate">تاريخ الاستحقاق (اختياري)</label>
+          <input type="date" class="goal-input pg-inp" id="tkDueDate">
         </div>
 
-        <div style="margin-top:18px;">
-          <button class="btn btn-primary" id="tkSaveBtn" onclick="saveTaskForm()">حفظ المهمة</button>
+        <div class="pg-fc">
+          <div class="pg-fh"><em>3</em>الربط (اختياري)</div>
+          <label class="pg-lbl" for="tkLinkedGoal">ربط بهدف أداء</label>
+          <select class="goal-input pg-inp" id="tkLinkedGoal"><option value="">— بلا ربط —</option></select>
+          <label class="pg-lbl" for="tkLinkedProgram">ربط ببرنامج نشاط</label>
+          <select class="goal-input pg-inp" id="tkLinkedProgram"><option value="">— بلا ربط —</option></select>
         </div>
-        <div id="tkSaveMsg" class="save-msg"></div>
+
+        <div id="tkSaveMsg" class="save-msg" style="padding:0 2px 8px;"></div>
       </div>
+      <div class="sh-fab-wrap"><button type="button" class="sh-fab" id="tkSaveBtn" onclick="saveTaskForm()">حفظ المهمة</button></div>
     </div>
 
   </div>

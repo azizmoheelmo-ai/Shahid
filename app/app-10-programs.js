@@ -36,14 +36,45 @@ async function loadActivityPrograms(){
   return !error;
 }
 
+let programsFilter = 'all'; /* all | active | done — فلتر قائمة البرامج */
+let programsWeekLabelCache = { key: '', label: '' };
+
+/* نص "الأسبوع" الحالي حسب التقويم الرسمي لنطاق المعلم ('' لو لم يُحدَّد النطاق
+   أو تعذّر الجلب — فتختفي مؤشرات "هذا الأسبوع" بصمت كما بالرئيسية). */
+async function resolveProgramsWeekLabel(){
+  if(!calendarRegion) return '';
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const key = calendarRegion + '|' + todayIso;
+  if(programsWeekLabelCache.key === key) return programsWeekLabelCache.label;
+  let label = '';
+  try{
+    const { weeks, holidays } = await loadCalendarData(calendarRegion);
+    const info = resolveCurrentWeekInfo(weeks, holidays, todayIso);
+    if(info.status === 'ok') label = info.weekLabel || '';
+  } catch(e){ label = ''; }
+  programsWeekLabelCache = { key, label };
+  return label;
+}
+
+function programsListIsVisible(){
+  const v = document.getElementById('programsView');
+  const l = document.getElementById('programsListSection');
+  return !!(v && l && v.style.display === 'block' && l.style.display === 'block');
+}
+
 async function showPrograms(){
   hideAllMainViews();
   setActiveBottomTab('work');
   document.getElementById('programsView').style.display = 'block';
   showProgramsSection('list');
+  closeProgramMenus();
   document.getElementById('programsListBody').innerHTML = '<div class="loading-state">جارِ التحميل...</div>';
   await loadActivityPrograms();
-  renderProgramsList();
+  if(!programsListIsVisible()) return; /* انتقل المعلم لشاشة أخرى أثناء التحميل */
+  renderProgramsList('');
+  /* مؤشرات "هذا الأسبوع" تحتاج التقويم — لا تؤخّر ظهور القائمة، وتُرسم بعد وصولها */
+  const weekLabel = await resolveProgramsWeekLabel();
+  if(weekLabel && programsListIsVisible()) renderProgramsList(weekLabel);
 }
 
 function showProgramsSection(section){
@@ -97,31 +128,126 @@ function countUndocumentedSessionsForWeek(programs, sectionIdsMap, weekLabel){
   return count;
 }
 
-function renderProgramsList(){
+/* هل الحصة ناقصة التوثيق؟ برنامج بشُعب: ناقصة لو أي شعبة لم تُوثَّق. */
+function programSessionIncomplete(s, sectionIds){
+  if(sectionIds && sectionIds.length){
+    return sectionIds.some(id => !(s.section_status && s.section_status[id] && s.section_status[id].done));
+  }
+  return !s.done;
+}
+
+function programSessionsSorted(p){
+  return (p.sessions || []).slice().sort((x, y) => (x.session_no || 0) - (y.session_no || 0));
+}
+
+function closeProgramMenus(){
+  document.querySelectorAll('.pg-menu').forEach(m => { m.style.display = 'none'; });
+}
+function toggleProgramMenu(menuId, evt){
+  if(evt) evt.stopPropagation();
+  const m = document.getElementById(menuId);
+  if(!m) return;
+  const wasOpen = m.style.display !== 'none';
+  closeProgramMenus();
+  m.style.display = wasOpen ? 'none' : 'block';
+}
+if(typeof document.addEventListener === 'function'){
+  document.addEventListener('click', e => {
+    if(!(e.target && e.target.closest && e.target.closest('.pg-menu-wrap'))) closeProgramMenus();
+  });
+}
+
+function setProgramsFilter(f){
+  programsFilter = f;
+  renderProgramsList(programsWeekLabelCache.label);
+}
+
+function programsWeekNowText(count){
+  if(count === 1) return 'حصة واحدة تنتظر التوثيق هذا الأسبوع';
+  if(count === 2) return 'حصتان تنتظران التوثيق هذا الأسبوع';
+  return count + (count <= 10 ? ' حصص' : ' حصة') + ' تنتظر التوثيق هذا الأسبوع';
+}
+
+function programCardHtml(p, weekLabel){
+  const sectionIds = programSectionIdsMap.get(p.id) || [];
+  const { done, total, pct, isDone } = programProgress(p, sectionIds);
+  const elLabel = (DB_ELEMENTS.find(e => e.key === p.element_key) || {}).label;
+  const idAttr = escapeHtml(String(p.id));
+  const menu = `<div class="pg-menu-wrap">
+      <button type="button" class="sh-icon-btn" style="width:34px;height:34px;" aria-label="المزيد" onclick="toggleProgramMenu('pgMenu-${idAttr}', event)">⋯</button>
+      <div class="pg-menu" id="pgMenu-${idAttr}" style="display:none;" onclick="event.stopPropagation()">
+        <button type="button" onclick="closeProgramMenus(); showProgramDetail('${idAttr}')">فتح البرنامج</button>
+        <button type="button" class="dng" onclick="closeProgramMenus(); deleteActivityProgram('${idAttr}')">🗑 حذف البرنامج</button>
+      </div></div>`;
+  const open = `onclick="showProgramDetail('${idAttr}')"`;
+
+  if(isDone){
+    return `<div class="pg-card is-done" ${open}><div class="pg-card-hd">
+      <div class="pg-card-ttl">${escapeHtml(p.name)}</div>
+      <span class="pg-chip done">✓ ${done}/${total}</span>${menu}</div></div>`;
+  }
+
+  const sessions = programSessionsSorted(p);
+  const thisWeek = weekLabel ? sessions.find(s => (s.week_label || '').trim() === weekLabel && programSessionIncomplete(s, sectionIds)) : null;
+  const next = sessions.find(s => programSessionIncomplete(s, sectionIds));
+  let nextHtml = '';
+  if(thisWeek){
+    /* برنامج بلا شُعب: توثيق مباشر من القائمة. برنامج بشُعب: نفتح التفاصيل لاختيار الشعبة. */
+    const act = sectionIds.length
+      ? `showProgramDetail('${idAttr}')`
+      : `documentProgramSession('${idAttr}', ${thisWeek.session_no})`;
+    nextHtml = `<div class="pg-next is-warn"><span>⏰ الحصة ${thisWeek.session_no} (${escapeHtml(thisWeek.week_label || '')}) — لم تُوثَّق</span>
+      <button type="button" onclick="event.stopPropagation(); ${act}">وثّق</button></div>`;
+  } else if(next && done > 0){
+    nextHtml = `<div class="pg-next"><span>القادمة: الحصة ${next.session_no}${next.week_label ? ' — ' + escapeHtml(next.week_label) : ''}</span></div>`;
+  }
+  const meta = [elLabel ? escapeHtml(elLabel) : 'غير مرتبط بعنصر أداء', sectionIds.length ? sectionIds.length + ' شُعب' : ''].filter(Boolean).join(' · ');
+  const body = done === 0
+    ? `<div class="pg-meta" style="margin-bottom:0;">${meta} · ${total === 1 ? 'حصة واحدة' : total + ' حصص'}</div>`
+    : `<div class="pg-meta">${meta}</div>
+       <div class="pg-bar"><i style="width:${pct}%;"></i></div>
+       <div class="pg-bar-l"><span><b>${done}</b> من ${total} ${sectionIds.length ? 'فتحة توثيق' : 'حصص'}</span><span>${pct}%</span></div>`;
+  return `<div class="pg-card" ${open}><div class="pg-card-hd">
+      <div class="pg-card-ttl">${escapeHtml(p.name)}</div>
+      ${done === 0 ? '<span class="pg-chip new">لم يبدأ</span>' : ''}${menu}</div>
+    ${body}${nextHtml}</div>`;
+}
+
+function renderProgramsList(weekLabel){
   const body = document.getElementById('programsListBody');
+  weekLabel = weekLabel || '';
   if(!activityPrograms.length){
-    body.innerHTML = '<div class="empty-state">لا توجد برامج بعد. أضف برنامجك الأول لتخطيط حصصه وتوثيقها تدريجيًا.</div>';
+    body.innerHTML = `<div class="friendly-empty"><div class="fe-icon">🎯</div>
+      <div class="fe-title">لا توجد برامج بعد</div>
+      <p class="fe-sub">أضف برنامجك الأول لتخطيط حصصه وتوثيقها تدريجيًا.</p></div>`;
     return;
   }
-  body.innerHTML = activityPrograms.map(p => {
-    const { done, total, pct, isDone } = programProgress(p, programSectionIdsMap.get(p.id));
-    const elLabel = (DB_ELEMENTS.find(e => e.key === p.element_key) || {}).label;
-    return `<div class="rec">
-      <div class="rec-top">
-        <span class="rec-title">${escapeHtml(p.name)}</span>
-        <span class="plan-badge-count ${isDone ? 'done' : ''}">${done}/${total}</span>
-      </div>
-      <div class="plan-progress-bar"><div class="plan-progress-fill ${isDone ? 'done' : ''}" style="width:${pct}%;"></div></div>
-      <div class="plan-progress-text">
-        <span>${elLabel ? 'مرتبط بعنصر: ' + escapeHtml(elLabel) : 'غير مرتبط بعنصر أداء'}</span>
-        <span>${isDone ? '✓ اكتمل' : pct + '%'}</span>
-      </div>
-      <div class="rec-actions">
-        <button class="btn btn-primary" onclick="showProgramDetail('${p.id}')">عرض</button>
-        <button class="btn btn-outline" onclick="deleteActivityProgram('${p.id}')">حذف</button>
-      </div>
-    </div>`;
-  }).join('');
+  const info = activityPrograms.map(p => ({ p, prog: programProgress(p, programSectionIdsMap.get(p.id)) }));
+  const active = info.filter(x => !x.prog.isDone).map(x => x.p);
+  const finished = info.filter(x => x.prog.isDone).map(x => x.p);
+  const needsNow = p => weekLabel && countUndocumentedSessionsForWeek([p], programSectionIdsMap, weekLabel) > 0;
+  active.sort((a, b) => (needsNow(b) ? 1 : 0) - (needsNow(a) ? 1 : 0)); /* مستقر: يحافظ على ترتيب الباقي */
+
+  let nowHtml = '';
+  const nowPrograms = active.filter(needsNow);
+  if(nowPrograms.length){
+    const count = countUndocumentedSessionsForWeek(nowPrograms, programSectionIdsMap, weekLabel);
+    const names = nowPrograms.map(p => escapeHtml(p.name)).join(' · ');
+    nowHtml = `<div class="pg-now"><div class="pg-now-t"><b>${programsWeekNowText(count)}</b><small>${names}</small></div>
+      <button type="button" onclick="showProgramDetail('${escapeHtml(String(nowPrograms[0].id))}')">وثّق ←</button></div>`;
+  }
+
+  const pill = (key, label, n) => `<button type="button" class="pg-pill ${programsFilter === key ? 'is-on' : ''}" onclick="setProgramsFilter('${key}')">${label} ${n}</button>`;
+  const pills = `<div class="pg-pills">${pill('all', 'الكل', activityPrograms.length)}${pill('active', 'جارية', active.length)}${pill('done', 'مكتملة', finished.length)}</div>`;
+
+  let cards = '';
+  if(programsFilter !== 'done') cards += active.map(p => programCardHtml(p, weekLabel)).join('');
+  if(finished.length && programsFilter !== 'active'){
+    if(programsFilter === 'all') cards += `<div class="pg-sechd">مكتملة (${finished.length})</div>`;
+    cards += finished.map(p => programCardHtml(p, weekLabel)).join('');
+  }
+  if(!cards) cards = `<div class="empty-state">لا توجد برامج في هذا التصنيف.</div>`;
+  body.innerHTML = nowHtml + pills + cards;
 }
 
 /* ============ إنشاء برنامج جديد / تعديل جدول برنامج قائم ============ */
@@ -165,16 +291,16 @@ function renderProgramSectionPicker(){
   box.innerHTML = pgCrmGradeLevels.map(g => {
     const secs = pgCrmSections.filter(s => s.grade_level_id === g.id);
     if(!secs.length) return '';
-    return `<div style="margin-bottom:8px;">
-      <div style="font-size:11.5px;font-weight:700;color:var(--navy);margin-bottom:4px;">${escapeHtml(g.name)}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        ${secs.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;background:#F7F5F0;border:1px solid var(--line);padding:4px 8px;cursor:pointer;">
-          <input type="checkbox" value="${s.id}" ${pgSelectedSectionIds.includes(s.id) ? 'checked' : ''} onchange="toggleProgramSection('${s.id}', this.checked)">
-          الشعبة ${escapeHtml(s.name)}
-        </label>`).join('')}
-      </div>
-    </div>`;
+    return `<div class="pg-grade">${escapeHtml(g.name)}</div>
+      <div>${secs.map(s => `<button type="button" class="pg-sp ${pgSelectedSectionIds.includes(s.id) ? 'is-on' : ''}" aria-pressed="${pgSelectedSectionIds.includes(s.id)}" onclick="toggleProgramSectionPill('${escapeHtml(String(s.id))}', this)">الشعبة ${escapeHtml(s.name)}</button>`).join('')}</div>`;
   }).join('') || '<div style="font-size:11.5px;color:var(--muted);">لا توجد شُعب مسجَّلة بعد.</div>';
+}
+
+function toggleProgramSectionPill(sectionId, btn){
+  const on = !pgSelectedSectionIds.includes(sectionId);
+  btn.classList.toggle('is-on', on);
+  btn.setAttribute('aria-pressed', String(on));
+  return toggleProgramSection(sectionId, on);
 }
 
 async function toggleProgramSection(sectionId, checked){
@@ -510,80 +636,73 @@ async function showProgramDetail(programId){
     loadProgramDetailSections(programId),
   ]);
   if(String(currentProgramId) !== String(programId)) return; /* انتقل المعلم لبرنامج آخر أثناء الانتظار */
-  renderProgramDetail(programId);
+  renderProgramDetail(programId, programsWeekLabelCache.label);
+  /* مؤشر "هذا الأسبوع" يحتاج التقويم — يُرسم بعد وصوله لو ما زال نفس البرنامج مفتوحًا */
+  const weekLabel = await resolveProgramsWeekLabel();
+  if(weekLabel && String(currentProgramId) === String(programId) &&
+     document.getElementById('programsDetailSection').style.display === 'block'){
+    renderProgramDetail(programId, weekLabel);
+  }
 }
 
-function renderProgramDetail(programId){
+function renderProgramDetail(programId, weekLabel){
   const p = activityPrograms.find(x => String(x.id) === String(programId));
   const body = document.getElementById('programDetailBody');
   if(!p){ body.innerHTML = '<div class="empty-state">تعذّر إيجاد هذا البرنامج.</div>'; return; }
+  weekLabel = weekLabel || programsWeekLabelCache.label || '';
 
   document.getElementById('programDetailTitle').textContent = p.name;
   const sectionIds = programDetailSections.map(sec => sec.id);
   const { done, total, pct, isDone } = programProgress(p, sectionIds);
   const elLabel = (DB_ELEMENTS.find(e => e.key === p.element_key) || {}).label;
+  const pid = escapeHtml(String(p.id));
 
-  /* برنامج مرتبط بشُعب: كل حصة تعرض بطاقة توثيق مستقلة لكل شعبة (باتفاق
-     صريح مع المستخدم — كل شعبة تُدرَّس بوقتها الخاص غالبًا، فتُوثَّق
-     بوقتها الخاص أيضًا)، بدل شاهد واحد يمثّل الحصة كاملة. برنامج بلا شُعب
-     مرتبطة (sectionIds فارغة) يحافظ على السلوك الأصلي بالضبط. */
-  const sessionsHtml = (p.sessions || []).map(s => {
+  /* كل حصة: دائرة حالة (✓ مكتملة / ذهبية = الحالية / رمادية = قادمة) + بطاقة.
+     برنامج بشُعب: كبسولة لكل شعبة — خضراء = وُثّقت (لمسة = عرض الشاهد)، منقّطة =
+     توثيق بلمسة واحدة. بلا شُعب: زر واحد للحصة. حذف الشاهد بقي متاحًا لكن
+     كأيقونة 🗑 منفصلة صغيرة (بعد التأكيد + مهلة التراجع الموجودتين). */
+  const sessions = programSessionsSorted(p);
+  const firstIncomplete = sessions.find(s => programSessionIncomplete(s, sectionIds));
+  const sessionsHtml = sessions.map(s => {
+    const incomplete = programSessionIncomplete(s, sectionIds);
+    const isThisWeek = !!weekLabel && (s.week_label || '').trim() === weekLabel && incomplete;
+    const isCur = incomplete && (isThisWeek || (!weekLabel && firstIncomplete === s));
+    const numCls = !incomplete ? 'ok' : (isCur ? 'cur' : '');
+    const title = `الحصة ${s.session_no}${s.week_label ? ' — ' + escapeHtml(s.week_label) : ''}`;
+    const weekChip = isThisWeek ? '<span class="pg-chip warn">هذا الأسبوع</span>' : '';
+    let inner;
     if(sectionIds.length){
-      const rowsHtml = programDetailSections.map(sec => {
+      const doneCount = sectionIds.filter(id => s.section_status && s.section_status[id] && s.section_status[id].done).length;
+      const chips = programDetailSections.map(sec => {
         const st = (s.section_status && s.section_status[sec.id]) || {};
-        const statusBadge = st.done
-          ? `<span class="plan-badge-count done">✓ وُثّقت${st.done_date ? ' — ' + escapeHtml(st.done_date) : ''}</span>`
-          : `<span class="plan-badge-count">لم تُوثَّق بعد</span>`;
-        const actionBtn = st.done
-          ? `<button class="btn btn-outline" onclick="viewProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}')">عرض</button>
-             <button class="btn btn-outline" onclick="deleteProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}', '${p.id}')" style="color:#8A2C2C;border-color:#8A2C2C;">حذف</button>`
-          : `<button class="btn btn-primary" onclick="documentProgramSessionForSection('${p.id}', ${s.session_no}, '${sec.id}')">توثيق</button>`;
-        return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:7px 0;border-top:1px dashed var(--line);">
-          <span style="font-size:11.5px;">${escapeHtml(sec.label)}</span>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${statusBadge}${actionBtn}</div>
-        </div>`;
+        return st.done
+          ? `<span class="pg-sc-grp"><button type="button" class="pg-sc ok" onclick="viewProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}')">✓ ${escapeHtml(sec.label)}</button><button type="button" class="pg-del" aria-label="حذف الشاهد" title="حذف الشاهد" onclick="deleteProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}', '${pid}')">🗑</button></span>`
+          : `<button type="button" class="pg-sc todo" onclick="documentProgramSessionForSection('${pid}', ${s.session_no}, '${escapeHtml(String(sec.id))}')">+ وثّق ${escapeHtml(sec.label)}</button>`;
       }).join('');
-      return `<div class="goal-card">
-        <div class="goal-card-head-top"><span class="plan-elem-name">الحصة ${s.session_no} — ${escapeHtml(s.week_label || '')}</span></div>
-        ${rowsHtml}
-      </div>`;
+      inner = `<div class="pg-sbox-h"><b>${title}</b>${weekChip}<small>${doneCount} من ${sectionIds.length} شُعب</small></div><div class="pg-secrow">${chips}</div>`;
+    } else {
+      const act = s.done
+        ? `<button type="button" class="pg-sbtn o" onclick="viewProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}')">عرض الشاهد</button><button type="button" class="pg-del" aria-label="حذف الشاهد" title="حذف الشاهد" onclick="deleteProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}', '${pid}')">🗑</button>`
+        : `<button type="button" class="pg-sbtn" onclick="documentProgramSession('${pid}', ${s.session_no})">وثّق</button>`;
+      const sub = s.done ? `<small>✓ وُثّقت${s.done_date ? ' — ' + escapeHtml(s.done_date) : ''}</small>` : '<small>لم تُوثَّق بعد</small>';
+      inner = `<div class="pg-sbox-h"><b>${title}</b>${weekChip}${sub}${act}</div>`;
     }
-    const statusBadge = s.done
-      ? `<span class="plan-badge-count done">✓ وُثّقت${s.done_date ? ' — ' + escapeHtml(s.done_date) : ''}</span>`
-      : `<span class="plan-badge-count">لم تُوثَّق بعد</span>`;
-    const actionBtn = s.done
-      ? `<button class="btn btn-outline" onclick="viewProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}')">عرض الشاهد</button>
-         <button class="btn btn-outline" onclick="deleteProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}', '${p.id}')" style="color:#8A2C2C;border-color:#8A2C2C;">حذف الشاهد</button>`
-      : `<button class="btn btn-primary" onclick="documentProgramSession('${p.id}', ${s.session_no})">توثيق هذه الحصة</button>`;
-    return `<div class="goal-card">
-      <div class="goal-card-head-top">
-        <span class="plan-elem-name">الحصة ${s.session_no} — ${escapeHtml(s.week_label || '')}</span>
-        ${statusBadge}
-      </div>
-      <div class="rec-actions">${actionBtn}</div>
-    </div>`;
+    return `<div class="pg-ses"><div class="pg-num ${numCls}">${!incomplete ? '✓' : s.session_no}</div>
+      <div class="pg-sbox ${isCur ? 'cur' : ''} ${incomplete && !isCur ? 'future' : ''}">${inner}</div></div>`;
   }).join('');
 
+  const left = total - done;
+  const sumSub = isDone ? 'اكتمل توثيق كل الحصص' : `تبقّى ${left} ${sectionIds.length ? 'فتحة توثيق' : (left === 1 ? 'حصة' : 'حصص')}`;
   body.innerHTML = `
-    <div class="plan-progress-bar"><div class="plan-progress-fill ${isDone ? 'done' : ''}" style="width:${pct}%;"></div></div>
-    <div class="plan-progress-text">
-      <span>${sectionIds.length ? 'فتحات التوثيق المكتملة' : 'الحصص الموثَّقة'}: <b>${done}</b> من <b>${total}</b></span>
-      <span>${isDone ? '✓ اكتمل البرنامج' : pct + '%'}</span>
+    <div class="pg-sum"><div class="pg-ring" style="background:conic-gradient(#1F7A6A 0 ${pct}%, #E5E0D4 0)"><i>${done}/${total}</i></div>
+      <div><b>${isDone ? '✓ اكتمل البرنامج' : pct + '% من التوثيق'}</b><small>${sumSub}</small></div></div>
+    <div class="pg-chips">
+      ${p.student_count ? `<span class="pg-mc">👥 ${escapeHtml(String(p.student_count))} طالبًا</span>` : ''}
+      ${elLabel ? `<span class="pg-mc">🎯 ${escapeHtml(elLabel)}</span>` : ''}
+      ${p.cycle_year ? `<span class="pg-mc">📅 ${escapeHtml(p.cycle_year)}</span>` : ''}
+      ${programDetailSections.length ? `<span class="pg-mc">🏫 ${escapeHtml(programDetailSections.map(sec => sec.label).join('، '))}</span>` : ''}
     </div>
-    <div style="margin:12px 0 18px;font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:14px;">
-      ${p.student_count ? `<span>عدد الطلبة: <b style="color:var(--navy);">${p.student_count}</b></span>` : ''}
-      ${elLabel ? `<span>مرتبط بعنصر: <b style="color:var(--navy);">${escapeHtml(elLabel)}</b></span>` : ''}
-      ${p.cycle_year ? `<span>السنة: <b style="color:var(--navy);">${escapeHtml(p.cycle_year)}</b></span>` : ''}
-      ${programDetailSections.length ? `<span>الشُعب: <b style="color:var(--navy);">${escapeHtml(programDetailSections.map(sec => sec.label).join('، '))}</b></span>` : ''}
-    </div>
-    <div class="plan-goals-list">${sessionsHtml}</div>
-    <div class="rec-actions" style="margin-top:18px;flex-wrap:wrap;">
-      <button class="btn btn-outline" onclick="editProgramSchedule('${p.id}')">تعديل الجدول</button>
-      <button class="btn btn-outline" onclick="printProgramSummary('${p.id}', event)">طباعة الملخص</button>
-      <button class="btn btn-outline" onclick="exportProgramSummaryPdf('${p.id}', event)">تصدير PDF</button>
-      <button class="btn btn-outline" onclick="deleteActivityProgram('${p.id}')" style="color:#8A2C2C;border-color:#8A2C2C;">حذف البرنامج</button>
-    </div>
-  `;
+    ${sessionsHtml}`;
 }
 
 /* ============ توثيق حصة من برنامج — يفتح نموذج الشاهد المعتاد مُعبَّأ مسبقًا ============ */
@@ -720,7 +839,13 @@ function deleteProgramSessionShahid(shahidId, programId){
   });
 }
 
+let programDeleting = false; /* يمنع حذفًا مزدوجًا بنقرتين متتاليتين */
 async function deleteActivityProgram(id){
+  if(programDeleting) return;
+  programDeleting = true;
+  try{ await deleteActivityProgramConfirmed(id); } finally { programDeleting = false; }
+}
+async function deleteActivityProgramConfirmed(id){
   const ok = await showConfirm('حذف هذا البرنامج؟ الشواهد المرتبطة بحصصه المُوثَّقة تبقى محفوظة في "الشواهد".');
   if(!ok) return;
 
