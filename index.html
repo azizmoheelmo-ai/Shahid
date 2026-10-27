@@ -1325,22 +1325,18 @@
 
     <div class="sheet" style="margin-bottom:16px;">
       <div class="band band-title"><h1>أعمالي</h1></div>
-      <div style="display:flex;gap:8px;padding:14px 26px;">
-        <button class="btn btn-outline" style="flex:1;" onclick="showTasks()">مهامّي</button>
-        <button class="btn btn-primary" id="workSubnavProgramsBtnPrograms" style="flex:1;" onclick="showPrograms()">البرامج</button>
+      <div class="pg-seg">
+        <button type="button" onclick="showTasks()">مهامّي</button>
+        <button type="button" class="on" id="workSubnavProgramsBtnPrograms" onclick="showPrograms()">البرامج</button>
       </div>
     </div>
 
     <div id="programsListSection" class="list-card">
-      <div class="list-header">
-        <h2>البرامج</h2>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" onclick="showNewProgramForm()">+ برنامج جديد</button>
-        </div>
-      </div>
       <div id="programsListBody">
         <div class="loading-state">جارِ التحميل...</div>
       </div>
+      <!-- زر ثابت أسفل الشاشة (نفس نمط صفحة الشواهد) -->
+      <div class="sh-fab-wrap"><button type="button" class="sh-fab" onclick="showNewProgramForm()">+ برنامج جديد</button></div>
     </div>
 
     <div id="programsFormSection" class="list-card" style="display:none;margin-top:16px;">
@@ -1375,11 +1371,20 @@
     </div>
 
     <div id="programsDetailSection" class="list-card" style="display:none;margin-top:16px;">
-      <div class="list-header">
+      <div class="pg-dhead">
+        <button type="button" class="sh-icon-btn" aria-label="رجوع للقائمة" onclick="showPrograms()">→</button>
         <h2 id="programDetailTitle">البرنامج</h2>
-        <button class="btn btn-outline" onclick="showPrograms()">رجوع للقائمة</button>
+        <div class="pg-menu-wrap">
+          <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleProgramMenu('pgDetailMenu', event)">⋯</button>
+          <div class="pg-menu" id="pgDetailMenu" style="display:none;">
+            <button type="button" onclick="closeProgramMenus(); editProgramSchedule(currentProgramId)">✎ تعديل الجدول</button>
+            <button type="button" onclick="closeProgramMenus(); printProgramSummary(currentProgramId, event)">🖨 طباعة الملخص</button>
+            <button type="button" onclick="closeProgramMenus(); exportProgramSummaryPdf(currentProgramId, event)">⬇ تصدير PDF</button>
+            <button type="button" class="dng" onclick="closeProgramMenus(); deleteActivityProgram(currentProgramId)">🗑 حذف البرنامج</button>
+          </div>
+        </div>
       </div>
-      <div id="programDetailBody" style="padding:20px 26px;"></div>
+      <div id="programDetailBody" style="padding:12px 14px 20px;"></div>
     </div>
 
   </div>
@@ -1421,9 +1426,9 @@
 
     <div class="sheet" style="margin-bottom:16px;">
       <div class="band band-title"><h1>أعمالي</h1></div>
-      <div style="display:flex;gap:8px;padding:14px 26px;">
-        <button class="btn btn-primary" style="flex:1;" onclick="showTasks()">مهامّي</button>
-        <button class="btn btn-outline" id="workSubnavProgramsBtnTasks" style="flex:1;" onclick="showPrograms()">البرامج</button>
+      <div class="pg-seg">
+        <button type="button" class="on" onclick="showTasks()">مهامّي</button>
+        <button type="button" id="workSubnavProgramsBtnTasks" onclick="showPrograms()">البرامج</button>
       </div>
     </div>
 
