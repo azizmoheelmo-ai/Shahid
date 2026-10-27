@@ -1021,81 +1021,63 @@ async function saveShahid(){
    (لو وُجد) — يُستخدم من شاشة "برامجي" (deleteProgramSessionShahid) لإعادة
    رسم تفاصيل البرنامج مباشرة بدل انتظار انتهاء مهلة التراجع كاملة. */
 async function deleteRecord(id, afterDelete){
-  const rec = myRecords.find(r => String(r.id) === String(id));
-  if(!rec) return;
+  return trashRunOnce('shahid:' + id, async () => {
+    const rec = myRecords.find(r => String(r.id) === String(id));
+    if(!rec || !currentUser) return;
 
-  const ok = await showConfirm('حذف هذا الشاهد؟ يمكنك التراجع لبضع ثوانٍ من الإشعار الذي سيظهر بعد الحذف.');
-  if(!ok) return;
+    const ok = await showConfirm('حذف هذا الشاهد؟ يبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعه (مع صوره).');
+    if(!ok) return;
+    const uid = currentUser.id;
 
-  /* الحذف الفعلي يتم فورًا هنا (كما كان قبل إضافة ميزة التراجع) — هذا مهم
-     للموثوقية: لا نعتمد على بقاء الصفحة مفتوحة لتنفيذ حذف مؤجَّل، فلو أغلق
-     المستخدم التبويب أثناء نافذة التراجع لا يبقى أي سجل "معلّق" في القاعدة.
-     "التراجع" هنا يعني إعادة إدراج نفس السجل (بنفس المعرّف) إن طُلب خلال
-     المهلة، وليس تأجيل الحذف نفسه. */
-  try{
-    const { error } = await sb.from('shawahid').delete().eq('id', id);
-    if(error) throw error;
-  } catch(err){
-    showToast('تعذّر حذف الشاهد: ' + err.message, 'error');
-    return;
-  }
+    /* لو يوثّق حصة من برنامج: نلتقط تاريخ توثيقها الأصلي قبل التفريغ لنعيد ربطها بنفس
+       التاريخ عند الاسترجاع (لا تاريخ اليوم) */
+    let meta = {};
+    if(rec.program_id && rec.program_session_no != null){
+      let prev = null;
+      try{ prev = await readProgramSessionLink(rec.program_id, rec.program_session_no, rec.program_section_id); } catch(e){ /* غير حرج */ }
+      meta = { shahidId: rec.id, programSession: { programId: rec.program_id, sessionNo: rec.program_session_no, sectionId: rec.program_section_id || null, doneDate: (prev && prev.done_date) || null } };
+    }
 
-  /* لو هذا الشاهد كان يوثّق حصة من برنامج نشاط طلابي، لازم نُفرغ ربطها
-     بالبرنامج (نعيدها لحالة "لم تُوثَّق بعد") — وإلا تبقى الحصة عالقة للأبد
-     على أنها "موثَّقة" بشاهد لم يعد موجودًا، بلا أي طريقة لإعادة توثيقها
-     من واجهة البرنامج (best-effort: فشل هذا لا يجب أن يمنع إتمام الحذف
-     نفسه، فهو أصلاً منجَز أعلاه). */
-  let clearedProgramSessionMeta = null;
-  if(rec.program_id && rec.program_session_no != null){
-    try{ clearedProgramSessionMeta = await clearProgramSessionLink(rec.program_id, rec.program_session_no, rec.program_section_id); } catch(e){ /* غير حرج */ }
-  }
+    /* لا حذف قبل نجاح حفظ اللقطة (السجل + صوره) بسلة المحذوفات */
+    const prot = await trashProtect(() => trashCaptureShahid(id, uid, meta));
+    if(!prot) return;
 
-  const originalIndex = myRecords.findIndex(r => String(r.id) === String(id));
-  if(originalIndex > -1) myRecords.splice(originalIndex, 1);
-  if(editingId === id){ startNewShahid(); }
-  filterMyShawahid();
-  if(afterDelete){ try{ afterDelete(); } catch(e){ /* غير حرج */ } }
-
-  let shouldCleanupPhotos = true;
-  try{
-    shouldCleanupPhotos = await showUndoToast('تم حذف الشاهد', 5);
-  } catch(err){
-    /* أي خلل غير متوقع بعرض نافذة التراجع لا يجب أن يمنع تنظيف الصور لاحقًا،
-       ولا يعتبر بحد ذاته فشلًا بالحذف نفسه (الحذف من القاعدة تم أعلاه بنجاح) */
-    shouldCleanupPhotos = true;
-  }
-
-  if(!shouldCleanupPhotos){
-    /* تراجع: أعد إدراج نفس السجل بنفس المعرّف والبيانات (الصور لم تُحذف بعد) */
+    /* الحذف الفعلي فوري (لا حذف مؤجَّل يعتمد على بقاء الصفحة). التراجع = استرجاع من السلة */
     try{
-      const { error: restoreErr } = await sb.from('shawahid').insert(rec);
-      if(restoreErr) throw restoreErr;
-      myRecords.splice(originalIndex > -1 ? originalIndex : myRecords.length, 0, rec);
-      filterMyShawahid();
-      /* أعد ربط الحصة ببرنامجها كما كانت قبل الحذف تمامًا (بنفس تاريخ التوثيق
-         الأصلي لا تاريخ اليوم) — عكس التفريغ أعلاه */
-      if(rec.program_id && rec.program_session_no != null){
-        const originalDoneDate = clearedProgramSessionMeta && clearedProgramSessionMeta.done_date;
-        try{ await markProgramSessionDone(rec.program_id, rec.program_session_no, rec.id, originalDoneDate, rec.program_section_id); } catch(e){ /* غير حرج */ }
-      }
-      if(afterDelete){ try{ afterDelete(); } catch(e){ /* غير حرج */ } }
-      showToast('تم التراجع عن الحذف', 'ok');
+      const { error } = await sb.from('shawahid').delete().eq('id', id).eq('user_id', uid);
+      if(error) throw error;
     } catch(err){
-      showToast('تعذّر التراجع — قد تحتاج لإعادة إنشاء الشاهد يدويًا: ' + err.message, 'error');
+      await trashDiscard(prot.id);
+      showToast('تعذّر حذف الشاهد: ' + err.message, 'error');
+      return;
     }
-    return;
-  }
 
-  /* لم يتراجع المستخدم: نظّف صور الشاهد من مساحة التخزين لتوفير المساحة */
-  if(rec.photo_urls && rec.photo_urls.length){
-    const paths = rec.photo_urls.map(url => {
-      const idx = url.indexOf('/shawahid-photos/');
-      return idx > -1 ? url.slice(idx + '/shawahid-photos/'.length) : null;
-    }).filter(Boolean);
-    if(paths.length){
-      try{ await sb.storage.from('shawahid-photos').remove(paths); } catch(e){ /* تنظيف غير حرج */ }
+    /* لو كان يوثّق حصة من برنامج، نفرّغ ربطها بالبرنامج (تعود "لم تُوثَّق بعد") وإلا
+       تبقى عالقة على شاهد غير موجود. best-effort: الحذف نفسه منجَز أعلاه. */
+    if(rec.program_id && rec.program_session_no != null){
+      try{ await clearProgramSessionLink(rec.program_id, rec.program_session_no, rec.program_section_id); } catch(e){ /* غير حرج */ }
     }
-  }
+
+    const originalIndex = myRecords.findIndex(r => String(r.id) === String(id));
+    if(originalIndex > -1) myRecords.splice(originalIndex, 1);
+    if(editingId === id){ startNewShahid(); }
+    filterMyShawahid();
+    if(afterDelete){ try{ afterDelete(); } catch(e){ /* غير حرج */ } }
+
+    if(!prot.id){
+      /* prot.gone: السجل محذوف أصلًا (من جهاز آخر) فصوره في سلة ذلك الحذف — لا نمسحها.
+         وإلا (تعذّرت السلة وأكّد المعلم): حذف نهائي، نمسح الصور فورًا كما كان */
+      if(!prot.gone) await trashRemovePhotos(trashPhotoPaths(rec.photo_urls));
+      showToast('تم حذف الشاهد', 'ok');
+      return;
+    }
+    /* الصور تبقى بالتخزين حتى انتهاء مدة السلة أو «حذف نهائي» */
+    trashOfferUndo('تم حذف الشاهد', prot.id, async () => {
+      await loadMyShawahid();
+      filterMyShawahid();
+      if(afterDelete){ try{ afterDelete(); } catch(e){ /* غير حرج */ } }
+    });
+  });
 }
 
 /* ============ التعديل على شاهد محفوظ ============ */

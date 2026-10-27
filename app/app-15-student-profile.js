@@ -470,11 +470,17 @@ async function saveCrmQuickPositive(){
 }
 
 async function deleteCrmPositiveNote(id){
-  const ok = await showConfirm('حذف هذه الملاحظة الإيجابية؟');
-  if(!ok) return;
-  const { error } = await sb.from('classroom_positive_notes').delete().eq('teacher_id', currentUser.id).eq('id', id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
-  renderCrmStudentProfile();
+  return trashRunOnce('pnote:' + id, async () => {
+    const ok = await showConfirm('حذف هذه الملاحظة الإيجابية؟ تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا.');
+    if(!ok || !currentUser) return;
+    const uid = currentUser.id;
+    const prot = await trashProtect(() => trashCaptureSingle('positive_note', 'classroom_positive_notes', 'teacher_id', id, uid, r => 'ملاحظة إيجابية: ' + String(r.note_text || '').slice(0, 40)));
+    if(!prot) return;
+    const { error } = await sb.from('classroom_positive_notes').delete().eq('teacher_id', uid).eq('id', id);
+    if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+    renderCrmStudentProfile();
+    trashOfferUndo('تم حذف الملاحظة', prot.id, async () => { if(crmProfile) await renderCrmStudentProfile(); });
+  });
 }
 
 /* ============================================================
@@ -503,13 +509,19 @@ async function saveCrmPrivateNote(studentId){
 }
 
 async function deleteCrmPrivateNote(id){
-  const ok = await showConfirm('حذف هذه الملاحظة الخاصة نهائيًا؟');
-  if(!ok) return;
-  const { error } = await sb.from('classroom_private_notes').delete().eq('teacher_id', currentUser.id).eq('id', id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
-  await renderCrmStudentProfile();
-  const sec = document.getElementById('crmProfPriv');
-  if(sec){ sec.style.display = 'block'; document.getElementById('crmProfPriv_arrow').textContent = '▾'; }
+  return trashRunOnce('prnote:' + id, async () => {
+    const ok = await showConfirm('حذف هذه الملاحظة الخاصة؟ تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا.');
+    if(!ok || !currentUser) return;
+    const uid = currentUser.id;
+    const prot = await trashProtect(() => trashCaptureSingle('private_note', 'classroom_private_notes', 'teacher_id', id, uid, r => 'ملاحظة خاصة: ' + String(r.body || '').slice(0, 40)));
+    if(!prot) return;
+    const { error } = await sb.from('classroom_private_notes').delete().eq('teacher_id', uid).eq('id', id);
+    if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+    await renderCrmStudentProfile();
+    const sec = document.getElementById('crmProfPriv');
+    if(sec){ sec.style.display = 'block'; document.getElementById('crmProfPriv_arrow').textContent = '▾'; }
+    trashOfferUndo('تم حذف الملاحظة', prot.id, async () => { if(crmProfile) await renderCrmStudentProfile(); });
+  });
 }
 
 /* ============================================================
@@ -722,7 +734,7 @@ function openCrmProfileMenu(studentId){
       <button class="btn btn-outline" style="justify-content:center;" onclick="closeCrmModal();openCrmTransferModal('${st.id}')">⇄ نقل لشعبة أخرى</button>
       <button class="btn btn-outline" style="justify-content:center;color:#8A2C2C;" onclick="closeCrmModal();deleteCrmStudent('${st.id}')">🗑 حذف الطالب</button>
     </div>
-    <p style="font-size:11px;color:var(--muted);margin:10px 0 0;line-height:1.7;text-align:center;">الحذف يطلب تأكيدًا ويوضح ما سيُفقد، ويمكنك التراجع عنه لبضع ثوانٍ.</p>
+    <p style="font-size:11px;color:var(--muted);margin:10px 0 0;line-height:1.7;text-align:center;">الحذف يطلب تأكيدًا ويوضح ما سيُفقد، ويبقى المحذوف في «المحذوفات» (الإعدادات) 30 يومًا لتسترجعه.</p>
   </div>`, '360px');
 }
 

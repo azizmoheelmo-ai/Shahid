@@ -189,32 +189,30 @@ test('saveCrmGradeEntry — نقرة مزدوجة لا تحفظ مرتين، و�
   assert.deepEqual({ ...ups[0].rows[0] }, { teacher_id: 'u1', column_id: 'c1', student_id: 'a', score: 9 });
 });
 
-test('deleteCrmStudent — التراجع يعيد درجات الطالب أيضًا', async () => {
-  const inserts = [];
+test('deleteCrmStudent — لقطة السلة تحوي درجات الطالب (لمعلمه فقط) قبل الحذف، والتراجع استرجاع منها', async () => {
+  const { withTrashSupport, recordDeletes, tick, snapshotRows } = require('./trash-helpers');
+  const store = {};
   const seed = {
-    classroom_grade_scores: [{ id: 'g1', teacher_id: 'u1', column_id: 'c1', student_id: 'a', score: 9 }],
+    classroom_students: [{ id: 'a', teacher_id: 'u1', full_name: 'أ', section_id: 'S' }],
+    classroom_grade_scores: [
+      { id: 'g1', teacher_id: 'u1', column_id: 'c1', student_id: 'a', score: 9 },
+      { id: 'gx', teacher_id: 'u2', column_id: 'c1', student_id: 'a', score: 1 },
+    ],
   };
-  const client = scopedClient(seed);
-  const baseFrom = client.from;
-  client.from = (table) => {
-    const api = baseFrom(table);
-    api.insert = (rows) => { inserts.push({ table, rows }); return Promise.resolve({ data: null, error: null }); };
-    api.delete = () => api;
-    return api;
-  };
+  const client = recordDeletes(withTrashSupport(scopedClient(seed), store), store);
   const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
   const { runInAppContext } = require('./load-app');
   runInAppContext(app, `
-    crmStudents = [{ id: 'a', full_name: 'أ', section_id: 'S' }];
     showConfirm = async () => true;
     showUndoToast = async () => false;   /* المعلم ضغط "تراجع" */
     loadCrmStudents = async () => {}; renderCrmStudentsList = () => {};
     refreshCrmPendingBadges = async () => {}; refreshAcBadges = async () => {};
   `);
   await app.deleteCrmStudent('a');
-  const restored = inserts.find(i => i.table === 'classroom_grade_scores');
-  assert.ok(restored, 'درجات الطالب يجب أن تُعاد مع التراجع');
-  assert.equal(restored.rows[0].id, 'g1');
+  await tick();
+  assert.deepEqual(store.events.slice(0, 2), ['save', 'delete:classroom_students'], 'اللقطة تُحفظ قبل الحذف');
+  assert.deepEqual(snapshotRows(store.items[0], 'classroom_grade_scores').map(r => r.id), ['g1'], 'درجات معلمه فقط');
+  assert.deepEqual(store.restored, ['T1'], 'التراجع = استرجاع عنصر السلة');
 });
 
 test('planGradeTransfer — درجات المنقول تنتقل لعمود الاسم نفسه في الشعبة الجديدة', async (t) => {

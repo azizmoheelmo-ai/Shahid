@@ -1126,18 +1126,25 @@ async function saveCrmLessonSheet(){
 async function deleteCrmLesson(){
   if(!crmSheet || !crmSheet.lessonId || crmSheetSaving) return;
   const sheet = crmSheet;
-  const ok = await showConfirm('حذف رصد هذه الحصة بالكامل؟ ستعود "غير مرصودة"، ويُحذف ما سُجّل فيها من غياب وتأخر واستئذان.');
+  const ok = await showConfirm('حذف رصد هذه الحصة بالكامل؟ ستعود "غير مرصودة"، ويُحذف ما سُجّل فيها من غياب وتأخر واستئذان. يبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا.');
   if(!ok || crmSheet !== sheet) return;
   crmSheetSaving = true;
-  const { error } = await sb.from('classroom_lessons').delete().eq('teacher_id', currentUser.id).eq('id', sheet.lessonId);
+  const uid = currentUser.id;
+  const lessonId = sheet.lessonId;
+  const prot = await trashProtect(() => trashCaptureLesson(lessonId, uid));
+  if(!prot){ crmSheetSaving = false; return; }
+  const { error } = await sb.from('classroom_lessons').delete().eq('teacher_id', uid).eq('id', lessonId);
   crmSheetSaving = false;
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+  if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
   clearLessonDraft(sheet.sectionId, sheet.dateIso, sheet.period);
   sheet.dirty = false;
   invalidateAttention();
   refreshAttention();
-  showToast('حُذف رصد الحصة', 'ok');
   if(crmSheet === sheet) closeCrmLessonSheet();
+  trashOfferUndo('حُذف رصد الحصة', prot.id, async () => {
+    const pane = document.getElementById('crmTabToday');
+    if(pane && pane.style.display !== 'none') await renderCrmToday();
+  });
 }
 
 /* تصفير حالة الورقة دون أي رسم — عند فتح شاشة إدارة الصف من جديد */

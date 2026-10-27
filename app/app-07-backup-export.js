@@ -2064,6 +2064,130 @@ create trigger trg_tasks_updated_at
 before update on public.tasks
 for each row execute function public.set_tasks_updated_at();
 
+-- ============ 12) سلة المحذوفات (30 يومًا) ============
+-- قبل أي حذف ثقيل يحفظ التطبيق نسخة من السجل وكل ما يُحذف معه (لقطة JSON) هنا،
+-- فيستطيع المعلم (أو المسؤول للمعلمين) استرجاعها خلال 30 يومًا. الجداول الأصلية
+-- وسياساتها لم تتغيّر، فلا استعلام يحتاج فلترة جديدة.
+-- payload = {"tables":[{"t":"اسم الجدول","rows":[...]}, ...] بترتيب الاسترجاع (الأب أولًا),
+--            "relinks":[{"t":"shawahid","col":"program_id","ids":["..."],"val":"..."}], "meta":{...}}
+create table if not exists public.deleted_items (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null check (char_length(kind) between 1 and 40),
+  label text not null check (char_length(label) <= 300),
+  payload jsonb not null,
+  photo_paths text[] not null default '{}',
+  deleted_by uuid default auth.uid(),
+  deleted_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '30 days',
+  check (expires_at <= now() + interval '31 days')
+);
+create index if not exists deleted_items_teacher_idx on public.deleted_items(teacher_id, deleted_at desc);
+create index if not exists deleted_items_expires_idx on public.deleted_items(expires_at);
+
+alter table public.deleted_items enable row level security;
+
+drop policy if exists "سلة: قراءة المالك والمسؤول" on public.deleted_items;
+create policy "سلة: قراءة المالك والمسؤول"
+  on public.deleted_items for select using (auth.uid() = teacher_id or public.is_admin(auth.uid()));
+
+drop policy if exists "سلة: إضافة المالك والمسؤول" on public.deleted_items;
+create policy "سلة: إضافة المالك والمسؤول"
+  on public.deleted_items for insert with check (auth.uid() = teacher_id or public.is_admin(auth.uid()));
+
+drop policy if exists "سلة: حذف المالك أو المنشئ" on public.deleted_items;
+create policy "سلة: حذف المالك أو المنشئ"
+  on public.deleted_items for delete using (auth.uid() = teacher_id or (auth.uid() = deleted_by and public.is_admin(auth.uid())));
+
+grant select, insert, delete on public.deleted_items to authenticated;
+
+-- مراجع اختيارية (on delete set null): لو اختفى المرجع قبل الاسترجاع يُفرَّغ الحقل بدل أن يفشل الاسترجاع كله
+create or replace function public.trash_soft_refs(p_table text, p_rows jsonb)
+returns jsonb language plpgsql set search_path = '' as $fn$
+declare
+  v_cfg jsonb := '{
+    "shawahid": [["program_id","activity_programs"],["goal_id","performance_goals"],["program_section_id","classroom_sections"]],
+    "tasks": [["linked_goal_id","performance_goals"],["linked_program_id","activity_programs"]],
+    "classroom_tasks": [["shahid_id","shawahid"]],
+    "classroom_followups": [["shahid_id","shawahid"],["section_id","classroom_sections"]],
+    "classroom_students": [["section_id","classroom_sections"]],
+    "classroom_incidents": [["section_id","classroom_sections"]],
+    "classroom_positive_notes": [["section_id","classroom_sections"]],
+    "classroom_private_notes": [["section_id","classroom_sections"]]
+  }';
+  v_pair jsonb; v_row jsonb; v_out jsonb := '[]'::jsonb; v_exists boolean;
+begin
+  for v_row in select * from jsonb_array_elements(p_rows) loop
+    for v_pair in select * from jsonb_array_elements(coalesce(v_cfg->p_table, '[]'::jsonb)) loop
+      if v_row->>(v_pair->>0) is not null then
+        execute format('select exists(select 1 from public.%I where id = $1)', v_pair->>1)
+          into v_exists using (v_row->>(v_pair->>0))::uuid;
+        if not v_exists then v_row := jsonb_set(v_row, array[v_pair->>0], 'null'::jsonb); end if;
+      end if;
+    end loop;
+    v_out := v_out || jsonb_build_array(v_row);
+  end loop;
+  return v_out;
+end
+$fn$;
+
+-- الاسترجاع كله في معاملة واحدة: ينجح كاملًا أو لا يتغيّر شيء
+create or replace function public.restore_deleted_item(p_id uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $fn$
+declare
+  v_item public.deleted_items;
+  v_allowed text[] := array['shawahid','activity_programs','program_sections','performance_goals','tasks',
+    'classroom_students','classroom_incidents','academic_cases','classroom_attendance','classroom_positive_notes',
+    'classroom_private_notes','classroom_followups','classroom_followup_actions','classroom_grade_columns',
+    'classroom_grade_scores','classroom_grade_period_scores','classroom_homework','classroom_homework_status',
+    'classroom_tasks','classroom_task_students','classroom_custom_tools','classroom_tool_marks','classroom_lessons'];
+  v_user_owned text[] := array['shawahid','activity_programs','performance_goals','tasks'];
+  v_relinks text[] := array['shawahid.program_id','shawahid.goal_id','tasks.linked_goal_id','tasks.linked_program_id'];
+  v_spec jsonb; v_rel jsonb; v_tab text; v_owner text; v_rows jsonb; v_c int; v_n int := 0;
+begin
+  if auth.uid() is null then raise exception 'not authenticated' using errcode = '28000'; end if;
+  select * into v_item from public.deleted_items where id = p_id for update;
+  if not found then raise exception 'deleted_item_not_found' using errcode = 'P0002'; end if;
+  if v_item.teacher_id <> auth.uid() and not public.is_admin(auth.uid()) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+
+  for v_spec in select * from jsonb_array_elements(coalesce(v_item.payload->'tables', '[]'::jsonb)) loop
+    v_tab := v_spec->>'t';
+    if v_tab is null or not (v_tab = any(v_allowed)) then
+      raise exception 'table_not_allowed: %', coalesce(v_tab, '<null>') using errcode = '42501';
+    end if;
+    v_owner := case when v_tab = any(v_user_owned) then 'user_id' else 'teacher_id' end;
+    -- المالك يُفرض من سجل السلة نفسه، فلا تُكتب صفوف باسم معلم آخر مهما كانت اللقطة
+    select coalesce(jsonb_agg(r || jsonb_build_object(v_owner, v_item.teacher_id)), '[]'::jsonb)
+      into v_rows from jsonb_array_elements(coalesce(v_spec->'rows', '[]'::jsonb)) r;
+    v_rows := public.trash_soft_refs(v_tab, v_rows);
+    execute format('insert into public.%I select * from jsonb_populate_recordset(null::public.%I, $1)', v_tab, v_tab)
+      using v_rows;
+    get diagnostics v_c = row_count; v_n := v_n + v_c;
+  end loop;
+
+  -- إعادة ربط ما فُكّ ربطه بالحذف (مثل شواهد برنامج محذوف)
+  for v_rel in select * from jsonb_array_elements(coalesce(v_item.payload->'relinks', '[]'::jsonb)) loop
+    if not ((v_rel->>'t') || '.' || (v_rel->>'col') = any(v_relinks)) then
+      raise exception 'relink_not_allowed' using errcode = '42501';
+    end if;
+    v_owner := case when (v_rel->>'t') = any(v_user_owned) then 'user_id' else 'teacher_id' end;
+    execute format('update public.%I set %I = $1 where id = any($2) and %I is null and %I = $3',
+        v_rel->>'t', v_rel->>'col', v_rel->>'col', v_owner)
+      using (v_rel->>'val')::uuid,
+            (select coalesce(array_agg(x::uuid), '{}') from jsonb_array_elements_text(coalesce(v_rel->'ids', '[]'::jsonb)) x),
+            v_item.teacher_id;
+  end loop;
+
+  delete from public.deleted_items where id = p_id;
+  return jsonb_build_object('kind', v_item.kind, 'rows', v_n, 'meta', coalesce(v_item.payload->'meta', '{}'::jsonb));
+end
+$fn$;
+revoke execute on function public.restore_deleted_item(uuid) from public, anon;
+grant execute on function public.restore_deleted_item(uuid) to authenticated;
+revoke execute on function public.trash_soft_refs(text, jsonb) from public, anon, authenticated;
+
 -- ============ انتهى ============
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:
 -- insert into public.admins (user_id) values ('ضع-UID-حسابك-هنا');
@@ -2115,7 +2239,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -2229,6 +2353,7 @@ async function exportFullBackup(){
       '     38. user_app_settings.csv',
       '     39. classroom_tool_marks.csv (لازم بعد classroom_custom_tools وclassroom_students وclassroom_sections)',
       '     40. classroom_grade_period_scores.csv (لازم بعد classroom_grade_scores — مشغّله يكتب معدّل الفترتين في الكشف)',
+      '     41. deleted_items.csv (سلة المحذوفات — مستقل، يُستعاد في أي وقت؛ صور محذوفاتها لا تُنسخ هنا)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

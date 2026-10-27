@@ -268,11 +268,17 @@ async function deleteTask(id){
   try{ await deleteTaskConfirmed(id); } finally { taskDeleting = false; }
 }
 async function deleteTaskConfirmed(id){
-  const ok = await showConfirm('حذف هذه المهمة؟');
-  if(!ok) return;
-  const { error } = await sb.from('tasks').delete().eq('id', id).eq('user_id', currentUser.id);
-  if(error){ showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+  const ok = await showConfirm('حذف هذه المهمة؟ تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعها.');
+  if(!ok || !currentUser) return;
+  const uid = currentUser.id;
+  const prot = await trashProtect(() => trashCaptureSingle('task', 'tasks', 'user_id', id, uid, r => r.title || 'مهمة'));
+  if(!prot) return;
+  const { error } = await sb.from('tasks').delete().eq('id', id).eq('user_id', uid);
+  if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
   myTasks = myTasks.filter(t => String(t.id) !== String(id));
-  showToast('تم حذف المهمة', 'ok');
   renderTasksList();
+  trashOfferUndo('تم حذف المهمة', prot.id, async () => {
+    await loadMyTasks();
+    if(document.getElementById('tasksView').style.display !== 'none') renderTasksList();
+  });
 }

@@ -2317,14 +2317,22 @@ async function deleteGoal(elIdx, uid){
   const key = row.dataset.key;
   const goalIdx = Number(card.dataset.goalIdx);
   const goal = myPlanGoals[key][goalIdx];
+  return trashRunOnce('goal:' + (goal.id || uid), () => deleteGoalConfirmed(elIdx, key, goalIdx, goal, row));
+}
 
-  const ok = await showConfirm('حذف هذا الهدف نهائيًا؟ الشواهد المرتبطة به تبقى محفوظة لكنها تفقد ربطها به.');
+async function deleteGoalConfirmed(elIdx, key, goalIdx, goal, row){
+  const ok = await showConfirm('حذف هذا الهدف؟ الشواهد المرتبطة به تبقى محفوظة لكنها تفقد ربطها به، ويبقى الهدف في «المحذوفات» ' + TRASH_DAYS + ' يومًا (يُعاد ربط شواهده عند الاسترجاع).');
   if(!ok) return;
 
   try{
+    let prot = { id: null };
     if(goal.id){
-      const { error } = await sb.from('performance_goals').delete().eq('id', goal.id);
-      if(error) throw error;
+      if(!currentUser) return;
+      /* لا حذف قبل حفظ لقطة الهدف وما يرتبط به بسلة المحذوفات */
+      prot = await trashProtect(() => trashCaptureGoal(goal.id, currentUser.id));
+      if(!prot) return;
+      const { error } = await sb.from('performance_goals').delete().eq('id', goal.id).eq('user_id', currentUser.id);
+      if(error){ await trashDiscard(prot.id); throw error; }
     }
     myPlanGoals[key].splice(goalIdx, 1);
     recomputeAggregateForElement(key);
@@ -2333,8 +2341,10 @@ async function deleteGoal(elIdx, uid){
     const list = document.getElementById('planGoals-' + elIdx);
     list.innerHTML = myPlanGoals[key].map((g, gi) => goalCardHtml(elIdx, gi, key, row.dataset.label)).join('');
     updateElementHeaderBadges(elIdx, key);
-    showToast('تم حذف الهدف', 'ok');
     refreshPlanSummary();
+    trashOfferUndo('تم حذف الهدف', prot.id, async () => {
+      if(document.getElementById('planView').style.display !== 'none' && typeof showPlan === 'function') await showPlan();
+    });
   } catch(err){
     showToast('تعذّر الحذف: ' + err.message, 'error');
   }

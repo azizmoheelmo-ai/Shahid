@@ -830,16 +830,20 @@ let crmTaskDeleting = false;
 async function deleteCrmTask(id, sectionId){
   if(crmTaskDeleting || !id || !sectionId) return;
   closeCrmModal();
-  const ok = await showConfirm('حذف هذه المهمة؟ تُحذف معها درجات الطلاب فيها، ويُعاد حساب عمود المهام.');
+  const ok = await showConfirm('حذف هذه المهمة؟ تُحذف معها درجات الطلاب فيها، ويُعاد حساب عمود المهام. تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا.');
   if(!ok || crmTaskDeleting) return;
   crmTaskDeleting = true;
   try{
     /* درجات قيد الحفظ على هذه المهمة تنتهي أولًا، لا تصطدم بحذفها */
     const s = crmSheet;
     if(s && s.task && s.task.queue) await Promise.all([...s.task.queue.values()]);
-    const { data, error } = await sb.from('classroom_tasks').delete().eq('teacher_id', currentUser.id).eq('id', id).select('id');
-    if(error) throw error;
-    showToast((data || []).length ? 'حُذفت المهمة' : 'المهمة محذوفة مسبقًا', 'ok');
+    const uid = currentUser.id;
+    const prot = await trashProtect(() => trashCapturePerfTask(id, uid));
+    if(!prot) return;
+    const { data, error } = await sb.from('classroom_tasks').delete().eq('teacher_id', uid).eq('id', id).select('id');
+    if(error){ await trashDiscard(prot.id); throw error; }
+    if((data || []).length) trashOfferUndo('حُذفت المهمة', prot.id, async () => { await afterCrmTaskChanged(sectionId, null); });
+    else { await trashDiscard(prot.id); showToast('المهمة محذوفة مسبقًا', 'ok'); }
   } catch(e){
     showToast('تعذّر الحذف: ' + taskDbErrorMessage(e), 'error');
     return;

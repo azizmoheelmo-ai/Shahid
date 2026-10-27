@@ -49,7 +49,8 @@ function fakeClient(seed, log, rpcValues){
 }
 
 function appWith(seed, log, features, extra){
-  const app = loadApp({ supabaseClient: fakeClient(Object.assign({ academic_calendar_weeks: WEEKS, academic_calendar_holidays: [] }, seed || {}), log || [], extra && extra.rpc), currentUser: { id: 'u1' } });
+  const client = fakeClient(Object.assign({ academic_calendar_weeks: WEEKS, academic_calendar_holidays: [] }, seed || {}), log || [], extra && extra.rpc);
+  const app = loadApp({ supabaseClient: extra && extra.wrap ? extra.wrap(client) : client, currentUser: { id: 'u1' } });
   runInAppContext(app, `
     window.__toasts = []; showToast = (m, k) => window.__toasts.push(k + ':' + m);
     window.__saved = 0; saveAppFeatures = async () => { window.__saved++; }; afterAppFeaturesChanged = () => {};
@@ -565,7 +566,9 @@ test('النسخ الاحتياطي — جدول الفترتين في الشا�
   assert.ok(sql.indexOf('create table if not exists public.classroom_grade_period_scores') > sql.indexOf('create table if not exists public.classroom_grade_scores'));
 });
 
-test('حذف طالب ثم التراجع — تعود درجتا الفترتين بعد درجة الكشف، ولمعلمه فقط', async () => {
+test('حذف طالب — لقطة السلة تحوي درجتي الفترتين بعد درجة الكشف (ترتيب الاسترجاع)، ولمعلمه فقط', async () => {
+  const { withTrashSupport, tick, snapshotRows } = require('./trash-helpers');
+  const store = {};
   const log = [];
   const seed = {
     classroom_students: [{ id: 'a', teacher_id: 'u1', full_name: 'أحمد', section_id: 'S' }],
@@ -574,11 +577,12 @@ test('حذف طالب ثم التراجع — تعود درجتا الفترتي
       { id: 'q2', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 4 },
       { id: 'qx', teacher_id: 'u2', column_id: 'P', student_id: 'a', period: 1, score: 1 }],
   };
-  const app = appWith(seed, log, null, { code: `showUndoToast = async () => false; loadCrmStudents = async () => {}; renderCrmStudentsList = () => {}; refreshCrmPendingBadges = async () => {}; refreshAcBadges = async () => {}; showConfirm = async () => true;` });
+  const app = appWith(seed, log, null, { wrap: c => withTrashSupport(c, store), code: `showUndoToast = async () => false; loadCrmStudents = async () => {}; renderCrmStudentsList = () => {}; refreshCrmPendingBadges = async () => {}; refreshAcBadges = async () => {}; showConfirm = async () => true;` });
   await app.deleteCrmStudent('a');
-  const ins = log.filter(l => l.op === 'insert').map(l => l.table);
-  assert.ok(ins.indexOf('classroom_grade_period_scores') > ins.indexOf('classroom_grade_scores'));
-  const per = log.find(l => l.op === 'insert' && l.table === 'classroom_grade_period_scores');
-  assert.deepEqual([...per.values].map(r => r.id), ['q1', 'q2']);
+  await tick();
+  const order = [...store.items[0].payload.tables].map(t => t.t);
+  assert.ok(order.indexOf('classroom_grade_period_scores') > order.indexOf('classroom_grade_scores'), 'الفترات بعد درجات الكشف (مشغّلها يكتب فوقها)');
+  assert.deepEqual(snapshotRows(store.items[0], 'classroom_grade_period_scores').map(r => r.id), ['q1', 'q2']);
+  assert.deepEqual(store.restored, ['T1']);
 });
 

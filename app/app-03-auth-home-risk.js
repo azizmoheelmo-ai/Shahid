@@ -476,6 +476,8 @@ async function checkAdminStatus(){
   }
   document.getElementById('adminNavBtn').style.display = isAdmin ? 'inline-block' : 'none';
   if(isAdmin) refreshSupportMessagesBadge();
+  /* تنظيف المحذوفات المنتهية (مع صورها) بعد استقرار الدخول — لا يؤخّر شيئًا */
+  if(typeof trashPurgeExpired === 'function') setTimeout(() => { trashPurgeExpired(); }, 5000);
   /* شارة "إدارة الصف" = بطاقات الانتباه العاجلة والمهمة (app-16) — مصدر
      واحد لتنبيهات الطلاب بدل تكرارها هنا وفي مركز التنبيهات */
   refreshAttention();
@@ -988,7 +990,7 @@ async function saveDutyType(duty){
 }
 
 function showSettingsSection(name){
-  const ids = { menu: 'settingsMenu', customize: 'settingsCustomizeBody', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', connector: 'settingsConnectorBody', calendarFeed: 'settingsCalendarFeedBody' };
+  const ids = { menu: 'settingsMenu', customize: 'settingsCustomizeBody', profile: 'settingsProfileBody', security: 'settingsSecurityBody', data: 'settingsDataBody', about: 'settingsAboutBody', trash: 'settingsTrashBody', connector: 'settingsConnectorBody', calendarFeed: 'settingsCalendarFeedBody' };
   Object.values(ids).forEach(id => { document.getElementById(id).style.display = 'none'; });
   document.getElementById(ids[name] || ids.menu).style.display = 'block';
   if(name === 'security') applyPasswordSectionMode();

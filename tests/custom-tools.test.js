@@ -56,8 +56,9 @@ const TOOLS = [
   { id: 'TG', name: 'شفهي', tool_type: 'score', category: 'tests', max_score: 4, hidden: false },
 ];
 
-function appWith(seed, log, opts){
-  const app = loadApp({ supabaseClient: fakeClient(seed || {}, log || [], opts), currentUser: { id: 'u1' } });
+function appWith(seed, log, opts, wrap){
+  const client = fakeClient(seed || {}, log || [], opts);
+  const app = loadApp({ supabaseClient: wrap ? wrap(client) : client, currentUser: { id: 'u1' } });
   runInAppContext(app, `
     window.__toasts = []; showToast = (m, k) => window.__toasts.push(k + ':' + m);
     showInfoModal = () => {}; showConfirm = async () => true; closeCrmModal = () => {};
@@ -316,13 +317,18 @@ test('انحدار: إنشاء كشف الشعبة الجديدة عند نقل 
   assert.match(app.moveStudentGrades.toString(), /select\('category, name, max_score, measures, position, kind, tool_id'\)/);
 });
 
-test('deleteCrmStudent — التراجع يعيد رصد أدواته', async () => {
+test('deleteCrmStudent — لقطة السلة تحوي رصد أدواته، والتراجع استرجاع منها', async () => {
+  const { withTrashSupport, tick, snapshotRows } = require('./trash-helpers');
+  const store = {};
   const log = [];
-  const seed = { classroom_tool_marks: [{ id: 'm1', teacher_id: 'u1', tool_id: 'TS', student_id: 'a', value: 1 }] };
-  const app = appWith(seed, log);
+  const seed = {
+    classroom_students: [{ id: 'a', teacher_id: 'u1', full_name: 'أ', section_id: 'S' }],
+    classroom_tool_marks: [{ id: 'm1', teacher_id: 'u1', tool_id: 'TS', student_id: 'a', value: 1 }, { id: 'mx', teacher_id: 'u2', tool_id: 'TS', student_id: 'a', value: 0 }],
+  };
+  const app = appWith(seed, log, null, c => withTrashSupport(c, store));
   runInAppContext(app, `showUndoToast = async () => false; loadCrmStudents = async () => {}; renderCrmStudentsList = () => {}; refreshCrmPendingBadges = async () => {}; refreshAcBadges = async () => {};`);
   await app.deleteCrmStudent('a');
-  const restored = writes(log, 'classroom_tool_marks', 'insert')[0];
-  assert.ok(restored);
-  assert.equal(restored.rows[0].id, 'm1');
+  await tick();
+  assert.deepEqual(snapshotRows(store.items[0], 'classroom_tool_marks').map(r => r.id), ['m1'], 'رصد معلمه فقط');
+  assert.deepEqual(store.restored, ['T1']);
 });

@@ -667,7 +667,7 @@ let crmHwDeleting = false;
 async function deleteCrmHomework(id, sectionId){
   if(crmHwDeleting || !id || !sectionId) return;
   closeCrmModal();
-  const ok = await showConfirm('حذف هذا الواجب؟ يُحذف معه رصد تسليمه، وتُعاد حساب درجات الواجبات.');
+  const ok = await showConfirm('حذف هذا الواجب؟ يُحذف معه رصد تسليمه، وتُعاد حساب درجات الواجبات. يبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا.');
   if(!ok) return;
   if(crmHwDeleting) return;
   crmHwDeleting = true;
@@ -675,10 +675,14 @@ async function deleteCrmHomework(id, sectionId){
     /* نقرات تسليم معلّقة على هذا الواجب تنتهي أولًا، لا تصطدم بحذفه */
     const s = crmSheet;
     if(s && s.hw && s.hw.queue) await Promise.all([...s.hw.queue.values()]);
+    const uid = currentUser.id;
+    const prot = await trashProtect(() => trashCaptureHomework(id, uid));
+    if(!prot) return;
     const { data, error } = await sb.from('classroom_homework').delete()
-      .eq('teacher_id', currentUser.id).eq('id', id).select('id');
-    if(error) throw error;
-    showToast((data || []).length ? 'حُذف الواجب' : 'الواجب محذوف مسبقًا', 'ok');
+      .eq('teacher_id', uid).eq('id', id).select('id');
+    if(error){ await trashDiscard(prot.id); throw error; }
+    if((data || []).length) trashOfferUndo('حُذف الواجب', prot.id, async () => { await afterCrmHomeworkChanged(sectionId, null, true); });
+    else { await trashDiscard(prot.id); showToast('الواجب محذوف مسبقًا', 'ok'); }
   } catch(e){
     showToast('تعذّر الحذف: ' + (e.message || ''), 'error');
     return;

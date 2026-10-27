@@ -194,22 +194,29 @@ test('loadSectionHomework — واجبات وتسليم المعلم الحال�
   assert.deepEqual([...hw.statusRows].map(r => r.student_id), ['a']);
 });
 
-test('deleteCrmStudent — التراجع يعيد تسليم واجباته أيضًا', async () => {
+test('deleteCrmStudent — لقطة السلة تحوي تسليم واجباته (لمعلمه فقط)، والتراجع استرجاع منها', async () => {
+  const { withTrashSupport, tick, snapshotRows } = require('./trash-helpers');
+  const store = {};
   const log = [];
-  const seed = { classroom_homework_status: [{ id: 'hs1', teacher_id: 'u1', homework_id: 'H', student_id: 'a', status: 'submitted' }] };
-  const client = fakeClient(seed, log);
+  const seed = {
+    classroom_students: [{ id: 'a', teacher_id: 'u1', full_name: 'أ', section_id: 'S' }],
+    classroom_homework_status: [
+      { id: 'hs1', teacher_id: 'u1', homework_id: 'H', student_id: 'a', status: 'submitted' },
+      { id: 'hsx', teacher_id: 'u2', homework_id: 'H', student_id: 'a', status: 'late' },
+    ],
+  };
+  const client = withTrashSupport(fakeClient(seed, log), store);
   const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
   runInAppContext(app, `
-    crmStudents = [{ id: 'a', full_name: 'أ', section_id: 'S' }];
     showConfirm = async () => true;
     showUndoToast = async () => false;
     loadCrmStudents = async () => {}; renderCrmStudentsList = () => {};
     refreshCrmPendingBadges = async () => {}; refreshAcBadges = async () => {};
   `);
   await app.deleteCrmStudent('a');
-  const restored = log.find(l => l.op === 'insert' && l.table === 'classroom_homework_status');
-  assert.ok(restored, 'تسليم الواجبات يُعاد مع التراجع');
-  assert.equal(restored.rows[0].id, 'hs1');
+  await tick();
+  assert.deepEqual(snapshotRows(store.items[0], 'classroom_homework_status').map(r => r.id), ['hs1']);
+  assert.deepEqual(store.restored, ['T1']);
 });
 
 /* ============ سجل التراجع يبقى بعد إغلاق الورقة ============ */

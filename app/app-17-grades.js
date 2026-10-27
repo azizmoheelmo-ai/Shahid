@@ -1096,15 +1096,18 @@ async function deleteCrmGradeColumn(columnId){
   const c = crmGrades.columns.find(x => x.id === columnId);
   if(!c) return;
   const recorded = crmGrades.scores.filter(s => s.column_id === columnId).length;
-  const ok = await showConfirm(`حذف عمود "${c.name}"؟` + (recorded ? ` ستُحذف معه ${recorded} درجة مرصودة نهائيًا.` : ''));
+  const ok = await showConfirm(`حذف عمود "${c.name}"؟` + (recorded ? ` ستُحذف معه ${recorded} درجة مرصودة.` : '') + ` يبقى في «المحذوفات» ${TRASH_DAYS} يومًا.`);
   if(!ok) return;
   crmGradeBusy = true;
-  const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', currentUser.id).eq('id', columnId);
+  const uid = currentUser.id;
+  const prot = await trashProtect(() => trashCaptureGradeColumns([columnId], uid, c.name));
+  if(!prot){ crmGradeBusy = false; return; }
+  const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).eq('id', columnId);
   crmGradeBusy = false;
-  if(error){ showToast('تعذّر الحذف: ' + gradeDbErrorMessage(error), 'error'); return; }
-  showToast('حُذف العمود', 'ok');
+  if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + gradeDbErrorMessage(error), 'error'); return; }
   afterCrmGradesChanged();
   renderCrmGrades();
+  trashOfferUndo('حُذف العمود', prot.id, async () => { afterCrmGradesChanged(); if(crmGrades) await renderCrmGrades(); });
 }
 
 /* شعب المعلم التي لها كشف في هذا الفصل (أعمدة أساسية) — والحالية دائمًا */
