@@ -1312,6 +1312,9 @@
             <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleShawahidMore(event)">⋯</button>
             <div class="sh-more-menu" id="shMoreMenu" style="display:none;">
               <button class="btn btn-outline" id="exportAllBtn" onclick="closeShawahidMore();exportAllShawahid()">📄 تصدير الكل PDF</button>
+              <label class="sh-theme-row" for="shPrintTheme">🎨 تصميم الطباعة
+                <select id="shPrintTheme" onchange="setShahidPrintTheme(this.value)"></select>
+              </label>
             </div>
           </div>
         </div>

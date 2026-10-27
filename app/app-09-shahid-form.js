@@ -203,6 +203,7 @@ function toggleShawahidMore(e){
   if(e && e.stopPropagation) e.stopPropagation();
   const m = document.getElementById('shMoreMenu');
   if(m) m.style.display = m.style.display === 'none' ? 'block' : 'none';
+  if(m && m.style.display === 'block') fillShahidPrintThemePicker();
 }
 function closeShawahidMore(){
   const m = document.getElementById('shMoreMenu');
@@ -1371,7 +1372,7 @@ function sectionPdf(title, bodyHtml){
     ${bodyHtml}
   </div>`;
 }
-function buildPdfHtml(rec, photoDataUrls){
+function buildClassicPdfHtml(rec, photoDataUrls){
   const dateDisplay = rec.lesson_date || (rec.created_at ? new Date(rec.created_at).toLocaleDateString('ar-SA') : '');
   const stepsHtml = (rec.steps && rec.steps.length)
     ? rec.steps.map((s, i) => `
@@ -1419,6 +1420,139 @@ function buildPdfHtml(rec, photoDataUrls){
       <div style="border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">توقيع المعلم</div>
     </div>
   </div>`;
+}
+
+/* ============ تصميم "بطاقة التقرير" (ألوان قابلة للاختيار) ============ */
+/* هيدر ملوّن + عنوان بارز + حقول بإطار تعلوه عناوينها + مربعات صور الشواهد +
+   توقيعان — على غرار نماذج التقارير المدرسية. نفس بيانات الشاهد بلا أي حقل جديد،
+   والتصميم القديم يبقى متاحًا باسم "classic". الاختيار محفوظ بالجهاز فقط. */
+const SHAHID_PRINT_THEMES = {
+  teal:    { label: 'تركوازي',          main: '#1D4B63', accent: '#1C9A8A', soft: '#EAF6F4' },
+  navy:    { label: 'كحلي وذهبي',       main: '#1B3245', accent: '#A9852E', soft: '#F6F0E1' },
+  plum:    { label: 'بنفسجي',           main: '#4A2C6D', accent: '#7B4FB0', soft: '#F3EDFA' },
+  green:   { label: 'أخضر',             main: '#17472F', accent: '#2F9E5B', soft: '#E8F5EC' },
+  classic: { label: 'الكلاسيكي (القديم)' }
+};
+const SHAHID_PRINT_THEME_KEY = 'shahid_print_theme';
+const SHAHID_PRINT_THEME_DEFAULT = 'teal';
+
+function getShahidPrintTheme(){
+  let key = null;
+  try{ key = localStorage.getItem(SHAHID_PRINT_THEME_KEY); } catch(e){}
+  return Object.prototype.hasOwnProperty.call(SHAHID_PRINT_THEMES, key) ? key : SHAHID_PRINT_THEME_DEFAULT;
+}
+function setShahidPrintTheme(key){
+  if(!Object.prototype.hasOwnProperty.call(SHAHID_PRINT_THEMES, key)) return;
+  try{ localStorage.setItem(SHAHID_PRINT_THEME_KEY, key); } catch(e){}
+  showToast('تم اختيار تصميم الطباعة: ' + SHAHID_PRINT_THEMES[key].label, 'ok');
+}
+/* تعبئة قائمة الاختيار داخل ⋯ (تُستدعى عند فتح القائمة لتعكس الاختيار المحفوظ) */
+function fillShahidPrintThemePicker(){
+  const sel = document.getElementById('shPrintTheme');
+  if(!sel) return;
+  const cur = getShahidPrintTheme();
+  sel.innerHTML = Object.keys(SHAHID_PRINT_THEMES).map(k =>
+    `<option value="${k}"${k === cur ? ' selected' : ''}>${escapeHtml(SHAHID_PRINT_THEMES[k].label)}</option>`).join('');
+}
+
+function cardFieldPdf(t, label, valueHtml, extraStyle){
+  return `<div style="position:relative;border:1.5px solid ${t.accent};border-radius:10px;padding:14px 12px 8px;box-sizing:border-box;${extraStyle || ''}">
+    <span style="position:absolute;top:-10px;right:12px;background:#fff;padding:0 6px;font-size:10.5px;font-weight:700;color:${t.accent};">${escapeHtml(label)}</span>
+    <div style="font-size:11.5px;line-height:1.75;color:#232323;">${valueHtml}</div>
+  </div>`;
+}
+function cardTextPdf(text){
+  return `<div style="white-space:pre-wrap;">${escapeHtml(text || '—')}</div>`;
+}
+function buildCardPdfHtml(rec, photoDataUrls, t){
+  const dateDisplay = rec.lesson_date || (rec.created_at ? new Date(rec.created_at).toLocaleDateString('ar-SA') : '');
+  const stepsHtml = (rec.steps && rec.steps.length)
+    ? rec.steps.map((s, i) => `
+        <div style="display:flex;gap:7px;margin-bottom:5px;align-items:flex-start;">
+          <span style="flex:0 0 17px;height:17px;border-radius:50%;background:${t.accent};color:#fff;font-size:9.5px;display:flex;align-items:center;justify-content:center;">${i+1}</span>
+          <span style="flex:1;">${escapeHtml(s)}</span>
+        </div>`).join('')
+    : '—';
+  const impactHtml = `
+    <div style="margin-bottom:6px;"><b style="color:${t.accent};font-size:10.5px;">مؤشر كمي:</b> ${escapeHtml(rec.quant_impact || '—')}</div>
+    <div><b style="color:${t.accent};font-size:10.5px;">ملاحظة نوعية:</b> ${escapeHtml(rec.qual_impact || '—')}</div>`;
+
+  /* الصور: حتى ٦ بمربعات متناسبة مع عددها كي تبقى الصفحة واحدة، والمستندات بأسمائها */
+  const imgItems = photoDataUrls.filter(u => typeof u === 'string' && (u.startsWith('data:image') || isImageUrl(u)));
+  const docItems = (rec.photo_urls || []).filter(u => !isImageUrl(u));
+  const shown = imgItems.slice(0, 6);
+  const rows = Math.ceil(shown.length / 2);
+  const frameH = shown.length === 1 ? 250 : (rows === 1 ? 225 : (rows === 2 ? 160 : 110));
+  const frameStyle = `box-sizing:border-box;border:1.5px solid ${t.accent};border-radius:12px;background:${t.soft};height:${frameH}px;padding:6px;`;
+  const framesHtml = shown.length
+    ? shown.map(u => `<div style="${frameStyle}width:${shown.length === 1 ? '100%' : 'calc(50% - 5px)'};"><img src="${escapeHtml(u)}" style="width:100%;height:100%;object-fit:contain;display:block;"></div>`).join('')
+    : [0, 1].map(() => `<div style="box-sizing:border-box;border:1.5px dashed ${t.accent};border-radius:12px;background:${t.soft};height:110px;width:calc(50% - 5px);display:flex;align-items:center;justify-content:center;color:${t.accent};font-size:12px;">مكان صورة الشاهد</div>`).join('');
+  const photosNote = (imgItems.length > shown.length
+      ? `<div style="font-size:10px;color:#6B6659;margin-top:6px;">+ ${imgItems.length - shown.length} صور أخرى محفوظة في التطبيق</div>` : '')
+    + (docItems.length
+      ? `<div style="font-size:10px;color:#3F3B31;margin-top:6px;"><b>مستندات مرفقة:</b> ${docItems.map(u => escapeHtml(decodeURIComponent((u.split('/').pop() || 'ملف').split('?')[0]))).join(' • ')}</div>` : '');
+
+  return `
+  <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;box-sizing:border-box;">
+    <div style="background:${t.main};color:#fff;padding:22px 30px 36px;border-radius:0 0 30px 30px;border-bottom:5px solid ${t.accent};display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:11px;opacity:.8;">شاهد على الأداء الوظيفي</div>
+        <div style="font-size:19px;font-weight:700;margin-top:4px;">${escapeHtml(rec.school || '—')}</div>
+        <div style="font-size:12px;margin-top:3px;opacity:.9;">${escapeHtml(rec.teacher_name || '')}</div>
+      </div>
+      <div style="text-align:left;font-size:11px;line-height:1.9;opacity:.9;">
+        ${dateDisplay ? `<div>التاريخ: ${escapeHtml(dateDisplay)}</div>` : ''}
+        ${rec.ref_number ? `<div>رقم مرجعي: ${escapeHtml(rec.ref_number)}</div>` : ''}
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:-20px;">
+      <span style="display:inline-block;background:#fff;border:2px solid ${t.accent};border-radius:999px;padding:9px 30px;font-size:15px;font-weight:700;color:${t.main};max-width:620px;">${escapeHtml(rec.element_label || 'شاهد أداء وظيفي')}</span>
+    </div>
+    <div style="padding:20px 30px 0;">
+      <div style="display:flex;gap:12px;margin-bottom:14px;">
+        ${cardFieldPdf(t, 'المعلم', escapeHtml(rec.teacher_name || '—'), 'flex:1;')}
+        ${cardFieldPdf(t, 'المادة', escapeHtml(rec.subject || '—'), 'flex:1;')}
+        ${cardFieldPdf(t, 'الصف / الفصل', escapeHtml(rec.class_name || '—'), 'flex:1;')}
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:14px;">
+        ${cardFieldPdf(t, 'عنوان الدرس / الوحدة', escapeHtml(rec.lesson_title || '—'), 'flex:2;')}
+        ${cardFieldPdf(t, 'التاريخ', escapeHtml(dateDisplay || '—'), 'flex:1;')}
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:14px;">
+        ${cardFieldPdf(t, 'الوصف', cardTextPdf(rec.description), 'flex:1;')}
+        ${cardFieldPdf(t, 'الهدف من هذا الإجراء', cardTextPdf(rec.goal), 'flex:1;')}
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:14px;">
+        ${cardFieldPdf(t, 'خطوات التنفيذ الفعلية', stepsHtml, 'flex:1;')}
+        ${cardFieldPdf(t, 'الأثر / النتيجة الملاحظة', impactHtml, 'flex:1;')}
+      </div>
+      ${cardFieldPdf(t, 'تأمل المعلم', cardTextPdf(rec.reflection), 'margin-bottom:16px;')}
+      <div style="text-align:center;font-size:12px;font-weight:700;color:${t.accent};margin-bottom:6px;">الشواهد</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">${framesHtml}</div>
+      ${photosNote}
+      <div style="display:flex;gap:40px;margin-top:22px;padding:0 10px;">
+        <div style="flex:1;text-align:center;">
+          <div style="height:30px;font-size:12px;">${escapeHtml(rec.teacher_name || '')}</div>
+          <div style="border-top:1.5px solid ${t.accent};padding-top:5px;font-size:10.5px;color:#6B6659;">المعلم / الاسم والتوقيع</div>
+        </div>
+        <div style="flex:1;text-align:center;">
+          <div style="height:30px;"></div>
+          <div style="border-top:1.5px solid ${t.accent};padding-top:5px;font-size:10.5px;color:#6B6659;">مدير المدرسة / الاسم والتوقيع</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:${t.main};color:#fff;margin-top:22px;padding:9px 30px;border-radius:16px 16px 0 0;font-size:9.5px;display:flex;justify-content:space-between;opacity:.95;">
+      <span>شاهد على الأداء الوظيفي${rec.subject ? ' — ' + escapeHtml(rec.subject) : ''}</span>
+      <span>${rec.ref_number ? escapeHtml(rec.ref_number) : ''}</span>
+    </div>
+  </div>`;
+}
+
+/* نقطة الدخول الوحيدة لقالب طباعة/تصدير الشاهد — تختار التصميم المحفوظ */
+function buildPdfHtml(rec, photoDataUrls){
+  const key = getShahidPrintTheme();
+  if(key === 'classic') return buildClassicPdfHtml(rec, photoDataUrls);
+  return buildCardPdfHtml(rec, photoDataUrls, SHAHID_PRINT_THEMES[key]);
 }
 
 /* ============ توليد PDF للشاهد (لاستخدامه في المشاركة) ============ */
