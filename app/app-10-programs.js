@@ -291,16 +291,16 @@ function renderProgramSectionPicker(){
   box.innerHTML = pgCrmGradeLevels.map(g => {
     const secs = pgCrmSections.filter(s => s.grade_level_id === g.id);
     if(!secs.length) return '';
-    return `<div style="margin-bottom:8px;">
-      <div style="font-size:11.5px;font-weight:700;color:var(--navy);margin-bottom:4px;">${escapeHtml(g.name)}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        ${secs.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;background:#F7F5F0;border:1px solid var(--line);padding:4px 8px;cursor:pointer;">
-          <input type="checkbox" value="${s.id}" ${pgSelectedSectionIds.includes(s.id) ? 'checked' : ''} onchange="toggleProgramSection('${s.id}', this.checked)">
-          الشعبة ${escapeHtml(s.name)}
-        </label>`).join('')}
-      </div>
-    </div>`;
+    return `<div class="pg-grade">${escapeHtml(g.name)}</div>
+      <div>${secs.map(s => `<button type="button" class="pg-sp ${pgSelectedSectionIds.includes(s.id) ? 'is-on' : ''}" aria-pressed="${pgSelectedSectionIds.includes(s.id)}" onclick="toggleProgramSectionPill('${escapeHtml(String(s.id))}', this)">الشعبة ${escapeHtml(s.name)}</button>`).join('')}</div>`;
   }).join('') || '<div style="font-size:11.5px;color:var(--muted);">لا توجد شُعب مسجَّلة بعد.</div>';
+}
+
+function toggleProgramSectionPill(sectionId, btn){
+  const on = !pgSelectedSectionIds.includes(sectionId);
+  btn.classList.toggle('is-on', on);
+  btn.setAttribute('aria-pressed', String(on));
+  return toggleProgramSection(sectionId, on);
 }
 
 async function toggleProgramSection(sectionId, checked){

@@ -2308,3 +2308,31 @@ button.crm-gs-strip-btn:hover{background:#F1EEE6;}
 .pg-sc-grp{display:inline-flex;gap:4px;align-items:center;}
 .pg-del{flex:none;width:36px;height:36px;border-radius:9px;border:1px solid #E8C9C9;background:#fff;color:#8A2C2C;font-size:14px;cursor:pointer;font-family:inherit;margin-right:10px;}
 .pg-del:hover{background:#FBEDED;}
+
+/* --- نماذج البرنامج/المهمة: بطاقات مرقّمة + زر حفظ ثابت --- */
+.pg-form{padding:12px 14px 4px;}
+.pg-fc{background:#fff;border:1px solid #E4DECF;border-radius:14px;padding:12px;margin-bottom:9px;}
+.pg-fh{display:flex;align-items:center;gap:8px;font-weight:900;color:var(--navy);font-size:13.5px;margin-bottom:8px;}
+.pg-fh em{font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;}
+.pg-lbl{display:block;font-size:11.5px;font-weight:700;color:var(--muted);margin:0 0 3px;}
+.pg-inp{border-radius:10px !important;margin-bottom:8px;min-height:44px;width:100%;}
+.pg-fc .pg-inp:last-of-type{margin-bottom:0;}
+.pg-auto{background:#EAF0F5;border-radius:10px;padding:7px 10px;font-size:12px;color:var(--navy);font-weight:700;margin-top:8px;}
+.pg-grade{font-size:11.5px;font-weight:800;color:var(--muted);margin:6px 0 4px;}
+.pg-sp{display:inline-block;min-height:40px;border:1px solid #E4DECF;background:#fff;color:var(--navy);border-radius:20px;padding:0 14px;margin:0 0 6px 6px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;}
+.pg-sp.is-on{background:var(--navy);border-color:var(--navy);color:#fff;}
+.pg-addrow{display:block;width:100%;margin-top:8px;border:1.5px dashed var(--gold);background:#fff;border-radius:11px;padding:10px;color:var(--gold-text);font-family:inherit;font-weight:800;font-size:13px;cursor:pointer;}
+.pg-form .steps li .num{border-radius:50%;}
+.pg-form .steps .pg-week-input{border-radius:10px;min-height:44px;}
+.pg-form .steps .remove-step{width:36px;height:36px;border-radius:9px;background:#FBEDED;color:#8A2C2C;}
+.pg-form .save-msg{padding:0 2px 8px;}
+#programsFormSection .sh-fab:disabled,#tasksFormSection .sh-fab:disabled{opacity:.6;cursor:default;}
+/* --- مهامّي --- */
+#tasksListBody{padding:4px 14px 4px;}
+.pg-card.tk-done{background:#FBFAF6;}
+.tk-chk{flex:none;width:24px;height:24px;margin:2px 0 0;accent-color:#1F7A6A;cursor:pointer;}
+.pg-card.tk-done .pg-card-ttl{text-decoration:line-through;color:var(--muted);font-weight:700;}
+.pg-chip.high{background:#FBEDED;color:#8A2C2C;}
+.pg-chip.med{background:#F4F0E4;color:#6B5420;}
+.pg-chip.low{background:#EAF0F5;color:var(--navy);}
+.pg-chip.late{background:#B23A3A;color:#fff;}
