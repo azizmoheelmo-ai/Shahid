@@ -28,6 +28,7 @@ let batchPeriod = 'custom';        // الفترة المختارة: sem1 | sem2
 let batchFrom = '', batchTo = '', batchOne = ''; // التواريخ المختارة (YYYY-MM-DD)
 let batchPeriodTouched = false;    // هل اختار المعلم الفترة بنفسه (فلا نستبدلها بفصله الحالي)
 let batchPreviewOpen = false;      // معاينة الأسابيع مفتوحة
+let batchPreviewSem = null;        // الفصل المعروض بالمعاينة (1 | 2 | 0 = بلا تقويم)
 let batchCapToday = true;          // «لا تضع تواريخ بعد اليوم» (مفعّل افتراضيًا؛ يُوقَف لتواريخ قادمة حتى آخر يوم دراسة)
 let batchPlanned = null;           // آخر توزيع معروض بالمعاينة { from, to, count, ndays, dates } — يُعتمد عند الإنشاء
 let batchBusyIds = new Set();      // بطاقات يجري رفع صورتها الآن
@@ -77,6 +78,7 @@ function batchResetState(){
   batchPeriodTouched = false;
   batchPreviewOpen = false;
   batchCapToday = true;
+  batchPreviewSem = null;
   batchPlanned = null;
 }
 
@@ -168,6 +170,50 @@ function batchCurrentSemester(weekRows, holidayRows, todayIso){
     if(!best || r.gregorian_date > best.gregorian_date) best = r;
   });
   return best ? best.semester : null;
+}
+
+/* رقم كل أسبوع دراسة بالتقويم الرسمي، يبدأ من ١ في كل فصل ولا تُعدّ فيه أسابيع الإجازات
+   الطويلة (لا صفوف لها) ولا أيام عودة المعلمين. يرجع { 'أحد الأسبوع YYYY-MM-DD': { semester, n } } */
+function batchWeekNumbers(weekRows){
+  const sundays = {};
+  (weekRows || []).forEach(r => {
+    if(!r || !r.gregorian_date) return;
+    if(r.week_label && String(r.week_label).indexOf('عودة') === 0) return;
+    const sun = addDaysIso(r.gregorian_date, -weekdayOfIso(r.gregorian_date));
+    if(!sundays[sun]) sundays[sun] = r.semester;
+  });
+  const out = {}, counters = {};
+  Object.keys(sundays).sort().forEach(sun => {
+    const sem = sundays[sun];
+    counters[sem] = (counters[sem] || 0) + 1;
+    out[sun] = { semester: sem, n: counters[sem] };
+  });
+  return out;
+}
+
+/* معاينة الفترة مقسّمة بالفصول: [{ semester, weeks:[{ n|null, cells }] }].
+   كل أسبوع يتبع فصل صفوفه بالتقويم، وأسبوع الإجازة (بلا صفوف) يتبع الفصل السابق له.
+   بلا تقويم: قسم واحد semester=0 بترقيم تسلسلي من ١ */
+function batchPreviewSections(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso){
+  const rows = batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso);
+  if(!rows.length) return [];
+  if(!hasCal) return [{ semester: 0, weeks: rows.map(r => ({ n: r.n, cells: r.cells })) }];
+  const nums = batchWeekNumbers(weekRows);
+  const weeks = rows.map(r => {
+    const info = nums[r.cells[0].iso];
+    return { n: info ? info.n : null, sem: info ? info.semester : null, cells: r.cells };
+  });
+  let last = null;
+  weeks.forEach(w => { if(w.sem != null) last = w.sem; else w.sem = last; });
+  let next = null;
+  for(let i = weeks.length - 1; i >= 0; i--){ if(weeks[i].sem != null) next = weeks[i].sem; else weeks[i].sem = next; }
+  const sections = [];
+  weeks.forEach(w => {
+    let sec = sections[sections.length - 1];
+    if(!sec || sec.semester !== w.sem){ sec = { semester: w.sem, weeks: [] }; sections.push(sec); }
+    sec.weeks.push({ n: w.n, cells: w.cells });
+  });
+  return sections;
 }
 
 /* أسابيع (أحد-خميس) تغطي الفترة للمعاينة. pickedDates: التواريخ الموزَّعة.
@@ -812,6 +858,7 @@ function showBatchSetup(){
   batchTo = batchOne = today;
   batchPeriodTouched = false;
   batchPreviewOpen = false;
+  batchPreviewSem = null;
   batchPlanned = null;
   batchApplyDefaultPeriod();
   document.getElementById('batchBody').innerHTML = `
@@ -960,14 +1007,29 @@ function batchRefreshPeriod(){
     if(!batchPreviewOpen){
       prev.innerHTML = '<button type="button" class="btn btn-outline bt-prevbtn" onclick="batchTogglePreview(true)">👁 شاهد كيف ستُوزَّع</button>';
     } else {
-      const rows = batchWeekRows(info.from, info.to, batchCal && batchCal.weeks, batchCal && batchCal.holidays, plan.dates, !!batchCal, localIsoDate());
+      const sections = batchPreviewSections(info.from, info.to, batchCal && batchCal.weeks, batchCal && batchCal.holidays, plan.dates, !!batchCal, localIsoDate());
+      if(!sections.some(x => x.semester === batchPreviewSem)){
+        const nowSem = batchCal ? batchCurrentSemester(batchCal.weeks, batchCal.holidays, localIsoDate()) : null;
+        batchPreviewSem = (sections.find(x => x.semester === nowSem) || sections[0]).semester;
+      }
+      const sec = sections.find(x => x.semester === batchPreviewSem);
+      const cellsOf = x => x.weeks.reduce((a, w) => a.concat(w.cells), []);
+      const picksOf = x => cellsOf(x).reduce((n, c) => n + (c.status === 'pick' ? c.count : 0), 0);
+      const daysOf = x => cellsOf(x).filter(c => c.status === 'pick' || c.status === 'study').length;
+      const semName = x => x.semester === 1 ? 'الفصل الأول' : (x.semester === 2 ? 'الفصل الثاني' : 'الفترة');
+      const tabs = sections.length > 1
+        ? `<div class="bt-chips bt-semtabs">${sections.map(x => `<button type="button" class="bt-chip${x.semester === batchPreviewSem ? ' on' : ''}" onclick="batchSetPreviewSem(${x.semester})">${semName(x)}<small>${batchCountLabel(picksOf(x))}</small></button>`).join('')}</div>`
+        : '';
+      const title = `<div class="bt-mtitle"><div><b>${semName(sec)}</b><small>${batchCountLabel(picksOf(sec))} · ${batchAr(daysOf(sec))} يوم دراسة</small></div></div>`;
       const head = '<div class="bt-wrow bt-whd"><span class="bt-wk"></span>' + CRM_WEEKDAY_NAMES.slice(0, 5).map(n => `<span class="bt-cell0">${n}</span>`).join('') + '</div>';
-      const body = rows.map(r => `<div class="bt-wrow"><span class="bt-wk">${batchAr(r.n)}</span>${r.cells.map(c => {
+      const body = sec.weeks.map(w => `<div class="bt-wrow"><span class="bt-wk">${w.n ? batchAr(w.n) : ''}</span>${w.cells.map(c => {
         if(c.status === 'out') return '<span class="bt-cell out"></span>';
-        const sub = c.status === 'off' ? escapeHtml(c.reason) : (c.month || (c.status === 'pick' ? (c.count > 1 ? batchAr(c.count) + ' شواهد' : 'شاهد') : ''));
+        const reason = c.status === 'off' ? (c.reason.length > 12 ? c.reason.replace(/^إجازة\s+/, '') : c.reason) : '';
+        const sub = c.status === 'off' ? escapeHtml(reason) : (c.month || (c.status === 'pick' ? (c.count > 1 ? batchAr(c.count) + ' شواهد' : 'شاهد') : ''));
         return `<button type="button" class="bt-cell ${c.status}${c.future ? ' fut' : ''}" onclick="batchShowDayTip('${c.iso}')">${batchAr(+c.iso.slice(8))}${sub ? `<small>${sub}</small>` : ''}</button>`;
       }).join('')}</div>`).join('');
       prev.innerHTML = `<div class="bt-prev"><div class="bt-sub" style="margin-top:0">توزيع ${batchCountLabel(total)} على الفترة</div>
+        ${tabs}${title}
         <div>${head}${body}</div>
         <div class="bt-leg"><span><i class="pick"></i>شاهد</span><span><i></i>يوم دراسة بلا شاهد</span><span><i class="off"></i>إجازة / اختبارات</span>${info.future ? '<span><i class="fut"></i>بعد اليوم</span>' : ''}</div>
         <div class="bt-tip" id="btTip" style="display:none"></div>
@@ -1019,6 +1081,12 @@ function batchOnDates(){
   if(t) batchTo = t.value;
   if(o) batchOne = o.value;
   batchPlanned = null;
+  batchRefreshPeriod();
+}
+
+/* التبديل بين فصلي المعاينة */
+function batchSetPreviewSem(sem){
+  batchPreviewSem = sem;
   batchRefreshPeriod();
 }
 

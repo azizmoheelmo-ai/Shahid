@@ -147,6 +147,36 @@ test('batchWeekRows — أسابيع المعاينة: إجازات بأسمائ
   assert.equal(fut[0].cells[4].status, 'pick');
 });
 
+test('batchWeekNumbers — ترقيم الأسابيع بالتقويم الرسمي: يبدأ من ١ في كل فصل ولا يعدّ عودة المعلمين', () => {
+  const app = loadApp();
+  const { weeks } = calFixture(app);
+  const nums = app.batchWeekNumbers(weeks);
+  assert.equal(nums['2026-08-16'], undefined, 'أسبوع عودة المعلمين بلا رقم');
+  assert.deepEqual({ ...nums['2026-08-23'] }, { semester: 1, n: 1 });
+  assert.deepEqual({ ...nums['2026-09-20'] }, { semester: 1, n: 5 });
+  assert.deepEqual({ ...nums['2026-11-08'] }, { semester: 1, n: 12 });
+  assert.deepEqual({ ...nums['2027-01-17'] }, { semester: 2, n: 1 }, 'الفصل الثاني يبدأ من ١');
+  assert.equal(nums['2026-11-15'], undefined, 'أسبوع الإجازة (بلا صفوف) بلا رقم');
+});
+
+test('batchPreviewSections — المعاينة فصلًا فصلًا، أسبوع الإجازة يتبع الفصل السابق، وبلا تقويم قسم واحد', () => {
+  const app = loadApp();
+  const { weeks, holidays } = calFixture(app);
+  const secs = app.batchPreviewSections('2026-11-02', '2027-01-20', weeks, holidays, [], true, '2026-10-28');
+  assert.deepEqual([...secs.map(s => s.semester)], [1, 2], 'قسمان: الأول ثم الثاني');
+  assert.equal(secs[1].weeks.length, 1);
+  assert.equal(secs[1].weeks[0].n, 1, 'الفصل الثاني يبدأ ترقيمه من ١');
+  assert.equal(secs[0].weeks[0].n, 11, 'ترقيم الفصل الأول رسمي حتى لو بدأت الفترة بعد بدايته');
+  const brk = secs[0].weeks.filter(w => w.n === null);
+  assert.ok(brk.length >= 5, 'أسابيع الإجازة بلا رقم وتبقى ضمن الفصل الأول');
+  assert.ok(brk.every(w => w.cells.every(c => c.status === 'off')));
+  const noCal = app.batchPreviewSections('2026-10-04', '2026-10-15', [], [], [], false, '2026-10-28');
+  assert.equal(noCal.length, 1);
+  assert.equal(noCal[0].semester, 0);
+  assert.deepEqual([...noCal[0].weeks.map(w => w.n)], [1, 2]);
+  assert.deepEqual([...app.batchPreviewSections('2026-10-10', '2026-10-04', weeks, holidays, [], true, 'x')], []);
+});
+
 function periodApp() {
   const { app, reg } = pickApp();
   const { weeks, holidays } = calFixture(app);
@@ -249,6 +279,27 @@ test('المعاينة: تُظهر الإجازة باسمها، والتلمي�
   const re = { ...runInAppContext(app, 'batchPlanned') };
   assert.equal(re.from, '2026-10-04');
   assert.ok([...re.dates].every(d => d >= '2026-10-04' && d <= '2026-10-08'));
+});
+
+test('المعاينة فصلًا فصلًا: تبويب لكل فصل، ورقم الأسبوع يبدأ من ١ في الفصل الثاني', () => {
+  const { app, reg } = periodApp();
+  runInAppContext(app, 'batchPick = { E1: Array.from({ length: 12 }, (_, i) => "نموذج " + i) };');
+  app.batchToggleCap(false);
+  app.batchSetPeriod('year');
+  app.batchTogglePreview(true);
+  const html = reg.btPreview.innerHTML;
+  assert.match(html, /bt-semtabs/);
+  assert.match(html, /الفصل الأول<small>/);
+  assert.match(html, /الفصل الثاني<small>/);
+  assert.equal(runInAppContext(app, 'batchPreviewSem'), 1, 'يفتح على الفصل الحالي');
+  assert.match(html, /<span class="bt-wk">١<\/span>/);
+  assert.match(html, /<b>الفصل الأول<\/b>/);
+  app.batchSetPreviewSem(2);
+  const h2 = reg.btPreview.innerHTML;
+  assert.match(h2, /<b>الفصل الثاني<\/b>/);
+  assert.match(h2, /<span class="bt-wk">١<\/span>/, 'الفصل الثاني يبدأ ترقيمه من ١');
+  assert.doesNotMatch(h2, /<span class="bt-wk">٢<\/span>/, 'فصل ثانٍ بأسبوع واحد فقط في العيّنة');
+  assert.doesNotMatch(h2, /اليوم الوطني/, 'لا يظهر هنا ما يخص الفصل الأول');
 });
 
 test('يوم واحد: تنبيه (لا منع) لو ليس يوم دراسة، ورفض تاريخ بعد اليوم', () => {
