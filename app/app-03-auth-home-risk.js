@@ -496,6 +496,10 @@ function topTitleFor(view, id){
   if(!view) return 'الرئيسية';
   const h = view.querySelector && view.querySelector('.band-title h1');
   if(h && h.textContent.trim()) return h.textContent.trim();
+  if(id === 'listView'){
+    const t = document.getElementById('listTitle');
+    if(t && t.textContent.trim()) return t.textContent.trim(); /* «الشواهد (28)» */
+  }
   if(TOP_TITLE_FALLBACK[id]) return TOP_TITLE_FALLBACK[id];
   const b = view.querySelector && view.querySelector('.band h1');
   return b && b.textContent.trim() ? b.textContent.trim() : 'إدارة الأداء الوظيفي';

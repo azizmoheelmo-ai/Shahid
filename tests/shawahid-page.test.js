@@ -55,3 +55,11 @@ test('الفلترة تُخفي الملخص، وتصدير الكل داخل �
   app.toggleFilterPanel();
   assert.equal(get(app, `document.getElementById('filterPanel').style.display`), 'block');
 });
+
+test('عنوان الشريط العلوي يحمل «الشواهد (العدد)» وبطاقة القائمة بلا عنوان مكرر', async () => {
+  const { app } = await render([]);
+  runInAppContext(app, `myRecords = [{ id: '1', element_key: 'a' }, { id: '2', element_key: 'a' }]; TOP_TITLE_VIEWS.forEach(v => { const e = document.getElementById(v); if(e) e.style.display = v === 'listView' ? 'block' : 'none'; }); document.getElementById('listTitle').textContent = 'الشواهد (2)'; syncTopTitle();`);
+  assert.equal(get(app, `document.getElementById('topTitle').textContent`), 'الشواهد (2)');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(html, /<div class="list-header" style="display:none;">\s*<h2 id="listTitle">/);
+});

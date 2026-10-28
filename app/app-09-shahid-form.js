@@ -181,6 +181,7 @@ async function loadMyShawahid(){
   currentStageFilter = '';
   document.querySelectorAll('.stage-filter button').forEach(b => b.classList.toggle('active', b.dataset.stage === ''));
   document.getElementById('listTitle').textContent = `الشواهد (${myRecords.length})`;
+  if(typeof syncTopTitle === 'function') syncTopTitle();
   updateFilterSummary();
   document.getElementById('filterPanel').style.display = 'none';
   const sb2 = document.getElementById('shSearchBtn'); if(sb2 && sb2.classList) sb2.classList.remove('is-on');
@@ -259,6 +260,7 @@ function filterMyShawahid(){
   document.getElementById('listTitle').textContent = isFiltering
     ? `نتائج (${filtered.length})`
     : `الشواهد (${myRecords.length})`;
+  if(typeof syncTopTitle === 'function') syncTopTitle();
   renderShawahidGroups(filtered, isFiltering);
 }
 
