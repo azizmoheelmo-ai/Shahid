@@ -506,6 +506,13 @@ function syncTopTitle(){
   if(!el) return;
   const id = TOP_TITLE_VIEWS.find(x => { const v = document.getElementById(x); return v && v.style.display !== 'none'; });
   el.textContent = topTitleFor(id ? document.getElementById(id) : null, id);
+  /* 🔍 و⋯ الشواهد في الشريط العلوي: ظاهران بشاشة القائمة فقط، وتُغلق قائمتهما عند مغادرتها */
+  const act = document.getElementById('shTopActions');
+  if(act){
+    const onList = id === 'listView';
+    act.style.display = onList ? 'flex' : 'none';
+    if(!onList && typeof closeShawahidMore === 'function') closeShawahidMore();
+  }
 }
 
 (function watchTopTitle(){

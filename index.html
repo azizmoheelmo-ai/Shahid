@@ -248,6 +248,19 @@
   <!-- شريط علوي واحد: عنوان الصفحة + قائمة الحساب (الترحيب والأزرار والخروج داخلها) -->
   <div class="topbar">
     <div class="tb-title" id="topTitle">الرئيسية</div>
+    <!-- بحث وتصدير الشواهد: تظهر بجانب دائرة الحساب في شاشة الشواهد فقط (syncTopTitle) -->
+    <div class="sh-head-actions sh-top-actions" id="shTopActions" style="display:none;">
+      <button type="button" class="sh-icon-btn" id="shSearchBtn" aria-label="بحث وفلترة" onclick="toggleFilterPanel()">🔍</button>
+      <div class="sh-more">
+        <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleShawahidMore(event)">⋯</button>
+        <div class="sh-more-menu" id="shMoreMenu" style="display:none;">
+          <button class="btn btn-outline" id="exportAllBtn" onclick="closeShawahidMore();exportAllShawahid()">📄 تصدير الكل PDF</button>
+          <label class="sh-theme-row" for="shPrintTheme">🎨 تصميم الطباعة
+            <select id="shPrintTheme" onchange="setShahidPrintTheme(this.value)"></select>
+          </label>
+        </div>
+      </div>
+    </div>
     <div class="tb-acct">
       <button type="button" class="tb-avatar" id="acctBtn" onclick="toggleAcctMenu(event)" aria-label="قائمة الحساب" aria-haspopup="true" aria-expanded="false">
         <span id="acctInitial">؟</span><span class="tb-dot" id="acctDot" style="display:none;"></span>
@@ -1306,18 +1319,6 @@
     <div class="list-card">
       <div class="list-header">
         <h2 id="listTitle">الشواهد</h2>
-        <div class="sh-head-actions">
-          <button type="button" class="sh-icon-btn" id="shSearchBtn" aria-label="بحث وفلترة" onclick="toggleFilterPanel()">🔍</button>
-          <div class="sh-more">
-            <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleShawahidMore(event)">⋯</button>
-            <div class="sh-more-menu" id="shMoreMenu" style="display:none;">
-              <button class="btn btn-outline" id="exportAllBtn" onclick="closeShawahidMore();exportAllShawahid()">📄 تصدير الكل PDF</button>
-              <label class="sh-theme-row" for="shPrintTheme">🎨 تصميم الطباعة
-                <select id="shPrintTheme" onchange="setShahidPrintTheme(this.value)"></select>
-              </label>
-            </div>
-          </div>
-        </div>
       </div>
       <div style="padding:0 26px;">
         <div id="filterSummary" class="sh-filter-sum" style="display:none;"></div>
