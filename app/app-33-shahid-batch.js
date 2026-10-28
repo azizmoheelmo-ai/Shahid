@@ -12,7 +12,8 @@
 
 const BATCH_MAX_PER_ELEMENT = 4;   // أقصى عدد شواهد قيد التجهيز للعنصر الواحد
 const BATCH_PHOTOS_PER_CARD = 4;   // أقصى صور تُرفع دفعة واحدة لبطاقة
-const BATCH_TARGET_CHOICES = [12, 20, 24, 30];
+const BATCH_DEPTH_CHOICES = [1, 2, 3, 4];   // شواهد لكل عنصر — الأساس: العدد يُشتق من عدد العناصر لا أرقامًا اعتباطية
+const BATCH_DEPTH_LABELS = { 1: 'شاهد', 2: 'شاهدان', 3: 'ثلاثة', 4: 'أربعة' };
 
 let batchDrafts = [];              // مسودات المستخدم الحالية (بانتظار صورة)
 let batchDone = [];                // أُنجزت بهذه الجلسة: { id, title, label, thumb, count }
@@ -23,7 +24,9 @@ let batchUsedTpl = {};             // { element_key: [أسماء نماذج وُ
 let batchAutoNames = {};           // اختيارات جاءت من «الاقتراح» (مفتاحها key||name) — تُستبدل عند إعادته، واليدوية تبقى
 let batchAutoDone = false;         // هل سُحب اقتراح بهذه الجلسة (يبدّل نص الزر لـ«غيّر الاقتراح»)
 let batchElems = [];               // لقطة عناصر الأداء المعروضة (الفهرس ← العنصر) لأزرار الشاشة
-let batchTarget = 24;              // العدد المطلوب للاقتراح التلقائي
+let batchDepth = 2;                // عدد الشواهد المطلوب لكل عنصر
+let batchCountExisting = false;    // «احسب ما وثّقته سابقًا»: الهدف = ما ينقص كل عنصر بعد الموثّق بالدورة الحالية
+let batchTarget = 22;              // مجموع الاقتراح التلقائي — يُشتق من العمق والعناصر (batchSyncTarget)
 let batchPeriod = 'custom';        // الفترة المختارة: sem1 | sem2 | year (من التقويم) | custom | single
 let batchFrom = '', batchTo = '', batchOne = ''; // التواريخ المختارة (YYYY-MM-DD)
 let batchPeriodTouched = false;    // هل اختار المعلم الفترة بنفسه (فلا نستبدلها بفصله الحالي)
@@ -71,6 +74,9 @@ function batchResetState(){
   batchAutoNames = {};
   batchAutoDone = false;
   batchElems = [];
+  batchDepth = 2;
+  batchCountExisting = false;
+  batchTarget = 22;
   batchBusyIds = new Set();
   batchStep = 'pick';
   batchViewSeq++;
@@ -450,10 +456,12 @@ function batchShuffle(arr, rng){
    elements: [{ key, names: [نماذج لم تُستخدم], used: [نماذج وُثّقت سابقًا — بديل أخير] }]
    capacity: { key: السعة المتبقية }
    opts.keep: { key: [اختيارات يدوية تبقى وتُحسب ضمن العدد والسعة] }، opts.rng
+   opts.goal: { key: أقصى عدد مطلوب لهذا العنصر } — يحدّ السعة فيتساوى التوزيع بدل باقٍ عشوائي
    يرجع { key: [names] } شاملًا المحتفَظ بها أولًا. */
 function batchAutoDistribute(elements, target, capacity, opts){
   const rng = (opts && opts.rng) || Math.random;
   const keep = (opts && opts.keep) || {};
+  const goal = (opts && opts.goal) || {};
   const picked = {};
   const pools = {};
   elements.forEach(e => {
@@ -472,7 +480,8 @@ function batchAutoDistribute(elements, target, capacity, opts){
     progress = false;
     for(const e of order){
       if(total >= target) break;
-      const cap = capacity[e.key] == null ? BATCH_MAX_PER_ELEMENT : capacity[e.key];
+      let cap = capacity[e.key] == null ? BATCH_MAX_PER_ELEMENT : capacity[e.key];
+      if(goal[e.key] != null) cap = Math.min(cap, goal[e.key]);
       const i = next[e.key] || 0;
       if(picked[e.key].length < cap && i < pools[e.key].length){
         picked[e.key].push(pools[e.key][i]);
@@ -645,6 +654,7 @@ async function showBatchPick(){
   await loadBatchExisting();
   if(seq !== batchViewSeq || !isBatchViewOpen() || batchStep !== 'pick') return;
   batchElems = DB_ELEMENTS.slice();
+  batchSyncTarget();
   renderBatchPick();
 }
 
@@ -656,6 +666,45 @@ function batchPickedTotal(){
 }
 function batchCapacity(key){
   return Math.max(0, BATCH_MAX_PER_ELEMENT - batchPendingCount(key));
+}
+
+/* دالة صرفة: المطلوب لكل عنصر بعمق معيّن. info: { key: { cap: السعة المتبقية، existing: الموثّق بالدورة، tpl: عدد نماذجه } }.
+   countExisting=false: الهدف = العمق؛ true: العمق ناقص الموثّق (لا يقلّ عن صفر). ويُحدّ بالسعة وبعدد النماذج المتاحة.
+   يرجع { goals: { key: n }, total, covered: عناصر هدفها > 0, doneBefore: ما وُثّق وقُبل ضمن العمق } */
+function batchGoals(keys, depth, countExisting, info){
+  const goals = {};
+  let total = 0, covered = 0, doneBefore = 0;
+  keys.forEach(k => {
+    const x = (info && info[k]) || {};
+    const ex = countExisting ? Math.min(x.existing || 0, depth) : 0;
+    const g = Math.max(0, Math.min(depth - ex, x.cap == null ? BATCH_MAX_PER_ELEMENT : x.cap, x.tpl == null ? Infinity : x.tpl));
+    goals[k] = g;
+    total += g;
+    if(g > 0) covered++;
+    doneBefore += ex;
+  });
+  return { goals, total, covered, doneBefore };
+}
+
+function batchGoalInfo(){
+  const info = {};
+  batchElems.forEach(el => {
+    info[el.key] = { cap: batchCapacity(el.key), existing: batchExisting[el.key] || 0, tpl: (SHAHID_TEMPLATES[el.key] || []).length };
+  });
+  return info;
+}
+
+/* يحدّث batchTarget من العمق ومفتاح الموثّق */
+function batchSyncTarget(){
+  batchTarget = batchGoals(batchElems.map(e => e.key), batchDepth, batchCountExisting, batchGoalInfo()).total;
+}
+
+/* سطر الملخّص تحت الأزرار */
+function batchDepthSummary(){
+  const g = batchGoals(batchElems.map(e => e.key), batchDepth, batchCountExisting, batchGoalInfo());
+  if(!batchCountExisting) return `${batchCountLabel(g.total)} موزعة على ${batchAr(g.covered)} ${g.covered === 1 ? 'عنصر' : 'عنصرًا'}`;
+  if(!g.total) return `كل عناصرك بلغت ${BATCH_DEPTH_LABELS[batchDepth]} ✓`;
+  return `وثّقتَ ${batchAr(g.doneBefore)} سابقًا ← ينقصك ${batchCountLabel(g.total)} لتبلغ ${BATCH_DEPTH_LABELS[batchDepth]} لكل عنصر`;
 }
 
 function batchHeader(stepNo, title, sub){
@@ -678,17 +727,22 @@ function batchHeader(stepNo, title, sub){
 /* ---------- 1) الاختيار ---------- */
 function renderBatchPick(){
   const body = document.getElementById('batchBody');
-  const chips = BATCH_TARGET_CHOICES.map(n =>
-    `<button type="button" class="bt-tchip${n === batchTarget ? ' on' : ''}" aria-pressed="${n === batchTarget}" onclick="batchSetTarget(${n})">${n}</button>`).join('');
+  const chips = BATCH_DEPTH_CHOICES.map(n =>
+    `<button type="button" class="bt-tchip${n === batchDepth ? ' on' : ''}" aria-pressed="${n === batchDepth}" onclick="batchSetDepth(${n})"><b>${BATCH_DEPTH_LABELS[n]}</b><i>${batchAr(n * batchElems.length)}</i></button>`).join('');
   body.innerHTML = `
     ${batchHeader(1, 'اختر شواهدك', 'اختر ما يناسب عملك — حتى ' + BATCH_MAX_PER_ELEMENT + ' شواهد لكل عنصر، ونعبّئ لك التفاصيل تلقائيًا')}
     <div class="bt-auto">
       <div class="bt-auto-top">
         <div class="bt-ring" id="btRing"><span id="btRingNum"></span></div>
-        <div class="bt-auto-t"><b>كم شاهدًا تريد؟</b><small>اختر الرقم، ثم دع التطبيق يقترح لك التوزيع</small></div>
+        <div class="bt-auto-t"><b>كم شاهدًا لكل عنصر؟</b><small>اختر العمق، ثم دع التطبيق يوزّع بالتساوي</small></div>
       </div>
-      <div class="bt-tchips" role="group" aria-label="العدد المطلوب">${chips}</div>
-      <button type="button" class="bt-auto-btn" onclick="batchAutoPick()">${batchAutoDone ? '🎲 غيّر الاقتراح' : '✨ اقترح لي توزيعًا تلقائيًا'}</button>
+      <div class="bt-tchips" role="group" aria-label="عدد الشواهد لكل عنصر">${chips}</div>
+      <div class="bt-dsum" id="btDepthSum">${escapeHtml(batchDepthSummary())}</div>
+      <button type="button" class="bt-tog" role="switch" aria-checked="${batchCountExisting}" onclick="batchToggleExisting()">
+        <span class="bt-sw${batchCountExisting ? '' : ' off'}" aria-hidden="true"></span>
+        <span>احسب ما وثّقته سابقًا<small>نقترح فقط ما ينقص كل عنصر</small></span>
+      </button>
+      <button type="button" class="bt-auto-btn" id="btAutoBtn" onclick="batchAutoPick()">${batchAutoLabel()}</button>
       <p class="bt-auto-note">تعدّل الاقتراح بعدها كما تشاء — وما اخترته بنفسك يبقى</p>
     </div>
     <div class="bt-tools">
@@ -955,14 +1009,20 @@ function batchToggleTpl(i, t){
   batchRedrawEl(i);
 }
 
-function batchSetTarget(n){
-  batchTarget = n;
-  document.querySelectorAll('.bt-tchip').forEach(b => {
-    const on = Number(b.textContent) === n;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', String(on));
-  });
-  renderBatchBar();
+function batchAutoLabel(){
+  return batchAutoDone ? '🎲 غيّر الاقتراح' : (batchCountExisting ? '✨ اقترح لي ما ينقصني' : '✨ اقترح لي توزيعًا عادلًا');
+}
+
+/* تغيير العمق أو مفتاح الموثّق يعيد رسم الشاشة كلها: الأزرار والملخّص ونص الزر والهدف بالشريط */
+function batchSetDepth(n){
+  batchDepth = n;
+  batchSyncTarget();
+  renderBatchPick();
+}
+function batchToggleExisting(){
+  batchCountExisting = !batchCountExisting;
+  batchSyncTarget();
+  renderBatchPick();
 }
 
 function batchAutoPick(){
@@ -985,7 +1045,8 @@ function batchAutoPick(){
     if(manual.length) keep[k] = manual;
   });
   const keptCount = Object.keys(keep).reduce((n, k) => n + keep[k].length, 0);
-  const picked = batchAutoDistribute(elements, batchTarget, capacity, { keep });
+  const goal = batchGoals(batchElems.map(e => e.key), batchDepth, batchCountExisting, batchGoalInfo()).goals;
+  const picked = batchAutoDistribute(elements, batchTarget, capacity, { keep, goal });
   batchPick = {};
   batchAutoNames = {};
   Object.keys(picked).forEach(k => {
