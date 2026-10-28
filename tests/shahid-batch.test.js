@@ -70,9 +70,89 @@ test('batchAutoDistribute — حد 4 للعنصر، تناوب عادل، يحت
   });
   await t.test('عنصر بنموذجين فقط لا يُعطى أكثر منهما', () => {
     const r = app.batchAutoDistribute([{ key: 'X', names: ['p', 'q'] }, { key: 'Y', names: names(14) }], 10, {});
-    assert.deepEqual([...r.X], ['p', 'q']);
+    assert.deepEqual([...r.X].sort(), ['p', 'q']);
     assert.equal(r.Y.length, 4);
   });
+});
+
+/* مولّد عشوائي ثابت البذرة لاختبارات قابلة للتكرار */
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+test('batchAutoDistribute — عشوائي: لا يأخذ أول النماذج دائمًا ولا العناصر الأولى دائمًا', async (t) => {
+  const app = loadApp();
+  const names = Array.from({ length: 14 }, (_, i) => 't' + i);
+  const els = ['A', 'B', 'C', 'D', 'E', 'F'].map(k => ({ key: k, names }));
+
+  await t.test('بذور مختلفة = اختيارات مختلفة، وكلها ضمن الحدود', () => {
+    const sigs = new Set();
+    for (let seed = 1; seed <= 20; seed++) {
+      const r = app.batchAutoDistribute(els, 18, {}, { rng: seeded(seed) });
+      assert.equal(els.reduce((n, e) => n + r[e.key].length, 0), 18);
+      els.forEach(e => {
+        assert.ok(r[e.key].length <= 4);
+        assert.equal(new Set(r[e.key]).size, r[e.key].length, 'بلا تكرار داخل العنصر');
+      });
+      sigs.add(JSON.stringify(els.map(e => [...r[e.key]])));
+    }
+    assert.ok(sigs.size >= 15, 'نتائج متنوعة وليست ثابتة');
+  });
+  await t.test('ليست دائمًا أول 3 نماذج بالترتيب (علّة الترتيب القديم)', () => {
+    let allFirstThree = true;
+    for (let seed = 1; seed <= 20; seed++) {
+      const r = app.batchAutoDistribute(els, 18, {}, { rng: seeded(seed) });
+      if (![...r.A].every((n, i) => n === 't' + i)) allFirstThree = false;
+    }
+    assert.equal(allFirstThree, false);
+  });
+  await t.test('النصيب الزائد (هدف لا يقبل القسمة) لا يقع دائمًا على العناصر الأولى', () => {
+    const extra = new Set();
+    for (let seed = 1; seed <= 30; seed++) {
+      const r = app.batchAutoDistribute(els, 8, {}, { rng: seeded(seed) }); // 6 عناصر: عنصران بشاهدين والباقي بواحد
+      els.forEach(e => { if (r[e.key].length === 2) extra.add(e.key); });
+    }
+    assert.ok(extra.size >= 4, 'كل العناصر تنال النصيب الزائد أحيانًا: ' + [...extra]);
+  });
+  await t.test('بذرة واحدة = نتيجة واحدة (قابل للتكرار بالاختبار)', () => {
+    const a = app.batchAutoDistribute(els, 18, {}, { rng: seeded(7) });
+    const b = app.batchAutoDistribute(els, 18, {}, { rng: seeded(7) });
+    assert.equal(JSON.stringify(els.map(e => [...a[e.key]])), JSON.stringify(els.map(e => [...b[e.key]])));
+  });
+  await t.test('بلا rng (Math.random الحقيقي) يعمل وبحدود صحيحة', () => {
+    const r = app.batchAutoDistribute(els, 24, {});
+    assert.ok(els.every(e => r[e.key].length === 4));
+  });
+});
+
+test('batchAutoDistribute — يفضّل النماذج غير المستخدمة، ويلجأ للمستخدمة عند الاستنفاد', async (t) => {
+  const app = loadApp();
+  await t.test('المستخدمة سابقًا لا تُقترح ما دام هناك بدائل', () => {
+    const els = [{ key: 'A', names: ['n1', 'n2', 'n3', 'n4', 'n5'], used: ['u1', 'u2'] }];
+    for (let seed = 1; seed <= 15; seed++) {
+      const r = app.batchAutoDistribute(els, 4, {}, { rng: seeded(seed) });
+      assert.ok([...r.A].every(n => n.startsWith('n')), 'لا نموذج مستخدم');
+    }
+  });
+  await t.test('نماذج جديدة أقل من المطلوب: تُكمَّل بالمستخدمة بدل ترك العنصر ناقصًا', () => {
+    const r = app.batchAutoDistribute([{ key: 'A', names: ['n1'], used: ['u1', 'u2', 'u3'] }], 4, {}, { rng: seeded(3) });
+    assert.equal(r.A.length, 4);
+    assert.equal(r.A[0], 'n1', 'الجديد أولًا');
+  });
+});
+
+test('batchAutoDistribute — الاختيارات اليدوية (keep) تبقى وتُحسب ضمن العدد والسعة', () => {
+  const app = loadApp();
+  const names = Array.from({ length: 14 }, (_, i) => 't' + i);
+  const els = ['A', 'B', 'C'].map(k => ({ key: k, names }));
+  const r = app.batchAutoDistribute(els, 6, {}, { rng: seeded(5), keep: { A: ['t3', 't9', 't11'] } });
+  assert.deepEqual([...r.A].slice(0, 3), ['t3', 't9', 't11'], 'اليدوية أولًا وكما هي');
+  assert.equal(els.reduce((n, e) => n + r[e.key].length, 0), 6, 'العدد الكلي يشمل اليدوية');
+  assert.ok(r.A.length <= 4);
+  assert.equal(new Set(r.A).size, r.A.length, 'لا تكرار');
+  const full = app.batchAutoDistribute(els, 3, {}, { rng: seeded(5), keep: { A: ['t1', 't2', 't3'] } });
+  assert.equal(els.reduce((n, e) => n + full[e.key].length, 0), 3, 'اليدوية بلغت الهدف: لا إضافة');
 });
 
 test('buildBatchDraftRows / buildBatchShahidRecord', async (t) => {
@@ -257,6 +337,64 @@ test('batchOnPhotos — يرفض ما ليس صورة، ويحدّ العدد ب
   const six = Array.from({ length: 6 }, (_, i) => file(i + '.jpg'));
   await app.batchOnPhotos('d1', { files: six, value: '' });
   assert.equal(client.uploaded.length, 4, 'أقصى 4 صور');
+});
+
+/* ---------- الاقتراح التلقائي على مستوى الشاشة ---------- */
+test('الاقتراح التلقائي: يستبعد الموثّق فعلًا، ويعيد السحب عشوائيًا مع إبقاء اليدوي', async (t) => {
+  const KEY = 'تحسين نتائج المتعلمين';
+  const tplOf = (app) => JSON.parse(runInAppContext(app, `JSON.stringify(SHAHID_TEMPLATES[${JSON.stringify(KEY)}])`));
+  const cy = (() => { const a = loadApp(); return a.getCycleYear(); })();
+  const build = () => {
+    const probe = loadApp();
+    const tpls = tplOf(probe);
+    const seed = {
+      shahid_drafts: [],
+      shawahid: [
+        { id: 's1', user_id: 'u1', element_key: KEY, cycle_year: cy, lesson_title: tpls[0].name, description: 'x' },
+        { id: 's2', user_id: 'u1', element_key: KEY, cycle_year: cy, lesson_title: 'عنوان آخر', description: tpls[1].description },
+        { id: 's3', user_id: 'u1', element_key: KEY, cycle_year: '1999/2000', lesson_title: tpls[2].name, description: 'x' },
+      ],
+    };
+    const { app } = prep(seed);
+    return { app, tpls };
+  };
+
+  await t.test('loadBatchExisting تكشف النماذج الموثّقة (بالعنوان أو بالوصف) بالدورة الحالية فقط', async () => {
+    const { app, tpls } = build();
+    await app.loadBatchExisting();
+    const used = JSON.parse(runInAppContext(app, 'JSON.stringify(batchUsedTpl)'));
+    assert.deepEqual(used[KEY].sort(), [tpls[0].name, tpls[1].name].sort());
+  });
+
+  await t.test('الاقتراح لا يقترح نموذجًا موثّقًا، ونتائجه تتنوع بين الضغطات', async () => {
+    const { app, tpls } = build();
+    await app.loadBatchExisting();
+    runInAppContext(app, `batchElems = [{ key: ${JSON.stringify(KEY)}, label: 'ع', weight: 9 }]; batchTarget = 4;`);
+    const seen = new Set();
+    for (let i = 0; i < 12; i++) {
+      app.batchAutoPick();
+      const pick = JSON.parse(runInAppContext(app, `JSON.stringify(batchPick[${JSON.stringify(KEY)}])`));
+      assert.equal(pick.length, 4);
+      assert.ok(!pick.includes(tpls[0].name) && !pick.includes(tpls[1].name), 'لا موثّق');
+      seen.add(pick.slice().sort().join('|'));
+    }
+    assert.ok(seen.size > 1, 'اقتراحات مختلفة عند إعادة الضغط');
+    assert.equal(runInAppContext(app, 'batchAutoDone'), true);
+  });
+
+  await t.test('إعادة الاقتراح تُبقي اختيار المعلم اليدوي وتستبدل ما اقترحه الزر', async () => {
+    const { app, tpls } = build();
+    await app.loadBatchExisting();
+    runInAppContext(app, `batchElems = [{ key: ${JSON.stringify(KEY)}, label: 'ع', weight: 9 }]; batchTarget = 4; batchOpenEl.add(${JSON.stringify(KEY)});`);
+    const manual = tpls[5].name;
+    app.batchToggleTpl(0, 5); // اختيار يدوي
+    for (let i = 0; i < 8; i++) {
+      app.batchAutoPick();
+      const pick = JSON.parse(runInAppContext(app, `JSON.stringify(batchPick[${JSON.stringify(KEY)}])`));
+      assert.ok(pick.includes(manual), 'اليدوي باقٍ');
+      assert.equal(pick.length, 4, 'العدد يشمل اليدوي');
+    }
+  });
 });
 
 /* ---------- زر الدخول يُخفى لو جدول المسودات غير جاهز ---------- */
