@@ -177,6 +177,192 @@ test('batchPreviewSections — المعاينة فصلًا فصلًا، أسبو
   assert.deepEqual([...app.batchPreviewSections('2026-10-10', '2026-10-04', weeks, holidays, [], true, 'x')], []);
 });
 
+/* ---------- صفوف المعلم (من إدارة الصف) ---------- */
+const CLS = [
+  { id: 'a', gradeName: 'أول ثانوي', secName: '3', label: 'أول ثانوي — الشعبة 3' },
+  { id: 'b', gradeName: 'ثاني ثانوي', secName: '1', label: 'ثاني ثانوي — الشعبة 1' },
+  { id: 'c', gradeName: 'ثالث متوسط', secName: '2', label: 'ثالث متوسط — الشعبة 2' }
+];
+// أ: أحد وثلاثاء، ب: اثنين وأربعاء، ج: ثلاثاء وخميس (الفصل الأول)
+const TT = [
+  [0, 'a'], [2, 'a'], [1, 'b'], [3, 'b'], [2, 'c'], [4, 'c']
+].map(([weekday, section_id], i) => ({ section_id, weekday, period: i + 1, semester: 1 }));
+
+test('batchSemesterOf/batchTeachesOn/batchTeachDays — الفصل بالتاريخ والتدريس باليوم', () => {
+  const app = loadApp();
+  const { weeks } = calFixture(app);
+  assert.equal(app.batchSemesterOf(weeks, '2026-09-06'), 1);
+  assert.equal(app.batchSemesterOf(weeks, '2027-01-18'), 2);
+  assert.equal(app.batchSemesterOf(weeks, '2026-12-01'), 1, 'يوم بلا صف يتبع آخر صف قبله');
+  assert.equal(app.batchSemesterOf([], '2026-09-06'), 1);
+  // 2026-10-04 أحد، 2026-10-05 اثنين
+  assert.equal(app.batchTeachesOn(TT, 'a', 1, '2026-10-04'), true);
+  assert.equal(app.batchTeachesOn(TT, 'a', 1, '2026-10-05'), false);
+  assert.equal(app.batchTeachesOn(TT, 'a', 2, '2027-01-17'), null, 'لا جدول لهذا الفصل فلا حكم');
+  assert.deepEqual([...app.batchTeachDays(TT, 'a', 1)], [0, 2]);
+  assert.deepEqual([...app.batchTeachPeriods(TT, 'a', 1, 2)], [2]);
+});
+
+test('batchAssignClasses — حسب الجدول: لا صف في يوم لا يدرّسه، والتوزيع متقارب، وبالتساوي دون جدول', () => {
+  const app = loadApp();
+  const days = [];
+  for(let d = '2026-09-06'; d <= '2026-10-22'; d = app.addDaysIso(d, 1)){ if(app.weekdayOfIso(d) <= 4) days.push(d); }
+  const picks = [...app.batchSpreadDates(24, days[0], days[days.length - 1], { days })];
+  const labels = [...app.batchAssignClasses(picks, CLS, { mode: 'timetable', timetable: TT, semesterOf: () => 1 })];
+  assert.equal(labels.length, 24);
+  labels.forEach((lab, i) => {
+    const c = CLS.find(x => x.label === lab);
+    assert.equal(app.batchTeachesOn(TT, c.id, 1, picks[i]), true, `${lab} يوم ${picks[i]}`);
+  });
+  // بالتساوي: يتناوب بين الصفوف مهما كان اليوم
+  const eq = [...app.batchAssignClasses(Array(9).fill('2026-10-05'), CLS, { mode: 'equal', timetable: TT, semesterOf: () => 1 })];
+  CLS.forEach(c => assert.equal(eq.filter(l => l === c.label).length, 3));
+  // صف واحد وبلا صفوف
+  assert.deepEqual([...app.batchAssignClasses(['2026-10-05'], [CLS[0]], {})], [CLS[0].label]);
+  assert.deepEqual([...app.batchAssignClasses(['2026-10-05'], [], {})], ['']);
+  // صف بلا جدول بالفصل يصلح أي يوم (لا يُحرَم)
+  const partial = TT.filter(sl => sl.section_id !== 'c');
+  const withC = [...app.batchAssignClasses(Array(12).fill('2026-10-04'), CLS, { mode: 'timetable', timetable: partial, semesterOf: () => 1 })];
+  assert.ok(withC.includes(CLS[2].label), 'الصف الذي بلا جدول يأخذ حصته');
+  // جدول لا يغطي اليوم: رجوع لكل الصفوف بدل فراغ
+  const fri = [...app.batchAssignClasses(['2026-10-09', '2026-10-09'], CLS, { mode: 'timetable', timetable: TT, semesterOf: () => 1 })];
+  assert.ok(fri.every(l => l));
+});
+
+test('batchSpreadWithClasses — تواريخ وصفوف معًا: متوازنة، ولا صف بيوم لا يدرّسه، ومرتّبة، وبلا تكرار يوم', () => {
+  const app = loadApp();
+  const days = [];
+  for(let d = '2026-09-06'; d <= '2026-10-22'; d = app.addDaysIso(d, 1)){ if(app.weekdayOfIso(d) <= 4 && d !== '2026-09-23' && d !== '2026-09-24') days.push(d); }
+  for(let run = 0; run < 150; run++){
+    const r = app.batchSpreadWithClasses(24, days, CLS, { mode: 'timetable', timetable: TT, semesterOf: () => 1 });
+    assert.equal(r.dates.length, 24); assert.equal(r.classes.length, 24);
+    assert.deepEqual([...r.dates].sort(), [...r.dates], 'مرتّبة');
+    assert.equal(new Set(r.dates).size, 24, 'بلا تكرار يوم');
+    r.dates.forEach((d, i) => assert.equal(app.batchTeachesOn(TT, CLS.find(c => c.label === r.classes[i]).id, 1, d), true));
+    const n = lab => r.classes.filter(l => l === lab).length;
+    const sizes = CLS.map(c => n(c.label));
+    assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 2, 'تقارب أعداد الصفوف: ' + sizes);
+    assert.ok(r.dates[0] <= days[3] && r.dates[23] >= days[days.length - 4], 'تغطي الفترة كلها');
+  }
+  const eq = app.batchSpreadWithClasses(24, days, CLS, { mode: 'equal', timetable: TT, semesterOf: () => 1 });
+  CLS.forEach(c => assert.equal(eq.classes.filter(l => l === c.label).length, 8, 'بالتساوي تمامًا'));
+  // فروع بديلة: بطاقة واحدة، بطاقات أكثر من الأيام، صف واحد
+  assert.equal(app.batchSpreadWithClasses(1, days, CLS, { mode: 'equal' }).dates.length, 1);
+  assert.equal(app.batchSpreadWithClasses(50, days, CLS, { mode: 'equal' }).dates.length, 50);
+  assert.equal(app.batchSpreadWithClasses(5, days, [CLS[0]], {}).classes.every(l => l === CLS[0].label), true);
+});
+
+test('batchClassCodes — رمز مختصر ولا يتكرر', () => {
+  const app = loadApp();
+  const codes = app.batchClassCodes(CLS);
+  assert.equal(codes.a, 'أول ٣');
+  assert.equal(codes.b, 'ثاني ١');
+  assert.equal(codes.c, 'ثالث ٢');
+  const dup = app.batchClassCodes([{ id: 'x', gradeName: 'أول ثانوي', secName: '3' }, { id: 'y', gradeName: 'أول متوسط', secName: '3' }]);
+  assert.notEqual(dup.x, dup.y, 'رموز مميّزة عند التكرار');
+});
+
+test('buildBatchDraftRows — صف لكل بطاقة من classNames وإلا النص العام', () => {
+  const app = loadApp();
+  const items = [{ element_key: 'E', template_name: 'a' }, { element_key: 'E', template_name: 'b' }, { element_key: 'E', template_name: 'c' }];
+  const rows = app.buildBatchDraftRows(items, ['2026-10-04', '2026-10-05', '2026-10-06'], { userId: 'u1', className: 'عام', classNames: ['س1', 'س2', ''] });
+  assert.deepEqual([...rows.map(r => r.class_name)], ['س1', 'س2', 'عام']);
+  const plain = app.buildBatchDraftRows(items, [], { userId: 'u1', className: 'عام' });
+  assert.ok(plain.every(r => r.class_name === 'عام'));
+});
+
+test('batchWeekRows — الخلية تحمل صف الشاهد', () => {
+  const app = loadApp();
+  const { weeks, holidays } = calFixture(app);
+  const rows = app.batchWeekRows('2026-10-04', '2026-10-08', weeks, holidays, ['2026-10-04', '2026-10-06'], true, '2026-10-28', ['س1', 'س2']);
+  assert.deepEqual([...rows[0].cells[0].classes], ['س1']);
+  assert.deepEqual([...rows[0].cells[2].classes], ['س2']);
+  assert.equal(rows[0].cells[1].classes, undefined);
+});
+
+function classApp() {
+  const { app, reg } = periodApp();
+  runInAppContext(app, `
+    batchClasses = ${JSON.stringify(CLS)};
+    batchTimetable = ${JSON.stringify(TT)};
+    batchClassSel = new Set(['a', 'b', 'c']); batchClassMode = 'timetable';
+    batchPick = { E1: Array.from({ length: 9 }, (_, i) => "نموذج " + i) };`);
+  return { app, reg };
+}
+
+test('شاشة الصفوف: أزرار من إدارة الصف، توزيع حسب الجدول، وتعطيله بلا جدول', () => {
+  const { app, reg } = classApp();
+  app.renderBatchClasses();
+  const html = reg.btClassBox.innerHTML;
+  assert.match(html, /أول ثانوي — الشعبة 3/);
+  assert.match(html, /أول ٣ · الأحد والثلاثاء/, 'الرمز وأيام التدريس');
+  assert.match(html, /حسب جدولي <span class="bt-badge">موصى به/);
+  assert.match(html, /جدولك الأسبوعي مسجَّل/);
+  app.batchToggleClass('c');
+  assert.deepEqual([...runInAppContext(app, '[...batchClassSel]')], ['a', 'b']);
+  assert.match(reg.btClassBox.innerHTML, /bt-cchip off/);
+  app.batchToggleClass('a'); app.batchToggleClass('b');
+  assert.match(reg.btClassBox.innerHTML, /اختر صفًا واحدًا على الأقل/);
+  // بلا جدول: يُعطَّل حسب جدولي
+  runInAppContext(app, 'batchClassSel = new Set(["a", "b"]); batchTimetable = [];');
+  app.renderBatchClasses();
+  assert.match(reg.btClassBox.innerHTML, /disabled onclick="batchSetClassMode\('timetable'\)"/);
+  assert.match(reg.btClassBox.innerHTML, /لم تسجّل جدولك الأسبوعي/);
+  assert.equal(runInAppContext(app, 'batchEffectiveClassMode()'), 'equal');
+});
+
+test('بلا صفوف مسجَّلة: يبقى حقل النص الحرّ مع تلميح إدارة الصف', () => {
+  const { app, reg } = classApp();
+  runInAppContext(app, 'batchClasses = null;');
+  app.renderBatchClasses();
+  assert.match(reg.btClassBox.innerHTML, /id="btClass"/);
+  assert.match(reg.btClassBox.innerHTML, /إدارة الصف/);
+});
+
+test('الملخص والمعاينة: أعداد الصفوف، وتُعتمد نفس خطة الصفوف بالتواريخ', () => {
+  const { app, reg } = classApp();
+  app.batchSetPeriod('sem1');
+  assert.match(reg.btSum.innerHTML, /bt-ccount/);
+  assert.match(reg.btSum.innerHTML, /أول ٣ : /);
+  app.batchTogglePreview(true);
+  assert.match(reg.btPreview.innerHTML, /style="background:#1B3245;border-color:#1B3245"|style="background:#A9852E;border-color:#A9852E"|style="background:#2F7D5B;border-color:#2F7D5B"/, 'لون الصف على الشاهد');
+  assert.match(reg.btPreview.innerHTML, /أول ٣ أول ثانوي/, 'مفتاح الألوان بأسماء الصفوف');
+  const plan = { ...runInAppContext(app, 'batchPlanned') };
+  assert.equal(plan.classes.length, plan.dates.length);
+  // كل شاهد في يوم يدرّس فيه صفه
+  plan.dates.forEach((d, i) => {
+    const c = CLS.find(x => x.label === plan.classes[i]);
+    assert.notEqual(app.batchTeachesOn(TT, c.id, 1, d), false, `${plan.classes[i]} ${d}`);
+  });
+  // تغيير الصفوف يُبطل الخطة القديمة
+  const sigBefore = plan.sig;
+  app.batchToggleClass('c');
+  app.batchRefreshPeriod();
+  assert.notEqual(runInAppContext(app, 'batchPlanned.sig'), sigBefore);
+  // تلميح اليوم يذكر الصف والحصة
+  const d0 = runInAppContext(app, 'batchPlanned.dates[0]');
+  app.batchShowDayTip(d0);
+  assert.match(reg.btTip.textContent, /الصف: .+/);
+});
+
+test('بطاقة اللوحة: قائمة الصف تعلّم أيام التدريس وتنبّه عند التعارض، وصف آخر يدويًا', () => {
+  const { app } = classApp();
+  runInAppContext(app, `batchDrafts = [{ id: 'd1', user_id: 'u1', element_key: 'E1', template_name: 'x', title: 'عنوان', planned_date: '2026-10-07', class_name: ${JSON.stringify(CLS[0].label)} }]; batchStep = 'board';`);
+  // 2026-10-07 أربعاء: ب فقط يدرّس
+  const html = runInAppContext(app, 'batchCardHtml(batchDrafts[0])');
+  assert.match(html, /<select class="bt-date"/);
+  assert.match(html, /الشعبة 3 — لا تدرّسه الأربعاء/);
+  assert.match(html, /ثاني ثانوي — الشعبة 1 ✓/);
+  assert.match(html, /bt-chint">⚠ لا تدرّس هذا الصف يوم الأربعاء/);
+  assert.match(html, /صف آخر…/);
+  // صف يدرّسه ذلك اليوم: لا تنبيه
+  runInAppContext(app, `batchDrafts[0].class_name = ${JSON.stringify(CLS[1].label)};`);
+  assert.doesNotMatch(runInAppContext(app, 'batchCardHtml(batchDrafts[0])'), /bt-chint/);
+  // بلا صفوف مسجَّلة: لا قائمة
+  runInAppContext(app, 'batchClasses = null;');
+  assert.doesNotMatch(runInAppContext(app, 'batchCardHtml(batchDrafts[0])'), /<select/);
+});
+
 function periodApp() {
   const { app, reg } = pickApp();
   const { weeks, holidays } = calFixture(app);
@@ -329,7 +515,7 @@ test('الفترة بلا تقويم: لا أزرار فصول، ويتجنّب 
 test('تجهيز الدفعة — التوزيع يمرّ عبر التقويم الرسمي مع رجوع آمن عند غيابه', () => {
   const src = read('app/app-33-shahid-batch.js');
   assert.ok(/batchCalendarDays\(batchCal\.weeks, batchCal\.holidays, from, to\)/.test(src), 'يُستخرج أيام الدراسة من التقويم');
-  assert.ok(/batchSpreadDates\(items\.length, info\.from, info\.to, \{ days: info\.days \}\)/.test(src), 'الإنشاء يوزّع على أيام الدراسة');
+  assert.ok(/batchPlanDatesAndClasses\(items\.length, info\)/.test(src), 'الإنشاء يوزّع التواريخ والصفوف على أيام الدراسة');
   assert.ok(/calFallback = !batchCal;/.test(src), 'رجوع للجمعة والسبت عند غياب التقويم');
   assert.ok(/لا توجد أيام دراسة ضمن هذه الفترة/.test(src), 'فترة كلها إجازة تُرفض برسالة واضحة');
   assert.ok(/p\.from === info\.from && p\.to === info\.to && p\.count === items\.length/.test(src), 'يُعتمد التوزيع الذي رآه المعلم بالمعاينة');
