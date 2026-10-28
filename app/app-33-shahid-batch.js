@@ -19,6 +19,9 @@ let batchDone = [];                // أُنجزت بهذه الجلسة: { id, 
 let batchPick = {};                // { element_key: [template_name, ...] } اختيارات الشاشة الأولى
 let batchOpenEl = new Set();       // العناصر المفتوحة بشاشة الاختيار
 let batchExisting = {};            // { element_key: عدد شواهده الموثّقة بالدورة الحالية }
+let batchUsedTpl = {};             // { element_key: [أسماء نماذج وُثّقت فعلًا بالدورة الحالية] }
+let batchAutoNames = {};           // اختيارات جاءت من «الاقتراح» (مفتاحها key||name) — تُستبدل عند إعادته، واليدوية تبقى
+let batchAutoDone = false;         // هل سُحب اقتراح بهذه الجلسة (يبدّل نص الزر لـ«غيّر الاقتراح»)
 let batchElems = [];               // لقطة عناصر الأداء المعروضة (الفهرس ← العنصر) لأزرار الشاشة
 let batchTarget = 24;              // العدد المطلوب للاقتراح التلقائي
 let batchDateMode = 'spread';      // single | spread
@@ -34,6 +37,9 @@ function batchResetState(){
   batchPick = {};
   batchOpenEl = new Set();
   batchExisting = {};
+  batchUsedTpl = {};
+  batchAutoNames = {};
+  batchAutoDone = false;
   batchElems = [];
   batchBusyIds = new Set();
   batchStep = 'pick';
@@ -78,22 +84,50 @@ function batchInterleave(groups){
   return out;
 }
 
-/* اقتراح توزيع: يمرّ على العناصر بالتناوب حتى يبلغ العدد المطلوب، دون تجاوز
-   سعة العنصر (4 ناقص قيد التجهيز) ولا تكرار نموذج قيد التجهيز.
-   elements: [{ key, names: [أسماء النماذج المتاحة بالترتيب] }]
-   capacity: { key: السعة المتبقية } — يرجع { key: [names] } */
-function batchAutoDistribute(elements, target, capacity){
+/* خلط عشوائي (Fisher-Yates) لنسخة من المصفوفة — rng قابل للحقن للاختبار */
+function batchShuffle(arr, rng){
+  const a = arr.slice();
+  const r = rng || Math.random;
+  for(let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(r() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+/* اقتراح توزيع عشوائي: يخلط نماذج كل عنصر وترتيب العناصر نفسه (فلا تأخذ العناصر
+   الأولى النصيب الزائد دائمًا)، ثم يمرّ بالتناوب حتى يبلغ العدد المطلوب، دون
+   تجاوز سعة العنصر (4 ناقص قيد التجهيز) ولا تكرار نموذج قيد التجهيز.
+   elements: [{ key, names: [نماذج لم تُستخدم], used: [نماذج وُثّقت سابقًا — بديل أخير] }]
+   capacity: { key: السعة المتبقية }
+   opts.keep: { key: [اختيارات يدوية تبقى وتُحسب ضمن العدد والسعة] }، opts.rng
+   يرجع { key: [names] } شاملًا المحتفَظ بها أولًا. */
+function batchAutoDistribute(elements, target, capacity, opts){
+  const rng = (opts && opts.rng) || Math.random;
+  const keep = (opts && opts.keep) || {};
   const picked = {};
-  elements.forEach(e => { picked[e.key] = []; });
-  let total = 0, progress = true;
+  const pools = {};
+  elements.forEach(e => {
+    const kept = (keep[e.key] || []).slice();
+    picked[e.key] = kept;
+    /* النماذج التي لم تُستخدم أولًا (مخلوطة)، ثم المستخدمة سابقًا كبديل أخير
+       كي لا يبقى عنصر فارغًا لو استُنفدت نماذجه */
+    pools[e.key] = batchShuffle(e.names.filter(n => kept.indexOf(n) < 0), rng)
+      .concat(batchShuffle((e.used || []).filter(n => kept.indexOf(n) < 0 && e.names.indexOf(n) < 0), rng));
+  });
+  const order = batchShuffle(elements, rng);
+  let total = elements.reduce((n, e) => n + picked[e.key].length, 0);
+  const next = {};
+  let progress = true;
   while(total < target && progress){
     progress = false;
-    for(const e of elements){
+    for(const e of order){
       if(total >= target) break;
       const cap = capacity[e.key] == null ? BATCH_MAX_PER_ELEMENT : capacity[e.key];
-      const n = picked[e.key].length;
-      if(n < cap && n < e.names.length){
-        picked[e.key].push(e.names[n]);
+      const i = next[e.key] || 0;
+      if(picked[e.key].length < cap && i < pools[e.key].length){
+        picked[e.key].push(pools[e.key][i]);
+        next[e.key] = i + 1;
         total++;
         progress = true;
       }
@@ -169,18 +203,27 @@ async function loadBatchExisting(){
   const uid = currentUser.id;
   const { data, error } = await fetchAllRows((from, to) => sb
     .from('shawahid')
-    .select('id, element_key, cycle_year, lesson_date, created_at')
+    .select('id, element_key, cycle_year, lesson_date, created_at, lesson_title, description')
     .eq('user_id', uid)
     .order('id', { ascending: true })
     .range(from, to));
   if(error || !currentUser || currentUser.id !== uid) return;
   const cy = getCycleYear();
-  const counts = {};
+  const counts = {}, used = {};
   (data || []).forEach(r => {
     const y = r.cycle_year || getCycleYear(r.lesson_date || r.created_at || undefined);
-    if(y === cy) counts[r.element_key] = (counts[r.element_key] || 0) + 1;
+    if(y !== cy) return;
+    counts[r.element_key] = (counts[r.element_key] || 0) + 1;
+    /* نموذج وُثّق فعلًا: عنوان الشاهد = اسم النموذج (من الدفعة)، أو وصفه = وصف
+       النموذج (طُبّق من نموذج شاهد جديد) */
+    (SHAHID_TEMPLATES[r.element_key] || []).forEach(t => {
+      if(r.lesson_title === t.name || (t.description && String(r.description || '').trim() === t.description.trim())){
+        (used[r.element_key] = used[r.element_key] || []).indexOf(t.name) < 0 && used[r.element_key].push(t.name);
+      }
+    });
   });
   batchExisting = counts;
+  batchUsedTpl = used;
 }
 
 /* زر الدخول بأعلى شواهدي: يظهر فقط لو جدول المسودات جاهز بقاعدة البيانات
@@ -189,10 +232,12 @@ async function refreshBatchEntry(){
   const box = document.getElementById('batchEntry');
   if(!box || !currentUser) return;
   const uid = currentUser.id;
+  /* بلا head:true — استعلام HEAD لا يُرجع خطأً عند غياب الجدول (404 بلا جسم)،
+     فكان الزر يظهر قبل تشغيل SQL. هنا يفشل صراحةً، وغياب العدّ نفسه فشل أيضًا. */
   const { count, error } = await sb.from('shahid_drafts')
-    .select('id', { count: 'exact', head: true }).eq('user_id', uid);
+    .select('id', { count: 'exact' }).eq('user_id', uid).limit(1);
   if(!currentUser || currentUser.id !== uid) return;
-  if(error){ box.style.display = 'none'; return; }
+  if(error || typeof count !== 'number'){ box.style.display = 'none'; return; }
   box.style.display = 'block';
   const sub = document.getElementById('batchEntrySub');
   if(sub) sub.textContent = count
@@ -216,10 +261,11 @@ async function showBatch(){
   const ok = await loadBatchDrafts();
   if(seq !== batchViewSeq || !isBatchViewOpen()) return;
   if(!ok){
-    body.innerHTML = '<div class="empty-state">تعذّر تحميل المسودات. تأكد من الاتصال ثم حاول مجددًا.</div>';
+    body.innerHTML = '<div class="empty-state">تعذّر تحميل المسودات. تأكد من الاتصال ثم حاول مجددًا.<br><button type="button" class="btn btn-outline" style="margin-top:14px;" onclick="showList()">→ شواهدي</button></div>';
     return;
   }
   batchPick = {};
+  batchAutoNames = {};
   if(batchDrafts.length) renderBatchBoard();
   else await showBatchPick();
 }
@@ -268,7 +314,7 @@ function renderBatchPick(){
     <div class="bt-auto">
       <span class="bt-auto-l">كم شاهدًا تريد؟</span>
       <div class="bt-tchips">${chips}</div>
-      <button type="button" class="btn btn-outline bt-auto-btn" onclick="batchAutoPick()">✨ اقترح لي توزيعًا</button>
+      <button type="button" class="btn btn-outline bt-auto-btn" onclick="batchAutoPick()">${batchAutoDone ? '🎲 غيّر الاقتراح' : '✨ اقترح لي توزيعًا'}</button>
     </div>
     <div id="btElList">${batchElems.map((el, i) => batchPickCardHtml(i)).join('')}</div>
     <div class="sh-fab-wrap bt-bar"><div id="btBar"></div></div>`;
@@ -339,6 +385,7 @@ function batchToggleTpl(i, t){
   const name = ((SHAHID_TEMPLATES[key] || [])[t] || {}).name;
   if(!name) return;
   const list = batchPick[key] || (batchPick[key] = []);
+  delete batchAutoNames[key + '||' + name]; /* لمسة يدوية = يصير اختيارًا يدويًا يبقى عند إعادة الاقتراح */
   const idx = list.indexOf(name);
   if(idx > -1) list.splice(idx, 1);
   else if(list.length < batchCapacity(key)) list.push(name);
@@ -353,18 +400,37 @@ function batchSetTarget(n){
 }
 
 function batchAutoPick(){
-  const elements = batchElems.map(el => ({
-    key: el.key,
-    names: (SHAHID_TEMPLATES[el.key] || []).map(t => t.name)
-      .filter(n => !batchDrafts.some(d => d.element_key === el.key && d.template_name === n))
-  })).filter(e => e.names.length);
+  const elements = batchElems.map(el => {
+    const all = (SHAHID_TEMPLATES[el.key] || []).map(t => t.name);
+    const usedNow = batchUsedTpl[el.key] || [];
+    const notPending = all.filter(n => !batchDrafts.some(d => d.element_key === el.key && d.template_name === n));
+    return {
+      key: el.key,
+      names: notPending.filter(n => usedNow.indexOf(n) < 0),
+      used: notPending.filter(n => usedNow.indexOf(n) > -1)
+    };
+  }).filter(e => e.names.length || e.used.length);
   const capacity = {};
   elements.forEach(e => { capacity[e.key] = batchCapacity(e.key); });
-  const picked = batchAutoDistribute(elements, batchTarget, capacity);
+  /* ما اختاره المعلم بنفسه يبقى، وما جاء من اقتراح سابق يُستبدل */
+  const keep = {};
+  Object.keys(batchPick).forEach(k => {
+    const manual = batchPick[k].filter(n => !batchAutoNames[k + '||' + n]);
+    if(manual.length) keep[k] = manual;
+  });
+  const keptCount = Object.keys(keep).reduce((n, k) => n + keep[k].length, 0);
+  const picked = batchAutoDistribute(elements, batchTarget, capacity, { keep });
   batchPick = {};
-  Object.keys(picked).forEach(k => { if(picked[k].length) batchPick[k] = picked[k]; });
+  batchAutoNames = {};
+  Object.keys(picked).forEach(k => {
+    if(!picked[k].length) return;
+    batchPick[k] = picked[k];
+    picked[k].forEach(n => { if(!(keep[k] || []).includes(n)) batchAutoNames[k + '||' + n] = true; });
+  });
+  const wasRoll = batchAutoDone;
+  batchAutoDone = true;
   renderBatchPick();
-  showToast('اقتراح جاهز — عدّله كما تشاء', 'ok');
+  showToast(keptCount ? 'اقتراح جديد — احتفظت بما اخترته يدويًا' : (wasRoll ? 'اقتراح جديد' : 'اقتراح جاهز — عدّله كما تشاء'), 'ok');
 }
 
 /* ---------- 2) البيانات المشتركة ---------- */
@@ -448,6 +514,7 @@ async function batchCreateDrafts(btn){
       .upsert(rows, { onConflict: 'user_id,element_key,template_name', ignoreDuplicates: true });
     if(error) throw error;
     batchPick = {};
+    batchAutoNames = {};
     if(!(await loadBatchDrafts())) throw new Error('تعذّر تحميل البطاقات');
     if(!isBatchViewOpen()) return;
     showToast(`جُهّزت ${rows.length} بطاقة — أضف الصور الآن`, 'ok');
