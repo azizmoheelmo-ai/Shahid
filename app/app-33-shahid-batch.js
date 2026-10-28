@@ -28,6 +28,13 @@ let batchDateMode = 'spread';      // single | spread
 let batchBusyIds = new Set();      // بطاقات يجري رفع صورتها الآن
 let batchStep = 'pick';            // pick | setup | board
 let batchViewSeq = 0;              // يلغي نتيجة تحميل قديم لو فُتحت الشاشة ثانية
+let batchFilter = 'all';           // فلتر قائمة العناصر: all | needs (بلا شواهد) | sel (فيها اختيار)
+let batchQuery = '';               // بحث الشاشة (اسم عنصر أو نموذج)
+let batchInnerQ = '';              // بحث داخل العنصر المفتوح
+let batchShowAll = new Set();      // عناصر عُرضت كل نماذجها (الافتراضي أول BATCH_ROWS_FIRST)
+let batchSheetOpen = false;        // ورقة «مراجعة اختياراتك»
+const BATCH_ROWS_FIRST = 6;
+const BATCH_STEPS = ['الاختيار', 'بياناتك', 'الصور'];
 
 /* تصفير حالة الدفعة — يُستدعى عند دخول حساب (onLoggedIn) كي لا تبقى بطاقات
    مستخدم سابق على نفس الصفحة بعد تسجيل خروج/دخول */
@@ -44,6 +51,11 @@ function batchResetState(){
   batchBusyIds = new Set();
   batchStep = 'pick';
   batchViewSeq++;
+  batchFilter = 'all';
+  batchQuery = '';
+  batchInnerQ = '';
+  batchShowAll = new Set();
+  batchSheetOpen = false;
 }
 
 /* ============ دوال صرفة (قابلة للاختبار) ============ */
@@ -266,12 +278,18 @@ async function showBatch(){
   }
   batchPick = {};
   batchAutoNames = {};
+  batchSheetOpen = false;
+  renderBatchSheet();
   if(batchDrafts.length) renderBatchBoard();
   else await showBatchPick();
 }
 
 async function showBatchPick(){
   batchStep = 'pick';
+  batchFilter = 'all';
+  batchQuery = '';
+  batchInnerQ = '';
+  batchShowAll = new Set();
   const seq = ++batchViewSeq;
   const body = document.getElementById('batchBody');
   if(!DB_ELEMENTS || !DB_ELEMENTS.length){
@@ -295,12 +313,19 @@ function batchCapacity(key){
 }
 
 function batchHeader(stepNo, title, sub){
-  const dots = [1, 2, 3].map(n => `<span class="bt-dot${n === stepNo ? ' on' : (n < stepNo ? ' past' : '')}"></span>`).join('');
+  const steps = BATCH_STEPS.map((label, k) => {
+    const n = k + 1;
+    const cls = n === stepNo ? ' on' : (n < stepNo ? ' past' : '');
+    return `<div class="bt-stp${cls}"><b>${n < stepNo ? '✓' : n}</b>${label}</div>`;
+  }).join('<span class="bt-stl"></span>');
   return `<div class="bt-head">
-    <button type="button" class="bt-back" onclick="showList()">→ شواهدي</button>
+    <div class="bt-head-top">
+      <button type="button" class="bt-back" aria-label="الرجوع إلى شواهدي" title="شواهدي" onclick="showList()">→</button>
+      <span class="bt-stepno">الخطوة ${stepNo} من 3</span>
+    </div>
     <h2>${escapeHtml(title)}</h2>
     <p>${escapeHtml(sub)}</p>
-    <div class="bt-dots" aria-hidden="true">${dots}</div>
+    <div class="bt-stepper" role="list" aria-label="خطوات التجهيز">${steps}</div>
   </div>`;
 }
 
@@ -308,17 +333,78 @@ function batchHeader(stepNo, title, sub){
 function renderBatchPick(){
   const body = document.getElementById('batchBody');
   const chips = BATCH_TARGET_CHOICES.map(n =>
-    `<button type="button" class="bt-tchip${n === batchTarget ? ' on' : ''}" onclick="batchSetTarget(${n})">${n}</button>`).join('');
+    `<button type="button" class="bt-tchip${n === batchTarget ? ' on' : ''}" aria-pressed="${n === batchTarget}" onclick="batchSetTarget(${n})">${n}</button>`).join('');
   body.innerHTML = `
     ${batchHeader(1, 'اختر شواهدك', 'اختر ما نفّذته فعلًا — حتى ' + BATCH_MAX_PER_ELEMENT + ' شواهد لكل عنصر، وتُعبّأ كلها تلقائيًا')}
     <div class="bt-auto">
-      <span class="bt-auto-l">كم شاهدًا تريد؟</span>
-      <div class="bt-tchips">${chips}</div>
-      <button type="button" class="btn btn-outline bt-auto-btn" onclick="batchAutoPick()">${batchAutoDone ? '🎲 غيّر الاقتراح' : '✨ اقترح لي توزيعًا'}</button>
+      <div class="bt-auto-top">
+        <div class="bt-ring" id="btRing"><span id="btRingNum"></span></div>
+        <div class="bt-auto-t"><b>كم شاهدًا تريد؟</b><small>اختر الرقم، ثم دع التطبيق يقترح لك التوزيع</small></div>
+      </div>
+      <div class="bt-tchips" role="group" aria-label="العدد المطلوب">${chips}</div>
+      <button type="button" class="bt-auto-btn" onclick="batchAutoPick()">${batchAutoDone ? '🎲 غيّر الاقتراح' : '✨ اقترح لي توزيعًا تلقائيًا'}</button>
+      <p class="bt-auto-note">تعدّل الاقتراح بعدها كما تشاء — وما اخترته بنفسك يبقى</p>
     </div>
-    <div id="btElList">${batchElems.map((el, i) => batchPickCardHtml(i)).join('')}</div>
+    <div class="bt-tools">
+      <div class="bt-filters" id="btFilters"></div>
+      <input type="search" id="btSearch" class="bt-search" placeholder="ابحث في العناصر والنماذج…" aria-label="ابحث في العناصر والنماذج" value="${escapeHtml(batchQuery)}" oninput="batchOnSearch(this.value)">
+    </div>
+    <div id="btElList">${batchListHtml()}</div>
     <div class="sh-fab-wrap bt-bar"><div id="btBar"></div></div>`;
   renderBatchBar();
+}
+
+function batchNorm(s){ return String(s || '').trim().toLowerCase(); }
+
+function batchElMatches(el, q){
+  const n = batchNorm(q);
+  if(!n) return true;
+  return batchNorm(el.label).includes(n) || (SHAHID_TEMPLATES[el.key] || []).some(t => batchNorm(t.name).includes(n));
+}
+
+function batchElVisible(el){
+  if(!batchElMatches(el, batchQuery)) return false;
+  if(batchFilter === 'needs') return !(batchExisting[el.key] || 0);
+  if(batchFilter === 'sel') return (batchPick[el.key] || []).length > 0;
+  return true;
+}
+
+function batchListHtml(){
+  const idx = batchElems.map((el, i) => i).filter(i => batchElVisible(batchElems[i]));
+  if(!idx.length) return '<div class="empty-state">لا عناصر مطابقة — غيّر الفلتر أو كلمة البحث.</div>';
+  const lacks = i => !(batchExisting[batchElems[i].key] || 0);
+  const needs = idx.filter(lacks), has = idx.filter(i => !lacks(i));
+  /* العناصر الفارغة أولًا بعنوانَي قسم — فقط حين لا فلتر ولا بحث وللقسمين أعضاء */
+  if(batchFilter === 'all' && !batchNorm(batchQuery) && needs.length && has.length){
+    return `<div class="bt-sec">تحتاج شواهد أولًا</div>${needs.map(i => batchPickCardHtml(i)).join('')}
+      <div class="bt-sec">لديها شواهد</div>${has.map(i => batchPickCardHtml(i)).join('')}`;
+  }
+  return idx.map(i => batchPickCardHtml(i)).join('');
+}
+
+function batchFiltersHtml(){
+  const needs = batchElems.filter(el => !(batchExisting[el.key] || 0)).length;
+  const sel = batchElems.filter(el => (batchPick[el.key] || []).length).length;
+  const f = (key, label, n) =>
+    `<button type="button" class="bt-fchip${batchFilter === key ? ' on' : ''}" aria-pressed="${batchFilter === key}" onclick="batchSetFilter('${key}')">${label} ${n}</button>`;
+  return f('all', 'الكل', batchElems.length) + f('needs', 'ينقصها شواهد', needs) + f('sel', 'مختارة', sel);
+}
+
+function batchRenderList(){
+  const box = document.getElementById('btElList');
+  if(box) box.innerHTML = batchListHtml();
+}
+
+function batchSetFilter(f){
+  batchFilter = (f === 'needs' || f === 'sel') ? f : 'all';
+  batchRenderList();
+  const fb = document.getElementById('btFilters');
+  if(fb) fb.innerHTML = batchFiltersHtml();
+}
+
+function batchOnSearch(v){
+  batchQuery = String(v || '');
+  batchRenderList();
 }
 
 function batchPickCardHtml(i){
@@ -330,30 +416,76 @@ function batchPickCardHtml(i){
   const used = picked.length + pend;
   const existing = batchExisting[el.key] || 0;
   const open = batchOpenEl.has(el.key);
-  const cls = used >= BATCH_MAX_PER_ELEMENT ? 'full' : (used > 0 ? 'on' : '');
+  const full = used >= BATCH_MAX_PER_ELEMENT;
+  /* خانات العدّاد: الكحلي = قيد التجهيز سابقًا، الذهبي = اخترته الآن */
+  const meter = Array.from({ length: BATCH_MAX_PER_ELEMENT }, (_, n) =>
+    n < pend ? '<i class="g"></i>' : (n < pend + picked.length ? '<i class="f"></i>' : '<i></i>')).join('');
+  const existingNote = existing ? `<span class="bt-note ok">● ${existing} موثّق</span>` : '<span class="bt-note warn">● لا شواهد بعد</span>';
   const pendingNote = pend ? `<span class="bt-note">${pend} قيد التجهيز</span>` : '';
-  const existingNote = existing ? `<span class="bt-note ok">${existing} موثّق</span>` : '<span class="bt-note warn">لا شواهد بعد</span>';
-  let chipsHtml = '';
-  if(open){
-    chipsHtml = names.length
-      ? `<div class="bt-chips">${names.map((n, t) => {
-          const sel = picked.indexOf(n) > -1;
-          const pendingSame = batchDrafts.some(d => d.element_key === el.key && d.template_name === n);
-          const blocked = pendingSame || (!sel && picked.length >= cap);
-          return `<button type="button" class="bt-chip${sel ? ' sel' : ''}" ${blocked && !sel ? 'disabled' : ''} onclick="batchToggleTpl(${i}, ${t})">${sel ? '✓ ' : ''}${escapeHtml(n)}${pendingSame ? ' (قيد التجهيز)' : ''}</button>`;
-        }).join('')}</div>`
-      : '<div class="bt-chips"><span class="bt-note">لا توجد نماذج جاهزة لهذا العنصر — أضف شواهده من «شاهد جديد».</span></div>';
-  }
+  const pickedNote = picked.length ? `<span class="bt-note sel">اخترت ${picked.length} من ${cap}</span>` : '';
   const summary = (!open && picked.length)
     ? `<div class="bt-sel-sum">${picked.map(n => `<span>${escapeHtml(n)}</span>`).join('')}</div>` : '';
-  return `<div class="bt-el" id="btEl-${i}">
+  const bodyHtml = open ? batchOpenBodyHtml(i) : '';
+  return `<div class="bt-el ${existing ? 'has' : 'lack'}${open ? ' open' : ''}" id="btEl-${i}">
     <button type="button" class="bt-el-h" onclick="batchToggleOpen(${i})" aria-expanded="${open}">
-      <span class="bt-el-t">${escapeHtml(el.label)}<small>${existingNote}${pendingNote}</small></span>
-      <span class="bt-count ${cls}">${used}/${BATCH_MAX_PER_ELEMENT}</span>
-      <span class="bt-chev">${open ? '▴' : '▾'}</span>
+      <span class="bt-el-t">${escapeHtml(el.label)}<small>${existingNote}${pendingNote}${pickedNote}</small></span>
+      <span class="bt-meter-w"><span class="bt-meter" aria-hidden="true">${meter}</span><span class="bt-count${full ? ' full' : (used ? ' on' : '')}">${used}/${BATCH_MAX_PER_ELEMENT}${full ? ' ✓' : ''}</span></span>
+      <span class="bt-chev" aria-hidden="true">${open ? '⌃' : '⌄'}</span>
     </button>
-    ${summary}${chipsHtml}
+    ${summary}${bodyHtml}
   </div>`;
+}
+
+function batchOpenBodyHtml(i){
+  const el = batchElems[i];
+  const names = (SHAHID_TEMPLATES[el.key] || []).length;
+  if(!names) return '<div class="bt-chips"><span class="bt-note">لا توجد نماذج جاهزة لهذا العنصر — أضف شواهده من «شاهد جديد».</span></div>';
+  const search = names > BATCH_ROWS_FIRST
+    ? `<div class="bt-isearch-w"><input type="search" class="bt-isearch" placeholder="ابحث في نماذج هذا العنصر…" aria-label="ابحث في نماذج هذا العنصر" value="${escapeHtml(batchInnerQ)}" oninput="batchInnerSearch(${i}, this.value)"></div>` : '';
+  return `${search}<div id="btRows-${i}">${batchRowsHtml(i)}</div>`;
+}
+
+/* صفوف النماذج: «اخترتها» أولًا ثم المتاحة (غير المستعملة قبل المستعملة)، وأول BATCH_ROWS_FIRST فقط ما لم يُطلب الباقي أو يوجد بحث */
+function batchRowsHtml(i){
+  const el = batchElems[i], key = el.key;
+  const tpls = SHAHID_TEMPLATES[key] || [];
+  const picked = batchPick[key] || [];
+  const cap = batchCapacity(key);
+  const usedNow = batchUsedTpl[key] || [];
+  /* بحث الشاشة يُطبَّق على صفوف العنصر فقط لو طابق بعض نماذجه (وإلا فتح عنصر طابق باسمه يُخفي كل صفوفه) */
+  const q = batchNorm(batchInnerQ) || (tpls.some(t => batchNorm(t.name).includes(batchNorm(batchQuery))) ? batchNorm(batchQuery) : '');
+  const items = tpls.map((t, ti) => ({ n: t.name, ti }));
+  const selItems = items.filter(it => picked.indexOf(it.n) > -1);
+  let rest = items.filter(it => picked.indexOf(it.n) < 0 && (!q || batchNorm(it.n).includes(q)));
+  rest = rest.filter(it => usedNow.indexOf(it.n) < 0).concat(rest.filter(it => usedNow.indexOf(it.n) > -1));
+  const hidden = (!q && !batchShowAll.has(key)) ? Math.max(0, rest.length - BATCH_ROWS_FIRST) : 0;
+  if(hidden) rest = rest.slice(0, BATCH_ROWS_FIRST);
+  const row = (it) => {
+    const sel = picked.indexOf(it.n) > -1;
+    const pendingSame = batchDrafts.some(d => d.element_key === key && d.template_name === it.n);
+    const off = !sel && (pendingSame || picked.length >= cap);
+    const tag = pendingSame ? '<span class="bt-tg">قيد التجهيز</span>'
+      : (usedNow.indexOf(it.n) > -1 ? '<span class="bt-tg ok">وُثّق سابقًا</span>' : '');
+    return `<button type="button" class="bt-tp${sel ? ' sel' : ''}${off ? ' off' : ''}" role="checkbox" aria-checked="${sel}" ${off ? 'disabled' : ''} onclick="batchToggleTpl(${i}, ${it.ti})"><span class="bt-cb">${sel ? '✓' : ''}</span><span class="bt-tp-n">${escapeHtml(it.n)}</span>${tag}</button>`;
+  };
+  const limit = cap === 0 ? '<div class="bt-limit">كل شواهد هذا العنصر قيد التجهيز بالفعل</div>'
+    : (picked.length >= cap ? `<div class="bt-limit">وصلت للحد الأقصى (${cap}) لهذا العنصر</div>` : '');
+  return `${limit}
+    ${selItems.length ? `<div class="bt-rsec">✓ اخترتها (${selItems.length})</div>${selItems.map(row).join('')}` : ''}
+    <div class="bt-rsec">المتاحة (${rest.length + hidden})</div>
+    ${rest.length ? rest.map(row).join('') : '<div class="bt-none">لا نتائج مطابقة</div>'}
+    ${hidden ? `<button type="button" class="bt-more" onclick="batchShowMore(${i})">عرض باقي النماذج (${hidden}) ⌄</button>` : ''}`;
+}
+
+function batchInnerSearch(i, v){
+  batchInnerQ = String(v || '');
+  const node = document.getElementById('btRows-' + i);
+  if(node) node.innerHTML = batchRowsHtml(i);
+}
+
+function batchShowMore(i){
+  batchShowAll.add(batchElems[i].key);
+  batchRedrawEl(i);
 }
 
 function batchRedrawEl(i){
@@ -362,22 +494,105 @@ function batchRedrawEl(i){
   renderBatchBar();
 }
 
+/* شريط الإجراء السفلي: ثلاث حالات (لا شيء / في الطريق / بلغ الهدف) وحلقة الهدف بالأعلى */
 function renderBatchBar(){
-  const bar = document.getElementById('btBar');
-  if(!bar) return;
   const total = batchPickedTotal();
   const covered = Object.keys(batchPick).filter(k => batchPick[k].length).length;
-  const hint = total === 0 ? 'لم تختر شيئًا بعد' : `اخترت ${total} شاهدًا من ${covered} عنصر`;
-  bar.innerHTML = `<div class="bt-bar-in">
-    <span class="bt-bar-t">${hint}</span>
-    <button type="button" class="btn btn-primary bt-next" ${total ? '' : 'disabled'} onclick="showBatchSetup()">التالي ←</button>
-  </div>`;
+  const target = batchTarget;
+  const pct = Math.min(100, Math.round(total * 100 / (target || 1)));
+  const ring = document.getElementById('btRing');
+  if(ring) ring.style.background = `conic-gradient(var(--gold) 0 ${pct}%, #E8E3D4 0)`;
+  const ringNum = document.getElementById('btRingNum');
+  if(ringNum) ringNum.textContent = `${total}/${target}`;
+  const fb = document.getElementById('btFilters');
+  if(fb) fb.innerHTML = batchFiltersHtml();
+  const bar = document.getElementById('btBar');
+  if(bar){
+    const reached = total >= target;
+    bar.innerHTML = total === 0
+      ? `<div class="bt-bar-in"><span class="bt-bar-t bt-bar-empty">اختر شاهدًا واحدًا على الأقل، أو اضغط «اقترح لي»</span>
+          <button type="button" class="btn btn-primary bt-next" disabled>التالي ←</button></div>`
+      : `<div class="bt-bar-in${reached ? ' done' : ''}">
+          <button type="button" class="bt-bar-sum" onclick="batchOpenReview()" aria-label="مراجعة اختياراتك">
+            <b>${reached ? `✓ اكتمل هدفك: ${total} شاهدًا` : `${total} من ${target}`}</b>
+            <small>${covered} ${covered === 1 ? 'عنصر' : 'عناصر'} · مراجعة اختياراتك ⌃</small>
+            <span class="bt-bar-prog"><i style="width:${pct}%"></i></span>
+          </button>
+          <button type="button" class="btn btn-primary bt-next" onclick="showBatchSetup()">التالي ←</button>
+        </div>`;
+  }
+  if(batchSheetOpen) renderBatchSheet();
+}
+
+/* ورقة المراجعة: الاختيارات مجمّعة حسب العنصر، × لإزالة أي منها */
+function batchOpenReview(){
+  if(!batchPickedTotal()) return;
+  batchSheetOpen = true;
+  renderBatchSheet();
+}
+function batchCloseReview(){
+  batchSheetOpen = false;
+  renderBatchSheet();
+}
+function batchReviewNext(){
+  batchCloseReview();
+  showBatchSetup();
+}
+function renderBatchSheet(){
+  const box = document.getElementById('btSheet');
+  if(!box) return;
+  const total = batchPickedTotal();
+  if(!batchSheetOpen || !total || batchStep !== 'pick'){
+    batchSheetOpen = false;
+    box.innerHTML = '';
+    box.style.display = 'none';
+    return;
+  }
+  const target = batchTarget;
+  const pct = Math.min(100, Math.round(total * 100 / (target || 1)));
+  const groups = batchElems.map((el, i) => ({ el, i, list: batchPick[el.key] || [] })).filter(g => g.list.length);
+  const groupsHtml = groups.map(g => {
+    const names = (SHAHID_TEMPLATES[g.el.key] || []).map(t => t.name);
+    return `<div class="bt-sg"><div class="bt-sg-h">${escapeHtml(g.el.label)}<span>${g.list.length} ${g.list.length === 1 ? 'شاهد' : 'شواهد'}</span></div>
+      ${g.list.map(n => `<div class="bt-sr"><span>${escapeHtml(n)}</span><button type="button" class="bt-sx" aria-label="إزالة «${escapeHtml(n)}»" onclick="batchToggleTpl(${g.i}, ${names.indexOf(n)})">×</button></div>`).join('')}
+    </div>`;
+  }).join('');
+  box.style.display = 'block';
+  box.innerHTML = `<div class="bt-sheet-dim" onclick="batchCloseReview()"></div>
+    <div class="bt-sheet" role="dialog" aria-modal="true" aria-label="مراجعة اختياراتك">
+      <div class="bt-grip"></div>
+      <div class="bt-sheet-top"><b>مراجعة اختياراتك</b><span class="bt-sheet-n">${total} من ${target}</span></div>
+      <div class="bt-prog-bar"><i style="width:${pct}%"></i></div>
+      ${total < target ? `<div class="bt-sheet-hint">ينقصك ${target - total} للوصول لهدفك — <button type="button" class="bt-linkbtn" onclick="batchAutoPick()">أضِفها تلقائيًا ✨</button></div>` : ''}
+      <div class="bt-sheet-body">${groupsHtml}</div>
+      <div class="bt-sheet-act">
+        <button type="button" class="btn btn-outline" onclick="batchCloseReview()">→ رجوع للتعديل</button>
+        <button type="button" class="btn btn-primary" onclick="batchReviewNext()">متابعة لبياناتك ←</button>
+      </div>
+    </div>`;
 }
 
 function batchToggleOpen(i){
   const key = batchElems[i].key;
-  if(batchOpenEl.has(key)) batchOpenEl.delete(key); else batchOpenEl.add(key);
+  if(batchOpenEl.has(key)){
+    batchOpenEl.delete(key);
+    batchRedrawEl(i);
+    return;
+  }
+  /* عنصر واحد مفتوح في كل مرة — وإلا تعود القائمة جدارًا طويلًا */
+  const others = Array.from(batchOpenEl);
+  batchOpenEl = new Set([key]);
+  batchInnerQ = '';
+  others.forEach(k => {
+    const j = batchElems.findIndex(e => e.key === k);
+    if(j > -1 && j !== i){
+      const node = document.getElementById('btEl-' + j);
+      if(node) node.outerHTML = batchPickCardHtml(j);
+    }
+  });
   batchRedrawEl(i);
+  const me = document.getElementById('btEl-' + i);
+  if(me && typeof me.scrollIntoView === 'function') me.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 function batchToggleTpl(i, t){
@@ -396,7 +611,12 @@ function batchToggleTpl(i, t){
 
 function batchSetTarget(n){
   batchTarget = n;
-  document.querySelectorAll('.bt-tchip').forEach(b => b.classList.toggle('on', Number(b.textContent) === n));
+  document.querySelectorAll('.bt-tchip').forEach(b => {
+    const on = Number(b.textContent) === n;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  renderBatchBar();
 }
 
 function batchAutoPick(){
@@ -437,6 +657,8 @@ function batchAutoPick(){
 function showBatchSetup(){
   if(!batchPickedTotal()) return;
   batchStep = 'setup';
+  batchSheetOpen = false;
+  renderBatchSheet();
   const meta = (currentUser && currentUser.user_metadata) || {};
   const today = localIsoDate();
   const start = addDaysIso(today, -56);

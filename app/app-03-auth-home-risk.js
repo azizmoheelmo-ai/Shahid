@@ -489,8 +489,8 @@ async function checkAdminStatus(){
    العنوان يُقرأ من الشاشة الظاهرة (لافتتها .band-title مخفية بالتنسيق، أو اسم
    ثابت للشاشات بلا لافتة) — مراقبة ظهور الشاشات بدل تعديل كل دالة showX. */
 const TOP_TITLE_VIEWS = ['homeView', 'formView', 'listView', 'adminView', 'planView', 'selfView', 'classroomView',
-  'referralLetterView', 'settingsView', 'riskView', 'academicView', 'acLetterView', 'programsView', 'calendarView', 'tasksView'];
-const TOP_TITLE_FALLBACK = { homeView: 'الرئيسية', listView: 'الشواهد', formView: 'توثيق شاهد', programsView: 'أعمالي', tasksView: 'أعمالي' };
+  'referralLetterView', 'settingsView', 'riskView', 'academicView', 'acLetterView', 'programsView', 'calendarView', 'tasksView', 'batchView'];
+const TOP_TITLE_FALLBACK = { homeView: 'الرئيسية', listView: 'الشواهد', formView: 'توثيق شاهد', programsView: 'أعمالي', tasksView: 'أعمالي', batchView: 'تجهيز الشواهد' };
 
 function topTitleFor(view, id){
   if(!view) return 'الرئيسية';
