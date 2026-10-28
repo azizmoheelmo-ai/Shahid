@@ -488,6 +488,83 @@ test('المعاينة فصلًا فصلًا: تبويب لكل فصل، ورق�
   assert.doesNotMatch(h2, /اليوم الوطني/, 'لا يظهر هنا ما يخص الفصل الأول');
 });
 
+test('batchMovePlanned — ينقل شاهدًا ليوم دراسي مسموح ويُبقي صفه ويرتّب بالتاريخ، ويرفض غير المسموح', () => {
+  const app = loadApp();
+  const days = ['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07'];
+  const mk = () => ({ dates: ['2026-10-04', '2026-10-06'], classes: ['س1', 'س2'] });
+  const p = mk();
+  const r = app.batchMovePlanned(p, '2026-10-04', '2026-10-07', days);
+  assert.deepEqual({ ...r }, { ok: true, label: 'س1' });
+  assert.deepEqual([...p.dates], ['2026-10-06', '2026-10-07'], 'مرتّبة بعد النقل');
+  assert.deepEqual([...p.classes], ['س2', 'س1'], 'الصف يتبع شاهده');
+  // يوم فيه شاهد أصلًا: يجوز (شاهدان باليوم)
+  const q = mk();
+  assert.equal(app.batchMovePlanned(q, '2026-10-04', '2026-10-06', days).ok, true);
+  assert.deepEqual([...q.dates], ['2026-10-06', '2026-10-06']);
+  // يوم غير مسموح، نفس اليوم، مصدر بلا شاهد: رفض بلا تغيير
+  const z = mk();
+  assert.equal(app.batchMovePlanned(z, '2026-10-04', '2026-10-09', days).ok, false);
+  assert.equal(app.batchMovePlanned(z, '2026-10-04', '2026-10-04', days).ok, false);
+  assert.equal(app.batchMovePlanned(z, '2026-10-05', '2026-10-07', days).ok, false);
+  assert.deepEqual([...z.dates], ['2026-10-04', '2026-10-06']);
+  // بلا صفوف
+  const n = { dates: ['2026-10-04'], classes: null };
+  assert.equal(app.batchMovePlanned(n, '2026-10-04', '2026-10-05', days).ok, true);
+  assert.deepEqual([...n.dates], ['2026-10-05']);
+});
+
+test('المعاينة: نقل شاهد بنقرتين — تحديد، نقل، رفض الإجازة، إلغاء، وتنبيه الصف، وتُعتمد التعديلات', () => {
+  const { app, reg } = classApp();
+  runInAppContext(app, 'batchPick = { E1: Array.from({ length: 12 }, (_, i) => "نموذج " + i) };');
+  app.batchSetPeriod('sem1');
+  app.batchTogglePreview(true);
+  const plan = () => runInAppContext(app, 'batchPlanned');
+  const tipText = () => runInAppContext(app, 'batchTip');
+  const pickDay = [...plan().dates][0];
+  const classOf = d => plan().classes[plan().dates.indexOf(d)];
+  // يوم بلا شاهد: شرح فقط ولا تحديد
+  const free = [...runInAppContext(app, 'batchPeriodInfo().days')].find(d => !plan().dates.includes(d));
+  app.batchOnDayTap(free);
+  assert.equal(runInAppContext(app, 'batchMoveFrom'), null);
+  assert.match(tipText(), /يوم دراسة بلا شاهد/);
+  // تحديد يوم فيه شاهد
+  app.batchOnDayTap(pickDay);
+  assert.equal(runInAppContext(app, 'batchMoveFrom'), pickDay);
+  assert.match(reg.btPreview.innerHTML, /bt-cell [^"]*sel/);
+  assert.match(reg.btPreview.innerHTML, /dest/);
+  assert.match(tipText(), /اختر يومًا دراسيًا لنقله إليه/);
+  // الإجازة (اليوم الوطني) مرفوضة وتبقى حالة التحديد
+  app.batchOnDayTap('2026-09-23');
+  assert.match(tipText(), /ليس يوم دراسة \(اليوم الوطني\)، لا يمكن النقل إليه/);
+  assert.equal(runInAppContext(app, 'batchMoveFrom'), pickDay);
+  // الإلغاء بالضغط على اليوم نفسه
+  app.batchOnDayTap(pickDay);
+  assert.equal(runInAppContext(app, 'batchMoveFrom'), null);
+  // النقل لليوم الحر
+  const lab = classOf(pickDay);
+  app.batchOnDayTap(pickDay);
+  app.batchOnDayTap(free);
+  assert.equal(runInAppContext(app, 'batchMoveFrom'), null);
+  assert.ok(plan().dates.includes(free) && !plan().dates.includes(pickDay));
+  assert.equal(classOf(free), lab, 'الصف يتبع الشاهد');
+  assert.match(tipText(), /نُقل الشاهد إلى/);
+  assert.deepEqual([...plan().dates].sort(), [...plan().dates], 'تبقى مرتّبة');
+  assert.equal(plan().dates.length, 12, 'العدد ثابت');
+  // الملخص يعكس الخطة بعد النقل
+  assert.match(reg.btSum.innerHTML, /bt-ccount/);
+  // تنبيه الصف: انقل إلى يوم لا يدرّس فيه صف الشاهد
+  const wrongDay = [...runInAppContext(app, 'batchPeriodInfo().days')].find(d => d !== free && !plan().dates.includes(d) && app.batchTeachesOn(TT, CLS.find(c => c.label === classOf(free)).id, 1, d) === false);
+  assert.ok(wrongDay, 'يوجد يوم دراسي لا يدرّس فيه صف الشاهد');
+  app.batchOnDayTap(free);
+  app.batchOnDayTap(wrongDay);
+  assert.match(tipText(), /⚠ لا تدرّس .+ هذا اليوم — تأكد أنه مقصود/);
+  // الخلط يمحو التحديد والرسالة
+  app.batchOnDayTap(plan().dates[0]);
+  app.batchReshuffle();
+  assert.equal(runInAppContext(app, 'batchMoveFrom'), null);
+  assert.equal(runInAppContext(app, 'batchTip'), '');
+});
+
 test('يوم واحد: تنبيه (لا منع) لو ليس يوم دراسة، ورفض تاريخ بعد اليوم', () => {
   const { app, reg } = periodApp();
   app.batchSetPeriod('single');
@@ -519,6 +596,7 @@ test('تجهيز الدفعة — التوزيع يمرّ عبر التقويم 
   assert.ok(/calFallback = !batchCal;/.test(src), 'رجوع للجمعة والسبت عند غياب التقويم');
   assert.ok(/لا توجد أيام دراسة ضمن هذه الفترة/.test(src), 'فترة كلها إجازة تُرفض برسالة واضحة');
   assert.ok(/p\.from === info\.from && p\.to === info\.to && p\.count === items\.length/.test(src), 'يُعتمد التوزيع الذي رآه المعلم بالمعاينة');
+  assert.ok(/onclick="batchOnDayTap\('\$\{c\.iso\}'\)"/.test(src), 'أيام المعاينة قابلة للنقل بالضغط');
   assert.ok(/seq !== batchViewSeq/.test(src.slice(src.indexOf('async function batchPrepareCalendar'))), 'حارس سباق بعد تحميل التقويم');
 });
 
