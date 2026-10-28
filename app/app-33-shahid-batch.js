@@ -24,7 +24,11 @@ let batchAutoNames = {};           // اختيارات جاءت من «الاق�
 let batchAutoDone = false;         // هل سُحب اقتراح بهذه الجلسة (يبدّل نص الزر لـ«غيّر الاقتراح»)
 let batchElems = [];               // لقطة عناصر الأداء المعروضة (الفهرس ← العنصر) لأزرار الشاشة
 let batchTarget = 24;              // العدد المطلوب للاقتراح التلقائي
-let batchDateMode = 'spread';      // single | spread
+let batchPeriod = 'custom';        // الفترة المختارة: sem1 | sem2 | year (من التقويم) | custom | single
+let batchFrom = '', batchTo = '', batchOne = ''; // التواريخ المختارة (YYYY-MM-DD)
+let batchPeriodTouched = false;    // هل اختار المعلم الفترة بنفسه (فلا نستبدلها بفصله الحالي)
+let batchPreviewOpen = false;      // معاينة الأسابيع مفتوحة
+let batchPlanned = null;           // آخر توزيع معروض بالمعاينة { from, to, count, ndays, dates } — يُعتمد عند الإنشاء
 let batchBusyIds = new Set();      // بطاقات يجري رفع صورتها الآن
 let batchStep = 'pick';            // pick | setup | board
 let batchViewSeq = 0;              // يلغي نتيجة تحميل قديم لو فُتحت الشاشة ثانية
@@ -34,9 +38,17 @@ let batchInnerQ = '';              // بحث داخل العنصر المفتو�
 let batchShowAll = new Set();      // عناصر عُرضت كل نماذجها (الافتراضي أول BATCH_ROWS_FIRST)
 let batchSheetOpen = false;        // ورقة «مراجعة اختياراتك»
 let batchCal = null;               // تقويم نطاق المعلم { weeks, holidays } لشاشة البيانات — null لو غير متاح
-let batchFromTouched = false;      // هل غيّر المعلم «من» يدويًا (فلا نستبدله ببداية الفصل)
 const BATCH_ROWS_FIRST = 6;
 const BATCH_STEPS = ['الاختيار', 'بياناتك', 'الصور'];
+const BATCH_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+function batchAr(n){ return String(n).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[d]); }
+/* عدد الشواهد بصياغة عربية سليمة: شاهد واحد، شاهدان، ٣-١٠ شواهد، ١١+ شاهدًا */
+function batchCountLabel(n){
+  if(n === 1) return 'شاهد واحد';
+  if(n === 2) return 'شاهدان';
+  return batchAr(n) + (n >= 3 && n <= 10 ? ' شواهد' : ' شاهدًا');
+}
+function batchDateLabel(iso){ return batchAr(+iso.slice(8)) + ' ' + BATCH_MONTHS[+iso.slice(5, 7) - 1]; }
 
 /* تصفير حالة الدفعة — يُستدعى عند دخول حساب (onLoggedIn) كي لا تبقى بطاقات
    مستخدم سابق على نفس الصفحة بعد تسجيل خروج/دخول */
@@ -59,7 +71,11 @@ function batchResetState(){
   batchShowAll = new Set();
   batchSheetOpen = false;
   batchCal = null;
-  batchFromTouched = false;
+  batchPeriod = 'custom';
+  batchFrom = batchTo = batchOne = '';
+  batchPeriodTouched = false;
+  batchPreviewOpen = false;
+  batchPlanned = null;
 }
 
 /* ============ دوال صرفة (قابلة للاختبار) ============ */
@@ -113,17 +129,59 @@ function batchCalendarDays(weekRows, holidayRows, startIso, endIso){
   return days;
 }
 
-/* بداية الفترة الافتراضية: أول يوم دراسة للطلاب في الفصل الحالي (آخر يوم دراسة ≤ اليوم).
-   null لو لم يبدأ العام بعد أو لا بيانات — فيعود النداء لـ«اليوم ناقص 56» */
-function batchDefaultFrom(weekRows, holidayRows, todayIso){
+/* حدود فترة جاهزة من التقويم الرسمي. key: sem1 | sem2 | year.
+   from = أول يوم دراسة فعلي بها، to = آخر يوم دراسة لكن لا يتجاوز اليوم.
+   available=false لو لم تبدأ بعد (startsOn = تاريخ بدايتها) أو لا بيانات لها */
+function batchPeriodRange(weekRows, holidayRows, key, todayIso){
   const idx = batchWeekIndex(weekRows);
   const valid = (weekRows || []).filter(r => r && r.gregorian_date && batchDayStatus(idx, holidayRows, r.gregorian_date).ok)
     .sort((a, b) => a.gregorian_date.localeCompare(b.gregorian_date));
-  const upToToday = valid.filter(r => r.gregorian_date <= todayIso);
-  if(!upToToday.length) return null;
-  const semester = upToToday[upToToday.length - 1].semester;
-  const first = valid.find(r => r.semester === semester);
-  return first ? first.gregorian_date : null;
+  const rows = key === 'year' ? valid : valid.filter(r => r.semester === (key === 'sem2' ? 2 : 1));
+  if(!rows.length) return { available: false, from: null, to: null, startsOn: null };
+  const first = rows[0].gregorian_date, last = rows[rows.length - 1].gregorian_date;
+  if(first > todayIso) return { available: false, from: first, to: null, startsOn: first };
+  return { available: true, from: first, to: last < todayIso ? last : todayIso, startsOn: first };
+}
+
+/* الفصل الدراسي الحالي (1 أو 2) = فصل آخر يوم دراسة ≤ اليوم؛ null لو لم يبدأ العام */
+function batchCurrentSemester(weekRows, holidayRows, todayIso){
+  const idx = batchWeekIndex(weekRows);
+  let best = null;
+  (weekRows || []).forEach(r => {
+    if(!r || !r.gregorian_date || r.gregorian_date > todayIso) return;
+    if(!batchDayStatus(idx, holidayRows, r.gregorian_date).ok) return;
+    if(!best || r.gregorian_date > best.gregorian_date) best = r;
+  });
+  return best ? best.semester : null;
+}
+
+/* أسابيع (أحد-خميس) تغطي الفترة للمعاينة. pickedDates: التواريخ الموزَّعة.
+   حالة الخلية: out (خارج الفترة) | off (إجازة/ليس يوم دراسة + reason) | pick (+count) | study */
+function batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal){
+  const rows = [];
+  if(!fromIso || !toIso || fromIso > toIso) return rows;
+  const idx = batchWeekIndex(weekRows);
+  const counts = {};
+  (pickedDates || []).forEach(d => { counts[d] = (counts[d] || 0) + 1; });
+  const wd = weekdayOfIso(fromIso);
+  let sunday = wd >= 5 ? addDaysIso(fromIso, 7 - wd) : addDaysIso(fromIso, -wd);
+  let first = true;
+  for(let w = 0; w < 60 && sunday <= toIso; w++){
+    const cells = [];
+    for(let k = 0; k < 5; k++){
+      const iso = addDaysIso(sunday, k);
+      if(iso < fromIso || iso > toIso){ cells.push({ iso, status: 'out' }); continue; }
+      const cell = { iso, status: 'study', month: (first || iso.slice(8) === '01') ? BATCH_MONTHS[+iso.slice(5, 7) - 1] : '' };
+      first = false;
+      const st = hasCal ? batchDayStatus(idx, holidayRows, iso) : { ok: true };
+      if(!st.ok){ cell.status = 'off'; cell.reason = st.reason; }
+      else if(counts[iso]){ cell.status = 'pick'; cell.count = counts[iso]; }
+      cells.push(cell);
+    }
+    rows.push({ n: w + 1, cells });
+    sunday = addDaysIso(sunday, 7);
+  }
+  return rows;
 }
 
 /* توزيع count تاريخًا على أيام الدراسة (مرتّبة تصاعديًا): تُقسَّم الفترة إلى count
@@ -724,8 +782,14 @@ function showBatchSetup(){
   renderBatchSheet();
   const meta = (currentUser && currentUser.user_metadata) || {};
   const today = localIsoDate();
-  const start = addDaysIso(today, -56);
   const total = batchPickedTotal();
+  batchPeriod = 'custom';
+  batchFrom = addDaysIso(today, -56);
+  batchTo = batchOne = today;
+  batchPeriodTouched = false;
+  batchPreviewOpen = false;
+  batchPlanned = null;
+  batchApplyDefaultPeriod();
   document.getElementById('batchBody').innerHTML = `
     ${batchHeader(2, 'بياناتك تُعبّأ مرة واحدة', `تُطبَّق على الشواهد الـ${total} كلها`)}
     <div class="bt-form">
@@ -735,28 +799,15 @@ function showBatchSetup(){
         <label>المادة<input type="text" id="btSubject" maxlength="150" class="goal-input" value="${escapeHtml(getProfileSubject())}"></label>
         <label>الصف / الفصل<input type="text" id="btClass" maxlength="100" class="goal-input" value="${escapeHtml(getProfileClass())}"></label>
       </div>
-      <div class="bt-sub">تاريخ التنفيذ</div>
-      <div class="bt-modes">
-        <button type="button" id="btModeSpread" class="bt-mode${batchDateMode === 'spread' ? ' on' : ''}" onclick="batchSetDateMode('spread')"><b>موزّع على الفترة</b><small>تواريخ متفاوتة بأيام الدراسة — أقرب للواقع</small></button>
-        <button type="button" id="btModeSingle" class="bt-mode${batchDateMode === 'single' ? ' on' : ''}" onclick="batchSetDateMode('single')"><b>تاريخ واحد</b><small>كل الشواهد بنفس اليوم</small></button>
-      </div>
-      <div id="btDateSpread" class="bt-grid2" ${batchDateMode === 'spread' ? '' : 'style="display:none;"'}>
-        <label>من<input type="date" id="btFrom" class="goal-input" value="${start}" max="${today}" oninput="batchFromTouched = true"></label>
-        <label>إلى<input type="date" id="btTo" class="goal-input" value="${today}" max="${today}"></label>
-      </div>
-      <div id="btDateSingle" ${batchDateMode === 'single' ? '' : 'style="display:none;"'}>
-        <label>التاريخ<input type="date" id="btOne" class="goal-input" value="${today}" max="${today}" oninput="batchCheckOneDate()"></label>
-        <p class="bt-hint" id="btOneWarn" style="display:none;color:#8A2C2C;"></p>
-      </div>
-      <p class="bt-hint">التواريخ لا تتجاوز اليوم، ويمكنك تعديل تاريخ أي شاهد لاحقًا من بطاقته.</p>
-      <p class="bt-hint" id="btCalNote"></p>
+      <div class="bt-sub">متى نفّذت هذه الشواهد؟</div>
+      <div id="btPeriod"></div>
     </div>
     <div class="sh-fab-wrap bt-bar"><div class="bt-bar-in">
       <button type="button" class="btn btn-outline" onclick="renderBatchPick()">→ رجوع</button>
       <button type="button" class="btn btn-primary bt-next" id="btCreateBtn" onclick="batchCreateDrafts(this)">إنشاء البطاقات ✓</button>
     </div></div>`;
   window.scrollTo({ top: 0 });
-  batchFromTouched = false;
+  renderBatchPeriod();
   batchPrepareCalendar();
 }
 
@@ -771,60 +822,178 @@ async function batchLoadCalendar(){
   } catch(e){ return null; }
 }
 
-/* بعد رسم شاشة البيانات: يحمّل التقويم، ويضبط «من» على بداية الفصل (ما لم يعدّلها
-   المعلم)، ويكتب ملاحظة التوزيع. يتجاهل النتيجة لو انتقل المعلم أو تبدّل الحساب */
+/* لو التقويم متاح ولم يختر المعلم فترة بنفسه: الفصل الدراسي الحالي من أوله حتى اليوم */
+function batchApplyDefaultPeriod(){
+  if(!batchCal || batchPeriodTouched) return;
+  const today = localIsoDate();
+  const sem = batchCurrentSemester(batchCal.weeks, batchCal.holidays, today);
+  if(!sem) return;
+  const key = sem === 2 ? 'sem2' : 'sem1';
+  const r = batchPeriodRange(batchCal.weeks, batchCal.holidays, key, today);
+  if(!r.available) return;
+  batchPeriod = key; batchFrom = r.from; batchTo = r.to;
+}
+
+/* بعد رسم شاشة البيانات: يحمّل التقويم ثم يعيد رسم قسم الفترة. يتجاهل النتيجة لو
+   انتقل المعلم لخطوة أخرى أو تبدّل الحساب */
 async function batchPrepareCalendar(){
   const seq = batchViewSeq, uid = currentUser && currentUser.id;
   const cal = await batchLoadCalendar();
   if(seq !== batchViewSeq || !isBatchViewOpen() || batchStep !== 'setup' || !currentUser || currentUser.id !== uid) return;
   batchCal = cal;
-  const note = document.getElementById('btCalNote');
-  if(note){
-    note.textContent = cal
-      ? 'التوزيع يتجنّب الجمعة والسبت والإجازات الرسمية وأيام الاختبارات حسب تقويم نطاقك.'
-      : (calendarRegion
-        ? 'تعذّر تحميل التقويم الدراسي — سيتجنّب التوزيع الجمعة والسبت فقط.'
-        : 'حدّد نطاق التقويم الدراسي (من شاشة التقويم) كي يتجنّب التوزيع الإجازات الرسمية؛ سيتجنّب الآن الجمعة والسبت فقط.');
-  }
-  const from = document.getElementById('btFrom');
-  if(cal && from && !batchFromTouched){
-    const def = batchDefaultFrom(cal.weeks, cal.holidays, localIsoDate());
-    if(def) from.value = def;
-  }
-  batchCheckOneDate();
+  batchApplyDefaultPeriod();
+  renderBatchPeriod();
 }
 
-/* تنبيه (لا منع) لو التاريخ الواحد المختار ليس يوم دراسة */
-function batchCheckOneDate(){
-  const el = document.getElementById('btOne'), w = document.getElementById('btOneWarn');
-  if(!el || !w) return;
-  const iso = el.value;
-  let msg = '';
-  if(iso){
-    const wd = weekdayOfIso(iso);
-    if(wd === 5 || wd === 6) msg = 'هذا اليوم عطلة نهاية الأسبوع';
+/* حالة الفترة الحالية: مصدر واحد للملخص والمعاينة والإنشاء.
+   spread: { ok, from, to, days } | single: { ok, one, offReason } | ok=false + msg */
+function batchPeriodInfo(){
+  const today = localIsoDate();
+  if(batchPeriod === 'single'){
+    if(!batchOne || batchOne > today) return { mode: 'single', ok: false, msg: 'اختر تاريخًا لا يتجاوز اليوم' };
+    let offReason = '';
+    const wd = weekdayOfIso(batchOne);
+    if(wd === 5 || wd === 6) offReason = 'عطلة نهاية الأسبوع';
     else if(batchCal){
-      const st = batchDayStatus(batchWeekIndex(batchCal.weeks), batchCal.holidays, iso);
-      if(!st.ok) msg = 'هذا اليوم ليس يوم دراسة (' + st.reason + ')';
+      const st = batchDayStatus(batchWeekIndex(batchCal.weeks), batchCal.holidays, batchOne);
+      if(!st.ok) offReason = st.reason;
+    }
+    return { mode: 'single', ok: true, one: batchOne, offReason };
+  }
+  const from = batchFrom, to = batchTo;
+  if(!from || !to || from > to || to > today) return { mode: 'spread', ok: false, msg: 'تحقق من الفترة: «من» قبل «إلى» ولا تتجاوز اليوم' };
+  const days = batchCal ? batchCalendarDays(batchCal.weeks, batchCal.holidays, from, to) : batchSchoolDays(from, to);
+  if(!days.length) return { mode: 'spread', ok: false, msg: 'لا توجد أيام دراسة ضمن هذه الفترة حسب التقويم الرسمي — وسّع الفترة' };
+  return { mode: 'spread', ok: true, from, to, days };
+}
+
+/* التوزيع المعروض بالمعاينة: يُعاد استخدامه عند الإنشاء كي يطابق ما رآه المعلم */
+function batchEnsurePlan(info, count, reshuffle){
+  const p = batchPlanned;
+  if(!reshuffle && p && p.from === info.from && p.to === info.to && p.count === count && p.ndays === info.days.length) return p;
+  batchPlanned = { from: info.from, to: info.to, count, ndays: info.days.length, dates: batchSpreadDates(count, info.from, info.to, { days: info.days }) };
+  return batchPlanned;
+}
+
+function renderBatchPeriod(){
+  const box = document.getElementById('btPeriod');
+  if(!box) return;
+  const today = localIsoDate();
+  const chip = (key, label, sub, disabled) =>
+    `<button type="button" class="bt-chip${batchPeriod === key ? ' on' : ''}${disabled ? ' dis' : ''}" ${disabled ? 'disabled' : `onclick="batchSetPeriod('${key}')"`}>${label}${sub ? `<small>${sub}</small>` : ''}</button>`;
+  let chips = '';
+  if(batchCal){
+    const rng = k => batchPeriodRange(batchCal.weeks, batchCal.holidays, k, today);
+    const one = (k, label) => { const r = rng(k); return chip(k, label, !r.available && r.startsOn ? 'يبدأ ' + batchDateLabel(r.startsOn) : '', !r.available); };
+    chips = one('sem1', 'الفصل الأول') + one('sem2', 'الفصل الثاني') + one('year', 'العام كاملًا');
+  }
+  chips += chip('custom', 'فترة أخرى') + chip('single', 'يوم واحد');
+  let fields = '';
+  if(batchPeriod === 'custom'){
+    fields = `<div class="bt-grid2">
+      <label>من تاريخ<input type="date" id="btFrom" class="goal-input" value="${escapeHtml(batchFrom)}" max="${today}" oninput="batchOnDates()"></label>
+      <label>إلى تاريخ<input type="date" id="btTo" class="goal-input" value="${escapeHtml(batchTo)}" max="${today}" oninput="batchOnDates()"></label>
+    </div>`;
+  } else if(batchPeriod === 'single'){
+    fields = `<label>التاريخ<input type="date" id="btOne" class="goal-input" value="${escapeHtml(batchOne)}" max="${today}" oninput="batchOnDates()"></label>`;
+  }
+  box.innerHTML = `<div class="bt-chips">${chips}</div>${fields}<div id="btSum"></div><div id="btPreview"></div><p class="bt-hint" id="btHint"></p>`;
+  batchRefreshPeriod();
+}
+
+/* الملخص والمعاينة والتلميح — دون إعادة رسم الحقول (فلا يضيع التركيز أثناء الكتابة) */
+function batchRefreshPeriod(){
+  const sum = document.getElementById('btSum'), prev = document.getElementById('btPreview'), hint = document.getElementById('btHint');
+  if(!sum || !prev || !hint) return;
+  const total = batchPickedTotal();
+  const info = batchPeriodInfo();
+  if(!info.ok){
+    sum.innerHTML = `<div class="bt-sum bad">${escapeHtml(info.msg)}</div>`;
+    prev.innerHTML = '';
+  } else if(info.mode === 'single'){
+    sum.innerHTML = `<div class="bt-sum">✓ كل الشواهد (<b>${batchAr(total)}</b>) بتاريخ <b>${batchDateLabel(info.one)}</b></div>`
+      + (info.offReason ? `<p class="bt-warn2">⚠ هذا اليوم ليس يوم دراسة (${escapeHtml(info.offReason)}) — الأفضل اختيار يوم دراسة فعلي.</p>` : '');
+    prev.innerHTML = '';
+  } else {
+    sum.innerHTML = `<div class="bt-sum">✓ <b>${batchCountLabel(total)}</b> ستُوزَّع على <b>${batchAr(info.days.length)}</b> يوم دراسة<small>من ${batchDateLabel(info.from)} إلى ${batchDateLabel(info.to)}</small>${total > info.days.length ? '<small>الأيام أقل من الشواهد، فسيتكرر بعضها.</small>' : ''}</div>`;
+    if(!batchPreviewOpen){
+      prev.innerHTML = '<button type="button" class="btn btn-outline bt-prevbtn" onclick="batchTogglePreview(true)">👁 شاهد كيف ستُوزَّع</button>';
+    } else {
+      const plan = batchEnsurePlan(info, total, false);
+      const rows = batchWeekRows(info.from, info.to, batchCal && batchCal.weeks, batchCal && batchCal.holidays, plan.dates, !!batchCal);
+      const head = '<div class="bt-wrow bt-whd"><span class="bt-wk"></span>' + CRM_WEEKDAY_NAMES.slice(0, 5).map(n => `<span class="bt-cell0">${n}</span>`).join('') + '</div>';
+      const body = rows.map(r => `<div class="bt-wrow"><span class="bt-wk">${batchAr(r.n)}</span>${r.cells.map(c => {
+        if(c.status === 'out') return '<span class="bt-cell out"></span>';
+        const sub = c.status === 'off' ? escapeHtml(c.reason) : (c.month || (c.status === 'pick' ? (c.count > 1 ? batchAr(c.count) + ' شواهد' : 'شاهد') : ''));
+        return `<button type="button" class="bt-cell ${c.status}" onclick="batchShowDayTip('${c.iso}')">${batchAr(+c.iso.slice(8))}${sub ? `<small>${sub}</small>` : ''}</button>`;
+      }).join('')}</div>`).join('');
+      prev.innerHTML = `<div class="bt-prev"><div class="bt-sub" style="margin-top:0">توزيع ${batchCountLabel(total)} على الفترة</div>
+        <div>${head}${body}</div>
+        <div class="bt-leg"><span><i class="pick"></i>شاهد</span><span><i></i>يوم دراسة بلا شاهد</span><span><i class="off"></i>إجازة / اختبارات</span></div>
+        <div class="bt-tip" id="btTip" style="display:none"></div>
+        <div class="bt-prevbar"><button type="button" class="btn btn-outline" onclick="batchReshuffle()">🔀 خلط التواريخ</button><button type="button" class="btn btn-primary" onclick="batchTogglePreview(false)">تمام ✓</button></div></div>`;
     }
   }
-  w.textContent = msg ? msg + ' — الأفضل اختيار يوم دراسة فعلي.' : '';
-  w.style.display = msg ? '' : 'none';
+  hint.textContent = batchCal
+    ? 'نختار أيام دراسة فعلية فقط: دون الجمعة والسبت والإجازات الرسمية وأيام الاختبارات. لا نتجاوز اليوم، وتعدّل أي تاريخ لاحقًا من بطاقته.'
+    : (typeof calendarRegion !== 'undefined' && calendarRegion
+      ? 'تعذّر تحميل التقويم الدراسي، فنتجنّب الجمعة والسبت فقط. لا نتجاوز اليوم، وتعدّل أي تاريخ لاحقًا من بطاقته.'
+      : 'حدّد نطاق التقويم الدراسي (من شاشة التقويم) كي نتجنّب الإجازات الرسمية أيضًا؛ نتجنّب الآن الجمعة والسبت فقط. لا نتجاوز اليوم، وتعدّل أي تاريخ لاحقًا من بطاقته.');
 }
 
-function batchSetDateMode(mode){
-  batchDateMode = mode === 'single' ? 'single' : 'spread';
-  document.getElementById('btModeSpread').classList.toggle('on', batchDateMode === 'spread');
-  document.getElementById('btModeSingle').classList.toggle('on', batchDateMode === 'single');
-  document.getElementById('btDateSpread').style.display = batchDateMode === 'spread' ? '' : 'none';
-  document.getElementById('btDateSingle').style.display = batchDateMode === 'single' ? '' : 'none';
-  batchCheckOneDate();
+function batchSetPeriod(key){
+  batchPeriodTouched = true;
+  if(key === 'sem1' || key === 'sem2' || key === 'year'){
+    const r = batchCal ? batchPeriodRange(batchCal.weeks, batchCal.holidays, key, localIsoDate()) : null;
+    if(!r || !r.available) return;
+    batchFrom = r.from; batchTo = r.to;
+  }
+  batchPeriod = key;
+  batchPlanned = null;
+  renderBatchPeriod();
+}
+
+function batchOnDates(){
+  batchPeriodTouched = true;
+  const f = document.getElementById('btFrom'), t = document.getElementById('btTo'), o = document.getElementById('btOne');
+  if(f) batchFrom = f.value;
+  if(t) batchTo = t.value;
+  if(o) batchOne = o.value;
+  batchPlanned = null;
+  batchRefreshPeriod();
+}
+
+function batchTogglePreview(open){
+  batchPreviewOpen = !!open;
+  batchRefreshPeriod();
+}
+
+function batchReshuffle(){
+  const info = batchPeriodInfo();
+  if(!info.ok || info.mode !== 'spread') return;
+  batchEnsurePlan(info, batchPickedTotal(), true);
+  batchRefreshPeriod();
+}
+
+/* شرح يوم بالمعاينة: يوم دراسة (بشاهد أو بلا) أو إجازة باسمها */
+function batchShowDayTip(iso){
+  const tip = document.getElementById('btTip');
+  if(!tip) return;
+  const label = `${CRM_WEEKDAY_NAMES[weekdayOfIso(iso)]} ${batchDateLabel(iso)}`;
+  let text;
+  const st = batchCal ? batchDayStatus(batchWeekIndex(batchCal.weeks), batchCal.holidays, iso) : { ok: true };
+  if(!st.ok) text = `${label} — ليس يوم دراسة: ${st.reason}، لن يُوضع فيه شاهد.`;
+  else {
+    const n = ((batchPlanned && batchPlanned.dates) || []).filter(d => d === iso).length;
+    text = n ? `${label} — سيُوثَّق فيه ${n > 1 ? batchAr(n) + ' شواهد' : 'شاهد'}.` : `${label} — يوم دراسة بلا شاهد.`;
+  }
+  tip.textContent = text;
+  tip.style.display = '';
 }
 
 async function batchCreateDrafts(btn){
   if(!currentUser || btn.disabled) return;
   if(!navigator.onLine){ showToast('لا يوجد اتصال بالإنترنت', 'error'); return; }
-  const today = localIsoDate();
   let dates;
   let calFallback = false;
   /* السعة تُعاد قراءتها من القاعدة أولًا: جهاز/تبويب آخر قد يكون أضاف مسودات */
@@ -837,22 +1006,18 @@ async function batchCreateDrafts(btn){
     const items = batchInterleave(groups);
     if(!items.length){ showToast('لا شيء جديد لإنشائه', 'error'); return; }
 
-    if(batchDateMode === 'single'){
-      const one = document.getElementById('btOne').value;
-      if(!one || one > today){ showToast('اختر تاريخًا لا يتجاوز اليوم', 'error'); return; }
-      dates = Array(items.length).fill(one);
+    /* التقويم يُعاد جلبه (مخزَّن غالبًا) كي لا نعتمد على لقطة قديمة، ثم المصدر الواحد للفترة */
+    batchCal = await batchLoadCalendar();
+    calFallback = !batchCal;
+    const info = batchPeriodInfo();
+    if(!info.ok){ showToast(info.msg, 'error'); return; }
+    if(info.mode === 'single'){
+      dates = Array(items.length).fill(info.one);
     } else {
-      const from = document.getElementById('btFrom').value, to = document.getElementById('btTo').value;
-      if(!from || !to || from > to || to > today){ showToast('تحقق من الفترة: «من» قبل «إلى» ولا تتجاوز اليوم', 'error'); return; }
-      const cal = await batchLoadCalendar();
-      if(cal){
-        const days = batchCalendarDays(cal.weeks, cal.holidays, from, to);
-        if(!days.length){ showToast('لا توجد أيام دراسة ضمن هذه الفترة حسب التقويم الرسمي — وسّع الفترة', 'error'); return; }
-        dates = batchSpreadDates(items.length, from, to, { days });
-      } else {
-        calFallback = true;
-        dates = batchSpreadDates(items.length, from, to);
-      }
+      const p = batchPlanned;
+      dates = (p && p.from === info.from && p.to === info.to && p.count === items.length && p.ndays === info.days.length)
+        ? p.dates.slice()
+        : batchSpreadDates(items.length, info.from, info.to, { days: info.days });
     }
     const rows = buildBatchDraftRows(items, dates, {
       userId: currentUser.id,
