@@ -2483,6 +2483,10 @@ button.crm-gs-strip-btn:hover{background:#F1EEE6;}
 .bt-switch small{display:block;font-size:11.5px;color:var(--muted);line-height:1.6;}
 .bt-prevbtn{width:100%;margin-top:12px;}
 .bt-prev{margin-top:12px;border-top:1px solid var(--line);padding-top:12px;}
+.bt-semtabs{margin-bottom:8px;}
+.bt-mtitle{margin:4px 0 10px;text-align:center;}
+.bt-mtitle b{display:block;font-size:15px;color:var(--navy);}
+.bt-mtitle small{display:block;font-size:11.5px;color:var(--muted);}
 .bt-wrow{display:flex;gap:4px;margin-bottom:4px;align-items:stretch;}
 .bt-wk{width:26px;font-size:10.5px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:center;}
 .bt-cell0{flex:1;text-align:center;font-size:11px;font-weight:800;color:var(--navy);padding-bottom:2px;}
