@@ -930,7 +930,7 @@ test('الاقتراح التلقائي: يستبعد الموثّق فعلًا�
   await t.test('الاقتراح لا يقترح نموذجًا موثّقًا، ونتائجه تتنوع بين الضغطات', async () => {
     const { app, tpls } = build();
     await app.loadBatchExisting();
-    runInAppContext(app, `batchElems = [{ key: ${JSON.stringify(KEY)}, label: 'ع', weight: 9 }]; batchTarget = 4;`);
+    runInAppContext(app, `batchElems = [{ key: ${JSON.stringify(KEY)}, label: 'ع', weight: 9 }]; batchDepth = 4; batchTarget = 4;`);
     const seen = new Set();
     for (let i = 0; i < 12; i++) {
       app.batchAutoPick();
@@ -946,7 +946,7 @@ test('الاقتراح التلقائي: يستبعد الموثّق فعلًا�
   await t.test('إعادة الاقتراح تُبقي اختيار المعلم اليدوي وتستبدل ما اقترحه الزر', async () => {
     const { app, tpls } = build();
     await app.loadBatchExisting();
-    runInAppContext(app, `batchElems = [{ key: ${JSON.stringify(KEY)}, label: 'ع', weight: 9 }]; batchTarget = 4; batchOpenEl.add(${JSON.stringify(KEY)});`);
+    runInAppContext(app, `batchElems = [{ key: ${JSON.stringify(KEY)}, label: 'ع', weight: 9 }]; batchDepth = 4; batchTarget = 4; batchOpenEl.add(${JSON.stringify(KEY)});`);
     const manual = tpls[5].name;
     app.batchToggleTpl(0, 5); // اختيار يدوي
     for (let i = 0; i < 8; i++) {
@@ -1135,4 +1135,48 @@ test('الشاشة: أزرار الاتجاه والرأس بخطوات مسمّ
   assert.match(h, /الخطوة 2 من 3/);
   const idx = read('index.html');
   assert.match(idx, /<div id="batchView"[\s\S]*?id="btSheet"[\s\S]*?<!-- -{10}/);
+});
+
+test('batchGoals — الهدف يُشتق من العمق لكل عنصر ويُحدّ بالسعة والنماذج، ويخصم الموثّق عند الطلب', () => {
+  const app = loadApp();
+  const keys = ['A', 'B', 'C'];
+  const info = { A: { cap: 4, existing: 2, tpl: 9 }, B: { cap: 1, existing: 0, tpl: 9 }, C: { cap: 4, existing: 5, tpl: 1 } };
+  const plain = app.batchGoals(keys, 2, false, info);
+  assert.deepEqual({ ...plain.goals }, { A: 2, B: 1, C: 1 });
+  assert.equal(plain.total, 4);
+  const withEx = app.batchGoals(keys, 3, true, info);
+  assert.deepEqual({ ...withEx.goals }, { A: 1, B: 1, C: 0 });
+  assert.equal(withEx.covered, 2);
+  assert.equal(withEx.doneBefore, 5);
+  const full = app.batchGoals(['X', 'Y'], 2, false, {});
+  assert.equal(full.total, 4);
+});
+
+test('batchAutoDistribute — مع goal يتساوى التوزيع (11 عنصرًا × 2 = 22 بلا عنصر زائد)', () => {
+  const app = loadApp();
+  const names = Array.from({ length: 12 }, (_, i) => 't' + i);
+  const els = Array.from({ length: 11 }, (_, i) => ({ key: 'E' + i, names }));
+  const goal = {}; els.forEach(e => { goal[e.key] = 2; });
+  for (let seed = 1; seed <= 20; seed++) {
+    const r = app.batchAutoDistribute(els, 22, {}, { rng: seeded(seed), goal });
+    assert.ok(els.every(e => r[e.key].length === 2), 'seed ' + seed);
+  }
+  goal.E0 = 0; goal.E1 = 1;
+  const r = app.batchAutoDistribute(els, 19, {}, { rng: seeded(3), goal });
+  assert.equal(r.E0.length, 0);
+  assert.equal(r.E1.length, 1);
+  assert.equal(els.reduce((n, e) => n + r[e.key].length, 0), 19);
+});
+
+test('اختيار العمق ومفتاح الموثّق يغيّران الهدف والملخّص ونص الزر', () => {
+  const { app } = pickApp();
+  runInAppContext(app, `batchSyncTarget();`);
+  assert.equal(runInAppContext(app, 'batchTarget'), 5); // E1: 2، E2: نموذج واحد فقط، E3: 2
+  assert.match(app.batchDepthSummary(), /موزعة على/);
+  runInAppContext(app, `batchDepth = 4; batchSyncTarget();`);
+  assert.equal(runInAppContext(app, 'batchTarget'), 4 + 1 + 2);
+  runInAppContext(app, `batchDepth = 2; batchCountExisting = true; batchSyncTarget();`);
+  assert.equal(runInAppContext(app, 'batchTarget'), 0 + 1 + 2); // E1 موثّق 6 ≥ 2 فيُتخطّى
+  assert.match(app.batchDepthSummary(), /وثّقتَ/);
+  assert.match(app.batchAutoLabel(), /ما ينقصني/);
 });
