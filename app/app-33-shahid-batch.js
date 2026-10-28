@@ -335,7 +335,7 @@ function renderBatchPick(){
   const chips = BATCH_TARGET_CHOICES.map(n =>
     `<button type="button" class="bt-tchip${n === batchTarget ? ' on' : ''}" aria-pressed="${n === batchTarget}" onclick="batchSetTarget(${n})">${n}</button>`).join('');
   body.innerHTML = `
-    ${batchHeader(1, 'اختر شواهدك', 'اختر ما نفّذته فعلًا — حتى ' + BATCH_MAX_PER_ELEMENT + ' شواهد لكل عنصر، وتُعبّأ كلها تلقائيًا')}
+    ${batchHeader(1, 'اختر شواهدك', 'اختر ما يناسب عملك — حتى ' + BATCH_MAX_PER_ELEMENT + ' شواهد لكل عنصر، ونعبّئ لك التفاصيل تلقائيًا')}
     <div class="bt-auto">
       <div class="bt-auto-top">
         <div class="bt-ring" id="btRing"><span id="btRingNum"></span></div>
