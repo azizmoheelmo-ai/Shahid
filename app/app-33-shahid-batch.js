@@ -33,6 +33,8 @@ let batchQuery = '';               // بحث الشاشة (اسم عنصر أو 
 let batchInnerQ = '';              // بحث داخل العنصر المفتوح
 let batchShowAll = new Set();      // عناصر عُرضت كل نماذجها (الافتراضي أول BATCH_ROWS_FIRST)
 let batchSheetOpen = false;        // ورقة «مراجعة اختياراتك»
+let batchCal = null;               // تقويم نطاق المعلم { weeks, holidays } لشاشة البيانات — null لو غير متاح
+let batchFromTouched = false;      // هل غيّر المعلم «من» يدويًا (فلا نستبدله ببداية الفصل)
 const BATCH_ROWS_FIRST = 6;
 const BATCH_STEPS = ['الاختيار', 'بياناتك', 'الصور'];
 
@@ -56,6 +58,8 @@ function batchResetState(){
   batchInnerQ = '';
   batchShowAll = new Set();
   batchSheetOpen = false;
+  batchCal = null;
+  batchFromTouched = false;
 }
 
 /* ============ دوال صرفة (قابلة للاختبار) ============ */
@@ -73,15 +77,74 @@ function batchSchoolDays(startIso, endIso){
   return days;
 }
 
-/* توزيع count تاريخًا بالتساوي على أيام الدراسة بين التاريخين (مرتّبة تصاعديًا).
-   تواريخ 30 شاهدًا المتطابقة تبدو مصطنعة — فنوزّعها على الفصل. */
-function batchSpreadDates(count, startIso, endIso){
+/* فهرس صفوف التقويم الرسمي (academic_calendar_weeks) بحسب التاريخ */
+function batchWeekIndex(weekRows){
+  const idx = {};
+  (weekRows || []).forEach(r => { if(r && r.gregorian_date) idx[r.gregorian_date] = r; });
+  return idx;
+}
+
+/* هل هذا اليوم يوم دراسة فعلي للطلاب؟ { ok:true } أو { ok:false, reason }.
+   التقويم فيه صف لكل يوم دراسة (أحد-خميس) فقط؛ فالإجازات الطويلة بلا صفوف،
+   والإجازات المنفردة (اليوم الوطني، إجازة إضافية، يوم التأسيس) وأيام الاختبارات
+   تحمل note، وأيام عودة المعلمين قبل بدء الطلاب تحمل week_label يبدأ بـ«عودة» */
+function batchDayStatus(idx, holidayRows, iso){
+  const wd = weekdayOfIso(iso);
+  if(wd === 5 || wd === 6) return { ok: false, reason: 'عطلة نهاية الأسبوع' };
+  const holiday = findHolidayForDate(holidayRows, iso);
+  if(holiday) return { ok: false, reason: holiday };
+  const row = idx[iso];
+  if(!row) return { ok: false, reason: 'خارج أيام الدراسة بالتقويم' };
+  if(row.note) return { ok: false, reason: row.note };
+  if(row.week_label && String(row.week_label).indexOf('عودة') === 0) return { ok: false, reason: 'قبل بدء الدراسة' };
+  return { ok: true };
+}
+
+/* أيام الدراسة الفعلية بين تاريخين (شاملة) بحسب التقويم الرسمي */
+function batchCalendarDays(weekRows, holidayRows, startIso, endIso){
+  const days = [];
+  if(!startIso || !endIso || startIso > endIso) return days;
+  const idx = batchWeekIndex(weekRows);
+  let d = startIso;
+  for(let i = 0; i < 400 && d <= endIso; i++){
+    if(batchDayStatus(idx, holidayRows, d).ok) days.push(d);
+    d = addDaysIso(d, 1);
+  }
+  return days;
+}
+
+/* بداية الفترة الافتراضية: أول يوم دراسة للطلاب في الفصل الحالي (آخر يوم دراسة ≤ اليوم).
+   null لو لم يبدأ العام بعد أو لا بيانات — فيعود النداء لـ«اليوم ناقص 56» */
+function batchDefaultFrom(weekRows, holidayRows, todayIso){
+  const idx = batchWeekIndex(weekRows);
+  const valid = (weekRows || []).filter(r => r && r.gregorian_date && batchDayStatus(idx, holidayRows, r.gregorian_date).ok)
+    .sort((a, b) => a.gregorian_date.localeCompare(b.gregorian_date));
+  const upToToday = valid.filter(r => r.gregorian_date <= todayIso);
+  if(!upToToday.length) return null;
+  const semester = upToToday[upToToday.length - 1].semester;
+  const first = valid.find(r => r.semester === semester);
+  return first ? first.gregorian_date : null;
+}
+
+/* توزيع count تاريخًا على أيام الدراسة (مرتّبة تصاعديًا): تُقسَّم الفترة إلى count
+   شريحة متساوية ويُسحب لكل بطاقة يوم عشوائي من شريحتها — فتغطي الفترة كلها دون
+   تكرار يوم، ولا تبدو مسافاتها متطابقة بشكل مصطنع. إن زادت البطاقات عن الأيام
+   تتكرر بعض الأيام بالتساوي. opts.days: أيام الدراسة من التقويم (وإلا دون
+   الجمعة والسبت فقط)، opts.rng: قابل للحقن للاختبار */
+function batchSpreadDates(count, startIso, endIso, opts){
   if(count <= 0) return [];
-  const days = batchSchoolDays(startIso, endIso);
+  const rng = (opts && opts.rng) || Math.random;
+  const days = (opts && opts.days) || batchSchoolDays(startIso, endIso);
   if(!days.length) return Array(count).fill(endIso || startIso || null);
   if(count === 1) return [days[days.length - 1]];
+  const L = days.length;
   const out = [];
-  for(let i = 0; i < count; i++) out.push(days[Math.round(i * (days.length - 1) / (count - 1))]);
+  for(let i = 0; i < count; i++){
+    if(count > L){ out.push(days[Math.round(i * (L - 1) / (count - 1))]); continue; }
+    const lo = Math.floor(i * L / count);
+    const hi = Math.floor((i + 1) * L / count) - 1;
+    out.push(days[lo + Math.floor(rng() * (hi - lo + 1))]);
+  }
   return out;
 }
 
@@ -678,19 +741,75 @@ function showBatchSetup(){
         <button type="button" id="btModeSingle" class="bt-mode${batchDateMode === 'single' ? ' on' : ''}" onclick="batchSetDateMode('single')"><b>تاريخ واحد</b><small>كل الشواهد بنفس اليوم</small></button>
       </div>
       <div id="btDateSpread" class="bt-grid2" ${batchDateMode === 'spread' ? '' : 'style="display:none;"'}>
-        <label>من<input type="date" id="btFrom" class="goal-input" value="${start}" max="${today}"></label>
+        <label>من<input type="date" id="btFrom" class="goal-input" value="${start}" max="${today}" oninput="batchFromTouched = true"></label>
         <label>إلى<input type="date" id="btTo" class="goal-input" value="${today}" max="${today}"></label>
       </div>
       <div id="btDateSingle" ${batchDateMode === 'single' ? '' : 'style="display:none;"'}>
-        <label>التاريخ<input type="date" id="btOne" class="goal-input" value="${today}" max="${today}"></label>
+        <label>التاريخ<input type="date" id="btOne" class="goal-input" value="${today}" max="${today}" oninput="batchCheckOneDate()"></label>
+        <p class="bt-hint" id="btOneWarn" style="display:none;color:#8A2C2C;"></p>
       </div>
       <p class="bt-hint">التواريخ لا تتجاوز اليوم، ويمكنك تعديل تاريخ أي شاهد لاحقًا من بطاقته.</p>
+      <p class="bt-hint" id="btCalNote"></p>
     </div>
     <div class="sh-fab-wrap bt-bar"><div class="bt-bar-in">
       <button type="button" class="btn btn-outline" onclick="renderBatchPick()">→ رجوع</button>
       <button type="button" class="btn btn-primary bt-next" id="btCreateBtn" onclick="batchCreateDrafts(this)">إنشاء البطاقات ✓</button>
     </div></div>`;
   window.scrollTo({ top: 0 });
+  batchFromTouched = false;
+  batchPrepareCalendar();
+}
+
+/* تقويم نطاق المعلم الرسمي — null لو لا نطاق محدد أو فشل التحميل (فيعود التوزيع
+   لتجنّب الجمعة والسبت فقط بدل أن تفشل الميزة) */
+async function batchLoadCalendar(){
+  if(typeof calendarRegion === 'undefined' || !calendarRegion || typeof loadCalendarData !== 'function') return null;
+  const region = calendarRegion;
+  try{
+    const data = await loadCalendarData(region);
+    return calendarRegion === region ? { weeks: data.weeks, holidays: data.holidays } : null;
+  } catch(e){ return null; }
+}
+
+/* بعد رسم شاشة البيانات: يحمّل التقويم، ويضبط «من» على بداية الفصل (ما لم يعدّلها
+   المعلم)، ويكتب ملاحظة التوزيع. يتجاهل النتيجة لو انتقل المعلم أو تبدّل الحساب */
+async function batchPrepareCalendar(){
+  const seq = batchViewSeq, uid = currentUser && currentUser.id;
+  const cal = await batchLoadCalendar();
+  if(seq !== batchViewSeq || !isBatchViewOpen() || batchStep !== 'setup' || !currentUser || currentUser.id !== uid) return;
+  batchCal = cal;
+  const note = document.getElementById('btCalNote');
+  if(note){
+    note.textContent = cal
+      ? 'التوزيع يتجنّب الجمعة والسبت والإجازات الرسمية وأيام الاختبارات حسب تقويم نطاقك.'
+      : (calendarRegion
+        ? 'تعذّر تحميل التقويم الدراسي — سيتجنّب التوزيع الجمعة والسبت فقط.'
+        : 'حدّد نطاق التقويم الدراسي (من شاشة التقويم) كي يتجنّب التوزيع الإجازات الرسمية؛ سيتجنّب الآن الجمعة والسبت فقط.');
+  }
+  const from = document.getElementById('btFrom');
+  if(cal && from && !batchFromTouched){
+    const def = batchDefaultFrom(cal.weeks, cal.holidays, localIsoDate());
+    if(def) from.value = def;
+  }
+  batchCheckOneDate();
+}
+
+/* تنبيه (لا منع) لو التاريخ الواحد المختار ليس يوم دراسة */
+function batchCheckOneDate(){
+  const el = document.getElementById('btOne'), w = document.getElementById('btOneWarn');
+  if(!el || !w) return;
+  const iso = el.value;
+  let msg = '';
+  if(iso){
+    const wd = weekdayOfIso(iso);
+    if(wd === 5 || wd === 6) msg = 'هذا اليوم عطلة نهاية الأسبوع';
+    else if(batchCal){
+      const st = batchDayStatus(batchWeekIndex(batchCal.weeks), batchCal.holidays, iso);
+      if(!st.ok) msg = 'هذا اليوم ليس يوم دراسة (' + st.reason + ')';
+    }
+  }
+  w.textContent = msg ? msg + ' — الأفضل اختيار يوم دراسة فعلي.' : '';
+  w.style.display = msg ? '' : 'none';
 }
 
 function batchSetDateMode(mode){
@@ -699,6 +818,7 @@ function batchSetDateMode(mode){
   document.getElementById('btModeSingle').classList.toggle('on', batchDateMode === 'single');
   document.getElementById('btDateSpread').style.display = batchDateMode === 'spread' ? '' : 'none';
   document.getElementById('btDateSingle').style.display = batchDateMode === 'single' ? '' : 'none';
+  batchCheckOneDate();
 }
 
 async function batchCreateDrafts(btn){
@@ -706,6 +826,7 @@ async function batchCreateDrafts(btn){
   if(!navigator.onLine){ showToast('لا يوجد اتصال بالإنترنت', 'error'); return; }
   const today = localIsoDate();
   let dates;
+  let calFallback = false;
   /* السعة تُعاد قراءتها من القاعدة أولًا: جهاز/تبويب آخر قد يكون أضاف مسودات */
   beginExportBusy(btn, 'جارٍ الإنشاء...');
   try{
@@ -723,7 +844,15 @@ async function batchCreateDrafts(btn){
     } else {
       const from = document.getElementById('btFrom').value, to = document.getElementById('btTo').value;
       if(!from || !to || from > to || to > today){ showToast('تحقق من الفترة: «من» قبل «إلى» ولا تتجاوز اليوم', 'error'); return; }
-      dates = batchSpreadDates(items.length, from, to);
+      const cal = await batchLoadCalendar();
+      if(cal){
+        const days = batchCalendarDays(cal.weeks, cal.holidays, from, to);
+        if(!days.length){ showToast('لا توجد أيام دراسة ضمن هذه الفترة حسب التقويم الرسمي — وسّع الفترة', 'error'); return; }
+        dates = batchSpreadDates(items.length, from, to, { days });
+      } else {
+        calFallback = true;
+        dates = batchSpreadDates(items.length, from, to);
+      }
     }
     const rows = buildBatchDraftRows(items, dates, {
       userId: currentUser.id,
@@ -739,7 +868,7 @@ async function batchCreateDrafts(btn){
     batchAutoNames = {};
     if(!(await loadBatchDrafts())) throw new Error('تعذّر تحميل البطاقات');
     if(!isBatchViewOpen()) return;
-    showToast(`جُهّزت ${rows.length} بطاقة — أضف الصور الآن`, 'ok');
+    showToast(`جُهّزت ${rows.length} بطاقة — أضف الصور الآن` + (calFallback ? ' (وُزّعت دون الجمعة والسبت فقط — التقويم غير متاح)' : ''), 'ok');
     renderBatchBoard();
   } catch(err){
     showToast('تعذّر الإنشاء: ' + (err.message || err), 'error');

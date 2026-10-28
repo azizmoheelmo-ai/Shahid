@@ -39,6 +39,91 @@ test('batchSpreadDates — موزّعة تصاعديًا داخل النطاق �
   assert.deepEqual([...app.batchSpreadDates(0, '2026-10-04', '2026-10-08')], []);
 });
 
+/* ---------- توزيع التواريخ بحسب التقويم الرسمي (عيّنة من 1448-1449 لبقية المناطق) ---------- */
+function calFixture(app){
+  const weeks = [];
+  const add = (iso, label, note, semester) => weeks.push({ gregorian_date: iso, week_label: label, note: note || null, semester: semester || 1 });
+  // أيام عودة المعلمين قبل بدء الطلاب
+  ['2026-08-16', '2026-08-17', '2026-08-18', '2026-08-19', '2026-08-20'].forEach(d => add(d, 'عودة المعلمين والمعلمات'));
+  // 23 أغسطس → 5 نوفمبر: أحد-خميس فقط، مع اليوم الوطني وإجازة إضافية
+  let d = '2026-08-23';
+  while(d <= '2026-11-05'){
+    const wd = app.weekdayOfIso(d);
+    if(wd <= 4){
+      const note = (d === '2026-09-23' || d === '2026-09-24') ? 'اليوم الوطني' : (d === '2026-10-25' ? 'إجازة إضافية' : null);
+      add(d, 'الأسبوع', note);
+    }
+    d = app.addDaysIso(d, 1);
+  }
+  // أيام اختبارات
+  add('2026-11-08', 'الأسبوع', 'اختبارات نهاية الفصل');
+  // الفصل الثاني
+  add('2027-01-17', 'الأسبوع الأول', null, 2);
+  add('2027-01-18', 'الأسبوع الأول', null, 2);
+  const holidays = [
+    { holiday_name: 'إجازة الخريف', event_label: 'تبدأ إجازة الخريف', gregorian_date: '2026-11-20' },
+    { holiday_name: 'إجازة الخريف', event_label: 'تنتهي الاجازة', gregorian_date: '2026-11-28' }
+  ];
+  return { weeks, holidays };
+}
+
+test('batchDayStatus/batchCalendarDays — تستبعد اليوم الوطني والإجازة الإضافية وعودة المعلمين وأيام الاختبارات', () => {
+  const app = loadApp();
+  const { weeks, holidays } = calFixture(app);
+  const days = [...app.batchCalendarDays(weeks, holidays, '2026-08-16', '2026-11-10')];
+  assert.ok(!days.includes('2026-09-23') && !days.includes('2026-09-24'), 'اليوم الوطني مستبعد');
+  assert.ok(!days.includes('2026-10-25'), 'الإجازة الإضافية مستبعدة');
+  assert.ok(!days.includes('2026-08-17'), 'أيام عودة المعلمين قبل الطلاب مستبعدة');
+  assert.ok(!days.includes('2026-11-08'), 'أيام الاختبارات مستبعدة');
+  assert.ok(days.includes('2026-08-23') && days.includes('2026-09-22') && days.includes('2026-10-26'));
+  assert.ok(days.every(x => ![5, 6].includes(app.weekdayOfIso(x))));
+  // إجازة طويلة من جدول holidays تُستبعد حتى لو وُجد صف أسبوع فيها
+  const w2 = weeks.concat([{ gregorian_date: '2026-11-22', week_label: 'x', note: null, semester: 1 }]);
+  assert.deepEqual([...app.batchCalendarDays(w2, holidays, '2026-11-22', '2026-11-22')], []);
+  assert.deepEqual([...app.batchCalendarDays(weeks, holidays, '2026-11-10', '2026-08-16')], [], 'نطاق مقلوب');
+});
+
+test('batchSpreadDates بأيام التقويم — لا تقع على إجازة، تغطي الفترة، بلا تكرار، وتبقى مرتّبة', () => {
+  const app = loadApp();
+  const { weeks, holidays } = calFixture(app);
+  const days = [...app.batchCalendarDays(weeks, holidays, '2026-09-02', '2026-10-28')];
+  for(const rng of [() => 0, () => 0.999999, Math.random]){
+    const dates = [...app.batchSpreadDates(24, '2026-09-02', '2026-10-28', { days, rng })];
+    assert.equal(dates.length, 24);
+    assert.deepEqual([...dates].sort(), dates, 'مرتّبة تصاعديًا');
+    assert.ok(dates.every(d => days.includes(d)), 'كلها أيام دراسة فعلية');
+    assert.ok(!dates.includes('2026-09-23') && !dates.includes('2026-09-24') && !dates.includes('2026-10-25'));
+    assert.equal(new Set(dates).size, 24, 'بلا تكرار يوم ما دامت الأيام أكثر من البطاقات');
+  }
+  // الجيتر: نتيجتان مختلفتان بـ rng مختلفين (ليست مسافات متطابقة ثابتة)
+  const a = app.batchSpreadDates(24, '2026-09-02', '2026-10-28', { days, rng: () => 0 });
+  const b = app.batchSpreadDates(24, '2026-09-02', '2026-10-28', { days, rng: () => 0.999999 });
+  assert.notDeepEqual([...a], [...b]);
+  // بطاقات أكثر من الأيام: تتكرر بالتساوي ولا تخرج عن الأيام
+  const few = [...app.batchSpreadDates(10, 'a', 'b', { days: ['2026-10-04', '2026-10-05', '2026-10-06'] })];
+  assert.equal(few.length, 10);
+  assert.ok(few.every(x => ['2026-10-04', '2026-10-05', '2026-10-06'].includes(x)));
+});
+
+test('batchDefaultFrom — أول يوم دراسة للطلاب بالفصل الحالي', () => {
+  const app = loadApp();
+  const { weeks, holidays } = calFixture(app);
+  assert.equal(app.batchDefaultFrom(weeks, holidays, '2026-10-28'), '2026-08-23', 'لا يبدأ بأيام عودة المعلمين');
+  assert.equal(app.batchDefaultFrom(weeks, holidays, '2027-01-17'), '2027-01-17', 'الفصل الثاني يبدأ من أول أيامه');
+  assert.equal(app.batchDefaultFrom(weeks, holidays, '2026-08-18'), null, 'قبل بدء الطلاب: لا افتراضي');
+  assert.equal(app.batchDefaultFrom([], [], '2026-10-28'), null);
+});
+
+test('تجهيز الدفعة — التوزيع يمرّ عبر التقويم الرسمي مع رجوع آمن عند غيابه', () => {
+  const src = read('app/app-33-shahid-batch.js');
+  assert.ok(/batchCalendarDays\(cal\.weeks, cal\.holidays, from, to\)/.test(src), 'يُستخرج أيام الدراسة من التقويم عند الإنشاء');
+  assert.ok(/batchSpreadDates\(items\.length, from, to, \{ days \}\)/.test(src));
+  assert.ok(/calFallback = true;/.test(src), 'رجوع للجمعة والسبت عند غياب التقويم');
+  assert.ok(/!days\.length\)\{ showToast/.test(src), 'فترة كلها إجازة تُرفض برسالة واضحة');
+  assert.ok(/batchDefaultFrom\(cal\.weeks, cal\.holidays, localIsoDate\(\)\)/.test(src), 'بداية الفترة من التقويم');
+  assert.ok(/seq !== batchViewSeq/.test(src.slice(src.indexOf('async function batchPrepareCalendar'))), 'حارس سباق بعد تحميل التقويم');
+});
+
 test('batchInterleave — تناوب بين المجموعات', () => {
   const app = loadApp();
   assert.deepEqual([...app.batchInterleave([['a1', 'a2', 'a3'], ['b1'], ['c1', 'c2']])], ['a1', 'b1', 'c1', 'a2', 'c2', 'a3']);
