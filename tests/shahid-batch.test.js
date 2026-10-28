@@ -105,20 +105,16 @@ test('batchSpreadDates بأيام التقويم — لا تقع على إجاز
   assert.ok(few.every(x => ['2026-10-04', '2026-10-05', '2026-10-06'].includes(x)));
 });
 
-test('batchPeriodRange/batchCurrentSemester — فصول جاهزة تُقصّ عند اليوم ولا تبدأ بأيام المعلمين', () => {
+test('batchPeriodRange/batchCurrentSemester — فصول جاهزة من أول يوم طلاب إلى آخر يوم دراسة (بلا قصّ عند اليوم)', () => {
   const app = loadApp();
   const { weeks, holidays } = calFixture(app);
-  const s1 = app.batchPeriodRange(weeks, holidays, 'sem1', '2026-10-28');
-  assert.deepEqual({ ...s1 }, { available: true, from: '2026-08-23', to: '2026-10-28', startsOn: '2026-08-23' }, 'من أول يوم طلاب إلى اليوم');
-  const s2 = app.batchPeriodRange(weeks, holidays, 'sem2', '2026-10-28');
-  assert.equal(s2.available, false, 'الفصل الثاني لم يبدأ');
-  assert.equal(s2.startsOn, '2027-01-17');
-  const later = app.batchPeriodRange(weeks, holidays, 'sem2', '2027-01-18');
-  assert.deepEqual([later.available, later.from, later.to], [true, '2027-01-17', '2027-01-18']);
-  const year = app.batchPeriodRange(weeks, holidays, 'year', '2027-01-18');
-  assert.deepEqual([year.from, year.to], ['2026-08-23', '2027-01-18'], 'العام كاملًا من أول الفصل الأول حتى اليوم');
-  assert.equal(app.batchPeriodRange([], [], 'sem1', '2026-10-28').available, false);
-  assert.equal(app.batchPeriodRange(weeks, holidays, 'sem1', '2026-08-18').available, false, 'قبل بدء الطلاب');
+  const s1 = app.batchPeriodRange(weeks, holidays, 'sem1');
+  assert.deepEqual({ ...s1 }, { available: true, from: '2026-08-23', to: '2026-11-05', startsOn: '2026-08-23' }, 'لا يبدأ بأيام المعلمين ولا ينتهي بيوم اختبار');
+  const s2 = app.batchPeriodRange(weeks, holidays, 'sem2');
+  assert.deepEqual([s2.available, s2.from, s2.to], [true, '2027-01-17', '2027-01-18'], 'الفصل الثاني متاح دائمًا');
+  const year = app.batchPeriodRange(weeks, holidays, 'year');
+  assert.deepEqual([year.from, year.to], ['2026-08-23', '2027-01-18'], 'العام كاملًا حتى آخر يوم دراسة');
+  assert.equal(app.batchPeriodRange([], [], 'sem1').available, false);
   assert.equal(app.batchCurrentSemester(weeks, holidays, '2026-10-28'), 1);
   assert.equal(app.batchCurrentSemester(weeks, holidays, '2027-01-17'), 2);
   assert.equal(app.batchCurrentSemester(weeks, holidays, '2026-08-18'), null);
@@ -146,6 +142,9 @@ test('batchWeekRows — أسابيع المعاينة: إجازات بأسمائ
   assert.equal(fri.length, 1);
   assert.equal(fri[0].cells[0].iso, '2026-10-04');
   assert.deepEqual([...app.batchWeekRows('2026-10-10', '2026-10-04', weeks, holidays, [], true)], []);
+  const fut = app.batchWeekRows('2026-09-27', '2026-10-01', weeks, holidays, ['2026-10-01'], true, '2026-09-29');
+  assert.deepEqual([...fut[0].cells.map(c => !!c.future)], [false, false, false, true, true], 'ما بعد اليوم يُعلَّم future');
+  assert.equal(fut[0].cells[4].status, 'pick');
 });
 
 function periodApp() {
@@ -159,21 +158,73 @@ function periodApp() {
   return { app, reg };
 }
 
-test('شاشة الفترة: أزرار الفصول، الفصل الثاني معطّل بتاريخ بدايته، والملخص بالأرقام', () => {
+test('شاشة الفترة: كل الفصول مفتوحة، والفصل الثاني يذكر بدايته، والملخص بالأرقام', () => {
   const { app, reg } = periodApp();
   app.renderBatchPeriod();
   const html = reg.btPeriod.innerHTML;
   assert.match(html, /الفصل الأول/);
   assert.match(html, /العام كاملًا/);
-  assert.match(html, /bt-chip dis" disabled>الفصل الثاني<small>يبدأ ١٧ يناير/, 'الفصل الثاني معطّل ويذكر بدايته');
+  assert.doesNotMatch(html, /bt-chip dis/, 'لا أزرار معطّلة');
+  assert.match(html, /الفصل الثاني<small>يبدأ ١٧ يناير/);
+  assert.match(html, /id="btCap" checked/, 'مفتاح «لا تضع تواريخ بعد اليوم» مفعّل افتراضيًا');
   app.batchSetPeriod('sem1');
   assert.equal(runInAppContext(app, 'batchFrom'), '2026-08-23');
-  assert.equal(runInAppContext(app, 'batchTo'), '2026-10-28');
   assert.match(reg.btSum.innerHTML, /٣ شواهد/);
+  assert.match(reg.btSum.innerHTML, /٢٨ أكتوبر/, 'المفتاح مفعّل: الفصل الأول يُقصّ عند اليوم');
   assert.equal(app.batchCountLabel(1), 'شاهد واحد'); assert.equal(app.batchCountLabel(2), 'شاهدان');
   assert.equal(app.batchCountLabel(10), '١٠ شواهد'); assert.equal(app.batchCountLabel(24), '٢٤ شاهدًا');
-  app.batchSetPeriod('sem2'); // معطّل: لا يغيّر شيئًا
-  assert.equal(runInAppContext(app, 'batchPeriod'), 'sem1');
+});
+
+test('المفتاح مفعّل: الفصل الثاني (لم يبدأ) يعطي رسالة تشرح كيف تفتحه، ولا يُنشئ تواريخ قادمة', () => {
+  const { app, reg } = periodApp();
+  app.batchSetPeriod('sem2');
+  assert.equal(runInAppContext(app, 'batchPeriod'), 'sem2');
+  assert.match(reg.btSum.innerHTML, /bt-sum bad/);
+  assert.match(reg.btSum.innerHTML, /لم تبدأ بعد \(تبدأ ١٧ يناير\)/);
+  assert.match(reg.btSum.innerHTML, /أوقف «لا تضع تواريخ بعد اليوم»/);
+  assert.equal(runInAppContext(app, 'batchPeriodInfo().ok'), false);
+  // فترة يدوية بعد اليوم مرفوضة والمفتاح مفعّل
+  runInAppContext(app, 'batchPeriod = "custom"; batchFrom = "2026-10-01"; batchTo = "2026-11-03";');
+  assert.equal(runInAppContext(app, 'batchPeriodInfo().ok'), false);
+});
+
+test('المفتاح موقوف: الفصل الثاني والعام كاملًا حتى آخر يوم دراسة، مع تحذير وتعليم المستقبل', () => {
+  const { app, reg } = periodApp();
+  runInAppContext(app, 'batchPick = { E1: Array.from({ length: 12 }, (_, i) => "نموذج " + i) };');
+  app.batchToggleCap(false);
+  assert.match(reg.btPeriod.innerHTML, /id="btCap"[^>]*>/);
+  assert.doesNotMatch(reg.btPeriod.innerHTML, /id="btCap" checked/);
+  app.batchSetPeriod('year');
+  const info = { ...runInAppContext(app, 'batchPeriodInfo()') };
+  assert.equal(info.ok, true);
+  assert.equal(info.from, '2026-08-23');
+  assert.equal(info.to, '2027-01-18', 'حتى آخر يوم دراسة بالتقويم لا اليوم');
+  assert.equal(info.future, true);
+  const dates = [...runInAppContext(app, 'batchPlanned.dates')];
+  assert.equal(dates.length, 12);
+  assert.ok(dates.every(d => d >= '2026-08-23' && d <= '2027-01-18'));
+  assert.match(reg.btSum.innerHTML, /بتاريخ لم يحن بعد/);
+  const lateDate = dates.filter(d => d > '2026-10-28').length;
+  assert.match(reg.btSum.innerHTML, new RegExp('⚠ ' + app.batchAr(lateDate) + ' من ١٢ شاهدًا'));
+  // الفصل الثاني وحده
+  app.batchSetPeriod('sem2');
+  assert.equal(runInAppContext(app, 'batchPeriodInfo().ok'), true);
+  // يوم واحد بعد آخر يوم دراسة مرفوض حتى والمفتاح موقوف
+  app.batchSetPeriod('single');
+  runInAppContext(app, 'batchOne = "2027-02-01";');
+  assert.equal(runInAppContext(app, 'batchPeriodInfo().ok'), false);
+  runInAppContext(app, 'batchOne = "2027-01-18";');
+  assert.equal(runInAppContext(app, 'batchPeriodInfo().ok'), true);
+  // إعادة تفعيل المفتاح تعيد التواريخ القادمة إلى اليوم
+  app.batchToggleCap(true);
+  assert.equal(runInAppContext(app, 'batchOne'), '2026-10-28');
+});
+
+test('محرّر تاريخ البطاقة: الحدّ آخر يوم دراسة لو التقويم متاح، وإلا اليوم', () => {
+  const { app } = periodApp();
+  assert.equal(runInAppContext(app, 'batchDateLimit()'), '2027-01-18');
+  runInAppContext(app, 'batchCal = null;');
+  assert.equal(runInAppContext(app, 'batchDateLimit()'), '2026-10-28');
 });
 
 test('المعاينة: تُظهر الإجازة باسمها، والتلميح يشرح اليوم، والخلط يغيّر التوزيع، وتُعتمد عند الإنشاء', () => {

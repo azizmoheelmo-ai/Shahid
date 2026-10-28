@@ -28,6 +28,7 @@ let batchPeriod = 'custom';        // الفترة المختارة: sem1 | sem2
 let batchFrom = '', batchTo = '', batchOne = ''; // التواريخ المختارة (YYYY-MM-DD)
 let batchPeriodTouched = false;    // هل اختار المعلم الفترة بنفسه (فلا نستبدلها بفصله الحالي)
 let batchPreviewOpen = false;      // معاينة الأسابيع مفتوحة
+let batchCapToday = true;          // «لا تضع تواريخ بعد اليوم» (مفعّل افتراضيًا؛ يُوقَف لتواريخ قادمة حتى آخر يوم دراسة)
 let batchPlanned = null;           // آخر توزيع معروض بالمعاينة { from, to, count, ndays, dates } — يُعتمد عند الإنشاء
 let batchBusyIds = new Set();      // بطاقات يجري رفع صورتها الآن
 let batchStep = 'pick';            // pick | setup | board
@@ -75,6 +76,7 @@ function batchResetState(){
   batchFrom = batchTo = batchOne = '';
   batchPeriodTouched = false;
   batchPreviewOpen = false;
+  batchCapToday = true;
   batchPlanned = null;
 }
 
@@ -110,7 +112,7 @@ function batchDayStatus(idx, holidayRows, iso){
   const holiday = findHolidayForDate(holidayRows, iso);
   if(holiday) return { ok: false, reason: holiday };
   const row = idx[iso];
-  if(!row) return { ok: false, reason: 'خارج أيام الدراسة بالتقويم' };
+  if(!row) return { ok: false, reason: 'لا دراسة' };
   if(row.note) return { ok: false, reason: row.note };
   if(row.week_label && String(row.week_label).indexOf('عودة') === 0) return { ok: false, reason: 'قبل بدء الدراسة' };
   return { ok: true };
@@ -130,17 +132,30 @@ function batchCalendarDays(weekRows, holidayRows, startIso, endIso){
 }
 
 /* حدود فترة جاهزة من التقويم الرسمي. key: sem1 | sem2 | year.
-   from = أول يوم دراسة فعلي بها، to = آخر يوم دراسة لكن لا يتجاوز اليوم.
-   available=false لو لم تبدأ بعد (startsOn = تاريخ بدايتها) أو لا بيانات لها */
-function batchPeriodRange(weekRows, holidayRows, key, todayIso){
+   from = أول يوم دراسة فعلي بها، to = آخر يوم دراسة فعلي بها (لا يُقصّ عند اليوم —
+   القصّ عند اليوم قرار مفتاح «لا تضع تواريخ بعد اليوم» بـ batchPeriodInfo).
+   available=false لو لا بيانات لها. «العام كاملًا».to = آخر يوم دراسة بالعام */
+function batchPeriodRange(weekRows, holidayRows, key){
   const idx = batchWeekIndex(weekRows);
   const valid = (weekRows || []).filter(r => r && r.gregorian_date && batchDayStatus(idx, holidayRows, r.gregorian_date).ok)
     .sort((a, b) => a.gregorian_date.localeCompare(b.gregorian_date));
   const rows = key === 'year' ? valid : valid.filter(r => r.semester === (key === 'sem2' ? 2 : 1));
   if(!rows.length) return { available: false, from: null, to: null, startsOn: null };
   const first = rows[0].gregorian_date, last = rows[rows.length - 1].gregorian_date;
-  if(first > todayIso) return { available: false, from: first, to: null, startsOn: first };
-  return { available: true, from: first, to: last < todayIso ? last : todayIso, startsOn: first };
+  return { available: true, from: first, to: last, startsOn: first };
+}
+
+/* آخر يوم دراسة بالعام — الحد الأقصى للتواريخ القادمة؛ null لو لا تقويم */
+function batchYearEnd(){
+  if(!batchCal) return null;
+  const r = batchPeriodRange(batchCal.weeks, batchCal.holidays, 'year');
+  return r.available ? r.to : null;
+}
+
+/* أقصى تاريخ يُقبل لبطاقة منفردة: آخر يوم دراسة لو التقويم متاح، وإلا اليوم */
+function batchDateLimit(){
+  const today = localIsoDate(), end = batchYearEnd();
+  return end && end > today ? end : today;
 }
 
 /* الفصل الدراسي الحالي (1 أو 2) = فصل آخر يوم دراسة ≤ اليوم؛ null لو لم يبدأ العام */
@@ -156,8 +171,9 @@ function batchCurrentSemester(weekRows, holidayRows, todayIso){
 }
 
 /* أسابيع (أحد-خميس) تغطي الفترة للمعاينة. pickedDates: التواريخ الموزَّعة.
-   حالة الخلية: out (خارج الفترة) | off (إجازة/ليس يوم دراسة + reason) | pick (+count) | study */
-function batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal){
+   حالة الخلية: out (خارج الفترة) | off (إجازة/ليس يوم دراسة + reason) | pick (+count) | study،
+   وfuture=true لو التاريخ بعد todayIso */
+function batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso){
   const rows = [];
   if(!fromIso || !toIso || fromIso > toIso) return rows;
   const idx = batchWeekIndex(weekRows);
@@ -171,7 +187,7 @@ function batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCa
     for(let k = 0; k < 5; k++){
       const iso = addDaysIso(sunday, k);
       if(iso < fromIso || iso > toIso){ cells.push({ iso, status: 'out' }); continue; }
-      const cell = { iso, status: 'study', month: (first || iso.slice(8) === '01') ? BATCH_MONTHS[+iso.slice(5, 7) - 1] : '' };
+      const cell = { iso, status: 'study', future: !!todayIso && iso > todayIso, month: (first || iso.slice(8) === '01') ? BATCH_MONTHS[+iso.slice(5, 7) - 1] : '' };
       first = false;
       const st = hasCal ? batchDayStatus(idx, holidayRows, iso) : { ok: true };
       if(!st.ok){ cell.status = 'off'; cell.reason = st.reason; }
@@ -401,8 +417,16 @@ async function showBatch(){
   batchAutoNames = {};
   batchSheetOpen = false;
   renderBatchSheet();
-  if(batchDrafts.length) renderBatchBoard();
-  else await showBatchPick();
+  if(batchDrafts.length){
+    renderBatchBoard();
+    /* حدّ محرّر تاريخ البطاقة يحتاج التقويم: نجلبه ثم نعيد الرسم مرة لو تغيّر الحد */
+    batchLoadCalendar().then(cal => {
+      if(!cal || seq !== batchViewSeq || !isBatchViewOpen() || batchStep !== 'board') return;
+      const before = batchDateLimit();
+      batchCal = cal;
+      if(batchDateLimit() !== before) renderBatchBoard();
+    });
+  } else await showBatchPick();
 }
 
 async function showBatchPick(){
@@ -829,7 +853,7 @@ function batchApplyDefaultPeriod(){
   const sem = batchCurrentSemester(batchCal.weeks, batchCal.holidays, today);
   if(!sem) return;
   const key = sem === 2 ? 'sem2' : 'sem1';
-  const r = batchPeriodRange(batchCal.weeks, batchCal.holidays, key, today);
+  const r = batchPeriodRange(batchCal.weeks, batchCal.holidays, key);
   if(!r.available) return;
   batchPeriod = key; batchFrom = r.from; batchTo = r.to;
 }
@@ -846,11 +870,16 @@ async function batchPrepareCalendar(){
 }
 
 /* حالة الفترة الحالية: مصدر واحد للملخص والمعاينة والإنشاء.
-   spread: { ok, from, to, days } | single: { ok, one, offReason } | ok=false + msg */
+   spread: { ok, from, to, days, future } | single: { ok, one, offReason, future } | ok=false + msg.
+   مفتاح «لا تضع تواريخ بعد اليوم» يقصّ الفترات الجاهزة عند اليوم ويرفض ما بعده؛ وإيقافه
+   (ويلزمه التقويم) يرفع الحد لآخر يوم دراسة بالعام */
 function batchPeriodInfo(){
   const today = localIsoDate();
+  const capped = batchCapToday || !batchCal;
+  const limit = capped ? today : (batchYearEnd() || today);
+  const limitMsg = capped ? 'اليوم' : 'آخر يوم دراسة بالتقويم';
   if(batchPeriod === 'single'){
-    if(!batchOne || batchOne > today) return { mode: 'single', ok: false, msg: 'اختر تاريخًا لا يتجاوز اليوم' };
+    if(!batchOne || batchOne > limit) return { mode: 'single', ok: false, msg: 'اختر تاريخًا لا يتجاوز ' + limitMsg };
     let offReason = '';
     const wd = weekdayOfIso(batchOne);
     if(wd === 5 || wd === 6) offReason = 'عطلة نهاية الأسبوع';
@@ -858,13 +887,19 @@ function batchPeriodInfo(){
       const st = batchDayStatus(batchWeekIndex(batchCal.weeks), batchCal.holidays, batchOne);
       if(!st.ok) offReason = st.reason;
     }
-    return { mode: 'single', ok: true, one: batchOne, offReason };
+    return { mode: 'single', ok: true, one: batchOne, offReason, future: batchOne > today };
   }
-  const from = batchFrom, to = batchTo;
-  if(!from || !to || from > to || to > today) return { mode: 'spread', ok: false, msg: 'تحقق من الفترة: «من» قبل «إلى» ولا تتجاوز اليوم' };
+  const from = batchFrom;
+  let to = batchTo;
+  if(!from || !to) return { mode: 'spread', ok: false, msg: 'اختر بداية الفترة ونهايتها' };
+  if(batchPeriod !== 'custom'){
+    if(capped && from > today) return { mode: 'spread', ok: false, msg: `هذه الفترة لم تبدأ بعد (تبدأ ${batchDateLabel(from)}). أوقف «لا تضع تواريخ بعد اليوم» إن أردت توزيع شواهدك عليها.` };
+    if(capped && to > today) to = today;
+  }
+  if(from > to || to > limit) return { mode: 'spread', ok: false, msg: 'تحقق من الفترة: «من» قبل «إلى» ولا تتجاوز ' + limitMsg };
   const days = batchCal ? batchCalendarDays(batchCal.weeks, batchCal.holidays, from, to) : batchSchoolDays(from, to);
   if(!days.length) return { mode: 'spread', ok: false, msg: 'لا توجد أيام دراسة ضمن هذه الفترة حسب التقويم الرسمي — وسّع الفترة' };
-  return { mode: 'spread', ok: true, from, to, days };
+  return { mode: 'spread', ok: true, from, to, days, future: to > today };
 }
 
 /* التوزيع المعروض بالمعاينة: يُعاد استخدامه عند الإنشاء كي يطابق ما رآه المعلم */
@@ -883,21 +918,23 @@ function renderBatchPeriod(){
     `<button type="button" class="bt-chip${batchPeriod === key ? ' on' : ''}${disabled ? ' dis' : ''}" ${disabled ? 'disabled' : `onclick="batchSetPeriod('${key}')"`}>${label}${sub ? `<small>${sub}</small>` : ''}</button>`;
   let chips = '';
   if(batchCal){
-    const rng = k => batchPeriodRange(batchCal.weeks, batchCal.holidays, k, today);
-    const one = (k, label) => { const r = rng(k); return chip(k, label, !r.available && r.startsOn ? 'يبدأ ' + batchDateLabel(r.startsOn) : '', !r.available); };
+    const rng = k => batchPeriodRange(batchCal.weeks, batchCal.holidays, k);
+    const one = (k, label) => { const r = rng(k); return chip(k, label, r.available && r.startsOn > today ? 'يبدأ ' + batchDateLabel(r.startsOn) : '', !r.available); };
     chips = one('sem1', 'الفصل الأول') + one('sem2', 'الفصل الثاني') + one('year', 'العام كاملًا');
   }
   chips += chip('custom', 'فترة أخرى') + chip('single', 'يوم واحد');
   let fields = '';
+  const maxDate = (batchCapToday || !batchCal) ? today : batchDateLimit();
   if(batchPeriod === 'custom'){
     fields = `<div class="bt-grid2">
-      <label>من تاريخ<input type="date" id="btFrom" class="goal-input" value="${escapeHtml(batchFrom)}" max="${today}" oninput="batchOnDates()"></label>
-      <label>إلى تاريخ<input type="date" id="btTo" class="goal-input" value="${escapeHtml(batchTo)}" max="${today}" oninput="batchOnDates()"></label>
+      <label>من تاريخ<input type="date" id="btFrom" class="goal-input" value="${escapeHtml(batchFrom)}" max="${maxDate}" oninput="batchOnDates()"></label>
+      <label>إلى تاريخ<input type="date" id="btTo" class="goal-input" value="${escapeHtml(batchTo)}" max="${maxDate}" oninput="batchOnDates()"></label>
     </div>`;
   } else if(batchPeriod === 'single'){
-    fields = `<label>التاريخ<input type="date" id="btOne" class="goal-input" value="${escapeHtml(batchOne)}" max="${today}" oninput="batchOnDates()"></label>`;
+    fields = `<label>التاريخ<input type="date" id="btOne" class="goal-input" value="${escapeHtml(batchOne)}" max="${maxDate}" oninput="batchOnDates()"></label>`;
   }
-  box.innerHTML = `<div class="bt-chips">${chips}</div>${fields}<div id="btSum"></div><div id="btPreview"></div><p class="bt-hint" id="btHint"></p>`;
+  const sw = batchCal ? `<label class="bt-switch"><input type="checkbox" id="btCap" ${batchCapToday ? 'checked' : ''} onchange="batchToggleCap(this.checked)"><span><b>لا تضع تواريخ بعد اليوم</b><small>أوقفه لتوثّق بتواريخ قادمة حتى آخر يوم دراسة بالعام</small></span></label>` : '';
+  box.innerHTML = `<div class="bt-chips">${chips}</div>${fields}${sw}<div id="btSum"></div><div id="btPreview"></div><p class="bt-hint" id="btHint"></p>`;
   batchRefreshPeriod();
 }
 
@@ -912,24 +949,27 @@ function batchRefreshPeriod(){
     prev.innerHTML = '';
   } else if(info.mode === 'single'){
     sum.innerHTML = `<div class="bt-sum">✓ كل الشواهد (<b>${batchAr(total)}</b>) بتاريخ <b>${batchDateLabel(info.one)}</b></div>`
-      + (info.offReason ? `<p class="bt-warn2">⚠ هذا اليوم ليس يوم دراسة (${escapeHtml(info.offReason)}) — الأفضل اختيار يوم دراسة فعلي.</p>` : '');
+      + (info.offReason ? `<p class="bt-warn2">⚠ هذا اليوم ليس يوم دراسة (${escapeHtml(info.offReason)}) — الأفضل اختيار يوم دراسة فعلي.</p>` : '')
+      + (info.future ? '<p class="bt-warn2">⚠ هذا التاريخ لم يحن بعد — تأكد أنه مقصود.</p>' : '');
     prev.innerHTML = '';
   } else {
     sum.innerHTML = `<div class="bt-sum">✓ <b>${batchCountLabel(total)}</b> ستُوزَّع على <b>${batchAr(info.days.length)}</b> يوم دراسة<small>من ${batchDateLabel(info.from)} إلى ${batchDateLabel(info.to)}</small>${total > info.days.length ? '<small>الأيام أقل من الشواهد، فسيتكرر بعضها.</small>' : ''}</div>`;
+    const plan = (batchPreviewOpen || info.future) ? batchEnsurePlan(info, total, false) : null;
+    const futureN = plan ? plan.dates.filter(d => d > localIsoDate()).length : 0;
+    if(futureN) sum.innerHTML += `<p class="bt-warn2">⚠ ${batchAr(futureN)} من ${batchCountLabel(total)} بتاريخ لم يحن بعد — تأكد أنه مقصود.</p>`;
     if(!batchPreviewOpen){
       prev.innerHTML = '<button type="button" class="btn btn-outline bt-prevbtn" onclick="batchTogglePreview(true)">👁 شاهد كيف ستُوزَّع</button>';
     } else {
-      const plan = batchEnsurePlan(info, total, false);
-      const rows = batchWeekRows(info.from, info.to, batchCal && batchCal.weeks, batchCal && batchCal.holidays, plan.dates, !!batchCal);
+      const rows = batchWeekRows(info.from, info.to, batchCal && batchCal.weeks, batchCal && batchCal.holidays, plan.dates, !!batchCal, localIsoDate());
       const head = '<div class="bt-wrow bt-whd"><span class="bt-wk"></span>' + CRM_WEEKDAY_NAMES.slice(0, 5).map(n => `<span class="bt-cell0">${n}</span>`).join('') + '</div>';
       const body = rows.map(r => `<div class="bt-wrow"><span class="bt-wk">${batchAr(r.n)}</span>${r.cells.map(c => {
         if(c.status === 'out') return '<span class="bt-cell out"></span>';
         const sub = c.status === 'off' ? escapeHtml(c.reason) : (c.month || (c.status === 'pick' ? (c.count > 1 ? batchAr(c.count) + ' شواهد' : 'شاهد') : ''));
-        return `<button type="button" class="bt-cell ${c.status}" onclick="batchShowDayTip('${c.iso}')">${batchAr(+c.iso.slice(8))}${sub ? `<small>${sub}</small>` : ''}</button>`;
+        return `<button type="button" class="bt-cell ${c.status}${c.future ? ' fut' : ''}" onclick="batchShowDayTip('${c.iso}')">${batchAr(+c.iso.slice(8))}${sub ? `<small>${sub}</small>` : ''}</button>`;
       }).join('')}</div>`).join('');
       prev.innerHTML = `<div class="bt-prev"><div class="bt-sub" style="margin-top:0">توزيع ${batchCountLabel(total)} على الفترة</div>
         <div>${head}${body}</div>
-        <div class="bt-leg"><span><i class="pick"></i>شاهد</span><span><i></i>يوم دراسة بلا شاهد</span><span><i class="off"></i>إجازة / اختبارات</span></div>
+        <div class="bt-leg"><span><i class="pick"></i>شاهد</span><span><i></i>يوم دراسة بلا شاهد</span><span><i class="off"></i>إجازة / اختبارات</span>${info.future ? '<span><i class="fut"></i>بعد اليوم</span>' : ''}</div>
         <div class="bt-tip" id="btTip" style="display:none"></div>
         <div class="bt-prevbar"><button type="button" class="btn btn-outline" onclick="batchReshuffle()">🔀 خلط التواريخ</button><button type="button" class="btn btn-primary" onclick="batchTogglePreview(false)">تمام ✓</button></div></div>`;
     }
@@ -943,12 +983,31 @@ function batchRefreshPeriod(){
 
 function batchSetPeriod(key){
   batchPeriodTouched = true;
+  const today = localIsoDate();
   if(key === 'sem1' || key === 'sem2' || key === 'year'){
-    const r = batchCal ? batchPeriodRange(batchCal.weeks, batchCal.holidays, key, localIsoDate()) : null;
+    const r = batchCal ? batchPeriodRange(batchCal.weeks, batchCal.holidays, key) : null;
     if(!r || !r.available) return;
     batchFrom = r.from; batchTo = r.to;
+  } else if(batchCapToday || !batchCal){
+    /* فترة يدوية/يوم واحد والمفتاح مفعّل: لا نُبقي تاريخًا قادمًا من فترة جاهزة سابقة */
+    if(batchFrom > today) batchFrom = addDaysIso(today, -56);
+    if(batchTo > today) batchTo = today;
+    if(batchOne > today) batchOne = today;
   }
   batchPeriod = key;
+  batchPlanned = null;
+  renderBatchPeriod();
+}
+
+/* مفتاح «لا تضع تواريخ بعد اليوم» */
+function batchToggleCap(on){
+  batchCapToday = !!on;
+  const today = localIsoDate();
+  if(batchCapToday && batchPeriod === 'custom'){
+    if(batchFrom > today) batchFrom = addDaysIso(today, -56);
+    if(batchTo > today) batchTo = today;
+  }
+  if(batchCapToday && batchOne > today) batchOne = today;
   batchPlanned = null;
   renderBatchPeriod();
 }
@@ -1079,7 +1138,6 @@ function renderBatchBoard(){
 
 function batchCardHtml(d){
   const busy = batchBusyIds.has(d.id);
-  const today = localIsoDate();
   const id = escapeHtml(d.id);
   return `<div class="bt-card${busy ? ' busy' : ''}" id="btCard-${id}">
     <div class="bt-card-top">
@@ -1087,7 +1145,7 @@ function batchCardHtml(d){
       <button type="button" class="bt-x" aria-label="حذف البطاقة" ${busy ? 'disabled' : ''} onclick="batchDeleteDraft('${id}')">×</button>
     </div>
     <div class="bt-title">${escapeHtml(d.title)}</div>
-    <label class="bt-date-l">التاريخ <input type="date" class="bt-date" value="${escapeHtml(d.planned_date || '')}" max="${today}" ${busy ? 'disabled' : ''} onchange="batchSetDate('${id}', this.value)"></label>
+    <label class="bt-date-l">التاريخ <input type="date" class="bt-date" value="${escapeHtml(d.planned_date || '')}" max="${batchDateLimit()}" ${busy ? 'disabled' : ''} onchange="batchSetDate('${id}', this.value)"></label>
     <div class="bt-drop${busy ? ' busy' : ''}">
       ${busy
         ? '<div class="bt-spin"></div><span>جارٍ الرفع والحفظ...</span>'
@@ -1123,8 +1181,9 @@ function batchEditDone(id){
 async function batchSetDate(id, value){
   const d = batchDrafts.find(x => x.id === id);
   if(!d || !currentUser) return;
-  if(!value || value > localIsoDate()){
-    showToast('اختر تاريخًا لا يتجاوز اليوم', 'error');
+  const limit = batchDateLimit();
+  if(!value || value > limit){
+    showToast(limit === localIsoDate() ? 'اختر تاريخًا لا يتجاوز اليوم' : 'اختر تاريخًا لا يتجاوز آخر يوم دراسة بالتقويم', 'error');
     batchRedrawCard(id);
     return;
   }
