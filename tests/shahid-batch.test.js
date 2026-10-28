@@ -442,3 +442,136 @@ test('المخطط والنسخ الاحتياطية تشمل shahid_drafts مع
   assert.match(read('app/app-08-admin.js'), /from\('shahid_drafts'\)\.select\('\*'\)\.eq\('user_id', uid\)/, 'النسخة الشخصية بفلترة المالك');
   assert.match(read('app/app-08-admin.js'), /shahid_drafts: shahidDraftsRes\.data/);
 });
+
+/* ---------- واجهة شاشة الاختيار (تحسينات 2.42) ---------- */
+function pickApp() {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  const registry = {};
+  const live = () => ({ style: {}, dataset: {}, innerHTML: '', textContent: '', value: '', classList: { add() {}, remove() {}, contains: () => false, toggle() {} }, setAttribute() {}, querySelectorAll: () => [] });
+  app.document.getElementById = (id) => (registry[id] = registry[id] || live());
+  app.document.querySelectorAll = () => [];
+  runInAppContext(app, `
+    SHAHID_TEMPLATES['E1'] = ${JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ name: 'نموذج ' + i })))};
+    SHAHID_TEMPLATES['E2'] = [{ name: 'ب <img src=x onerror=alert(1)>' }];
+    SHAHID_TEMPLATES['E3'] = [{ name: 'ج1' }, { name: 'ج2' }];
+    batchElems = [{ key: 'E1', label: 'عنصر 1', weight: 10 }, { key: 'E2', label: 'عنصر 2 <b>', weight: 10 }, { key: 'E3', label: 'عنصر 3', weight: 10 }];
+    batchExisting = { E1: 6 }; batchStep = 'pick'; batchTarget = 24;`);
+  return { app, reg: registry };
+}
+
+test('عنوان الشريط العلوي لشاشة التجهيز مسجّل (لا يظهر «الرئيسية»)', () => {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  runInAppContext(app, `TOP_TITLE_VIEWS.forEach(id => { const v = document.getElementById(id); if(v) v.style.display = 'none'; });
+    document.getElementById('batchView').style.display = 'block';`);
+  app.syncTopTitle();
+  assert.equal(runInAppContext(app, `document.getElementById('topTitle').textContent`), 'تجهيز الشواهد');
+});
+
+test('قائمة العناصر: الفارغ أولًا بعنوانَي قسم، والفلاتر والبحث يعملان', () => {
+  const { app } = pickApp();
+  const html = runInAppContext(app, 'batchListHtml()');
+  assert.match(html, /تحتاج شواهد أولًا/);
+  assert.match(html, /لديها شواهد/);
+  assert.ok(html.indexOf('btEl-1') < html.indexOf('btEl-0'), 'العنصر بلا شواهد قبل الموثّق');
+  runInAppContext(app, `batchFilter = 'needs'`);
+  const needs = runInAppContext(app, 'batchListHtml()');
+  assert.doesNotMatch(needs, /btEl-0"/, 'الموثّق مخفي بفلتر «ينقصها»');
+  runInAppContext(app, `batchFilter = 'sel'`);
+  assert.match(runInAppContext(app, 'batchListHtml()'), /لا عناصر مطابقة/);
+  runInAppContext(app, `batchFilter = 'all'; batchQuery = 'نموذج 7'`);
+  const q = runInAppContext(app, 'batchListHtml()');
+  assert.match(q, /btEl-0"/);
+  assert.doesNotMatch(q, /btEl-2"/);
+});
+
+test('عنصر واحد مفتوح في كل مرة', () => {
+  const { app } = pickApp();
+  app.batchToggleOpen(0);
+  app.batchToggleOpen(2);
+  assert.deepEqual([...runInAppContext(app, 'Array.from(batchOpenEl)')], ['E3']);
+  app.batchToggleOpen(2);
+  assert.equal(runInAppContext(app, 'batchOpenEl.size'), 0);
+});
+
+test('صفوف النماذج: المختارة أولًا، أول 6 فقط ثم «عرض الباقي»، والحد يعطّل الباقي', () => {
+  const { app } = pickApp();
+  runInAppContext(app, `batchOpenEl.add('E1')`);
+  let rows = runInAppContext(app, 'batchRowsHtml(0)');
+  assert.equal((rows.match(/class="bt-tp[ "]/g) || []).length, 6);
+  assert.match(rows, /عرض باقي النماذج \(4\)/);
+  app.batchShowMore(0);
+  rows = runInAppContext(app, 'batchRowsHtml(0)');
+  assert.equal((rows.match(/class="bt-tp[ "]/g) || []).length, 10);
+  [9, 3, 5].forEach(t => app.batchToggleTpl(0, t));
+  rows = runInAppContext(app, 'batchRowsHtml(0)');
+  assert.match(rows, /اخترتها \(3\)/);
+  assert.ok(rows.indexOf('نموذج 9') < rows.indexOf('نموذج 0'), 'المختار فوق المتاح');
+  app.batchToggleTpl(0, 7);
+  rows = runInAppContext(app, 'batchRowsHtml(0)');
+  assert.match(rows, /وصلت للحد الأقصى \(4\)/);
+  assert.match(rows, /class="bt-tp off"[^>]*disabled/);
+});
+
+test('فهرس النموذج بالصف ثابت رغم الترتيب والتصفية (اختيار الصف = النموذج نفسه)', () => {
+  const { app } = pickApp();
+  runInAppContext(app, `batchOpenEl.add('E1'); batchInnerQ = 'نموذج 8'`);
+  const rows = runInAppContext(app, 'batchRowsHtml(0)');
+  const m = rows.match(/onclick="batchToggleTpl\(0, (\d+)\)"/);
+  assert.equal(m[1], '8');
+  app.batchToggleTpl(0, Number(m[1]));
+  assert.deepEqual([...runInAppContext(app, `batchPick['E1']`)], ['نموذج 8']);
+});
+
+test('XSS: أسماء العناصر والنماذج تُهرَّب في القائمة والصفوف وورقة المراجعة', () => {
+  const { app, reg } = pickApp();
+  runInAppContext(app, `batchOpenEl.add('E2')`);
+  app.batchToggleTpl(1, 0);
+  const card = runInAppContext(app, 'batchPickCardHtml(1)');
+  assert.doesNotMatch(card, /<img src=x/);
+  assert.doesNotMatch(card, /<b>/);
+  runInAppContext(app, `batchSheetOpen = true`);
+  app.renderBatchSheet();
+  assert.doesNotMatch(reg.btSheet.innerHTML, /<img src=x/);
+  assert.match(reg.btSheet.innerHTML, /&lt;img/);
+});
+
+test('الشريط السفلي: ثلاث حالات، وحلقة الهدف تتبع الاختيار', () => {
+  const { app, reg } = pickApp();
+  app.renderBatchBar();
+  assert.match(reg.btBar.innerHTML, /اختر شاهدًا واحدًا على الأقل/);
+  assert.match(reg.btBar.innerHTML, /bt-next[^>]*disabled/);
+  assert.equal(reg.btRingNum.textContent, '0/24');
+  app.batchToggleTpl(0, 0);
+  app.batchToggleTpl(2, 1);
+  assert.match(reg.btBar.innerHTML, /2 من 24/);
+  assert.equal(reg.btRingNum.textContent, '2/24');
+  runInAppContext(app, `batchTarget = 2`);
+  app.renderBatchBar();
+  assert.match(reg.btBar.innerHTML, /اكتمل هدفك: 2 شاهدًا/);
+});
+
+test('ورقة المراجعة: تجمع حسب العنصر، × تزيل الاختيار، وتُغلق عند الفراغ', () => {
+  const { app, reg } = pickApp();
+  app.batchToggleTpl(0, 0);
+  app.batchToggleTpl(2, 1);
+  app.batchOpenReview();
+  assert.equal(reg.btSheet.style.display, 'block');
+  assert.match(reg.btSheet.innerHTML, /عنصر 1/);
+  assert.match(reg.btSheet.innerHTML, /عنصر 3/);
+  assert.match(reg.btSheet.innerHTML, /ينقصك 22/);
+  app.batchToggleTpl(0, 0); // ما يفعله زر ×
+  assert.doesNotMatch(reg.btSheet.innerHTML, /نموذج 0/);
+  app.batchToggleTpl(2, 1);
+  assert.equal(reg.btSheet.style.display, 'none', 'تُغلق حين لا اختيارات');
+  assert.equal(runInAppContext(app, 'batchSheetOpen'), false);
+});
+
+test('الشاشة: أزرار الاتجاه والرأس بخطوات مسمّاة، وحاوية الورقة داخل batchView', () => {
+  const { app } = pickApp();
+  const h = app.batchHeader(2, 'ع', 'ف');
+  assert.match(h, /الاختيار/);
+  assert.match(h, /بياناتك/);
+  assert.match(h, /الخطوة 2 من 3/);
+  const idx = read('index.html');
+  assert.match(idx, /<div id="batchView"[\s\S]*?id="btSheet"[\s\S]*?<!-- -{10}/);
+});
