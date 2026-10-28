@@ -29,6 +29,11 @@ let batchFrom = '', batchTo = '', batchOne = ''; // التواريخ المخت�
 let batchPeriodTouched = false;    // هل اختار المعلم الفترة بنفسه (فلا نستبدلها بفصله الحالي)
 let batchPreviewOpen = false;      // معاينة الأسابيع مفتوحة
 let batchPreviewSem = null;        // الفصل المعروض بالمعاينة (1 | 2 | 0 = بلا تقويم)
+let batchClasses = null;           // صفوف المعلم المسجَّلة بإدارة الصف [{ id, label, gradeName, secName }] — null = لا صفوف/لم تُحمَّل
+let batchTimetable = [];           // حصصه الأسبوعية [{ section_id, weekday, period, semester }]
+let batchClassSel = new Set();     // معرّفات الصفوف المحدَّدة لهذه الدفعة
+let batchClassMode = 'timetable';  // توزيع الصفوف: timetable (حسب جدوله) | equal (بالتساوي)
+let batchClassFree = new Set();    // بطاقات يكتب المعلم صفّها يدويًا (صف آخر)
 let batchCapToday = true;          // «لا تضع تواريخ بعد اليوم» (مفعّل افتراضيًا؛ يُوقَف لتواريخ قادمة حتى آخر يوم دراسة)
 let batchPlanned = null;           // آخر توزيع معروض بالمعاينة { from, to, count, ndays, dates } — يُعتمد عند الإنشاء
 let batchBusyIds = new Set();      // بطاقات يجري رفع صورتها الآن
@@ -79,6 +84,11 @@ function batchResetState(){
   batchPreviewOpen = false;
   batchCapToday = true;
   batchPreviewSem = null;
+  batchClasses = null;
+  batchTimetable = [];
+  batchClassSel = new Set();
+  batchClassMode = 'timetable';
+  batchClassFree = new Set();
   batchPlanned = null;
 }
 
@@ -172,6 +182,126 @@ function batchCurrentSemester(weekRows, holidayRows, todayIso){
   return best ? best.semester : null;
 }
 
+/* ============ صفوف المعلم (من إدارة الصف) ============ */
+const BATCH_CLASS_COLORS = ['#1B3245', '#A9852E', '#2F7D5B', '#6B4E9B', '#1F7A8C', '#8A4B2D'];
+
+/* الفصل الدراسي (1|2) لتاريخ: صفّه بالتقويم، وإلا آخر صف قبله، وإلا أول صف، وإلا 1 */
+function batchSemesterOf(weekRows, iso){
+  const rows = (weekRows || []).filter(r => r && r.gregorian_date && r.semester);
+  if(!rows.length) return 1;
+  const exact = rows.find(r => r.gregorian_date === iso);
+  if(exact) return exact.semester;
+  let prev = null, first = rows[0];
+  rows.forEach(r => {
+    if(r.gregorian_date < first.gregorian_date) first = r;
+    if(r.gregorian_date < iso && (!prev || r.gregorian_date > prev.gregorian_date)) prev = r;
+  });
+  return (prev || first).semester;
+}
+
+/* رمز مختصر لكل صف (أول كلمة من المرحلة + رقم الشعبة)؛ لو تكرّر رمز بين صفين نستخدم ص١ ص٢... */
+function batchClassCodes(classes){
+  const out = {};
+  const base = c => ((c.gradeName || '').trim().split(/\s+/)[0] || '') + ' ' + batchAr(crmDigits(c.secName || ''));
+  const seen = {};
+  classes.forEach(c => { const b = base(c).trim(); seen[b] = (seen[b] || 0) + 1; });
+  classes.forEach((c, i) => { const b = base(c).trim(); out[c.id] = (b && seen[b] === 1) ? b : 'ص' + batchAr(i + 1); });
+  return out;
+}
+
+/* أيام تدريس صف (أرقام الأيام) بفصل معيّن؛ semester=null = كل الفصول */
+function batchTeachDays(timetable, sectionId, semester){
+  const set = {};
+  (timetable || []).forEach(sl => { if(sl.section_id === sectionId && (semester == null || sl.semester === semester)) set[sl.weekday] = true; });
+  return Object.keys(set).map(Number).sort((a, b) => a - b);
+}
+
+/* حصص صف بيوم وفصل معيّنين مرتّبة */
+function batchTeachPeriods(timetable, sectionId, semester, weekday){
+  return (timetable || []).filter(sl => sl.section_id === sectionId && sl.weekday === weekday && sl.semester === semester)
+    .map(sl => sl.period).sort((a, b) => a - b);
+}
+
+/* هل يدرّس هذا الصف في هذا التاريخ؟ true | false | null (لا جدول لهذا الصف بهذا الفصل فلا حكم) */
+function batchTeachesOn(timetable, sectionId, semester, iso){
+  const slots = (timetable || []).filter(sl => sl.section_id === sectionId && sl.semester === semester);
+  if(!slots.length) return null;
+  const wd = weekdayOfIso(iso);
+  return slots.some(sl => sl.weekday === wd);
+}
+
+/* توزيع الصفوف المحدّدة على التواريخ (مرتّبة): نفس الطول، قيمها أسماء الصفوف.
+   mode=timetable: لكل تاريخ تُفضَّل الصفوف التي تدرّسها ذلك اليوم (الصف بلا جدول بالفصل يصلح أي يوم)،
+   فإن لم يوجد أحد رجعنا لكل الصفوف. وبين المرشّحين نأخذ الأقل شواهد حتى يتساوى التوزيع. rng قابل للحقن */
+function batchAssignClasses(dates, classes, opts){
+  if(!classes || !classes.length) return (dates || []).map(() => '');
+  if(classes.length === 1) return dates.map(() => classes[0].label);
+  const rng = (opts && opts.rng) || Math.random;
+  const tt = (opts && opts.timetable) || [];
+  const semesterOf = (opts && opts.semesterOf) || (() => 1);
+  const useTt = !!(opts && opts.mode === 'timetable') && classes.some(c => tt.some(sl => sl.section_id === c.id));
+  const counts = {};
+  classes.forEach(c => { counts[c.id] = 0; });
+  return dates.map(iso => {
+    let pool = classes;
+    if(useTt){
+      const sem = semesterOf(iso);
+      const allowed = classes.filter(c => batchTeachesOn(tt, c.id, sem, iso) !== false);
+      if(allowed.length) pool = allowed;
+    }
+    const min = Math.min(...pool.map(c => counts[c.id]));
+    const cands = pool.filter(c => counts[c.id] === min);
+    const pick = cands[Math.floor(rng() * cands.length)];
+    counts[pick.id]++;
+    return pick.label;
+  });
+}
+
+/* توزيع تواريخ وصفوف معًا: لكل بطاقة شريحتها من أيام الدراسة (كالتوزيع العادي) مع نافذة تمتد يومًا
+   على جانبيها، ويُختار (يوم، صف) بحيث يكون الصف المسموح ذلك اليوم هو الأقل شواهد حتى الآن —
+   فيتساوى توزيع الصفوف بدل أن يتبع تكرار أيام الأسبوع. تُرتَّب النتيجة بالتاريخ.
+   تتطلب صفّين فأكثر وأيامًا لا تقلّ عن البطاقات؛ وإلا يرجع التوزيع العادي ثم تعيين الصفوف */
+function batchSpreadWithClasses(count, days, classes, opts){
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const fallback = () => {
+    const dates = batchSpreadDates(count, null, null, { days, rng });
+    return { dates, classes: batchAssignClasses(dates, classes, o) };
+  };
+  if(count <= 0 || !days || !days.length || !classes || classes.length < 2 || count > days.length || count === 1) return fallback();
+  const tt = o.timetable || [];
+  const semesterOf = o.semesterOf || (() => 1);
+  const useTt = o.mode === 'timetable' && classes.some(c => tt.some(sl => sl.section_id === c.id));
+  const allowedOn = iso => {
+    if(!useTt) return classes;
+    const sem = semesterOf(iso);
+    const al = classes.filter(c => batchTeachesOn(tt, c.id, sem, iso) !== false);
+    return al.length ? al : classes;
+  };
+  const L = days.length, counts = {}, usedDay = {};
+  classes.forEach(c => { counts[c.id] = 0; });
+  const pairs = [];
+  for(let i = 0; i < count; i++){
+    const lo = Math.floor(i * L / count), hi = Math.floor((i + 1) * L / count) - 1;
+    let win = [];
+    for(let k = Math.max(0, lo - 1); k <= Math.min(L - 1, hi + 1); k++) if(!usedDay[days[k]]) win.push(k);
+    if(!win.length) for(let k = lo; k <= hi; k++) win.push(k);
+    let best = null;
+    win.forEach(k => allowedOn(days[k]).forEach(c => {
+      const core = k >= lo && k <= hi ? 0 : 1;
+      const score = counts[c.id] * 10 + core;
+      if(!best || score < best.score) best = { score, list: [{ k, c }] };
+      else if(score === best.score) best.list.push({ k, c });
+    }));
+    const pick = best.list[Math.floor(rng() * best.list.length)];
+    counts[pick.c.id]++;
+    usedDay[days[pick.k]] = true;
+    pairs.push({ date: days[pick.k], label: pick.c.label });
+  }
+  pairs.sort((a, b) => a.date.localeCompare(b.date));
+  return { dates: pairs.map(x => x.date), classes: pairs.map(x => x.label) };
+}
+
 /* رقم كل أسبوع دراسة بالتقويم الرسمي، يبدأ من ١ في كل فصل ولا تُعدّ فيه أسابيع الإجازات
    الطويلة (لا صفوف لها) ولا أيام عودة المعلمين. يرجع { 'أحد الأسبوع YYYY-MM-DD': { semester, n } } */
 function batchWeekNumbers(weekRows){
@@ -194,8 +324,8 @@ function batchWeekNumbers(weekRows){
 /* معاينة الفترة مقسّمة بالفصول: [{ semester, weeks:[{ n|null, cells }] }].
    كل أسبوع يتبع فصل صفوفه بالتقويم، وأسبوع الإجازة (بلا صفوف) يتبع الفصل السابق له.
    بلا تقويم: قسم واحد semester=0 بترقيم تسلسلي من ١ */
-function batchPreviewSections(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso){
-  const rows = batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso);
+function batchPreviewSections(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso, pickedClasses){
+  const rows = batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso, pickedClasses);
   if(!rows.length) return [];
   if(!hasCal) return [{ semester: 0, weeks: rows.map(r => ({ n: r.n, cells: r.cells })) }];
   const nums = batchWeekNumbers(weekRows);
@@ -219,12 +349,17 @@ function batchPreviewSections(fromIso, toIso, weekRows, holidayRows, pickedDates
 /* أسابيع (أحد-خميس) تغطي الفترة للمعاينة. pickedDates: التواريخ الموزَّعة.
    حالة الخلية: out (خارج الفترة) | off (إجازة/ليس يوم دراسة + reason) | pick (+count) | study،
    وfuture=true لو التاريخ بعد todayIso */
-function batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso){
+function batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCal, todayIso, pickedClasses){
   const rows = [];
   if(!fromIso || !toIso || fromIso > toIso) return rows;
   const idx = batchWeekIndex(weekRows);
   const counts = {};
-  (pickedDates || []).forEach(d => { counts[d] = (counts[d] || 0) + 1; });
+  const classesOn = {};
+  (pickedDates || []).forEach((d, i) => {
+    counts[d] = (counts[d] || 0) + 1;
+    const lab = pickedClasses && pickedClasses[i];
+    if(lab){ (classesOn[d] = classesOn[d] || []); if(classesOn[d].indexOf(lab) === -1) classesOn[d].push(lab); }
+  });
   const wd = weekdayOfIso(fromIso);
   let sunday = wd >= 5 ? addDaysIso(fromIso, 7 - wd) : addDaysIso(fromIso, -wd);
   let first = true;
@@ -237,7 +372,7 @@ function batchWeekRows(fromIso, toIso, weekRows, holidayRows, pickedDates, hasCa
       first = false;
       const st = hasCal ? batchDayStatus(idx, holidayRows, iso) : { ok: true };
       if(!st.ok){ cell.status = 'off'; cell.reason = st.reason; }
-      else if(counts[iso]){ cell.status = 'pick'; cell.count = counts[iso]; }
+      else if(counts[iso]){ cell.status = 'pick'; cell.count = counts[iso]; if(classesOn[iso]) cell.classes = classesOn[iso]; }
       cells.push(cell);
     }
     rows.push({ n: w + 1, cells });
@@ -342,7 +477,7 @@ function buildBatchDraftRows(items, dates, ctx){
     teacher_name: ctx.teacher || '',
     school: ctx.school || '',
     subject: ctx.subject || '',
-    class_name: ctx.className || '',
+    class_name: (ctx.classNames && ctx.classNames[i]) || ctx.className || '',
     cycle_year: getCycleYear(dates[i] || undefined)
   }));
 }
@@ -466,11 +601,12 @@ async function showBatch(){
   if(batchDrafts.length){
     renderBatchBoard();
     /* حدّ محرّر تاريخ البطاقة يحتاج التقويم: نجلبه ثم نعيد الرسم مرة لو تغيّر الحد */
-    batchLoadCalendar().then(cal => {
-      if(!cal || seq !== batchViewSeq || !isBatchViewOpen() || batchStep !== 'board') return;
-      const before = batchDateLimit();
-      batchCal = cal;
-      if(batchDateLimit() !== before) renderBatchBoard();
+    Promise.all([batchLoadCalendar(), batchLoadClasses()]).then(([cal, cls]) => {
+      if(seq !== batchViewSeq || !isBatchViewOpen() || batchStep !== 'board') return;
+      const before = batchDateLimit() + '|' + (batchClasses ? batchClasses.length : 0);
+      if(cal) batchCal = cal;
+      if(cls && cls.classes.length){ batchClasses = cls.classes; batchTimetable = cls.timetable; }
+      if(batchDateLimit() + '|' + (batchClasses ? batchClasses.length : 0) !== before) renderBatchBoard();
     });
   } else await showBatchPick();
 }
@@ -860,6 +996,10 @@ function showBatchSetup(){
   batchPreviewOpen = false;
   batchPreviewSem = null;
   batchPlanned = null;
+  batchClasses = null;
+  batchTimetable = [];
+  batchClassSel = new Set();
+  batchClassMode = 'timetable';
   batchApplyDefaultPeriod();
   document.getElementById('batchBody').innerHTML = `
     ${batchHeader(2, 'بياناتك تُعبّأ مرة واحدة', `تُطبَّق على الشواهد الـ${total} كلها`)}
@@ -868,8 +1008,8 @@ function showBatchSetup(){
         <label>المعلم<input type="text" id="btTeacher" maxlength="150" class="goal-input" value="${escapeHtml(meta.full_name || '')}"></label>
         <label>المدرسة<input type="text" id="btSchool" maxlength="150" class="goal-input" value="${escapeHtml(getProfileSchool())}"></label>
         <label>المادة<input type="text" id="btSubject" maxlength="150" class="goal-input" value="${escapeHtml(getProfileSubject())}"></label>
-        <label>الصف / الفصل<input type="text" id="btClass" maxlength="100" class="goal-input" value="${escapeHtml(getProfileClass())}"></label>
       </div>
+      <div id="btClassBox" class="bt-classbox"></div>
       <div class="bt-sub">متى نفّذت هذه الشواهد؟</div>
       <div id="btPeriod"></div>
     </div>
@@ -878,8 +1018,10 @@ function showBatchSetup(){
       <button type="button" class="btn btn-primary bt-next" id="btCreateBtn" onclick="batchCreateDrafts(this)">إنشاء البطاقات ✓</button>
     </div></div>`;
   window.scrollTo({ top: 0 });
+  renderBatchClasses();
   renderBatchPeriod();
   batchPrepareCalendar();
+  batchPrepareClasses();
 }
 
 /* تقويم نطاق المعلم الرسمي — null لو لا نطاق محدد أو فشل التحميل (فيعود التوزيع
@@ -891,6 +1033,108 @@ async function batchLoadCalendar(){
     const data = await loadCalendarData(region);
     return calendarRegion === region ? { weeks: data.weeks, holidays: data.holidays } : null;
   } catch(e){ return null; }
+}
+
+/* ============ صفوف الدفعة: التحميل والاختيار ============ */
+function batchAcademicYear(){
+  const el = document.getElementById('crmYearInput');
+  let y = el && el.value;
+  if(!y){ try{ y = localStorage.getItem('crm_year_part'); }catch(e){ y = null; } }
+  return y || (typeof CALENDAR_ACADEMIC_YEAR !== 'undefined' ? CALENDAR_ACADEMIC_YEAR : '');
+}
+
+/* صفوف المعلم وحصصه للعام الحالي — يُرجع { classes, timetable } أو null عند الفشل.
+   كل استعلام مقيّد بـ teacher_id للمعلم الحالي (سياسة «المسؤول يرى الكل» لا تُعتمد وحدها) */
+async function batchLoadClasses(){
+  if(!currentUser) return null;
+  const uid = currentUser.id, year = batchAcademicYear();
+  try{
+    const [g, s, t] = await Promise.all([
+      sb.from('classroom_grade_levels').select('id, name, created_at').eq('teacher_id', uid).eq('academic_year', year).order('created_at'),
+      sb.from('classroom_sections').select('id, name, grade_level_id, created_at').eq('teacher_id', uid).eq('academic_year', year).order('created_at'),
+      sb.from('classroom_timetable_slots').select('section_id, weekday, period, semester').eq('teacher_id', uid).eq('academic_year', year)
+    ]);
+    if(g.error || s.error || t.error) return null;
+    const grades = g.data || [];
+    const gOrder = id => { const i = grades.findIndex(x => x.id === id); return i < 0 ? 999 : i; };
+    const classes = (s.data || []).slice().sort((a, b) => gOrder(a.grade_level_id) - gOrder(b.grade_level_id)).map(sec => {
+      const grade = grades.find(x => x.id === sec.grade_level_id);
+      return { id: sec.id, gradeName: grade ? grade.name : '', secName: sec.name, label: (grade ? grade.name + ' — ' : '') + 'الشعبة ' + crmDigits(sec.name) };
+    });
+    const ids = new Set(classes.map(c => c.id));
+    return { classes, timetable: (t.data || []).filter(sl => ids.has(sl.section_id)) };
+  } catch(e){ return null; }
+}
+
+/* بعد رسم شاشة البيانات: يجلب الصفوف ويحدّدها كلها مبدئيًا؛ يتجاهل النتيجة لو انتقل المعلم أو تبدّل الحساب */
+async function batchPrepareClasses(){
+  const seq = batchViewSeq, uid = currentUser && currentUser.id;
+  const res = await batchLoadClasses();
+  if(seq !== batchViewSeq || !isBatchViewOpen() || batchStep !== 'setup' || !currentUser || currentUser.id !== uid) return;
+  if(!res || !res.classes.length){ batchClasses = null; batchTimetable = []; }
+  else {
+    batchClasses = res.classes;
+    batchTimetable = res.timetable;
+    batchClassSel = new Set(res.classes.map(c => c.id));
+    batchClassMode = 'timetable';
+  }
+  batchPlanned = null;
+  renderBatchClasses();
+  batchRefreshPeriod();
+}
+
+/* أيام تدريس صف بنص مختصر، للفصل الحالي إن عُرف وإلا كل الفصول */
+function batchTeachDaysText(sectionId){
+  const sem = batchCal ? batchCurrentSemester(batchCal.weeks, batchCal.holidays, localIsoDate()) : null;
+  let days = batchTeachDays(batchTimetable, sectionId, sem);
+  if(!days.length) days = batchTeachDays(batchTimetable, sectionId, null);
+  const names = days.map(d => CRM_WEEKDAY_NAMES[d]);
+  return names.length > 2 ? names.join('، ') : names.join(' و');
+}
+
+function renderBatchClasses(){
+  const box = document.getElementById('btClassBox');
+  if(!box) return;
+  if(!batchClasses){
+    const prev = document.getElementById('btClass');
+    const val = prev ? prev.value : getProfileClass();
+    box.innerHTML = `<label>الصف / الفصل<input type="text" id="btClass" maxlength="100" class="goal-input" value="${escapeHtml(val)}"></label>
+      <p class="bt-hint">أضف صفوفك مرة واحدة من «إدارة الصف ← المراحل والشعب» لتظهر هنا كأزرار وتُوزَّع تلقائيًا على شواهدك.</p>`;
+    return;
+  }
+  const codes = batchClassCodes(batchClasses);
+  const chips = batchClasses.map((c, i) => {
+    const on = batchClassSel.has(c.id);
+    const days = batchTeachDaysText(c.id);
+    return `<button type="button" class="bt-cchip${on ? ' on' : ' off'}" onclick="batchToggleClass('${escapeHtml(c.id)}')"><i class="bt-cdot" style="background:${BATCH_CLASS_COLORS[i % BATCH_CLASS_COLORS.length]}"></i><span>${escapeHtml(c.label)}<small>${escapeHtml(codes[c.id])}${days ? ' · ' + escapeHtml(days) : ''}</small></span></button>`;
+  }).join('');
+  const sel = batchSelectedClasses();
+  let modeHtml = '';
+  if(sel.length > 1){
+    const hasTt = batchHasTimetable();
+    const m = batchEffectiveClassMode();
+    modeHtml = `<div class="bt-sub" style="margin-top:12px">كيف نوزّع الصفوف على الشواهد؟</div>
+      <div class="bt-radio">
+        <button type="button" class="${m === 'timetable' ? 'on' : ''}"${hasTt ? '' : ' disabled'} onclick="batchSetClassMode('timetable')">حسب جدولي${hasTt ? ' <span class="bt-badge">موصى به</span>' : ''}<small>${hasTt ? 'كل شاهد في يوم تدرّس فيه هذا الصف فعلًا' : 'غير متاح'}</small></button>
+        <button type="button" class="${m === 'equal' ? 'on' : ''}" onclick="batchSetClassMode('equal')">بالتساوي<small>بالتناوب بين الصفوف</small></button>
+      </div>
+      <p class="bt-hint${hasTt ? ' ok' : ''}">${hasTt ? '✓ جدولك الأسبوعي مسجَّل، فتتّسق التواريخ مع الصفوف.' : 'لم تسجّل جدولك الأسبوعي في «إدارة الصف»، فنوزّع الصفوف بالتساوي.'}</p>`;
+  }
+  box.innerHTML = `<div class="bt-sub">الصفوف التي نفّذت فيها هذه الشواهد</div><div class="bt-cchips">${chips}</div>${sel.length ? '' : '<p class="bt-warn2">اختر صفًا واحدًا على الأقل.</p>'}${modeHtml}`;
+}
+
+function batchToggleClass(id){
+  if(batchClassSel.has(id)) batchClassSel.delete(id); else batchClassSel.add(id);
+  batchPlanned = null;
+  renderBatchClasses();
+  batchRefreshPeriod();
+}
+
+function batchSetClassMode(mode){
+  batchClassMode = mode === 'equal' ? 'equal' : 'timetable';
+  batchPlanned = null;
+  renderBatchClasses();
+  batchRefreshPeriod();
 }
 
 /* لو التقويم متاح ولم يختر المعلم فترة بنفسه: الفصل الدراسي الحالي من أوله حتى اليوم */
@@ -950,10 +1194,54 @@ function batchPeriodInfo(){
 }
 
 /* التوزيع المعروض بالمعاينة: يُعاد استخدامه عند الإنشاء كي يطابق ما رآه المعلم */
+/* الصفوف المحدَّدة (بترتيبها بإدارة الصف) */
+function batchSelectedClasses(){
+  return batchClasses ? batchClasses.filter(c => batchClassSel.has(c.id)) : [];
+}
+
+/* هل لأحد الصفوف المحدَّدة جدول أسبوعي؟ (شرط وضع «حسب جدولي») */
+function batchHasTimetable(){
+  return batchSelectedClasses().some(c => batchTimetable.some(sl => sl.section_id === c.id));
+}
+
+function batchEffectiveClassMode(){
+  return batchClassMode === 'timetable' && batchHasTimetable() ? 'timetable' : 'equal';
+}
+
+/* بصمة اختيار الصفوف بالخطة — تغيّرها يُبطل التوزيع المعروض */
+function batchClassSig(){
+  return batchEffectiveClassMode() + ':' + batchSelectedClasses().map(c => c.id).join(',');
+}
+
+function batchClassesForDates(dates){
+  const sel = batchSelectedClasses();
+  if(!sel.length) return null;
+  return batchAssignClasses(dates, sel, {
+    mode: batchEffectiveClassMode(),
+    timetable: batchTimetable,
+    semesterOf: iso => batchSemesterOf(batchCal && batchCal.weeks, iso)
+  });
+}
+
+/* تواريخ الخطة وصفوفها معًا (الصفوف null لو لا صفوف محدَّدة) */
+function batchPlanDatesAndClasses(count, info){
+  const sel = batchSelectedClasses();
+  if(sel.length > 1){
+    return batchSpreadWithClasses(count, info.days, sel, {
+      mode: batchEffectiveClassMode(),
+      timetable: batchTimetable,
+      semesterOf: iso => batchSemesterOf(batchCal && batchCal.weeks, iso)
+    });
+  }
+  const dates = batchSpreadDates(count, info.from, info.to, { days: info.days });
+  return { dates, classes: batchClassesForDates(dates) };
+}
+
 function batchEnsurePlan(info, count, reshuffle){
-  const p = batchPlanned;
-  if(!reshuffle && p && p.from === info.from && p.to === info.to && p.count === count && p.ndays === info.days.length) return p;
-  batchPlanned = { from: info.from, to: info.to, count, ndays: info.days.length, dates: batchSpreadDates(count, info.from, info.to, { days: info.days }) };
+  const p = batchPlanned, sig = batchClassSig();
+  if(!reshuffle && p && p.from === info.from && p.to === info.to && p.count === count && p.ndays === info.days.length && p.sig === sig) return p;
+  const r = batchPlanDatesAndClasses(count, info);
+  batchPlanned = { from: info.from, to: info.to, count, ndays: info.days.length, dates: r.dates, classes: r.classes, sig };
   return batchPlanned;
 }
 
@@ -999,15 +1287,17 @@ function batchRefreshPeriod(){
       + (info.offReason ? `<p class="bt-warn2">⚠ هذا اليوم ليس يوم دراسة (${escapeHtml(info.offReason)}) — الأفضل اختيار يوم دراسة فعلي.</p>` : '')
       + (info.future ? '<p class="bt-warn2">⚠ هذا التاريخ لم يحن بعد — تأكد أنه مقصود.</p>' : '');
     prev.innerHTML = '';
+    sum.innerHTML += batchClassCountsHtml(batchClassesForDates(Array(total).fill(info.one)));
   } else {
     sum.innerHTML = `<div class="bt-sum">✓ <b>${batchCountLabel(total)}</b> ستُوزَّع على <b>${batchAr(info.days.length)}</b> يوم دراسة<small>من ${batchDateLabel(info.from)} إلى ${batchDateLabel(info.to)}</small>${total > info.days.length ? '<small>الأيام أقل من الشواهد، فسيتكرر بعضها.</small>' : ''}</div>`;
-    const plan = (batchPreviewOpen || info.future) ? batchEnsurePlan(info, total, false) : null;
+    const plan = (batchPreviewOpen || info.future || batchSelectedClasses().length > 1) ? batchEnsurePlan(info, total, false) : null;
+    if(plan && plan.classes) sum.innerHTML += batchClassCountsHtml(plan.classes);
     const futureN = plan ? plan.dates.filter(d => d > localIsoDate()).length : 0;
     if(futureN) sum.innerHTML += `<p class="bt-warn2">⚠ ${batchAr(futureN)} من ${batchCountLabel(total)} بتاريخ لم يحن بعد — تأكد أنه مقصود.</p>`;
     if(!batchPreviewOpen){
       prev.innerHTML = '<button type="button" class="btn btn-outline bt-prevbtn" onclick="batchTogglePreview(true)">👁 شاهد كيف ستُوزَّع</button>';
     } else {
-      const sections = batchPreviewSections(info.from, info.to, batchCal && batchCal.weeks, batchCal && batchCal.holidays, plan.dates, !!batchCal, localIsoDate());
+      const sections = batchPreviewSections(info.from, info.to, batchCal && batchCal.weeks, batchCal && batchCal.holidays, plan.dates, !!batchCal, localIsoDate(), plan.classes);
       if(!sections.some(x => x.semester === batchPreviewSem)){
         const nowSem = batchCal ? batchCurrentSemester(batchCal.weeks, batchCal.holidays, localIsoDate()) : null;
         batchPreviewSem = (sections.find(x => x.semester === nowSem) || sections[0]).semester;
@@ -1025,13 +1315,14 @@ function batchRefreshPeriod(){
       const body = sec.weeks.map(w => `<div class="bt-wrow"><span class="bt-wk">${w.n ? batchAr(w.n) : ''}</span>${w.cells.map(c => {
         if(c.status === 'out') return '<span class="bt-cell out"></span>';
         const reason = c.status === 'off' ? (c.reason.length > 12 ? c.reason.replace(/^إجازة\s+/, '') : c.reason) : '';
-        const sub = c.status === 'off' ? escapeHtml(reason) : (c.month || (c.status === 'pick' ? (c.count > 1 ? batchAr(c.count) + ' شواهد' : 'شاهد') : ''));
-        return `<button type="button" class="bt-cell ${c.status}${c.future ? ' fut' : ''}" onclick="batchShowDayTip('${c.iso}')">${batchAr(+c.iso.slice(8))}${sub ? `<small>${sub}</small>` : ''}</button>`;
+        const cl = c.status === 'pick' && c.classes ? batchClassInfo(c.classes[0]) : null;
+        const sub = c.status === 'off' ? escapeHtml(reason) : (c.month || (c.status === 'pick' ? (c.count > 1 ? batchAr(c.count) + ' شواهد' : (cl ? escapeHtml(cl.code) : 'شاهد')) : ''));
+        return `<button type="button" class="bt-cell ${c.status}${c.future ? ' fut' : ''}"${cl ? ` style="background:${cl.color};border-color:${cl.color}"` : ''} onclick="batchShowDayTip('${c.iso}')">${batchAr(+c.iso.slice(8))}${sub ? `<small>${sub}</small>` : ''}</button>`;
       }).join('')}</div>`).join('');
       prev.innerHTML = `<div class="bt-prev"><div class="bt-sub" style="margin-top:0">توزيع ${batchCountLabel(total)} على الفترة</div>
         ${tabs}${title}
         <div>${head}${body}</div>
-        <div class="bt-leg"><span><i class="pick"></i>شاهد</span><span><i></i>يوم دراسة بلا شاهد</span><span><i class="off"></i>إجازة / اختبارات</span>${info.future ? '<span><i class="fut"></i>بعد اليوم</span>' : ''}</div>
+        <div class="bt-leg">${batchSelectedClasses().length > 1 ? batchSelectedClasses().map(c => { const ci = batchClassInfo(c.label); return `<span><i style="background:${ci.color};border-color:${ci.color}"></i>${escapeHtml(ci.code)} ${escapeHtml(c.label)}</span>`; }).join('') : '<span><i class="pick"></i>شاهد</span>'}<span><i></i>يوم دراسة بلا شاهد</span><span><i class="off"></i>إجازة / اختبارات</span>${info.future ? '<span><i class="fut"></i>بعد اليوم</span>' : ''}</div>
         <div class="bt-tip" id="btTip" style="display:none"></div>
         <div class="bt-prevbar"><button type="button" class="btn btn-outline" onclick="batchReshuffle()">🔀 خلط التواريخ</button><button type="button" class="btn btn-primary" onclick="batchTogglePreview(false)">تمام ✓</button></div></div>`;
     }
@@ -1103,6 +1394,23 @@ function batchReshuffle(){
 }
 
 /* شرح يوم بالمعاينة: يوم دراسة (بشاهد أو بلا) أو إجازة باسمها */
+/* لون ورمز صف باسمه (من الصفوف المحمّلة)؛ null لو ليس منها */
+function batchClassInfo(label){
+  if(!batchClasses) return null;
+  const i = batchClasses.findIndex(c => c.label === label);
+  if(i < 0) return null;
+  return { id: batchClasses[i].id, color: BATCH_CLASS_COLORS[i % BATCH_CLASS_COLORS.length], code: batchClassCodes(batchClasses)[batchClasses[i].id] };
+}
+
+/* سطر أعداد الشواهد لكل صف تحت الملخص (لو أكثر من صف) */
+function batchClassCountsHtml(labels){
+  const sel = batchSelectedClasses();
+  if(!labels || sel.length < 2) return '';
+  const counts = {};
+  labels.forEach(l => { counts[l] = (counts[l] || 0) + 1; });
+  return '<div class="bt-ccount">' + sel.map(c => { const ci = batchClassInfo(c.label); return `<span><i style="background:${ci.color}"></i>${escapeHtml(ci.code)} : ${batchAr(counts[c.label] || 0)}</span>`; }).join('') + '</div>';
+}
+
 function batchShowDayTip(iso){
   const tip = document.getElementById('btTip');
   if(!tip) return;
@@ -1113,6 +1421,18 @@ function batchShowDayTip(iso){
   else {
     const n = ((batchPlanned && batchPlanned.dates) || []).filter(d => d === iso).length;
     text = n ? `${label} — سيُوثَّق فيه ${n > 1 ? batchAr(n) + ' شواهد' : 'شاهد'}.` : `${label} — يوم دراسة بلا شاهد.`;
+    const pl = batchPlanned;
+    if(n && pl && pl.classes){
+      const labs = [];
+      pl.dates.forEach((d, i) => { if(d === iso && pl.classes[i] && labs.indexOf(pl.classes[i]) === -1) labs.push(pl.classes[i]); });
+      const sem = batchSemesterOf(batchCal && batchCal.weeks, iso);
+      const parts = labs.map(lab => {
+        const ci = batchClassInfo(lab);
+        const per = ci ? batchTeachPeriods(batchTimetable, ci.id, sem, weekdayOfIso(iso)) : [];
+        return lab + (per.length ? ` (الحصة ${per.map(batchAr).join(' و')})` : '');
+      });
+      if(parts.length) text += ' الصف: ' + parts.join('، ') + '.';
+    }
   }
   tip.textContent = text;
   tip.style.display = '';
@@ -1121,7 +1441,7 @@ function batchShowDayTip(iso){
 async function batchCreateDrafts(btn){
   if(!currentUser || btn.disabled) return;
   if(!navigator.onLine){ showToast('لا يوجد اتصال بالإنترنت', 'error'); return; }
-  let dates;
+  let dates, planned = null, classNames = null;
   let calFallback = false;
   /* السعة تُعاد قراءتها من القاعدة أولًا: جهاز/تبويب آخر قد يكون أضاف مسودات */
   beginExportBusy(btn, 'جارٍ الإنشاء...');
@@ -1133,6 +1453,7 @@ async function batchCreateDrafts(btn){
     const items = batchInterleave(groups);
     if(!items.length){ showToast('لا شيء جديد لإنشائه', 'error'); return; }
 
+    if(batchClasses && batchClasses.length && !batchSelectedClasses().length){ showToast('اختر صفًا واحدًا على الأقل', 'error'); return; }
     /* التقويم يُعاد جلبه (مخزَّن غالبًا) كي لا نعتمد على لقطة قديمة، ثم المصدر الواحد للفترة */
     batchCal = await batchLoadCalendar();
     calFallback = !batchCal;
@@ -1142,16 +1463,18 @@ async function batchCreateDrafts(btn){
       dates = Array(items.length).fill(info.one);
     } else {
       const p = batchPlanned;
-      dates = (p && p.from === info.from && p.to === info.to && p.count === items.length && p.ndays === info.days.length)
-        ? p.dates.slice()
-        : batchSpreadDates(items.length, info.from, info.to, { days: info.days });
+      planned = (p && p.from === info.from && p.to === info.to && p.count === items.length && p.ndays === info.days.length && p.sig === batchClassSig()) ? p : null;
+      if(!planned){ const r = batchPlanDatesAndClasses(items.length, info); planned = { dates: r.dates, classes: r.classes }; }
+      dates = planned.dates.slice();
     }
+    classNames = batchSelectedClasses().length ? ((planned && planned.classes) ? planned.classes.slice() : batchClassesForDates(dates)) : null;
     const rows = buildBatchDraftRows(items, dates, {
+      classNames,
       userId: currentUser.id,
       teacher: document.getElementById('btTeacher').value.trim(),
       school: document.getElementById('btSchool').value.trim(),
       subject: document.getElementById('btSubject').value.trim(),
-      className: document.getElementById('btClass').value.trim()
+      className: (document.getElementById('btClass') || {}).value ? document.getElementById('btClass').value.trim() : ''
     });
     const { error } = await sb.from('shahid_drafts')
       .upsert(rows, { onConflict: 'user_id,element_key,template_name', ignoreDuplicates: true });
@@ -1204,6 +1527,39 @@ function renderBatchBoard(){
     </div>`;
 }
 
+/* قائمة الصف بالبطاقة: صفوف المعلم المسجَّلة (مع تعليم ما يدرّسه بيوم البطاقة) + صف آخر بالكتابة.
+   لا تظهر لمن لا صفوف مسجَّلة عنده (حقل الصف الواحد بشاشة البيانات يكفيه) */
+function batchClassFieldHtml(d, busy){
+  if(!batchClasses) return '';
+  const id = escapeHtml(d.id);
+  if(batchClassFree.has(d.id)){
+    return `<label class="bt-date-l">الصف <input type="text" class="bt-date" maxlength="100" value="${escapeHtml(d.class_name || '')}" placeholder="اكتب الصف" ${busy ? 'disabled' : ''} onchange="batchSetClass('${id}', this.value)"></label>`;
+  }
+  const date = d.planned_date;
+  const sem = date ? batchSemesterOf(batchCal && batchCal.weeks, date) : 1;
+  const dayName = date ? CRM_WEEKDAY_NAMES[weekdayOfIso(date)] : '';
+  const cur = d.class_name || '';
+  const known = batchClasses.some(c => c.label === cur);
+  const opts = batchClasses.map(c => {
+    const t = date ? batchTeachesOn(batchTimetable, c.id, sem, date) : null;
+    const suffix = t === true ? ' ✓' : (t === false ? ' — لا تدرّسه ' + dayName : '');
+    return `<option value="${escapeHtml(c.label)}"${c.label === cur ? ' selected' : ''}>${escapeHtml(c.label)}${suffix}</option>`;
+  }).join('');
+  const extra = (!known && cur) ? `<option value="${escapeHtml(cur)}" selected>${escapeHtml(cur)}</option>` : '';
+  const blank = !cur ? '<option value="" selected>اختر الصف</option>' : '';
+  return `<label class="bt-date-l">الصف <select class="bt-date" ${busy ? 'disabled' : ''} onchange="batchSetClass('${id}', this.value)">${blank}${opts}${extra}<option value="__other__">صف آخر…</option></select></label>`;
+}
+
+/* تنبيه أصفر (لا منع) لو الصف المختار لا يدرّسه المعلم بيوم البطاقة حسب جدوله */
+function batchClassHintHtml(d){
+  if(!batchClasses || !d.planned_date || !d.class_name) return '';
+  const c = batchClasses.find(x => x.label === d.class_name);
+  if(!c) return '';
+  const sem = batchSemesterOf(batchCal && batchCal.weeks, d.planned_date);
+  if(batchTeachesOn(batchTimetable, c.id, sem, d.planned_date) !== false) return '';
+  return `<div class="bt-chint">⚠ لا تدرّس هذا الصف يوم ${CRM_WEEKDAY_NAMES[weekdayOfIso(d.planned_date)]} — تأكد أنه مقصود.</div>`;
+}
+
 function batchCardHtml(d){
   const busy = batchBusyIds.has(d.id);
   const id = escapeHtml(d.id);
@@ -1213,7 +1569,11 @@ function batchCardHtml(d){
       <button type="button" class="bt-x" aria-label="حذف البطاقة" ${busy ? 'disabled' : ''} onclick="batchDeleteDraft('${id}')">×</button>
     </div>
     <div class="bt-title">${escapeHtml(d.title)}</div>
-    <label class="bt-date-l">التاريخ <input type="date" class="bt-date" value="${escapeHtml(d.planned_date || '')}" max="${batchDateLimit()}" ${busy ? 'disabled' : ''} onchange="batchSetDate('${id}', this.value)"></label>
+    <div class="bt-cardrow">
+      <label class="bt-date-l">التاريخ <input type="date" class="bt-date" value="${escapeHtml(d.planned_date || '')}" max="${batchDateLimit()}" ${busy ? 'disabled' : ''} onchange="batchSetDate('${id}', this.value)"></label>
+      ${batchClassFieldHtml(d, busy)}
+    </div>
+    ${batchClassHintHtml(d)}
     <div class="bt-drop${busy ? ' busy' : ''}">
       ${busy
         ? '<div class="bt-spin"></div><span>جارٍ الرفع والحفظ...</span>'
@@ -1246,6 +1606,29 @@ function batchEditDone(id){
   editRecord(id);
 }
 
+async function batchSetClass(id, value){
+  const d = batchDrafts.find(x => x.id === id);
+  if(!d || !currentUser) return;
+  if(value === '__other__'){
+    batchClassFree.add(id);
+    batchRedrawCard(id);
+    return;
+  }
+  const v = String(value || '').trim().slice(0, 100);
+  const before = d.class_name || '';
+  d.class_name = v;
+  batchClassFree.delete(id);
+  batchRedrawCard(id);
+  const { error } = await sb.from('shahid_drafts')
+    .update({ class_name: v })
+    .eq('id', id).eq('user_id', currentUser.id);
+  if(error){
+    showToast('تعذّر حفظ الصف', 'error');
+    d.class_name = before;
+    batchRedrawCard(id);
+  }
+}
+
 async function batchSetDate(id, value){
   const d = batchDrafts.find(x => x.id === id);
   if(!d || !currentUser) return;
@@ -1261,6 +1644,7 @@ async function batchSetDate(id, value){
     .update({ planned_date: value, cycle_year: d.cycle_year })
     .eq('id', id).eq('user_id', currentUser.id);
   if(error) showToast('تعذّر حفظ التاريخ', 'error');
+  batchRedrawCard(id); /* تنبيه الصف/اليوم يتبع التاريخ الجديد */
 }
 
 async function batchDeleteDraft(id){
