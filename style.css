@@ -1993,7 +1993,13 @@ html, body, *{touch-action:manipulation;}
 .sh-icon-btn{width:38px;height:38px;border-radius:11px;border:none;background:#F3F0E8;color:var(--navy);font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;}
 .sh-icon-btn.is-on{background:var(--navy);color:#fff;}
 .sh-more{position:relative;}
-.sh-more-menu{position:absolute;left:0;top:44px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 24px rgba(16,30,44,.16);padding:6px;white-space:nowrap;}
+/* داخل الشريط العلوي: يتغلّب على .topbar button (حدّ وخلفية وحشو) ويملأ العنوان المسافة ليلتصق الزران بدائرة الحساب */
+.tb-title{flex:1;}
+.topbar .sh-top-actions .sh-icon-btn{width:38px;height:38px;padding:0;border:none;border-radius:11px;background:#F3F0E8;color:var(--navy);font-size:16px;font-weight:900;}
+.topbar .sh-top-actions .sh-icon-btn:hover{background:#F3F0E8;color:var(--navy);}
+.topbar .sh-top-actions .sh-icon-btn.is-on,.topbar .sh-top-actions .sh-icon-btn.is-on:hover{background:var(--navy);color:#fff;}
+.topbar .sh-more-menu .btn{padding:9px 20px;font-size:13px;font-weight:600;}
+.sh-more-menu{position:absolute;left:0;top:44px;z-index:9400;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 24px rgba(16,30,44,.16);padding:6px;white-space:nowrap;}
 .sh-more-menu .btn{border:none;width:100%;justify-content:flex-start;border-radius:9px;}
 .sh-theme-row{display:flex;flex-direction:column;gap:5px;padding:8px 10px 6px;font-size:13px;font-weight:700;color:var(--muted);border-top:1px solid var(--line);margin-top:4px;}
 .sh-theme-row select{font-family:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:inherit;}

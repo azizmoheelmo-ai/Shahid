@@ -44,7 +44,11 @@ test('الفلترة تُخفي الملخص، وتصدير الكل داخل �
   assert.doesNotMatch(get(app, 'window.__b.innerHTML'), /غطّيت/);
   assert.equal(get(app, `document.getElementById('filterSummary').style.display`), 'block');
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  const head = html.slice(html.indexOf('<h2 id="listTitle">'), html.indexOf('id="filterPanel"'));
+  /* 🔍 و⋯ في الشريط العلوي بجانب دائرة الحساب (لا في رأس بطاقة القائمة) */
+  const head = html.slice(html.indexOf('id="shTopActions"'), html.indexOf('class="tb-acct"'));
+  assert.ok(head.length > 0 && head.indexOf('id="shSearchBtn"') > 0, 'الأزرار قبل دائرة الحساب بالشريط العلوي');
+  const card = html.slice(html.indexOf('<h2 id="listTitle">'), html.indexOf('id="filterPanel"'));
+  assert.doesNotMatch(card, /shSearchBtn|shMoreMenu/, 'لا نسخة مكررة برأس البطاقة');
   assert.match(head, /id="shMoreMenu"[\s\S]*id="exportAllBtn"/);
   assert.match(head, /id="shSearchBtn"[^>]*onclick="toggleFilterPanel\(\)"/);
   runInAppContext(app, `document.getElementById('filterPanel').style.display = 'none';`);

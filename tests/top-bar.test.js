@@ -53,6 +53,20 @@ test('عنوان الشريط = الشاشة الظاهرة، والحرف ال�
   assert.equal(get(app, `document.getElementById('acctInitial').textContent`), 'ع');
 });
 
+test('🔍 و⋯ الشواهد بالشريط العلوي تظهر بشاشة الشواهد فقط وتُغلق قائمتها عند المغادرة', () => {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  runInAppContext(app, `TOP_TITLE_VIEWS.forEach(id => { const v = document.getElementById(id); if(v) v.style.display = 'none'; });
+    document.getElementById('listView').style.display = 'block';`);
+  app.syncTopTitle();
+  assert.equal(get(app, `document.getElementById('shTopActions').style.display`), 'flex');
+  runInAppContext(app, `document.getElementById('shMoreMenu').style.display = 'block';
+    document.getElementById('listView').style.display = 'none';
+    document.getElementById('homeView').style.display = 'block';`);
+  app.syncTopTitle();
+  assert.equal(get(app, `document.getElementById('shTopActions').style.display`), 'none');
+  assert.equal(get(app, `document.getElementById('shMoreMenu').style.display`), 'none', 'القائمة لا تبقى مفتوحة');
+});
+
 test('شارة السنة/الفصل تعكس الاختيار وتفتح سطر الاختيار', () => {
   const app = loadApp({ currentUser: { id: 'u1' } });
   runInAppContext(app, `document.getElementById('crmYearInput').value = '1448-1449'; document.getElementById('crmSemesterSelect').value = 'الفصل الثاني';
