@@ -105,22 +105,132 @@ test('batchSpreadDates بأيام التقويم — لا تقع على إجاز
   assert.ok(few.every(x => ['2026-10-04', '2026-10-05', '2026-10-06'].includes(x)));
 });
 
-test('batchDefaultFrom — أول يوم دراسة للطلاب بالفصل الحالي', () => {
+test('batchPeriodRange/batchCurrentSemester — فصول جاهزة تُقصّ عند اليوم ولا تبدأ بأيام المعلمين', () => {
   const app = loadApp();
   const { weeks, holidays } = calFixture(app);
-  assert.equal(app.batchDefaultFrom(weeks, holidays, '2026-10-28'), '2026-08-23', 'لا يبدأ بأيام عودة المعلمين');
-  assert.equal(app.batchDefaultFrom(weeks, holidays, '2027-01-17'), '2027-01-17', 'الفصل الثاني يبدأ من أول أيامه');
-  assert.equal(app.batchDefaultFrom(weeks, holidays, '2026-08-18'), null, 'قبل بدء الطلاب: لا افتراضي');
-  assert.equal(app.batchDefaultFrom([], [], '2026-10-28'), null);
+  const s1 = app.batchPeriodRange(weeks, holidays, 'sem1', '2026-10-28');
+  assert.deepEqual({ ...s1 }, { available: true, from: '2026-08-23', to: '2026-10-28', startsOn: '2026-08-23' }, 'من أول يوم طلاب إلى اليوم');
+  const s2 = app.batchPeriodRange(weeks, holidays, 'sem2', '2026-10-28');
+  assert.equal(s2.available, false, 'الفصل الثاني لم يبدأ');
+  assert.equal(s2.startsOn, '2027-01-17');
+  const later = app.batchPeriodRange(weeks, holidays, 'sem2', '2027-01-18');
+  assert.deepEqual([later.available, later.from, later.to], [true, '2027-01-17', '2027-01-18']);
+  const year = app.batchPeriodRange(weeks, holidays, 'year', '2027-01-18');
+  assert.deepEqual([year.from, year.to], ['2026-08-23', '2027-01-18'], 'العام كاملًا من أول الفصل الأول حتى اليوم');
+  assert.equal(app.batchPeriodRange([], [], 'sem1', '2026-10-28').available, false);
+  assert.equal(app.batchPeriodRange(weeks, holidays, 'sem1', '2026-08-18').available, false, 'قبل بدء الطلاب');
+  assert.equal(app.batchCurrentSemester(weeks, holidays, '2026-10-28'), 1);
+  assert.equal(app.batchCurrentSemester(weeks, holidays, '2027-01-17'), 2);
+  assert.equal(app.batchCurrentSemester(weeks, holidays, '2026-08-18'), null);
+});
+
+test('batchWeekRows — أسابيع المعاينة: إجازات بأسمائها، شواهد بعددها، وما خارج الفترة فارغ', () => {
+  const app = loadApp();
+  const { weeks, holidays } = calFixture(app);
+  // 2026-09-20 أحد … 2026-09-24 خميس (اليوم الوطني 23-24) + 2026-09-27 أحد
+  const rows = app.batchWeekRows('2026-09-21', '2026-09-27', weeks, holidays, ['2026-09-21', '2026-09-22', '2026-09-22'], true);
+  assert.equal(rows.length, 2);
+  const c = rows[0].cells;
+  assert.equal(c[0].status, 'out', 'الأحد 20 قبل بداية الفترة');
+  assert.equal(c[1].status, 'pick');
+  assert.equal(c[2].status, 'pick'); assert.equal(c[2].count, 2);
+  assert.deepEqual([c[3].status, c[3].reason], ['off', 'اليوم الوطني']);
+  assert.equal(c[4].status, 'off');
+  assert.equal(rows[1].cells[0].status, 'study', 'الأحد 27 يوم دراسة بلا شاهد');
+  assert.equal(rows[1].cells[1].status, 'out');
+  // بلا تقويم: لا إجازات، فقط تعليم الشواهد
+  const noCal = app.batchWeekRows('2026-09-21', '2026-09-24', [], [], [], false);
+  assert.ok(noCal[0].cells.slice(1).every(x => x.status === 'study'));
+  // الفترة تبدأ يوم جمعة: تُرحَّل لأحد التالي
+  const fri = app.batchWeekRows('2026-10-02', '2026-10-05', weeks, holidays, [], true);
+  assert.equal(fri.length, 1);
+  assert.equal(fri[0].cells[0].iso, '2026-10-04');
+  assert.deepEqual([...app.batchWeekRows('2026-10-10', '2026-10-04', weeks, holidays, [], true)], []);
+});
+
+function periodApp() {
+  const { app, reg } = pickApp();
+  const { weeks, holidays } = calFixture(app);
+  runInAppContext(app, `
+    const realIso = localIsoDate; localIsoDate = (d) => d ? realIso(d) : '2026-10-28';
+    batchPick = { E1: ['نموذج 0', 'نموذج 1', 'نموذج 2'] };
+    batchCal = { weeks: ${JSON.stringify(weeks)}, holidays: ${JSON.stringify(holidays)} };
+    batchStep = 'setup'; batchPeriod = 'custom'; batchFrom = '2026-09-20'; batchTo = '2026-09-27'; batchOne = '2026-10-28';`);
+  return { app, reg };
+}
+
+test('شاشة الفترة: أزرار الفصول، الفصل الثاني معطّل بتاريخ بدايته، والملخص بالأرقام', () => {
+  const { app, reg } = periodApp();
+  app.renderBatchPeriod();
+  const html = reg.btPeriod.innerHTML;
+  assert.match(html, /الفصل الأول/);
+  assert.match(html, /العام كاملًا/);
+  assert.match(html, /bt-chip dis" disabled>الفصل الثاني<small>يبدأ ١٧ يناير/, 'الفصل الثاني معطّل ويذكر بدايته');
+  app.batchSetPeriod('sem1');
+  assert.equal(runInAppContext(app, 'batchFrom'), '2026-08-23');
+  assert.equal(runInAppContext(app, 'batchTo'), '2026-10-28');
+  assert.match(reg.btSum.innerHTML, /٣ شواهد/);
+  assert.equal(app.batchCountLabel(1), 'شاهد واحد'); assert.equal(app.batchCountLabel(2), 'شاهدان');
+  assert.equal(app.batchCountLabel(10), '١٠ شواهد'); assert.equal(app.batchCountLabel(24), '٢٤ شاهدًا');
+  app.batchSetPeriod('sem2'); // معطّل: لا يغيّر شيئًا
+  assert.equal(runInAppContext(app, 'batchPeriod'), 'sem1');
+});
+
+test('المعاينة: تُظهر الإجازة باسمها، والتلميح يشرح اليوم، والخلط يغيّر التوزيع، وتُعتمد عند الإنشاء', () => {
+  const { app, reg } = periodApp();
+  runInAppContext(app, 'batchPick = { E1: Array.from({ length: 4 }, (_, i) => "نموذج " + i) };');
+  app.batchSetPeriod('sem1');
+  app.batchTogglePreview(true);
+  assert.match(reg.btPreview.innerHTML, /bt-cell off[^>]*>[^<]*٢٣<small>اليوم الوطني/);
+  assert.match(reg.btPreview.innerHTML, /خلط التواريخ/);
+  app.batchShowDayTip('2026-09-23');
+  assert.match(reg.btTip.textContent, /ليس يوم دراسة: اليوم الوطني، لن يُوضع فيه شاهد/);
+  app.batchShowDayTip('2026-09-27');
+  assert.match(reg.btTip.textContent, /سيُوثَّق فيه|يوم دراسة بلا شاهد/, 'يوم دراسة عادي (بشاهد أو بلا)');
+  assert.doesNotMatch(reg.btTip.textContent, /ليس يوم دراسة/);
+  const before = [...runInAppContext(app, 'batchPlanned.dates')];
+  assert.equal(before.length, 4);
+  let changed = false;
+  for(let i = 0; i < 6 && !changed; i++){ app.batchReshuffle(); changed = runInAppContext(app, 'batchPlanned.dates').join() !== before.join(); }
+  assert.ok(changed, 'الخلط يعطي توزيعًا مختلفًا');
+  // الفترة تتغيّر ⇒ يُعاد التوزيع لها (لا يُعتمد توزيع الفترة القديمة)
+  runInAppContext(app, 'batchPeriod = "custom"; batchFrom = "2026-10-04"; batchTo = "2026-10-08"; batchPlanned = null; batchRefreshPeriod();');
+  const re = { ...runInAppContext(app, 'batchPlanned') };
+  assert.equal(re.from, '2026-10-04');
+  assert.ok([...re.dates].every(d => d >= '2026-10-04' && d <= '2026-10-08'));
+});
+
+test('يوم واحد: تنبيه (لا منع) لو ليس يوم دراسة، ورفض تاريخ بعد اليوم', () => {
+  const { app, reg } = periodApp();
+  app.batchSetPeriod('single');
+  runInAppContext(app, 'batchOne = "2026-09-23";');
+  app.batchRefreshPeriod();
+  assert.match(reg.btSum.innerHTML, /ليس يوم دراسة \(اليوم الوطني\)/);
+  runInAppContext(app, 'batchOne = "2026-10-29";');
+  app.batchRefreshPeriod();
+  assert.match(reg.btSum.innerHTML, /bt-sum bad/);
+  assert.deepEqual({ ...runInAppContext(app, 'batchPeriodInfo()') }.ok, false);
+});
+
+test('الفترة بلا تقويم: لا أزرار فصول، ويتجنّب الجمعة والسبت فقط مع تلميح مناسب', () => {
+  const { app, reg } = periodApp();
+  runInAppContext(app, 'batchCal = null; calendarRegion = null;');
+  app.renderBatchPeriod();
+  assert.doesNotMatch(reg.btPeriod.innerHTML, /الفصل الأول/);
+  assert.match(reg.btPeriod.innerHTML, /فترة أخرى/);
+  assert.match(reg.btHint.textContent, /حدّد نطاق التقويم/);
+  const info = runInAppContext(app, 'batchPeriodInfo()');
+  assert.equal(info.ok, true);
+  assert.ok([...info.days].every(d => ![5, 6].includes(app.weekdayOfIso(d))));
 });
 
 test('تجهيز الدفعة — التوزيع يمرّ عبر التقويم الرسمي مع رجوع آمن عند غيابه', () => {
   const src = read('app/app-33-shahid-batch.js');
-  assert.ok(/batchCalendarDays\(cal\.weeks, cal\.holidays, from, to\)/.test(src), 'يُستخرج أيام الدراسة من التقويم عند الإنشاء');
-  assert.ok(/batchSpreadDates\(items\.length, from, to, \{ days \}\)/.test(src));
-  assert.ok(/calFallback = true;/.test(src), 'رجوع للجمعة والسبت عند غياب التقويم');
-  assert.ok(/!days\.length\)\{ showToast/.test(src), 'فترة كلها إجازة تُرفض برسالة واضحة');
-  assert.ok(/batchDefaultFrom\(cal\.weeks, cal\.holidays, localIsoDate\(\)\)/.test(src), 'بداية الفترة من التقويم');
+  assert.ok(/batchCalendarDays\(batchCal\.weeks, batchCal\.holidays, from, to\)/.test(src), 'يُستخرج أيام الدراسة من التقويم');
+  assert.ok(/batchSpreadDates\(items\.length, info\.from, info\.to, \{ days: info\.days \}\)/.test(src), 'الإنشاء يوزّع على أيام الدراسة');
+  assert.ok(/calFallback = !batchCal;/.test(src), 'رجوع للجمعة والسبت عند غياب التقويم');
+  assert.ok(/لا توجد أيام دراسة ضمن هذه الفترة/.test(src), 'فترة كلها إجازة تُرفض برسالة واضحة');
+  assert.ok(/p\.from === info\.from && p\.to === info\.to && p\.count === items\.length/.test(src), 'يُعتمد التوزيع الذي رآه المعلم بالمعاينة');
   assert.ok(/seq !== batchViewSeq/.test(src.slice(src.indexOf('async function batchPrepareCalendar'))), 'حارس سباق بعد تحميل التقويم');
 });
 
