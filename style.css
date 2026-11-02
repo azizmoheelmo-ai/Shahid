@@ -2581,23 +2581,3 @@ button.bt-cell{cursor:pointer;}
 .bt-foot{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;}
 
 @media(max-width:520px){.bt-grid2{grid-template-columns:1fr;}.bt-entry{padding:12px 14px 0;}.bt-doneCard{flex-wrap:wrap;}}
-
-/* ===== رحلة شاهد جديد (تجربة) ===== */
-.journey-overlay{position:fixed;inset:0;background:rgba(16,30,43,.6);z-index:9997;display:flex;align-items:flex-end;justify-content:center;}
-.journey-box{background:#fff;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;padding:18px 18px 22px;border-radius:14px 14px 0 0;}
-.journey-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
-.journey-dots{display:flex;gap:6px;}
-.journey-dot{width:22px;height:5px;border-radius:3px;background:#E2DED3;}
-.journey-dot.on{background:#A8842F;} .journey-dot.done{background:#1B3248;}
-.journey-close{background:none;border:0;font-size:26px;line-height:1;color:#6b6b6b;cursor:pointer;padding:0 6px;}
-.journey-box h2{font-size:17px;margin:4px 0 14px;color:#1B3248;}
-.journey-list{display:flex;flex-direction:column;gap:8px;}
-.journey-card{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:right;font:inherit;font-size:14.5px;padding:13px 14px;border:1px solid #D9D3C3;background:#FAF8F2;color:#1B3248;cursor:pointer;border-radius:10px;}
-.journey-card.own{border-style:dashed;}
-.journey-card.off{opacity:.5;cursor:not-allowed;} .journey-card small{font-size:11px;color:#8a8a8a;}
-.journey-hint{font-size:12.5px;color:#6b6b6b;margin:0 0 8px;}
-.journey-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
-.journey-chip{font-size:12px;background:#EFEBDD;padding:4px 9px;border-radius:12px;color:#1B3248;}
-#journeyLesson{width:100%;box-sizing:border-box;font:inherit;font-size:16px;padding:12px;border:1px solid #D9D3C3;margin-bottom:12px;}
-.journey-next{width:100%;}
-.journey-back{margin-top:12px;background:none;border:0;color:#6b6b6b;font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;}
