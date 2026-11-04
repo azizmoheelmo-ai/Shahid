@@ -23,6 +23,7 @@ function makeFakeSupabase(seedByTable){
     let limitN = null;
     let orderBy = null;
     let selectOpts = null;
+    let rangeArgs = null;
     const matchingRows = () => (seedByTable[table] || []).filter(r => filters.every(([c, v]) => r[c] === v));
     const rowsFor = () => {
       let rows = matchingRows();
@@ -35,6 +36,7 @@ function makeFakeSupabase(seedByTable){
         });
       }
       if(limitN != null) rows = rows.slice(0, limitN);
+      if(rangeArgs) rows = rows.slice(rangeArgs[0], rangeArgs[1] + 1);
       return rows;
     };
     const api = {
@@ -42,6 +44,7 @@ function makeFakeSupabase(seedByTable){
       eq(col, val){ filters.push([col, val]); return api; },
       order(col, opts){ orderBy = { col, ascending: !opts || opts.ascending !== false }; return api; },
       limit(n){ limitN = n; return api; },
+      range(from, to){ rangeArgs = [from, to]; return api; },
       maybeSingle: async () => {
         const rows = rowsFor();
         return { data: rows[0] || null, error: null };
@@ -414,6 +417,151 @@ describe('أدوات إدارة الصف — عزل بيانات كل معلم �
     assert.equal(activeOnly.total_count, 1);
     assert.equal(activeOnly.items[0].student_name, 'أحمد');
 
+    await client.close(); await server.close();
+  });
+});
+
+describe('المرحلة 1: أدوات الدرجات والحضور والواجبات... — قراءة فقط، معزولة لكل معلم', () => {
+  async function connectedClient(userId, supabase){
+    const server = buildServer(userId, supabase);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return { client, server };
+  }
+  const call = async (client, name, args) => JSON.parse((await client.callTool({ name, arguments: args || {} })).content[0].text);
+
+  /* بيانات معلمين: u1 (صاحب الرمز) وu2 (غريب) — كل جدول فيه صفوف للاثنين */
+  const seed = () => ({
+    classroom_grade_levels: [{ id: 'gl1', teacher_id: 'u1', name: 'الأول المتوسط' }, { id: 'gl2', teacher_id: 'u2', name: 'غريب' }],
+    classroom_sections: [{ id: 's1', teacher_id: 'u1', grade_level_id: 'gl1', name: '1' }, { id: 's2', teacher_id: 'u2', grade_level_id: 'gl2', name: '9' }],
+    classroom_students: [
+      { id: 'st1', teacher_id: 'u1', full_name: 'أحمد', section_id: 's1', is_active: true },
+      { id: 'st2', teacher_id: 'u1', full_name: 'خالد', section_id: 's1', is_active: true },
+      { id: 'st9', teacher_id: 'u2', full_name: 'طالب غريب', section_id: 's2', is_active: true },
+    ],
+    classroom_grade_columns: [
+      { id: 'c1', teacher_id: 'u1', section_id: 's1', semester: '1', name: 'اختبار 1', category: 'exam', max_score: 20, position: 1 },
+      { id: 'c9', teacher_id: 'u2', section_id: 's2', semester: '1', name: 'عمود غريب', category: 'exam', max_score: 50, position: 1 },
+    ],
+    classroom_grade_scores: [
+      { id: 'g1', teacher_id: 'u1', column_id: 'c1', student_id: 'st1', score: 18 },
+      { id: 'g2', teacher_id: 'u1', column_id: 'c1', student_id: 'st2', score: 10 },
+      { id: 'g9', teacher_id: 'u2', column_id: 'c9', student_id: 'st9', score: 45 },
+    ],
+    classroom_grade_period_scores: [],
+    classroom_lessons: [
+      { id: 'l1', teacher_id: 'u1', section_id: 's1', lesson_date: '2026-09-01', period: 1 },
+      { id: 'l2', teacher_id: 'u1', section_id: 's1', lesson_date: '2026-09-10', period: 2 },
+      { id: 'l9', teacher_id: 'u2', section_id: 's2', lesson_date: '2026-09-01', period: 1 },
+    ],
+    classroom_attendance: [
+      { id: 'a1', teacher_id: 'u1', lesson_id: 'l1', student_id: 'st1', status: 'absent' },
+      { id: 'a2', teacher_id: 'u1', lesson_id: 'l2', student_id: 'st1', status: 'late' },
+      { id: 'a3', teacher_id: 'u1', lesson_id: 'l1', student_id: 'st2', status: 'absent' },
+      { id: 'a9', teacher_id: 'u2', lesson_id: 'l9', student_id: 'st9', status: 'absent' },
+    ],
+    classroom_homework: [{ id: 'h1', teacher_id: 'u1', section_id: 's1', semester: '1', title: 'واجب 1', due_date: '2026-09-05' }, { id: 'h9', teacher_id: 'u2', section_id: 's2', semester: '1', title: 'واجب غريب', due_date: '2026-09-05' }],
+    classroom_homework_status: [{ id: 'hs1', teacher_id: 'u1', homework_id: 'h1', student_id: 'st1', status: 'submitted' }, { id: 'hs9', teacher_id: 'u2', homework_id: 'h9', student_id: 'st9', status: 'late' }],
+    classroom_tasks: [{ id: 't1', teacher_id: 'u1', section_id: 's1', semester: '1', title: 'مهمة 1', max_score: 10 }, { id: 't9', teacher_id: 'u2', section_id: 's2', semester: '1', title: 'مهمة غريبة', max_score: 10 }],
+    classroom_task_students: [{ id: 'ts1', teacher_id: 'u1', task_id: 't1', student_id: 'st1', score: 9 }, { id: 'ts9', teacher_id: 'u2', task_id: 't9', student_id: 'st9', score: 3 }],
+    classroom_custom_tools: [{ id: 'tl1', teacher_id: 'u1', name: 'مشاركة' }, { id: 'tl9', teacher_id: 'u2', name: 'أداة غريبة' }],
+    classroom_tool_marks: [{ id: 'm1', teacher_id: 'u1', tool_id: 'tl1', student_id: 'st1', section_id: 's1', mark_date: '2026-09-02', value: 1 }, { id: 'm9', teacher_id: 'u2', tool_id: 'tl9', student_id: 'st9', section_id: 's2', mark_date: '2026-09-02', value: 1 }],
+    classroom_followups: [{ id: 'f1', teacher_id: 'u1', student_id: 'st1', section_id: 's1', reason_type: 'absence', status: 'open' }, { id: 'f9', teacher_id: 'u2', student_id: 'st9', section_id: 's2', reason_type: 'absence', status: 'open' }],
+    classroom_followup_actions: [{ id: 'fa1', teacher_id: 'u1', followup_id: 'f1', action_type: 'call', note: 'اتصال' }, { id: 'fa9', teacher_id: 'u2', followup_id: 'f9', action_type: 'call', note: 'سرّي غريب' }],
+    classroom_positive_notes: [{ id: 'pn1', teacher_id: 'u1', student_id: 'st1', note_date: '2026-09-03', note_text: 'متميز' }, { id: 'pn9', teacher_id: 'u2', student_id: 'st9', note_date: '2026-09-03', note_text: 'غريب' }],
+    classroom_private_notes: [{ id: 'pv1', teacher_id: 'u1', student_id: 'st1', body: 'سرّي لي' }, { id: 'pv9', teacher_id: 'u2', student_id: 'st9', body: 'سرّي غريب' }],
+    classroom_timetable_slots: [{ id: 'sl1', teacher_id: 'u1', section_id: 's1', weekday: 1, period: 1 }, { id: 'sl9', teacher_id: 'u2', section_id: 's2', weekday: 2, period: 2 }],
+    activity_programs: [{ id: 'p1', user_id: 'u1', name: 'برنامجي' }, { id: 'p9', user_id: 'u2', name: 'برنامج غريب' }],
+    lesson_plans: [{ id: 'lp1', user_id: 'u1', title: 'خطتي', status: 'planned' }, { id: 'lp9', user_id: 'u2', title: 'خطة غريبة', status: 'planned' }],
+    tasks: [{ id: 'tk1', user_id: 'u1', title: 'مهمتي', done: false }, { id: 'tk9', user_id: 'u2', title: 'مهمة غريبة', done: false }],
+    shawahid: [{ id: 'sh1', user_id: 'u1' }, { id: 'sh9', user_id: 'u2' }],
+  });
+  const leaked = obj => /غريب|st9/.test(JSON.stringify(obj));
+
+  test('كل أداة جديدة لا تسرّب أي صف لمعلم آخر (عزل صريح بـteacher_id/user_id)', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()));
+    const calls = [
+      ['get_my_overview'], ['list_my_sections'], ['list_my_grades', { include_scores: true }], ['list_my_attendance'], ['list_my_homework'],
+      ['list_my_class_tasks'], ['list_my_tool_marks'], ['list_my_followups'], ['list_my_notes', { include_private: true }],
+      ['get_my_timetable'], ['list_my_programs'], ['list_my_lesson_plans'], ['list_my_personal_tasks'],
+    ];
+    for(const [name, args] of calls){
+      const data = await call(client, name, args);
+      assert.equal(data.error, undefined, name + ' يجب ألا يفشل: ' + JSON.stringify(data));
+      assert.equal(leaked(data), false, name + ' سرّب بيانات معلم آخر: ' + JSON.stringify(data));
+    }
+    await client.close(); await server.close();
+  });
+
+  test('get_my_overview يعدّ صفوف صاحب الرمز فقط', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()));
+    const d = await call(client, 'get_my_overview');
+    assert.equal(d.students, 2); assert.equal(d.attendance_records, 3); assert.equal(d.grade_columns, 1);
+    assert.equal(d.shawahid, 1); assert.equal(d.personal_tasks, 1);
+    await client.close(); await server.close();
+  });
+
+  test('list_my_grades: درجات الطلاب بأسمائهم + المتوسط + المجاميع الخام', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()));
+    const d = await call(client, 'list_my_grades', { section_id: 's1' });
+    assert.equal(d.total_columns, 1);
+    assert.equal(d.columns[0].average, 14);
+    assert.deepEqual(d.columns[0].scores.map(x => [x.student, x.score]).sort(), [['أحمد', 18], ['خالد', 10]]);
+    assert.deepEqual(d.student_raw_totals.map(x => [x.student, x.raw_sum, x.raw_max]).sort(), [['أحمد', 18, 20], ['خالد', 10, 20]]);
+    const byName = await call(client, 'list_my_grades', { student_name: 'احمد' });
+    assert.equal(byName.columns[0].scores.length, 1, 'مطابقة الاسم تتجاهل الهمزة');
+    await client.close(); await server.close();
+  });
+
+  test('list_my_grades بلا section_id يرجع ملخصًا بلا درجات تفصيلية افتراضيًا', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()));
+    const d = await call(client, 'list_my_grades');
+    assert.equal(d.columns[0].scores, undefined);
+    assert.equal(d.student_raw_totals, undefined);
+    await client.close(); await server.close();
+  });
+
+  test('list_my_attendance: ملخص لكل طالب وفلتر التاريخ والحالة، وtotal_count لا يتأثر بـlimit', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()));
+    const all = await call(client, 'list_my_attendance', { limit: 1 });
+    assert.equal(all.total_records, 3);
+    assert.equal(all.returned_count, 1);
+    const ahmad = all.per_student_summary.find(x => x.student === 'أحمد');
+    assert.equal(ahmad.absent, 1); assert.equal(ahmad.late, 1);
+    const ranged = await call(client, 'list_my_attendance', { from_date: '2026-09-05' });
+    assert.equal(ranged.total_records, 1);
+    assert.equal(ranged.records[0].status, 'late');
+    const onlyAbs = await call(client, 'list_my_attendance', { status: 'absent' });
+    assert.equal(onlyAbs.total_records, 2);
+    await client.close(); await server.close();
+  });
+
+  test('list_my_notes: الملاحظات الخاصة لا تُعرض إلا بطلب صريح', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()));
+    const d = await call(client, 'list_my_notes');
+    assert.equal(d.private_notes, undefined);
+    assert.equal(d.positive_count, 1);
+    const withPriv = await call(client, 'list_my_notes', { include_private: true });
+    assert.equal(withPriv.private_notes.length, 1);
+    await client.close(); await server.close();
+  });
+
+  test('الجلب مُرقَّم: أكثر من 1000 صف لا تُقصّ بصمت', async () => {
+    const s = seed();
+    s.classroom_attendance = Array.from({ length: 2500 }, (_, i) => ({ id: 'x' + String(i).padStart(5, '0'), teacher_id: 'u1', lesson_id: 'l1', student_id: 'st1', status: 'absent' }));
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(s));
+    const d = await call(client, 'list_my_attendance');
+    assert.equal(d.total_records, 2500);
+    await client.close(); await server.close();
+  });
+
+  test('لا أداة كتابة: كل الأدوات المسجَّلة أسماؤها قراءة فقط', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()));
+    const { tools } = await client.listTools();
+    assert.ok(tools.length >= 20);
+    for(const t of tools) assert.match(t.name, /^(get|list)_/, 'أداة غير قراءة: ' + t.name);
     await client.close(); await server.close();
   });
 });

@@ -1109,7 +1109,7 @@ async function generateConnectorToken(){
       <div style="text-align:right;">
         <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">رابط الموصل الخاص بك</h3>
         <p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;">
-          ⚠ يظهر مرة واحدة فقط. من يملك الرابط يقرأ بيانات حسابك التالية، فلا ترسله لأحد. تستطيع إلغاءه في أي وقت من هذه الشاشة.
+          ⚠ يظهر مرة واحدة فقط. من يملك الرابط يقرأ بيانات حسابك التالية (أسماء الطلاب ودرجاتهم وحضورهم)، فلا ترسله لأحد. تستطيع إلغاءه في أي وقت من هذه الشاشة.
         </p>
         <div style="background:#F1EEE6;padding:10px;font-family:monospace;font-size:12px;word-break:break-all;user-select:all;margin-bottom:10px;direction:ltr;text-align:left;" id="connectorLinkBox">${escapeHtml(buildConnectorLink(raw))}</div>
         <button class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:12px;" onclick="copyConnectorLink()">📋 نسخ الرابط</button>
@@ -1117,7 +1117,9 @@ async function generateConnectorToken(){
           <b>ما الذي يقرؤه مساعدك؟</b>
           <ul style="margin:4px 0 0;padding-inline-start:18px;">
             <li>خطتك وشواهدك وتقييمك الذاتي</li>
-            <li>أسماء طلابك ومخالفاتهم السلوكية وحالاتهم الأكاديمية</li>
+            <li>أسماء طلابك ودرجاتهم وحضورهم وغيابهم وواجباتهم ومهامهم</li>
+            <li>مخالفاتهم السلوكية وحالاتهم الأكاديمية ومتابعاتهم وملاحظاتك عليهم (الملاحظات الخاصة لا تُقرأ إلا بطلب صريح)</li>
+            <li>جدولك ودروسك وبرامجك وخطط دروسك ومهامك</li>
           </ul>
           <div style="margin-top:4px;color:var(--muted);">قراءة فقط — لا يضيف ولا يعدّل ولا يحذف شيئًا.</div>
         </div>
