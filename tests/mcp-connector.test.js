@@ -12,7 +12,8 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
-const { hashToken, authenticate, buildServer } = require('../api/mcp.js');
+const mcp = require('../api/mcp.js');
+const { hashToken, authenticate, buildServer, tokenFrom } = mcp;
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 
@@ -158,6 +159,44 @@ describe('authenticate — يرفض أي شيء غير رمز صحيح وغير 
     const blocked = await authenticate(req, supabase);
     assert.equal(blocked.userId, null);
     assert.equal(blocked.reason, 'rate_limited');
+  });
+});
+
+describe('الرمز داخل الرابط (?key=) — لأن خانة "موصل مخصص" بتطبيقات المساعد تقبل عنوانًا فقط', () => {
+  const rawToken = 'shahid_pat_' + crypto.randomBytes(32).toString('base64url');
+  const seed = () => ({ personal_access_tokens: [{ id: 'tok-1', user_id: 'u1', token_hash: hashToken(rawToken), revoked_at: null, expires_at: null }] });
+
+  test('رمز صحيح بـ?key= بلا أي ترويسة → مقبول ويرجع user_id صاحبه', async () => {
+    const r = await authenticate({ headers: {}, url: '/api/mcp?key=' + rawToken }, makeFakeSupabase(seed()));
+    assert.equal(r.userId, 'u1');
+    assert.equal(r.reason, 'ok');
+  });
+  test('?key= مُلغى → يبقى مرفوضًا (الإلغاء فوري)', async () => {
+    const s = seed(); s.personal_access_tokens[0].revoked_at = '2026-01-01T00:00:00Z';
+    const r = await authenticate({ headers: {}, url: '/api/mcp?key=' + rawToken }, makeFakeSupabase(s));
+    assert.equal(r.userId, null);
+    assert.equal(r.reason, 'revoked_token');
+  });
+  test('?key= بشكل غير صحيح (ليس من رموزنا) → يُعامَل كرمز مفقود دون استعلام', () => {
+    assert.equal(tokenFrom({ headers: {}, url: '/api/mcp?key=abc' }), '');
+    assert.equal(tokenFrom({ headers: {}, url: '/api/mcp?key=msh_' + 'a'.repeat(43) }), '');
+    assert.equal(tokenFrom({ headers: {}, url: '/api/mcp' }), '');
+  });
+  test('الترويسة لها الأولوية على ?key=', () => {
+    assert.equal(tokenFrom({ headers: { authorization: 'Bearer HDR' }, url: '/api/mcp?key=' + rawToken }), 'HDR');
+  });
+  test('الترويسة القديمة ما زالت تعمل كما كانت', async () => {
+    const r = await authenticate({ headers: { authorization: 'Bearer ' + rawToken }, url: '/api/mcp' }, makeFakeSupabase(seed()));
+    assert.equal(r.userId, 'u1');
+  });
+  test('OPTIONS (preflight) → 204 مع ترويسات CORS، قبل أي فحص بيئة أو رمز', async () => {
+    const headers = {}; let status = null, ended = false;
+    const res = { setHeader(k, v){ headers[k] = v; }, end(){ ended = true; }, set statusCode(v){ status = v; }, get statusCode(){ return status; } };
+    await mcp({ method: 'OPTIONS', headers: {}, url: '/api/mcp' }, res);
+    assert.equal(status, 204);
+    assert.ok(ended);
+    assert.equal(headers['Access-Control-Allow-Origin'], '*');
+    assert.match(headers['Access-Control-Allow-Headers'], /authorization/);
   });
 });
 

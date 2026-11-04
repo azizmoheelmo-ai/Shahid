@@ -1061,10 +1061,37 @@ async function sha256Hex(text){
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/* الحد الأقصى للرموز الفعّالة معًا (نفس سقف موصل مصحح) — يحدّ ضرر تراكم
+   روابط منسية. فحص بالمتصفح فقط (الجدول يُدرَج منه مباشرة)، وهو حماية
+   من النسيان لا حاجز أمني. */
+const MAX_ACTIVE_CONNECTOR_TOKENS = 5;
+
+/* رابط الموصل الكامل الذي يلصقه المعلم بخانة "إضافة موصل مخصص" في المساعد
+   (الخانة تقبل عنوانًا فقط، فالرمز يُحمَل داخله كـ?key=) */
+function buildConnectorLink(rawToken){
+  return location.origin + '/api/mcp?key=' + rawToken;
+}
+
+function copyConnectorLink(){
+  const el = document.getElementById('connectorLinkBox');
+  const text = el ? el.textContent : '';
+  navigator.clipboard.writeText(text).then(() => showToast('تم نسخ الرابط', 'ok'), () => showToast('حدّد الرابط وانسخه بيدك', 'error'));
+}
+
 async function generateConnectorToken(){
   const btn = document.getElementById('genTokenBtn');
+  if(btn.disabled) return;
   btn.disabled = true;
   try{
+    const { data: existing, error: eList } = await sb.from('personal_access_tokens')
+      .select('revoked_at, expires_at')
+      .eq('user_id', currentUser.id);
+    if(eList) throw eList;
+    const activeCount = (existing || []).filter(t => !t.revoked_at && !(t.expires_at && new Date(t.expires_at).getTime() < Date.now())).length;
+    if(activeCount >= MAX_ACTIVE_CONNECTOR_TOKENS){
+      showToast(`وصلت الحد (${MAX_ACTIVE_CONNECTOR_TOKENS} روابط فعّالة). ألغِ رابطًا قديمًا ثم أعد المحاولة.`, 'error');
+      return;
+    }
     const raw = generateRandomToken();
     const hash = await sha256Hex(raw);
     const prefix = raw.slice(0, 18);
@@ -1080,16 +1107,30 @@ async function generateConnectorToken(){
     if(error) throw error;
     showInfoModal(`
       <div style="text-align:right;">
-        <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">رمزك الجديد</h3>
+        <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">رابط الموصل الخاص بك</h3>
         <p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;">
-          احفظه الآن — لن يظهر بصيغته الكاملة مرة أخرى. لو ضاع، ألغِه وولّد رمزًا جديدًا.
+          ⚠ يظهر مرة واحدة فقط. من يملك الرابط يقرأ بيانات حسابك التالية، فلا ترسله لأحد. تستطيع إلغاءه في أي وقت من هذه الشاشة.
         </p>
-        <div style="background:#F1EEE6;padding:10px;font-family:monospace;font-size:12px;word-break:break-all;user-select:all;margin-bottom:10px;">${escapeHtml(raw)}</div>
-        <button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="navigator.clipboard.writeText('${raw}').then(()=>showToast('تم النسخ','ok'))">نسخ الرمز</button>
+        <div style="background:#F1EEE6;padding:10px;font-family:monospace;font-size:12px;word-break:break-all;user-select:all;margin-bottom:10px;direction:ltr;text-align:left;" id="connectorLinkBox">${escapeHtml(buildConnectorLink(raw))}</div>
+        <button class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:12px;" onclick="copyConnectorLink()">📋 نسخ الرابط</button>
+        <div style="font-size:12px;line-height:1.9;color:#413D33;background:#FBF8F0;padding:10px;margin-bottom:10px;">
+          <b>ما الذي يقرؤه مساعدك؟</b>
+          <ul style="margin:4px 0 0;padding-inline-start:18px;">
+            <li>خطتك وشواهدك وتقييمك الذاتي</li>
+            <li>أسماء طلابك ومخالفاتهم السلوكية وحالاتهم الأكاديمية</li>
+          </ul>
+          <div style="margin-top:4px;color:var(--muted);">قراءة فقط — لا يضيف ولا يعدّل ولا يحذف شيئًا.</div>
+        </div>
+        <div style="font-size:12px;line-height:1.9;color:#413D33;">
+          <b>كيف تضيفه؟</b><br>
+          ١ افتح تطبيق المساعد ← الإعدادات ← الموصلات ← إضافة موصل مخصص.<br>
+          ٢ الصق الرابط في خانة عنوان الخادم، واترك خانات OAuth فارغة.<br>
+          ٣ جرّب بعدها: «اعرض لي خطتي وشواهدي في شاهد».
+        </div>
       </div>`, '420px');
     await loadConnectorTokens();
   } catch(err){
-    showToast('تعذّر إنشاء الرمز: ' + err.message, 'error');
+    showToast('تعذّر إنشاء الرابط: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
   }
