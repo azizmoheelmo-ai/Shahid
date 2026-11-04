@@ -1138,6 +1138,21 @@ const PDF_MARGIN_PT = 28;
    أو تُستخدم الصفحة الأولى الفارغة أصلًا في مستند jsPDF. */
 async function addPdfPage(pdf, area, html, state){
   area.innerHTML = html;
+  /* document.fonts.ready وحدها لا تضمن تحميل أوزان/نطاقات الخط العربي المستخدمة
+     فعليًا بهذه الصفحة؛ نطلبها صراحةً بنص عربي قبل الالتقاط، وإلا يقيس
+     html2canvas بخط بديل ويرسم بغيره فتتداخل الحروف. */
+  if(document.fonts && document.fonts.load){
+    try{
+      const sample = 'شاهد الأداء الوظيفي';
+      await Promise.all([
+        document.fonts.load("400 12px 'Cairo'", sample),
+        document.fonts.load("600 12px 'Cairo'", sample),
+        document.fonts.load("700 12px 'Cairo'", sample),
+        document.fonts.load("800 12px 'Cairo'", sample),
+        document.fonts.load("700 12px 'Amiri'", sample)
+      ]);
+    } catch(e){ /* تجاهل — لا يمنع التصدير */ }
+  }
   await new Promise(r => setTimeout(r, 100));
 
   const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
