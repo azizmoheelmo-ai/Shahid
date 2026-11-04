@@ -5,6 +5,10 @@
    السلوكية، حالات ضعفهم الأكاديمي)" لصاحب الرمز فقط. لا يضيف ولا يعدّل أي
    شيء بقاعدة البيانات — كل الأدوات هنا SELECT فقط.
 
+   النطاق: يغطي الموصل أيضًا (قراءة فقط) الدرجات والحضور والواجبات والمهام
+   الأدائية وأدوات التقويم والمتابعات والملاحظات والجدول والدروس والبرامج وخطط
+   الدروس والمهام الشخصية (المرحلة 1). التعديل غير مدعوم بالتصميم — قرار مؤجَّل.
+
    تنبيه: أدوات "إدارة الصف" (list_my_students وlist_my_incidents
    وlist_my_academic_cases) تعرض بيانات تخص طلابًا قاصرين لا صاحب الرمز
    نفسه فقط — أُضيفت بطلب صريح من المستخدم بعد تنبيهه على هذا الفرق تحديدًا.
@@ -144,8 +148,63 @@ function textResult(obj){
   return { content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] };
 }
 
+
+/* ============ مساعدات أدوات "إدارة الصف الشاملة" (المرحلة 1: قراءة فقط) ============
+   كل جلب هنا مقيّد صراحة بـ teacher_id/user_id صاحب الرمز (service role يتجاوز
+   RLS). الجلب مُرقَّم (1000 صف بالصفحة) لأن Supabase يقصّ أي استعلام بلا
+   range عند 1000 صف بصمت — وجداول الدرجات والحضور قد تتجاوزها. */
+async function fetchAll(supabase, table, cols, ownerCol, userId){
+  const out = [];
+  for(let off = 0; ; off += 1000){
+    const { data, error } = await supabase.from(table).select(cols)
+      .eq(ownerCol, userId)
+      .order('id', { ascending: true })
+      .range(off, off + 999);
+    if(error) throw new Error(error.message);
+    out.push(...data);
+    if(data.length < 1000 || out.length >= 50000) break;
+  }
+  return out;
+}
+
+/* يلفّ معالج الأداة: أي خطأ يرجع كـ{error} نصي بدل رمي استثناء */
+function safeTool(fn){
+  return async (args) => {
+    try{ return textResult(await fn(args || {})); }
+    catch(err){ return textResult({ error: err.message }); }
+  };
+}
+
+/* خريطتا الطلاب والشعب — لازمتان لتحويل المعرّفات إلى أسماء مقروءة */
+async function loadRoster(supabase, userId){
+  const [students, sections, levels] = await Promise.all([
+    fetchAll(supabase, 'classroom_students', 'id, full_name, student_number, section_id, is_active', 'teacher_id', userId),
+    fetchAll(supabase, 'classroom_sections', 'id, name, grade_level_id, academic_year', 'teacher_id', userId),
+    fetchAll(supabase, 'classroom_grade_levels', 'id, name', 'teacher_id', userId)
+  ]);
+  const levelName = new Map(levels.map(l => [l.id, l.name]));
+  const sectionById = new Map(sections.map(sec => [sec.id, {
+    id: sec.id,
+    label: [levelName.get(sec.grade_level_id), sec.name].filter(Boolean).join(' / ') || sec.name,
+    academic_year: sec.academic_year
+  }]));
+  const studentById = new Map(students.map(st => [st.id, st]));
+  return { students, sections, levels, sectionById, studentById };
+}
+const sectionLabel = (roster, id) => (roster.sectionById.get(id) || {}).label || null;
+const studentName = (roster, id) => (roster.studentById.get(id) || {}).full_name || null;
+
+/* تطبيع بسيط لمطابقة الأسماء: يتجاهل الهمزات والتشكيل وحالة الحروف */
+function normalizeAr(str){
+  return String(str || '').toLowerCase()
+    .replace(/[ً-ٰٟـ]/g, '')
+    .replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ').trim();
+}
+const nameMatches = (full, query) => !query || normalizeAr(full).includes(normalizeAr(query));
+
 function buildServer(userId, supabase){
-  const server = new McpServer({ name: 'shahid-connector', version: '1.0.0' });
+  const server = new McpServer({ name: 'shahid-connector', version: '1.1.0' });
 
   server.registerTool('get_my_profile', {
     title: 'ملفي الشخصي',
@@ -350,6 +409,314 @@ function buildServer(userId, supabase){
 
     return textResult({ total_count: items.length, items });
   });
+
+  /* ============ المرحلة 1 (توسعة الموصل): قراءة شاملة لباقي إدارة الصف —
+     الدرجات، الحضور، الواجبات، المهام، المتابعات، الملاحظات، الدروس، البرامج.
+     قراءة فقط. بيانات طلاب قاصرين: نفس التنبيه والانضباط (teacher_id صريح). ============ */
+
+  const SENSITIVE = ' بيانات حساسة تخص طلابًا قاصرين، تعامل معها بحساسية.';
+
+  server.registerTool('get_my_overview', {
+    title: 'نظرة شاملة على بياناتي',
+    description: 'ابدأ بهذه الأداة: أعداد كل ما يملكه هذا المعلم (طلاب، شعب، أعمدة درجات، دروس، سجلات حضور، واجبات، مهام، متابعات، برامج، شواهد، خطط دروس) لتعرف أي أداة تستدعي بعدها. لصاحب هذا الرمز فقط.'
+  }, safeTool(async () => {
+    const count = async (table, col) => {
+      const { count: c, error } = await supabase.from(table).select('*', { count: 'exact', head: true }).eq(col, userId);
+      if(error) throw new Error(error.message);
+      return c;
+    };
+    const [students, sections, grade_columns, lessons, attendance_records, homework, class_tasks, followups, programs, shawahid, lesson_plans, personal_tasks] = await Promise.all([
+      count('classroom_students', 'teacher_id'), count('classroom_sections', 'teacher_id'),
+      count('classroom_grade_columns', 'teacher_id'), count('classroom_lessons', 'teacher_id'),
+      count('classroom_attendance', 'teacher_id'), count('classroom_homework', 'teacher_id'),
+      count('classroom_tasks', 'teacher_id'), count('classroom_followups', 'teacher_id'),
+      count('activity_programs', 'user_id'), count('shawahid', 'user_id'),
+      count('lesson_plans', 'user_id'), count('tasks', 'user_id')
+    ]);
+    return { students, sections, grade_columns, lessons, attendance_records, homework, class_tasks, followups, programs, shawahid, lesson_plans, personal_tasks };
+  }));
+
+  server.registerTool('list_my_sections', {
+    title: 'شعبي وصفوفي',
+    description: 'يعرض الصفوف والشعب مع عدد الطلاب النشطين في كل شعبة. استعمل section_id من هنا لفلترة أدوات الدرجات والحضور والواجبات والمهام.',
+  }, safeTool(async () => {
+    const roster = await loadRoster(supabase, userId);
+    return {
+      total_count: roster.sections.length,
+      sections: roster.sections.map(sec => ({
+        section_id: sec.id,
+        label: sectionLabel(roster, sec.id),
+        academic_year: sec.academic_year,
+        active_students: roster.students.filter(st => st.section_id === sec.id && st.is_active).length
+      }))
+    };
+  }));
+
+  server.registerTool('list_my_grades', {
+    title: 'درجات طلابي',
+    description: 'يعرض أعمدة الدرجات (اختبارات، مشاركة، واجبات...) مع إحصاءات كل عمود، ودرجات كل طالب إن مُرِّر section_id أو include_scores=true. يتضمن raw_sum/raw_max لكل طالب: مجموع درجاته الخام ومجموع الدرجات العظمى للأعمدة التي لها درجة عنده — ليست الدرجة النهائية الموزونة بالتطبيق، لا تعتمد عليها كنتيجة رسمية.' + SENSITIVE,
+    inputSchema: {
+      section_id: z.string().optional().describe('معرّف الشعبة من list_my_sections (اختياري)'),
+      semester: z.string().optional().describe('الفصل الدراسي (اختياري)'),
+      academic_year: z.string().optional().describe('العام الدراسي (اختياري)'),
+      student_name: z.string().optional().describe('فلترة بالاسم أو جزء منه (اختياري)'),
+      include_scores: z.boolean().optional().describe('إدراج درجات كل طالب بالتفصيل — افتراضيًا true فقط عند تحديد section_id أو student_name')
+    }
+  }, safeTool(async ({ section_id, semester, academic_year, student_name, include_scores }) => {
+    const roster = await loadRoster(supabase, userId);
+    let columns = await fetchAll(supabase, 'classroom_grade_columns', 'id, section_id, academic_year, semester, category, name, max_score, kind, counted_periods, position', 'teacher_id', userId);
+    if(section_id) columns = columns.filter(c => c.section_id === section_id);
+    if(semester) columns = columns.filter(c => String(c.semester) === String(semester));
+    if(academic_year) columns = columns.filter(c => c.academic_year === academic_year);
+    columns.sort((a, b) => (a.position || 0) - (b.position || 0));
+    const colIds = new Set(columns.map(c => c.id));
+    const detail = include_scores != null ? include_scores : !!(section_id || student_name);
+
+    const scores = (await fetchAll(supabase, 'classroom_grade_scores', 'id, column_id, student_id, score', 'teacher_id', userId)).filter(r => colIds.has(r.column_id));
+    const periodScores = detail ? (await fetchAll(supabase, 'classroom_grade_period_scores', 'id, column_id, student_id, period, score', 'teacher_id', userId)).filter(r => colIds.has(r.column_id)) : [];
+
+    const byCol = new Map();
+    scores.forEach(r => { if(!byCol.has(r.column_id)) byCol.set(r.column_id, []); byCol.get(r.column_id).push(r); });
+
+    const colOut = columns.map(c => {
+      const rows = (byCol.get(c.id) || []).filter(r => r.score != null);
+      const nums = rows.map(r => Number(r.score));
+      const item = {
+        name: c.name, category: c.category, kind: c.kind, semester: c.semester, academic_year: c.academic_year,
+        section: sectionLabel(roster, c.section_id), max_score: c.max_score,
+        scored_count: nums.length,
+        average: nums.length ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100 : null
+      };
+      if(detail){
+        item.scores = (byCol.get(c.id) || [])
+          .filter(r => nameMatches(studentName(roster, r.student_id), student_name))
+          .map(r => ({ student: studentName(roster, r.student_id), score: r.score }));
+        const ps = periodScores.filter(r => r.column_id === c.id && nameMatches(studentName(roster, r.student_id), student_name));
+        if(ps.length) item.period_scores = ps.map(r => ({ student: studentName(roster, r.student_id), period: r.period, score: r.score }));
+      }
+      return item;
+    });
+
+    const result = { total_columns: colOut.length, columns: colOut };
+    if(detail){
+      const totals = new Map();
+      for(const c of columns){
+        for(const r of (byCol.get(c.id) || [])){
+          if(r.score == null || !nameMatches(studentName(roster, r.student_id), student_name)) continue;
+          const t = totals.get(r.student_id) || { student: studentName(roster, r.student_id), raw_sum: 0, raw_max: 0 };
+          t.raw_sum += Number(r.score); t.raw_max += Number(c.max_score || 0);
+          totals.set(r.student_id, t);
+        }
+      }
+      result.student_raw_totals = Array.from(totals.values());
+    }
+    return result;
+  }));
+
+  server.registerTool('list_my_attendance', {
+    title: 'الحضور والغياب',
+    description: 'يعرض سجلات الغياب/التأخر/الاستئذان المسجّلة، وملخصًا لكل طالب. الطالب الذي لا سجل له في حصة يُعدّ حاضرًا (التطبيق يخزّن غير الحاضر فقط). total_records هو العدد الفعلي بعد الفلترة قبل قصّ limit.' + SENSITIVE,
+    inputSchema: {
+      section_id: z.string().optional().describe('معرّف الشعبة (اختياري)'),
+      from_date: z.string().optional().describe('من تاريخ YYYY-MM-DD (اختياري)'),
+      to_date: z.string().optional().describe('إلى تاريخ YYYY-MM-DD (اختياري)'),
+      student_name: z.string().optional().describe('اسم الطالب أو جزء منه (اختياري)'),
+      status: z.string().optional().describe('absent | late | permitted_exit (اختياري)'),
+      limit: z.number().int().min(1).max(200).optional().describe('الحد الأقصى للسجلات التفصيلية، افتراضيًا 50 — لا يؤثر على الملخص')
+    }
+  }, safeTool(async ({ section_id, from_date, to_date, student_name, status, limit }) => {
+    const roster = await loadRoster(supabase, userId);
+    let lessons = await fetchAll(supabase, 'classroom_lessons', 'id, section_id, lesson_date, period', 'teacher_id', userId);
+    if(section_id) lessons = lessons.filter(l => l.section_id === section_id);
+    if(from_date) lessons = lessons.filter(l => l.lesson_date >= from_date);
+    if(to_date) lessons = lessons.filter(l => l.lesson_date <= to_date);
+    const lessonById = new Map(lessons.map(l => [l.id, l]));
+
+    let rows = (await fetchAll(supabase, 'classroom_attendance', 'id, lesson_id, student_id, status', 'teacher_id', userId)).filter(r => lessonById.has(r.lesson_id));
+    if(status) rows = rows.filter(r => r.status === status);
+    rows = rows.filter(r => nameMatches(studentName(roster, r.student_id), student_name));
+
+    const perStudent = new Map();
+    rows.forEach(r => {
+      const t = perStudent.get(r.student_id) || { student: studentName(roster, r.student_id), absent: 0, late: 0, permitted_exit: 0, other: 0 };
+      if(['absent', 'late', 'permitted_exit'].includes(r.status)) t[r.status]++; else t.other++;
+      perStudent.set(r.student_id, t);
+    });
+
+    const detailed = rows.map(r => {
+      const l = lessonById.get(r.lesson_id);
+      return { date: l.lesson_date, period: l.period, section: sectionLabel(roster, l.section_id), student: studentName(roster, r.student_id), status: r.status };
+    }).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+    return {
+      lessons_in_range: lessons.length,
+      total_records: rows.length,
+      returned_count: Math.min(detailed.length, limit || 50),
+      per_student_summary: Array.from(perStudent.values()).sort((a, b) => b.absent - a.absent),
+      records: detailed.slice(0, limit || 50)
+    };
+  }));
+
+  server.registerTool('list_my_homework', {
+    title: 'الواجبات وتسليمها',
+    description: 'يعرض واجبات المعلم مع حالة تسليم كل طالب (submitted/partial/late أو لا سجل = لم يُسلَّم) وملخصًا لكل واجب.' + SENSITIVE,
+    inputSchema: {
+      section_id: z.string().optional().describe('معرّف الشعبة (اختياري)'),
+      semester: z.string().optional().describe('الفصل (اختياري)')
+    }
+  }, safeTool(async ({ section_id, semester }) => {
+    const roster = await loadRoster(supabase, userId);
+    let hw = await fetchAll(supabase, 'classroom_homework', 'id, section_id, academic_year, semester, title, due_date', 'teacher_id', userId);
+    if(section_id) hw = hw.filter(h => h.section_id === section_id);
+    if(semester) hw = hw.filter(h => String(h.semester) === String(semester));
+    const ids = new Set(hw.map(h => h.id));
+    const statuses = (await fetchAll(supabase, 'classroom_homework_status', 'id, homework_id, student_id, status', 'teacher_id', userId)).filter(r => ids.has(r.homework_id));
+    const items = hw.sort((a, b) => (a.due_date < b.due_date ? 1 : -1)).map(h => {
+      const rows = statuses.filter(r => r.homework_id === h.id);
+      const summary = {};
+      rows.forEach(r => { summary[r.status] = (summary[r.status] || 0) + 1; });
+      return { title: h.title, due_date: h.due_date, semester: h.semester, section: sectionLabel(roster, h.section_id), status_summary: summary, students: rows.map(r => ({ student: studentName(roster, r.student_id), status: r.status })) };
+    });
+    return { total_count: items.length, items };
+  }));
+
+  server.registerTool('list_my_class_tasks', {
+    title: 'المهام الأدائية للطلاب',
+    description: 'يعرض المهام الأدائية الصفية (classroom_tasks) مع درجة كل طالب فيها. ليست المهام الشخصية للمعلم (تلك list_my_personal_tasks).' + SENSITIVE,
+    inputSchema: { section_id: z.string().optional().describe('معرّف الشعبة (اختياري)'), semester: z.string().optional().describe('الفصل (اختياري)') }
+  }, safeTool(async ({ section_id, semester }) => {
+    const roster = await loadRoster(supabase, userId);
+    let tasks = await fetchAll(supabase, 'classroom_tasks', 'id, section_id, academic_year, semester, title, description, max_score, due_date', 'teacher_id', userId);
+    if(section_id) tasks = tasks.filter(t => t.section_id === section_id);
+    if(semester) tasks = tasks.filter(t => String(t.semester) === String(semester));
+    const ids = new Set(tasks.map(t => t.id));
+    const scores = (await fetchAll(supabase, 'classroom_task_students', 'id, task_id, student_id, score, group_no', 'teacher_id', userId)).filter(r => ids.has(r.task_id));
+    return {
+      total_count: tasks.length,
+      items: tasks.map(t => ({
+        title: t.title, description: t.description, max_score: t.max_score, due_date: t.due_date, semester: t.semester, section: sectionLabel(roster, t.section_id),
+        students: scores.filter(r => r.task_id === t.id).map(r => ({ student: studentName(roster, r.student_id), score: r.score, group_no: r.group_no }))
+      }))
+    };
+  }));
+
+  server.registerTool('list_my_tool_marks', {
+    title: 'أدوات التقويم والمشاركة',
+    description: 'يعرض أدوات التقويم المخصصة (مشاركة، سلوك...) وعلاماتها لكل طالب بالتاريخ والحصة.' + SENSITIVE,
+    inputSchema: {
+      section_id: z.string().optional().describe('معرّف الشعبة (اختياري)'),
+      student_name: z.string().optional().describe('اسم الطالب أو جزء منه (اختياري)'),
+      limit: z.number().int().min(1).max(200).optional().describe('الحد الأقصى للعلامات التفصيلية، افتراضيًا 50')
+    }
+  }, safeTool(async ({ section_id, student_name, limit }) => {
+    const roster = await loadRoster(supabase, userId);
+    const tools = await fetchAll(supabase, 'classroom_custom_tools', 'id, name, tool_type, category, max_score, hidden', 'teacher_id', userId);
+    const toolById = new Map(tools.map(t => [t.id, t]));
+    let marks = await fetchAll(supabase, 'classroom_tool_marks', 'id, tool_id, student_id, section_id, semester, mark_date, period, value', 'teacher_id', userId);
+    if(section_id) marks = marks.filter(m => m.section_id === section_id);
+    marks = marks.filter(m => nameMatches(studentName(roster, m.student_id), student_name));
+    marks.sort((a, b) => (a.mark_date < b.mark_date ? 1 : a.mark_date > b.mark_date ? -1 : 0));
+    return {
+      tools: tools.map(t => ({ name: t.name, tool_type: t.tool_type, category: t.category, max_score: t.max_score, hidden: t.hidden })),
+      total_marks: marks.length,
+      returned_count: Math.min(marks.length, limit || 50),
+      marks: marks.slice(0, limit || 50).map(m => ({ tool: (toolById.get(m.tool_id) || {}).name || null, student: studentName(roster, m.student_id), date: m.mark_date, period: m.period, value: m.value, section: sectionLabel(roster, m.section_id) }))
+    };
+  }));
+
+  server.registerTool('list_my_followups', {
+    title: 'المتابعات وإجراءاتها',
+    description: 'يعرض متابعات الطلاب (غياب، تأخر، سلوك، درجات...) مع حالتها ونتيجتها والإجراءات المتخذة لكل متابعة.' + SENSITIVE,
+    inputSchema: {
+      status: z.string().optional().describe('فلترة بالحالة (اختياري)'),
+      student_name: z.string().optional().describe('اسم الطالب أو جزء منه (اختياري)')
+    }
+  }, safeTool(async ({ status, student_name }) => {
+    const roster = await loadRoster(supabase, userId);
+    let fu = await fetchAll(supabase, 'classroom_followups', 'id, student_id, section_id, reason_type, reason_text, baseline, review_date, status, outcome, result, next_step, closed_at, created_at', 'teacher_id', userId);
+    if(status) fu = fu.filter(f => f.status === status);
+    fu = fu.filter(f => nameMatches(studentName(roster, f.student_id), student_name));
+    const ids = new Set(fu.map(f => f.id));
+    const actions = (await fetchAll(supabase, 'classroom_followup_actions', 'id, followup_id, action_type, note, action_date', 'teacher_id', userId)).filter(a => ids.has(a.followup_id));
+    return {
+      total_count: fu.length,
+      items: fu.map(f => ({
+        student: studentName(roster, f.student_id), section: sectionLabel(roster, f.section_id), reason_type: f.reason_type, reason_text: f.reason_text,
+        baseline: f.baseline, review_date: f.review_date, status: f.status, outcome: f.outcome, result: f.result, next_step: f.next_step, created_at: f.created_at, closed_at: f.closed_at,
+        actions: actions.filter(a => a.followup_id === f.id).map(a => ({ action_type: a.action_type, note: a.note, action_date: a.action_date }))
+      }))
+    };
+  }));
+
+  server.registerTool('list_my_notes', {
+    title: 'ملاحظات الطلاب',
+    description: 'يعرض الملاحظات الإيجابية على الطلاب. الملاحظات الخاصة (سرّية للمعلم) لا تُعرض إلا إن مُرِّر include_private=true صراحةً.' + SENSITIVE,
+    inputSchema: {
+      student_name: z.string().optional().describe('اسم الطالب أو جزء منه (اختياري)'),
+      include_private: z.boolean().optional().describe('إدراج الملاحظات الخاصة — افتراضيًا false')
+    }
+  }, safeTool(async ({ student_name, include_private }) => {
+    const roster = await loadRoster(supabase, userId);
+    const positive = (await fetchAll(supabase, 'classroom_positive_notes', 'id, student_id, section_id, note_date, note_text', 'teacher_id', userId))
+      .filter(n => nameMatches(studentName(roster, n.student_id), student_name))
+      .sort((a, b) => (a.note_date < b.note_date ? 1 : -1))
+      .map(n => ({ student: studentName(roster, n.student_id), section: sectionLabel(roster, n.section_id), date: n.note_date, note: n.note_text }));
+    const out = { positive_count: positive.length, positive_notes: positive };
+    if(include_private){
+      const priv = (await fetchAll(supabase, 'classroom_private_notes', 'id, student_id, body, created_at', 'teacher_id', userId))
+        .filter(n => nameMatches(studentName(roster, n.student_id), student_name))
+        .map(n => ({ student: studentName(roster, n.student_id), created_at: n.created_at, note: n.body }));
+      out.private_count = priv.length; out.private_notes = priv;
+    }
+    return out;
+  }));
+
+  server.registerTool('get_my_timetable', {
+    title: 'جدولي الدراسي',
+    description: 'يعرض الجدول الأسبوعي (اليوم والحصة والشعبة) ودروس الأيام الأخيرة المسجَّلة.',
+    inputSchema: { lessons_limit: z.number().int().min(1).max(100).optional().describe('عدد الدروس المسجَّلة الأحدث، افتراضيًا 20') }
+  }, safeTool(async ({ lessons_limit }) => {
+    const roster = await loadRoster(supabase, userId);
+    const slots = await fetchAll(supabase, 'classroom_timetable_slots', 'id, section_id, academic_year, semester, weekday, period', 'teacher_id', userId);
+    const lessons = (await fetchAll(supabase, 'classroom_lessons', 'id, section_id, lesson_date, period', 'teacher_id', userId))
+      .sort((a, b) => (a.lesson_date < b.lesson_date ? 1 : a.lesson_date > b.lesson_date ? -1 : 0));
+    return {
+      weekly_slots: slots.map(s => ({ weekday: s.weekday, period: s.period, semester: s.semester, academic_year: s.academic_year, section: sectionLabel(roster, s.section_id) })),
+      lessons_total: lessons.length,
+      recent_lessons: lessons.slice(0, lessons_limit || 20).map(l => ({ date: l.lesson_date, period: l.period, section: sectionLabel(roster, l.section_id) }))
+    };
+  }));
+
+  server.registerTool('list_my_programs', {
+    title: 'برامج الأنشطة',
+    description: 'يعرض برامج الأنشطة (الاسم، عدد الجلسات والطلاب، عنصر الأداء المرتبط، سنة الدورة، جلسات البرنامج).',
+    inputSchema: { cycle_year: z.string().optional().describe('سنة الدورة (اختياري)') }
+  }, safeTool(async ({ cycle_year }) => {
+    let rows = await fetchAll(supabase, 'activity_programs', 'id, name, total_sessions, student_count, element_key, cycle_year, sessions, created_at', 'user_id', userId);
+    if(cycle_year) rows = rows.filter(r => r.cycle_year === cycle_year);
+    return { total_count: rows.length, items: rows.map(r => ({ name: r.name, total_sessions: r.total_sessions, student_count: r.student_count, element_key: r.element_key, cycle_year: r.cycle_year, sessions: r.sessions })) };
+  }));
+
+  server.registerTool('list_my_lesson_plans', {
+    title: 'خطط دروسي',
+    description: 'يعرض خطط الدروس (العنوان، الهدف، الخطوات، التاريخ المخطَّط، الحالة planned/done).',
+    inputSchema: { status: z.enum(['planned', 'done']).optional().describe('فلترة بالحالة (اختياري)') }
+  }, safeTool(async ({ status }) => {
+    let rows = await fetchAll(supabase, 'lesson_plans', 'id, element_key, template_name, title, description, goal, steps, planned_date, period, status', 'user_id', userId);
+    if(status) rows = rows.filter(r => r.status === status);
+    rows.sort((a, b) => (a.planned_date < b.planned_date ? 1 : -1));
+    return { total_count: rows.length, items: rows.map(r => ({ title: r.title, goal: r.goal, description: r.description, steps: r.steps, planned_date: r.planned_date, period: r.period, status: r.status, element_key: r.element_key })) };
+  }));
+
+  server.registerTool('list_my_personal_tasks', {
+    title: 'مهامي الشخصية',
+    description: 'يعرض مهام المعلم الشخصية (العنوان، الأولوية، تاريخ الاستحقاق، منجزة أم لا) — وليست المهام الأدائية للطلاب.',
+    inputSchema: { done: z.boolean().optional().describe('فلترة بالمنجز/غير المنجز (اختياري)') }
+  }, safeTool(async ({ done }) => {
+    let rows = await fetchAll(supabase, 'tasks', 'id, title, description, priority, due_date, done', 'user_id', userId);
+    if(done != null) rows = rows.filter(r => r.done === done);
+    return { total_count: rows.length, items: rows.map(r => ({ title: r.title, description: r.description, priority: r.priority, due_date: r.due_date, done: r.done })) };
+  }));
 
   return server;
 }
