@@ -1464,7 +1464,7 @@ function idSectionPdf(title, bodyHtml, extraStyle){
   </div>`;
 }
 function idBoxPdf(text){
-  return `<div style="font-size:11.5px;line-height:1.8;background:#F7F5F0;border:1px solid #D8D2C4;padding:8px 12px;white-space:pre-wrap;">${escapeHtml(text)}</div>`;
+  return `<div style="font-size:11.5px;line-height:1.8;background:#F7F5F0;border:1px solid #D8D2C4;padding:8px 12px;">${escapeHtml(text).replace(/\r?\n/g, '<br>')}</div>`;
 }
 function idMetaPdf(label, value, flex){
   return `<div style="flex:${flex || 1};padding:7px 12px;border-left:1px solid #D8D2C4;box-sizing:border-box;">
