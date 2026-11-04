@@ -61,6 +61,23 @@ function hashToken(raw){
   return crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
 }
 
+/* يستخلص الرمز من الطلب: ترويسة Authorization: Bearer أولًا، وإلا من
+   معامل ?key= بالرابط. السبب: خانة "إضافة موصل مخصص" بتطبيقات المساعد تقبل
+   عنوان URL فقط ولا تقبل ترويسة — فبدون ?key= لا يستطيع المعلم ربط الموصل
+   أصلًا (نفس نهج موصل مصحح). يقبل فقط رموزنا (shahid_pat_…) بالشكل
+   الصحيح، ولا يُسجَّل الرابط أبدًا (logMcpAccess لا يخزّن إلا IP والنتيجة). */
+const TOKEN_RE = /^shahid_pat_[A-Za-z0-9_-]{20,}$/;
+function tokenFrom(req){
+  const header = (req.headers && req.headers['authorization']) || '';
+  const m = /^Bearer\s+(.+)$/i.exec(header.trim());
+  const bearer = m ? m[1].trim() : '';
+  if(bearer) return bearer;
+  try{
+    const key = new URL(req.url || '', 'http://internal').searchParams.get('key') || '';
+    return TOKEN_RE.test(key) ? key : '';
+  } catch(e){ return ''; }
+}
+
 /* يتحقق من رمز الوصول ويرجع نتيجة مفصَّلة (لا user_id مجرَّد) — الحاجة
    لتمييز أسباب الرفض (مفقود/غير صالح/مُلغى/منتهي/تجاوز حد الاستخدام)
    مطلوبة لتسجيل audit_log بدقة، ولإرجاع رمز HTTP صحيح (429 لتجاوز الحد
@@ -68,10 +85,7 @@ function hashToken(raw){
    reason ∈ 'ok' | 'missing_token' | 'invalid_token' | 'revoked_token' |
             'expired_token' | 'rate_limited' | 'rate_limit_error' */
 async function authenticate(req, supabase){
-  const header = req.headers['authorization'] || '';
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if(!match) return { userId: null, reason: 'missing_token' };
-  const raw = match[1].trim();
+  const raw = tokenFrom(req);
   if(!raw) return { userId: null, reason: 'missing_token' };
 
   const { data, error } = await supabase
@@ -346,7 +360,22 @@ function jsonRpcError(res, status, message){
   res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }));
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, content-type, mcp-protocol-version, mcp-session-id',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
 async function handler(req, res){
+  /* CORS مفتوح مقبول: الدخول برمز (ترويسة أو ?key=) لا بكوكي، فلا يستفيد
+     موقع آخر من جلسة المعلم. نردّ على OPTIONS قبل أي فحص للبيئة/الرمز. */
+  Object.keys(CORS_HEADERS).forEach(k => res.setHeader(k, CORS_HEADERS[k]));
+  if(req.method === 'OPTIONS'){
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
   if(!SUPABASE_URL || !SERVICE_ROLE_KEY){
     jsonRpcError(res, 500, 'الخادم غير مُهيَّأ: أضف SUPABASE_URL وSUPABASE_SERVICE_ROLE_KEY بمتغيرات بيئة Vercel');
     return;
@@ -385,4 +414,5 @@ module.exports = handler;
    بحقن عميل Supabase وهمي، بلا أي اتصال شبكي حقيقي */
 module.exports.hashToken = hashToken;
 module.exports.authenticate = authenticate;
+module.exports.tokenFrom = tokenFrom;
 module.exports.buildServer = buildServer;
