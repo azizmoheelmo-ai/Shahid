@@ -24,7 +24,7 @@ function makeFakeSupabase(seedByTable){
     let orderBy = null;
     let selectOpts = null;
     let rangeArgs = null;
-    const matchingRows = () => (seedByTable[table] || []).filter(r => filters.every(([c, v]) => r[c] === v));
+    const matchingRows = () => (seedByTable[table] || []).filter(r => filters.every(([c, v, fn]) => fn ? fn(r) : r[c] === v));
     const rowsFor = () => {
       let rows = matchingRows();
       if(orderBy){
@@ -42,6 +42,7 @@ function makeFakeSupabase(seedByTable){
     const api = {
       select(_cols, opts){ selectOpts = opts || null; return api; },
       eq(col, val){ filters.push([col, val]); return api; },
+      gte(col, val){ filters.push([col, null, r => r[col] >= val]); return api; },
       order(col, opts){ orderBy = { col, ascending: !opts || opts.ascending !== false }; return api; },
       limit(n){ limitN = n; return api; },
       range(from, to){ rangeArgs = [from, to]; return api; },
@@ -50,12 +51,26 @@ function makeFakeSupabase(seedByTable){
         return { data: rows[0] || null, error: null };
       },
       update(patch){
-        return {
-          eq(col, val){
-            (seedByTable[table] || []).filter(r => r[col] === val).forEach(r => Object.assign(r, patch));
-            return Promise.resolve({ data: null, error: null });
+        const fs = [];
+        const b = {
+          eq(col, val){ fs.push([col, val]); return b; },
+          then(resolve, reject){
+            if(seedByTable.__failWrites) return Promise.resolve({ data: null, error: { message: 'boom' } }).then(resolve, reject);
+            (seedByTable[table] || []).filter(r => fs.every(([c2, v2]) => r[c2] === v2)).forEach(r => Object.assign(r, patch));
+            return Promise.resolve({ data: null, error: null }).then(resolve, reject);
           }
         };
+        return b;
+      },
+      insert(row){
+        let failed = null;
+        if(table === 'audit_log' && seedByTable.__failAudit) failed = { message: 'audit down' };
+        else if(seedByTable.__failWrites && table !== 'audit_log') failed = { message: 'boom' };
+        const stored = Object.assign({ id: 'new-' + table + '-' + ((seedByTable[table] || []).length + 1), created_at: new Date().toISOString() }, row);
+        if(!failed){ (seedByTable[table] = seedByTable[table] || []).push(stored); }
+        const res = { data: failed ? null : stored, error: failed };
+        const b = { select(){ return b; }, maybeSingle: async () => res, then(resolve, reject){ return Promise.resolve(res).then(resolve, reject); } };
+        return b;
       },
       then(resolve, reject){
         const count = selectOpts && selectOpts.count === 'exact' ? matchingRows().length : undefined;
@@ -562,6 +577,247 @@ describe('المرحلة 1: أدوات الدرجات والحضور والوا�
     const { tools } = await client.listTools();
     assert.ok(tools.length >= 20);
     for(const t of tools) assert.match(t.name, /^(get|list)_/, 'أداة غير قراءة: ' + t.name);
+    await client.close(); await server.close();
+  });
+});
+
+describe('المرحلة 2: أدوات التعديل — رمز خاص، معاينة إلزامية، تدقيق، عزل', () => {
+  const { WRITE_LIMIT } = require('../api/_mcp-write.js');
+  async function connectedClient(userId, supabase, canWrite){
+    const server = buildServer(userId, supabase, { canWrite });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return { client, server };
+  }
+  const call = async (client, name, args) => JSON.parse((await client.callTool({ name, arguments: args || {} })).content[0].text);
+  const WRITE_TOOLS = ['record_attendance', 'set_grades', 'set_homework_status', 'set_class_task_scores', 'add_positive_note', 'add_personal_task', 'update_personal_task'];
+
+  const seed = () => ({
+    classroom_grade_levels: [{ id: 'gl1', teacher_id: 'u1', name: 'الأول' }, { id: 'gl2', teacher_id: 'u2', name: 'غريب' }],
+    classroom_sections: [{ id: 's1', teacher_id: 'u1', grade_level_id: 'gl1', name: '1' }, { id: 's2', teacher_id: 'u2', grade_level_id: 'gl2', name: '9' }],
+    classroom_students: [
+      { id: 'st1', teacher_id: 'u1', full_name: 'أحمد علي', section_id: 's1', is_active: true },
+      { id: 'st2', teacher_id: 'u1', full_name: 'خالد سعد', section_id: 's1', is_active: true },
+      { id: 'st3', teacher_id: 'u1', full_name: 'أحمد سالم', section_id: 's1', is_active: true },
+      { id: 'st9', teacher_id: 'u2', full_name: 'طالب غريب', section_id: 's2', is_active: true },
+    ],
+    classroom_lessons: [{ id: 'l1', teacher_id: 'u1', section_id: 's1', lesson_date: '2026-09-01', period: 1 }],
+    classroom_attendance: [{ id: 'a1', teacher_id: 'u1', lesson_id: 'l1', student_id: 'st2', status: 'late' }, { id: 'a9', teacher_id: 'u2', lesson_id: 'l9', student_id: 'st9', status: 'absent' }],
+    classroom_grade_columns: [
+      { id: 'c1', teacher_id: 'u1', section_id: 's1', semester: '1', name: 'اختبار قصير', kind: 'manual', max_score: 20 },
+      { id: 'c2', teacher_id: 'u1', section_id: 's1', semester: '1', name: 'واجبات', kind: 'homework', max_score: 10 },
+      { id: 'c3', teacher_id: 'u1', section_id: 's1', semester: '1', name: 'اختبار فترات', kind: 'manual', max_score: 20 },
+      { id: 'c9', teacher_id: 'u2', section_id: 's2', semester: '1', name: 'اختبار قصير', kind: 'manual', max_score: 20 },
+    ],
+    classroom_grade_scores: [{ id: 'g1', teacher_id: 'u1', column_id: 'c1', student_id: 'st1', score: 12 }, { id: 'g9', teacher_id: 'u2', column_id: 'c9', student_id: 'st9', score: 5 }],
+    classroom_grade_period_scores: [{ id: 'pp1', teacher_id: 'u1', column_id: 'c3', student_id: 'st1', period: 1, score: 10 }],
+    classroom_homework: [{ id: 'h1', teacher_id: 'u1', section_id: 's1', title: 'واجب الوحدة 1' }],
+    classroom_homework_status: [],
+    classroom_tasks: [{ id: 't1', teacher_id: 'u1', section_id: 's1', title: 'مهمة 1', max_score: 10 }],
+    classroom_task_students: [{ id: 'ts1', teacher_id: 'u1', task_id: 't1', student_id: 'st1', score: null }],
+    classroom_positive_notes: [],
+    tasks: [{ id: 'tk1', user_id: 'u1', title: 'تحضير الدرس', done: false, priority: 'medium' }, { id: 'tk9', user_id: 'u2', title: 'تحضير الدرس', done: false, priority: 'medium' }],
+    audit_log: [],
+  });
+  const attendArgs = () => ({ section_id: 's1', lesson_date: '2026-09-01', period: 1, entries: [{ student_name: 'أحمد علي', status: 'absent' }] });
+
+  test('رمز القراءة لا يرى أي أداة تعديل، ورمز التعديل يراها (وبلا أي أداة حذف)', async () => {
+    const r = await connectedClient('u1', makeFakeSupabase(seed()), false);
+    const names = (await r.client.listTools()).tools.map(t => t.name);
+    for(const w of WRITE_TOOLS) assert.ok(!names.includes(w), 'ظهرت أداة تعديل لرمز قراءة: ' + w);
+    await r.client.close(); await r.server.close();
+
+    const w = await connectedClient('u1', makeFakeSupabase(seed()), true);
+    const wnames = (await w.client.listTools()).tools.map(t => t.name);
+    for(const x of WRITE_TOOLS) assert.ok(wnames.includes(x), 'غابت أداة: ' + x);
+    assert.ok(!wnames.some(n => /delete|remove|drop|clear/i.test(n)), 'لا أداة حذف');
+    await w.client.close(); await w.server.close();
+  });
+
+  test('نوع الرمز من بادئته: shahid_rw_ يكتب، shahid_pat_ لا يكتب', async () => {
+    const { canWriteToken } = require('../api/mcp.js');
+    assert.equal(canWriteToken('shahid_rw_' + 'a'.repeat(43)), true);
+    assert.equal(canWriteToken('shahid_pat_' + 'a'.repeat(43)), false);
+    const rawRw = 'shahid_rw_' + crypto.randomBytes(32).toString('base64url');
+    const s = { personal_access_tokens: [{ id: 'tk', user_id: 'u1', token_hash: hashToken(rawRw), revoked_at: null, expires_at: null }] };
+    const r = await authenticate({ headers: {}, url: '/api/mcp?key=' + rawRw }, makeFakeSupabase(s));
+    assert.equal(r.userId, 'u1'); assert.equal(r.canWrite, true);
+  });
+
+  test('المعاينة لا تكتب شيئًا ولا تسجّل تدقيقًا، وتُرجع confirm_token', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const p = await call(client, 'record_attendance', attendArgs());
+    assert.equal(p.preview, true); assert.equal(p.saved, false);
+    assert.equal(p.changes[0].before, 'حاضر (لا سجل)'); assert.equal(p.changes[0].after, 'absent');
+    assert.ok(p.confirm_token);
+    assert.equal(db.classroom_attendance.length, 2, 'لم يُكتب شيء');
+    assert.equal(db.audit_log.length, 0);
+    await client.close(); await server.close();
+  });
+
+  test('حفظ بلا confirm_token أو بتوكن لمدخلات مختلفة → مرفوض ولا يكتب', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const noTok = await call(client, 'record_attendance', { ...attendArgs(), save: true });
+    assert.equal(noTok.saved, false); assert.match(noTok.error, /معاينة/);
+    const p = await call(client, 'record_attendance', attendArgs());
+    const other = { ...attendArgs(), entries: [{ student_name: 'أحمد علي', status: 'late' }] };
+    const wrong = await call(client, 'record_attendance', { ...other, save: true, confirm_token: p.confirm_token });
+    assert.equal(wrong.saved, false);
+    assert.equal(db.classroom_attendance.length, 2);
+    await client.close(); await server.close();
+  });
+
+  test('توكن منتهي (أقدم من 10 دقائق) أو مزوَّر → مرفوض', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const real = Date.now;
+    Date.now = () => real() - 11 * 60 * 1000;
+    const p = await call(client, 'record_attendance', attendArgs());
+    Date.now = real;
+    const exp = await call(client, 'record_attendance', { ...attendArgs(), save: true, confirm_token: p.confirm_token });
+    assert.equal(exp.saved, false);
+    const forged = await call(client, 'record_attendance', { ...attendArgs(), save: true, confirm_token: Math.floor(Date.now() / 1000) + '.' + 'a'.repeat(64) });
+    assert.equal(forged.saved, false);
+    assert.equal(db.classroom_attendance.length, 2);
+    await client.close(); await server.close();
+  });
+
+  test('معاينة ثم حفظ ناجح: يُكتب الغياب ويُسجَّل audit قبل التنفيذ بالقيم القديمة والجديدة', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const args = { section_id: 's1', lesson_date: '2026-09-01', period: 1, entries: [{ student_name: 'أحمد علي', status: 'absent' }, { student_name: 'خالد', status: 'absent' }] };
+    const p = await call(client, 'record_attendance', args);
+    const s = await call(client, 'record_attendance', { ...args, save: true, confirm_token: p.confirm_token });
+    assert.equal(s.saved, true); assert.equal(s.applied_count, 2);
+    assert.equal(db.classroom_attendance.find(a => a.student_id === 'st1').status, 'absent');
+    assert.equal(db.classroom_attendance.find(a => a.id === 'a1').status, 'absent', 'تعديل خالد من late إلى absent');
+    assert.equal(db.audit_log.length, 1);
+    assert.equal(db.audit_log[0].action, 'mcp_write'); assert.equal(db.audit_log[0].performed_by, 'u1');
+    const ch = db.audit_log[0].details.changes;
+    assert.ok(ch.some(c => c.before === 'late' && c.after === 'absent'));
+    await client.close(); await server.close();
+  });
+
+  test('حصة غير موجودة تُنشأ عند الحفظ، والتكرار نفسه بلا تغيير (no-op)', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const args = { section_id: 's1', lesson_date: '2026-09-02', period: 3, entries: [{ student_name: 'خالد سعد', status: 'late' }] };
+    const p = await call(client, 'record_attendance', args);
+    assert.equal(p.changes.length, 2, 'إنشاء الحصة + سجل الحضور');
+    await call(client, 'record_attendance', { ...args, save: true, confirm_token: p.confirm_token });
+    assert.equal(db.classroom_lessons.filter(l => l.teacher_id === 'u1').length, 2);
+    const att = db.classroom_attendance.find(a => a.lesson_id !== 'l1' && a.student_id === 'st2');
+    assert.ok(att && att.teacher_id === 'u1', 'السجل رُبط بالحصة الجديدة بمعرّف المعلم');
+    const again = await call(client, 'record_attendance', args);
+    assert.equal(again.changes_count, 0, 'لا تغيير مطلوب');
+    assert.equal(again.confirm_token, undefined);
+    await client.close(); await server.close();
+  });
+
+  test('عزل: لا يُكتب على طالب/شعبة/صفوف معلم آخر مهما كانت المدخلات', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const foreignSection = await call(client, 'record_attendance', { ...attendArgs(), section_id: 's2' });
+    assert.match(foreignSection.error, /الشعبة غير موجودة/);
+    const foreignStudent = await call(client, 'record_attendance', { ...attendArgs(), entries: [{ student_name: 'طالب غريب', status: 'absent' }] });
+    assert.match(foreignStudent.error, /لا طالب/);
+    const foreignCol = await call(client, 'set_grades', { section_id: 's2', column_name: 'اختبار قصير', entries: [{ student_name: 'طالب غريب', score: 1 }] });
+    assert.match(foreignCol.error, /الشعبة غير موجودة/);
+    const before = JSON.stringify(db.classroom_grade_scores.filter(r => r.teacher_id === 'u2'));
+    const tk = await call(client, 'update_personal_task', { match_title: 'تحضير الدرس', done: true });
+    await call(client, 'update_personal_task', { match_title: 'تحضير الدرس', done: true, save: true, confirm_token: tk.confirm_token });
+    assert.equal(db.tasks.find(t => t.id === 'tk1').done, true);
+    assert.equal(db.tasks.find(t => t.id === 'tk9').done, false, 'مهمة المعلم الآخر لم تُمَسّ رغم تطابق العنوان');
+    assert.equal(JSON.stringify(db.classroom_grade_scores.filter(r => r.teacher_id === 'u2')), before);
+    await client.close(); await server.close();
+  });
+
+  test('اسم طالب غامض (أحمد) أو مكرَّر بالطلب → مرفوض بدل تخمين', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const amb = await call(client, 'record_attendance', { ...attendArgs(), entries: [{ student_name: 'أحمد', status: 'absent' }] });
+    assert.match(amb.error, /أكثر من طالب/);
+    const dup = await call(client, 'record_attendance', { ...attendArgs(), entries: [{ student_name: 'أحمد علي', status: 'absent' }, { student_name: 'احمد علي', status: 'late' }] });
+    assert.match(dup.error, /مكرَّر/);
+    await client.close(); await server.close();
+  });
+
+  test('set_grades: يرفض العمود المحسوب والعمود بفترات والدرجة فوق العظمى، ويقبل اليدوي مع before/after', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const base = { section_id: 's1', entries: [{ student_name: 'أحمد علي', score: 15 }] };
+    assert.match((await call(client, 'set_grades', { ...base, column_name: 'واجبات' })).error, /محسوب تلقائيًا/);
+    assert.match((await call(client, 'set_grades', { ...base, column_name: 'اختبار فترات' })).error, /الفترات/);
+    assert.match((await call(client, 'set_grades', { section_id: 's1', column_name: 'اختبار قصير', entries: [{ student_name: 'أحمد علي', score: 25 }] })).error, /أكبر من الدرجة العظمى/);
+    const args = { ...base, column_name: 'اختبار قصير', entries: [{ student_name: 'أحمد علي', score: 15 }, { student_name: 'خالد سعد', score: 7 }] };
+    const p = await call(client, 'set_grades', args);
+    assert.equal(p.changes[0].before, 12); assert.equal(p.changes[0].after, 15);
+    assert.equal(p.changes[1].before, null);
+    const s = await call(client, 'set_grades', { ...args, save: true, confirm_token: p.confirm_token });
+    assert.equal(s.applied_count, 2);
+    assert.equal(db.classroom_grade_scores.find(r => r.id === 'g1').score, 15);
+    assert.ok(db.classroom_grade_scores.find(r => r.student_id === 'st2' && r.column_id === 'c1' && r.teacher_id === 'u1' && r.score === 7));
+    await client.close(); await server.close();
+  });
+
+  test('تجاوز حد التعديلات (20 حفظًا/5 دقائق) → مرفوض ولا يكتب', async () => {
+    const db = seed();
+    for(let i = 0; i < WRITE_LIMIT; i++) db.audit_log.push({ action: 'mcp_write', performed_by: 'u1', created_at: new Date().toISOString() });
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const p = await call(client, 'record_attendance', attendArgs());
+    const s = await call(client, 'record_attendance', { ...attendArgs(), save: true, confirm_token: p.confirm_token });
+    assert.equal(s.saved, false); assert.match(s.error, /حد التعديلات/);
+    assert.equal(db.classroom_attendance.length, 2);
+    await client.close(); await server.close();
+  });
+
+  test('فشل تسجيل التدقيق → لا يُنفَّذ أي تعديل (fail-closed)', async () => {
+    const db = seed(); db.__failAudit = true;
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const p = await call(client, 'record_attendance', attendArgs());
+    const s = await call(client, 'record_attendance', { ...attendArgs(), save: true, confirm_token: p.confirm_token });
+    assert.equal(s.saved, false); assert.match(s.error, /التدقيق/);
+    assert.equal(db.classroom_attendance.length, 2);
+    await client.close(); await server.close();
+  });
+
+  test('الواجبات، المهمة الأدائية، الملاحظة الإيجابية، المهام الشخصية', async () => {
+    const db = seed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const run = async (name, args) => { const p = await call(client, name, args); assert.ok(p.confirm_token, name + ': ' + JSON.stringify(p)); return call(client, name, { ...args, save: true, confirm_token: p.confirm_token }); };
+
+    const hw = await run('set_homework_status', { section_id: 's1', homework_title: 'واجب الوحدة', entries: [{ student_name: 'خالد', status: 'submitted' }] });
+    assert.equal(hw.saved, true);
+    assert.equal(db.classroom_homework_status[0].homework_id, 'h1'); assert.equal(db.classroom_homework_status[0].teacher_id, 'u1');
+
+    const notInTask = await call(client, 'set_class_task_scores', { section_id: 's1', task_title: 'مهمة 1', entries: [{ student_name: 'خالد', score: 5 }] });
+    assert.match(notInTask.error, /غير مضاف/);
+    const ts = await run('set_class_task_scores', { section_id: 's1', task_title: 'مهمة 1', entries: [{ student_name: 'أحمد علي', score: 9 }] });
+    assert.equal(ts.saved, true); assert.equal(db.classroom_task_students[0].score, 9);
+    assert.match((await call(client, 'set_class_task_scores', { section_id: 's1', task_title: 'مهمة 1', entries: [{ student_name: 'أحمد علي', score: 11 }] })).error, /أكبر/);
+
+    const note = await run('add_positive_note', { student_name: 'خالد سعد', note_text: 'مشاركة ممتازة', note_date: '2026-09-03' });
+    assert.equal(note.saved, true); assert.equal(db.classroom_positive_notes.length, 1);
+    const dupNote = await call(client, 'add_positive_note', { student_name: 'خالد سعد', note_text: 'مشاركة ممتازة', note_date: '2026-09-03' });
+    assert.equal(dupNote.changes_count, 0, 'لا تكرار');
+
+    const task = await run('add_personal_task', { title: 'تصحيح الدفاتر', priority: 'high', due_date: '2026-09-10' });
+    assert.equal(task.saved, true);
+    assert.ok(db.tasks.find(t => t.title === 'تصحيح الدفاتر' && t.user_id === 'u1'));
+    await client.close(); await server.close();
+  });
+
+  test('التعديل مثبَّت على صاحب الرمز حتى لو تطابق المعرّف مع صف معلم آخر (دفاع بالعمق)', async () => {
+    const db = seed();
+    db.tasks = [{ id: 'same', user_id: 'u1', title: 'مهمة مشتركة', done: false, priority: 'medium' }, { id: 'same', user_id: 'u2', title: 'مهمة مشتركة', done: false, priority: 'medium' }];
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const args = { match_title: 'مهمة مشتركة', done: true };
+    const p = await call(client, 'update_personal_task', args);
+    await call(client, 'update_personal_task', { ...args, save: true, confirm_token: p.confirm_token });
+    assert.equal(db.tasks.find(t => t.user_id === 'u1').done, true);
+    assert.equal(db.tasks.find(t => t.user_id === 'u2').done, false);
+    await client.close(); await server.close();
+  });
+
+  test('الأدوات المسجَّلة للكتابة قائمة بيضاء محدّدة (لا أداة جديدة بلا اختبار)', async () => {
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(seed()), true);
+    const names = (await client.listTools()).tools.map(t => t.name).filter(n => !/^(get|list)_/.test(n)).sort();
+    assert.deepEqual(names, WRITE_TOOLS.slice().sort());
     await client.close(); await server.close();
   });
 });

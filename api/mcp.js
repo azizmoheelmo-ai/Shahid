@@ -3,11 +3,12 @@
    ============================================================
    يعرض بيانات "خطتي، شواهدي، تقييمي الذاتي، وإدارة صفي (طلابي، مخالفاتهم
    السلوكية، حالات ضعفهم الأكاديمي)" لصاحب الرمز فقط. لا يضيف ولا يعدّل أي
-   شيء بقاعدة البيانات — كل الأدوات هنا SELECT فقط.
+   شيء بقاعدة البيانات — أدوات القراءة SELECT فقط (التعديل: رمز خاص، انظر أدناه).
 
    النطاق: يغطي الموصل أيضًا (قراءة فقط) الدرجات والحضور والواجبات والمهام
    الأدائية وأدوات التقويم والمتابعات والملاحظات والجدول والدروس والبرامج وخطط
-   الدروس والمهام الشخصية (المرحلة 1). التعديل غير مدعوم بالتصميم — قرار مؤجَّل.
+   الدروس والمهام الشخصية (المرحلة 1). التعديل (المرحلة 2) محصور برمز
+   "قراءة وتعديل" shahid_rw_ وأدوات محدّدة بمعاينة وتأكيد وتدقيق (api/_mcp-write.js).
 
    تنبيه: أدوات "إدارة الصف" (list_my_students وlist_my_incidents
    وlist_my_academic_cases) تعرض بيانات تخص طلابًا قاصرين لا صاحب الرمز
@@ -32,6 +33,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const z = require('zod/v4');
+const { registerWriteTools } = require('./_mcp-write.js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -70,7 +72,12 @@ function hashToken(raw){
    عنوان URL فقط ولا تقبل ترويسة — فبدون ?key= لا يستطيع المعلم ربط الموصل
    أصلًا (نفس نهج موصل مصحح). يقبل فقط رموزنا (shahid_pat_…) بالشكل
    الصحيح، ولا يُسجَّل الرابط أبدًا (logMcpAccess لا يخزّن إلا IP والنتيجة). */
-const TOKEN_RE = /^shahid_pat_[A-Za-z0-9_-]{20,}$/;
+const TOKEN_RE = /^shahid_(pat|rw)_[A-Za-z0-9_-]{20,}$/;
+
+/* نوع الرمز يُستنتج من بادئته: shahid_pat_ = قراءة فقط، shahid_rw_ = قراءة وتعديل.
+   البادئة جزء من النص المُجزَّأ (SHA-256) فلا يمكن ترقية رمز قراءة لتعديل. */
+const WRITE_TOKEN_PREFIX = 'shahid_rw_';
+const canWriteToken = raw => typeof raw === 'string' && raw.startsWith(WRITE_TOKEN_PREFIX);
 function tokenFrom(req){
   const header = (req.headers && req.headers['authorization']) || '';
   const m = /^Bearer\s+(.+)$/i.exec(header.trim());
@@ -117,7 +124,7 @@ async function authenticate(req, supabase){
     .eq('id', data.id)
     .then(() => {}, () => {});
 
-  return { userId: data.user_id, reason: 'ok' };
+  return { userId: data.user_id, reason: 'ok', canWrite: canWriteToken(raw) };
 }
 
 /* تسجيل كل محاولة استدعاء (ناجحة أو مرفوضة) بسجلّ التدقيق العام — لا
@@ -203,7 +210,8 @@ function normalizeAr(str){
 }
 const nameMatches = (full, query) => !query || normalizeAr(full).includes(normalizeAr(query));
 
-function buildServer(userId, supabase){
+function buildServer(userId, supabase, opts){
+  const canWrite = !!(opts && opts.canWrite);
   const server = new McpServer({ name: 'shahid-connector', version: '1.1.0' });
 
   server.registerTool('get_my_profile', {
@@ -718,6 +726,11 @@ function buildServer(userId, supabase){
     return { total_count: rows.length, items: rows.map(r => ({ title: r.title, description: r.description, priority: r.priority, due_date: r.due_date, done: r.done })) };
   }));
 
+  /* المرحلة 2: أدوات التعديل — تُسجَّل فقط لرمز "قراءة وتعديل" (shahid_rw_) */
+  if(canWrite){
+    registerWriteTools(server, { userId, supabase, z, textResult, fetchAll, loadRoster, normalizeAr, sectionLabel, signKey: SERVICE_ROLE_KEY });
+  }
+
   return server;
 }
 
@@ -765,7 +778,7 @@ async function handler(req, res){
   }
 
   try{
-    const server = buildServer(auth.userId, supabase);
+    const server = buildServer(auth.userId, supabase, { canWrite: auth.canWrite });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => { transport.close(); server.close(); });
     await server.connect(transport);
@@ -782,4 +795,5 @@ module.exports = handler;
 module.exports.hashToken = hashToken;
 module.exports.authenticate = authenticate;
 module.exports.tokenFrom = tokenFrom;
+module.exports.canWriteToken = canWriteToken;
 module.exports.buildServer = buildServer;
