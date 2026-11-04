@@ -1042,7 +1042,7 @@ function renderConnectorTokens(tokens){
     else if(expired) statusBadge = ' — <b style="color:#B23A3A;">منتهي الصلاحية</b>';
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);">
       <div>
-        <div style="font-weight:700;color:var(--navy);">${escapeHtml(t.label)} <span style="font-family:monospace;color:var(--muted);font-weight:400;">${escapeHtml(t.token_prefix)}…</span></div>
+        <div style="font-weight:700;color:var(--navy);">${escapeHtml(t.label)} ${isWriteConnectorToken(t) ? '<span style="background:#B23A3A;color:#fff;font-size:10px;padding:1px 6px;font-weight:700;">تعديل</span>' : '<span style="background:#E6E2D6;color:#413D33;font-size:10px;padding:1px 6px;">قراءة</span>'} <span style="font-family:monospace;color:var(--muted);font-weight:400;">${escapeHtml(t.token_prefix)}…</span></div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">أُنشئ: ${created} ${escapeHtml(expiryText)} — آخر استخدام: ${escapeHtml(lastUsed)}${statusBadge}</div>
       </div>
       ${active ? `<button class="btn btn-outline" style="padding:5px 12px;font-size:11px;border-color:#B23A3A;color:#B23A3A;flex-shrink:0;" onclick="revokeConnectorToken('${t.id}')">إلغاء</button>` : ''}
@@ -1050,11 +1050,16 @@ function renderConnectorTokens(tokens){
   }).join('');
 }
 
-function generateRandomToken(){
+/* kind: 'read' (shahid_pat_ — قراءة فقط) أو 'write' (shahid_rw_ — قراءة وتعديل).
+   الخادم يستنتج الصلاحية من بادئة الرمز، والبادئة جزء من التجزئة المحفوظة،
+   فلا يمكن ترقية رمز قراءة إلى تعديل. */
+function generateRandomToken(kind){
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   const b64 = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return 'shahid_pat_' + b64;
+  return (kind === 'write' ? 'shahid_rw_' : 'shahid_pat_') + b64;
 }
+
+const isWriteConnectorToken = t => !!t && String(t.token_prefix || '').startsWith('shahid_rw_');
 
 async function sha256Hex(text){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -1065,6 +1070,9 @@ async function sha256Hex(text){
    روابط منسية. فحص بالمتصفح فقط (الجدول يُدرَج منه مباشرة)، وهو حماية
    من النسيان لا حاجز أمني. */
 const MAX_ACTIVE_CONNECTOR_TOKENS = 5;
+/* روابط التعديل أخطر: سقف أصغر وصلاحية قصيرة ثابتة (لا "بلا انتهاء") */
+const MAX_ACTIVE_WRITE_TOKENS = 2;
+const WRITE_TOKEN_DAYS = 30;
 
 /* رابط الموصل الكامل الذي يلصقه المعلم بخانة "إضافة موصل مخصص" في المساعد
    (الخانة تقبل عنوانًا فقط، فالرمز يُحمَل داخله كـ?key=) */
@@ -1078,28 +1086,39 @@ function copyConnectorLink(){
   navigator.clipboard.writeText(text).then(() => showToast('تم نسخ الرابط', 'ok'), () => showToast('حدّد الرابط وانسخه بيدك', 'error'));
 }
 
-async function generateConnectorToken(){
-  const btn = document.getElementById('genTokenBtn');
+async function generateConnectorToken(kind){
+  const isWrite = kind === 'write';
+  const btn = document.getElementById(isWrite ? 'genWriteTokenBtn' : 'genTokenBtn');
+  const otherBtn = document.getElementById(isWrite ? 'genTokenBtn' : 'genWriteTokenBtn');
   if(btn.disabled) return;
+  if(isWrite){
+    const okWrite = await showConfirm('رابط "القراءة والتعديل" يسمح للمساعد بتعديل الحضور والغياب والدرجات وتسليم الواجبات وإضافة ملاحظات ومهام — على بيانات طلاب قاصرين. كل تعديل يُعرض عليك للموافقة قبل حفظه ويُسجَّل في سجل التدقيق، ولا يمكنه الحذف. ينتهي الرابط بعد ' + WRITE_TOKEN_DAYS + ' يومًا. هل تريد المتابعة؟');
+    if(!okWrite) return;
+  }
   btn.disabled = true;
+  if(otherBtn) otherBtn.disabled = true;
   try{
     const { data: existing, error: eList } = await sb.from('personal_access_tokens')
-      .select('revoked_at, expires_at')
+      .select('revoked_at, expires_at, token_prefix')
       .eq('user_id', currentUser.id);
     if(eList) throw eList;
-    const activeCount = (existing || []).filter(t => !t.revoked_at && !(t.expires_at && new Date(t.expires_at).getTime() < Date.now())).length;
-    if(activeCount >= MAX_ACTIVE_CONNECTOR_TOKENS){
+    const activeRows = (existing || []).filter(t => !t.revoked_at && !(t.expires_at && new Date(t.expires_at).getTime() < Date.now()));
+    if(activeRows.length >= MAX_ACTIVE_CONNECTOR_TOKENS){
       showToast(`وصلت الحد (${MAX_ACTIVE_CONNECTOR_TOKENS} روابط فعّالة). ألغِ رابطًا قديمًا ثم أعد المحاولة.`, 'error');
       return;
     }
-    const raw = generateRandomToken();
+    if(isWrite && activeRows.filter(isWriteConnectorToken).length >= MAX_ACTIVE_WRITE_TOKENS){
+      showToast(`وصلت الحد (${MAX_ACTIVE_WRITE_TOKENS} روابط تعديل فعّالة). ألغِ رابط تعديل قديمًا ثم أعد المحاولة.`, 'error');
+      return;
+    }
+    const raw = generateRandomToken(kind);
     const hash = await sha256Hex(raw);
     const prefix = raw.slice(0, 18);
-    const expiryDays = parseInt(document.getElementById('connectorExpirySelect').value, 10);
+    const expiryDays = isWrite ? WRITE_TOKEN_DAYS : parseInt(document.getElementById('connectorExpirySelect').value, 10);
     const expiresAt = expiryDays ? new Date(Date.now() + expiryDays * 86400000).toISOString() : null;
     const { error } = await sb.from('personal_access_tokens').insert({
       user_id: currentUser.id,
-      label: 'موصل الذكاء الاصطناعي',
+      label: isWrite ? 'موصل الذكاء الاصطناعي (قراءة وتعديل)' : 'موصل الذكاء الاصطناعي',
       token_hash: hash,
       token_prefix: prefix,
       expires_at: expiresAt
@@ -1107,7 +1126,8 @@ async function generateConnectorToken(){
     if(error) throw error;
     showInfoModal(`
       <div style="text-align:right;">
-        <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">رابط الموصل الخاص بك</h3>
+        <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">${isWrite ? 'رابط الموصل الخاص بك (قراءة وتعديل)' : 'رابط الموصل الخاص بك'}</h3>
+        ${isWrite ? `<p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;font-weight:700;">هذا الرابط يستطيع التعديل: الحضور والغياب، الدرجات اليدوية، تسليم الواجبات، درجات المهام الأدائية، الملاحظات الإيجابية، ومهامك الشخصية. كل تعديل يُعرض عليك قبل الحفظ ويُسجَّل، ولا حذف إطلاقًا. ينتهي بعد ${WRITE_TOKEN_DAYS} يومًا.</p>` : ''}
         <p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;">
           ⚠ يظهر مرة واحدة فقط. من يملك الرابط يقرأ بيانات حسابك التالية (أسماء الطلاب ودرجاتهم وحضورهم)، فلا ترسله لأحد. تستطيع إلغاءه في أي وقت من هذه الشاشة.
         </p>
@@ -1121,7 +1141,7 @@ async function generateConnectorToken(){
             <li>مخالفاتهم السلوكية وحالاتهم الأكاديمية ومتابعاتهم وملاحظاتك عليهم (الملاحظات الخاصة لا تُقرأ إلا بطلب صريح)</li>
             <li>جدولك ودروسك وبرامجك وخطط دروسك ومهامك</li>
           </ul>
-          <div style="margin-top:4px;color:var(--muted);">قراءة فقط — لا يضيف ولا يعدّل ولا يحذف شيئًا.</div>
+          <div style="margin-top:4px;color:var(--muted);">${isWrite ? 'قراءة وتعديل محدود (بمعاينة وموافقة) — بلا حذف.' : 'قراءة فقط — لا يضيف ولا يعدّل ولا يحذف شيئًا.'}</div>
         </div>
         <div style="font-size:12px;line-height:1.9;color:#413D33;">
           <b>كيف تضيفه؟</b><br>
@@ -1135,6 +1155,7 @@ async function generateConnectorToken(){
     showToast('تعذّر إنشاء الرابط: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
+    if(otherBtn) otherBtn.disabled = false;
   }
 }
 
