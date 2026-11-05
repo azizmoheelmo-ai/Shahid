@@ -10,7 +10,7 @@
 
 const GRADE_RULES_DEFAULT = { pass: 50, edge: 10, top: 90, fallback: false };
 const GRADE_RULES_BOUNDS = { pass: [1, 99], edge: [1, 30], top: [50, 100] };
-const GRADE_RULES_LABELS = { pass: 'ضعاف: أقل من', edge: 'هامش النجاح القليل: حتى', top: 'متفوقون: من' };
+const GRADE_RULES_LABELS = { pass: 'ضعاف: أقل من', edge: 'هامش بعد الضعاف: حتى', top: 'متفوقون: من' };
 const GRADE_RULES_UNITS = { pass: '%', edge: '% فوق ذلك', top: '%' };
 const GRADE_TOP_PRESETS = [80, 85, 90, 95];
 
@@ -24,7 +24,7 @@ function validateGradeRules(r){
     const [lo, hi] = GRADE_RULES_BOUNDS[k];
     if(r[k] === '' || r[k] === null || !Number.isInteger(v) || v < lo || v > hi) return `${GRADE_RULES_LABELS[k]} — رقم صحيح من ${lo} إلى ${hi}`;
   }
-  if(Number(r.pass) + Number(r.edge) > Number(r.top)) return 'حدّ المتفوق يجب ألا يقلّ عن حدّ النجاح + الحافة';
+  if(Number(r.pass) + Number(r.edge) > Number(r.top)) return 'حدّ المتفوق يجب ألا يقلّ عن حدّ الضعاف بعشر نقاط تقريبًا (الهامش ' + Number(r.edge) + ')';
   return null;
 }
 
@@ -57,7 +57,7 @@ function gaRulesEditorHtml(a){
     <button type="button" aria-label="إنقاص" onclick="crmGaRuleStep('${k}', -1)">−</button></span><span class="crm-ga-ru">${GRADE_RULES_UNITS[k]}</span></div>`;
   return `<div class="crm-ga-sec">حدود التحليل</div>
     <p class="crm-ga-fine" style="margin-top:0">تُطبَّق على كل شعبك، وللتحليل فقط — ألوان الكشف وتنبيهاته كما هي.<br>النسب محسوبة من الدرجة الكاملة (من ${escapeHtml(formatScore(gradeAnalysisView(a).displayMax))}): مثلًا ${d.pass}% = ${escapeHtml(formatScore(Math.round(Number(d.pass) * gradeAnalysisView(a).displayMax) / 100))} درجة.</p>
-    ${row('pass')}${row('edge')}${row('top')}
+    ${row('pass')}${row('top')}
     <div class="crm-ga-pre">${GRADE_TOP_PRESETS.map(p => `<button type="button" class="${Number(d.top) === p ? 'is-on' : ''}" onclick="crmGaRulePreset(${p})">${p}</button>`).join('')}</div>
     <label class="crm-ga-chk"><input type="checkbox"${d.fallback ? ' checked' : ''} onchange="crmGaRuleFallback(this.checked)"> إن لم يبلغ أحد حدّ المتفوق، اعرض أعلى 3 في الشعبة</label>
     <div class="crm-ga-err" id="crmGaRulesErr">${escapeHtml(e.error)}</div>

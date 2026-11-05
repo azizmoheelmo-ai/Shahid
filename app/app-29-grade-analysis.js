@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    - نافذة بثلاث تبويبات: «نظرة عامة» (جملة خلاصة + شريط المستويات + أربع بطاقات)،
      «الطلاب» (أسماء كل مستوى)، «مقارنات» (app-30)، وزر تصدير واحد ثابت أسفل النافذة.
-   - ثلاثة مستويات تغطي كل من رُصد له: ضعاف (دون حد النجاح) · متوسطون · متفوقون (حد المتفوق فأكثر).
+   - ثلاثة مستويات تغطي كل من رُصد له: ضعاف (أقل من حدّ المستوى) · متوسطون · متفوقون (حد المتفوق فأكثر).
    - الأرقام المعروضة صحيحة (بلا كسور)؛ الكسور في ملف Excel فقط. التصنيف دائمًا بالرقم الدقيق،
      والتقريب لا يُظهر رقمًا يوحي بتجاوز حدّ لم يبلغه الطالب (49.6 لا تُعرض 50%).
    - ما لم يُرصد لا يُحسب (لا صفر)؛ ومن رُصد له جزء من الأعمدة يُحسب بنسبته مما رُصد له.
@@ -12,7 +12,7 @@
    ============================================================ */
 
 const GRADE_ANALYSIS_RULES = {
-  edgeAbovePct: 10, /* «على الحافة»: نجح بهامش أقل من 10 نقاط مئوية فوق حد النجاح */
+  edgeAbovePct: 10, /* هامش داخلي بعد حدّ الضعاف (لم يعد مستوى ظاهرًا) */
   topPct: 90        /* متفوق: 90% فأكثر */
 };
 const GRADE_ANALYSIS_BANDS = ['أقل من 50%', '50–59%', '60–69%', '70–79%', '80–89%', '90% فأكثر'];
@@ -92,7 +92,7 @@ function analyzeGradeRows(rows, displayMax){
     edge: rec.filter(r => r.pct >= pass && r.pct < pass + rules.edge).sort(byPct),
     top: rec.filter(r => r.pct >= rules.top).sort((a, b) => -byPct(a, b))
   };
-  /* لا أحد بلغ حدّ المتفوق: اختياريًا تُعرض أعلى 3 (ممن نجحوا) باسم «الأعلى درجات» */
+  /* لا أحد بلغ حدّ المتفوق: اختياريًا تُعرض أعلى 3 (ممن بلغوا حدّ الضعاف فأعلى) باسم «الأعلى درجات» */
   const topIsFallback = !groups.top.length && rules.fallback;
   if(topIsFallback) groups.top = rec.filter(r => r.pct >= pass).sort((a, b) => -byPct(a, b)).slice(0, 3);
   /* «جيد»: من نجح بهامش كافٍ ولم يبلغ حدّ المتفوق (دون من عُرضوا بالبديل «الأعلى درجات») */
@@ -212,7 +212,7 @@ function paintCrmGradeAnalysis(){
 function gradeAnalysisPts(n){ return String(Math.round(Number(n))); }
 
 /* نسبة صحيحة لا تتجاوز حدًّا لم يبلغه صاحبها: 49.6 تُعرض 49% لا 50% (التصنيف بالرقم الدقيق).
-   bounds = حدود المستويات الصحيحة (النجاح، الحافة، المتفوق). */
+   bounds = حدود المستويات الصحيحة (الضعاف، المتفوق). */
 function gradeAnalysisPctShown(pct, bounds){
   let r = Math.round(pct);
   (bounds || []).forEach(b => { if(pct < b && r >= b) r = b - 1; });
@@ -372,12 +372,11 @@ function gaOverviewHtml(a, v){
   const s = v.stats;
   const lists = gaLevelLists(s);
   const total = s.recorded;
-  const rate = gaRateShown(s.passed, total);
   const segs = ['top', 'mid', 'low'].map(k => ({ k, n: lists[k].length })).filter(x => x.n);
   const bar = segs.map(x => `<i class="gs-lv-${x.k}" style="flex:${x.n}" title="${x.n}"></i>`).join('');
-  let html = `<div class="crm-ga-hero"><div class="crm-ga-hero-t"><b>${s.passed} من ${total}</b> ${gaStudentsWord(total)} ناجحون (<bdi dir="ltr">${rate}%</bdi>)</div>
-    <div class="crm-ga-hero-s">المتوسط <b>${gradeAnalysisPts(s.avg)} من ${formatScore(v.displayMax)}</b></div>
-    <div class="crm-ga-stack">${bar}</div></div>` + gaNotesHtml(s);
+  let html = `<div class="crm-ga-hero"><div class="crm-ga-hero-t">متوسط الشعبة <b>${gradeAnalysisPts(s.avg)} من ${formatScore(v.displayMax)}</b> (<bdi dir="ltr">${s.avgPct === null ? '—' : s.avgPct + '%'}</bdi>)</div>
+    <div class="crm-ga-hero-s">${total} ${gaStudentsWord(total)} · الوسيط <b>${gradeAnalysisPts(s.median)}</b> · من <b>${gradeAnalysisPts(s.min)}</b> إلى <b>${gradeAnalysisPts(s.max)}</b></div>
+    <div class="crm-ga-stack">${bar}</div>` + gaNotesHtml(s);
   GRADE_ANALYSIS_LEVELS.forEach(lv => {
     const n = lists[lv.key].length;
     html += `<button type="button" class="crm-ga-lv gs-grp-${lv.tone}" ${n ? '' : 'disabled'} onclick="openCrmGaLevel('${lv.key}')"><b class="crm-ga-lvn">${n}</b><span class="crm-ga-lvt">${gaLevelLabel(lv, s)}${gaGroupRangeHtml(lv.key, s, v.displayMax)}</span><span class="crm-am-chev" aria-hidden="true">‹</span></button>`;
@@ -456,7 +455,7 @@ function gradeAnalysisExportRows(a, v, withNames){
     ['المرصود', s.recorded, 'من', s.total],
     ['المتوسط', s.avg === null ? '' : s.avg], ['الوسيط', s.median === null ? '' : s.median],
     ['الأعلى', s.max === null ? '' : s.max], ['الأدنى', s.min === null ? '' : s.min],
-    ['ناجحون', s.passed], ['ضعاف', s.groups.low.length], ['متوسطون', s.mid.length], [s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.groups.top.length],
+    ['ضعاف', s.groups.low.length], ['متوسطون', s.mid.length], [s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.groups.top.length],
     [], ['الفئة', 'العدد']
   ].concat(GRADE_ANALYSIS_BANDS.map((b, i) => [b, s.bands[i]]));
   const letters = gradeLettersNow();

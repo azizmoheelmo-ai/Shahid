@@ -115,8 +115,9 @@ test('نظرة عامة: جملة خلاصة، ثلاثة مستويات تغط�
   runInAppContext(app, `openCrmGradeAnalysis(); window.__body = crmGradeAnalysisHtml(crmGradeAnalysis);
     window.__s = gradeAnalysisView(crmGradeAnalysis).stats;`);
   /* 5 طلاب: 25% · 55% · 75% · 90% · 100% ← ضعاف 1 · متوسطون 2 (55 و75) · متفوقون 2 */
-  assert.match(app.__body, /<b>4 من 5<\/b> طلاب ناجحون \(<bdi dir="ltr">80%<\/bdi>\)/);
-  assert.match(app.__body, /المتوسط <b>\d+ من 60<\/b>/);
+  assert.match(app.__body, /متوسط الشعبة <b>\d+ من 60<\/b> \(<bdi dir="ltr">\d+%<\/bdi>\)/);
+  assert.match(app.__body, /5 طلاب · الوسيط <b>\d+<\/b> · من <b>\d+<\/b> إلى <b>\d+<\/b>/);
+  assert.doesNotMatch(app.__body, /ناجح|نجاح|رسوب/, 'لا لغة نجاح في النافذة');
   assert.deepEqual([app.__s.groups.low.length, app.__s.mid.length, app.__s.groups.top.length], [1, 2, 2]);
   assert.equal(app.__s.groups.low.length + app.__s.mid.length + app.__s.groups.top.length, app.__s.recorded);
   for(const label of ['ضعاف', 'متوسطون', 'متفوقون']) assert.match(app.__body, new RegExp(`class="crm-ga-lvt">${label}<small>`));
@@ -125,7 +126,7 @@ test('نظرة عامة: جملة خلاصة، ثلاثة مستويات تغط�
   assert.match(app.__body, /من 50% إلى أقل من 90%/);
   assert.match(app.__body, /90% فأكثر \(54 درجة فأكثر\)/);
   assert.doesNotMatch(app.__body, /\d\.\d/, 'لا كسور عشرية بالواجهة');
-  assert.doesNotMatch(app.__body, /الوسيط|أدنى وأعلى/, 'التفاصيل الإحصائية مطويّة افتراضيًا');
+  assert.doesNotMatch(app.__body, /أدنى وأعلى/, 'التفاصيل الإحصائية مطويّة افتراضيًا');
 });
 
 test('تفاصيل إحصائية: الوسيط وأدنى/أعلى والتوزيع بالنسبة، وكلها أعداد صحيحة', async () => {
