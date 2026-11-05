@@ -159,11 +159,70 @@ test('لا صورة ولا jsPDF في المسارات الخمسة، والأز
     assert.doesNotMatch(html, new RegExp(gone), gone);
     assert.doesNotMatch(a8 + a9 + a10, new RegExp('function ' + gone), gone);
   }
-  assert.match(html, /printPlan\(event\)">طباعة \/ حفظ PDF/);
-  assert.match(html, /printSelfAssessment\(event\)">طباعة \/ حفظ التقييم PDF/);
-  assert.match(html, /printProgramSummary\(currentProgramId, event\)">🖨 طباعة \/ حفظ PDF/);
+  assert.match(html, /printPlan\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
+  assert.match(html, /printSelfAssessment\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ التقييم PDF/);
+  assert.match(html, /printProgramSummary\(currentProgramId, event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
   assert.match(html, /طباعة \/ حفظ الكل PDF/);
-  assert.match(html, /ملف الإنجاز \(طباعة \/ حفظ PDF\)/);
+  assert.match(html, /ملف الإنجاز — طباعة \/ حفظ PDF/);
+});
+
+function letterApp(extra){
+  return printApp(`window.__calls = []; printPages = async (pages, title) => { window.__calls.push({ pages, title }); };
+    const prevEl = { innerHTML: '<p>نص الخطاب</p>' };
+    const origGet2 = document.getElementById;
+    document.getElementById = id => id === 'acLetterPreview' || id === 'rlPreview' ? prevEl : origGet2.call(document, id);
+    toDataUrl = async u => u === 'bad' ? null : 'data:image/png;base64,AAA' + u;
+    ${extra || ''}`);
+}
+
+test('طباعة الخطاب: صفحة الخطاب fit:page، وصورة إثبات التسليم صفحة ثانية إن وُجدت', async () => {
+  const app = letterApp(`window.__r = (async () => {
+    await printLetterPages('acLetterPreview', 'p1', 'خطاب-إحالة', null);
+    await printLetterPages('acLetterPreview', null, 'خطاب-إحالة', null);
+    await printLetterPages('acLetterPreview', 'bad', 'خطاب-إحالة', null); window.__busy = activeExportCount; })();`);
+  await app.__r;
+  const [withPhoto, noPhoto, badPhoto] = [...app.__calls].map(c => [...c.pages]);
+  assert.equal(withPhoto.length, 2);
+  assert.ok(withPhoto.every(p => p.fit === 'page'));
+  assert.match(withPhoto[0].html, /نص الخطاب/);
+  assert.match(withPhoto[1].html, /صورة إثبات التسليم الموقّع/);
+  assert.match(withPhoto[1].html, /src="data:image\/png;base64,AAAp1"/);
+  assert.equal(noPhoto.length, 1);
+  assert.equal(badPhoto.length, 1, 'تعذّر تحميل الصورة: الخطاب وحده');
+  assert.match(app.__calls[0].title, /^خطاب-إحالة-\d{4}-\d{2}-\d{2}$/);
+  assert.equal(app.__busy, 0);
+});
+
+test('طباعة الخطاب: مصدر صورة التسليم مُهرَّب (لا حقن عبر src)', async () => {
+  const app = letterApp(`toDataUrl = async () => 'x" onerror="alert(1)'; window.__r = printLetterPages('acLetterPreview', 'p', 'خ', null);`);
+  await app.__r;
+  const photo = [...app.__calls[0].pages][1].html;
+  assert.doesNotMatch(photo, /onerror="alert/);
+  assert.match(photo, /&quot; onerror=&quot;alert\(1\)/);
+});
+
+test('أزرار الخطابين: تمرّر المعاينة والصورة الصحيحة، وتتحمّل غياب الحالة الحالية', async () => {
+  const app = letterApp(`window.__args = []; printLetterPages = async (...a) => { window.__args.push(a.slice(0, 3)); };
+    acCurrentCase = { case: { referral_receipt_photo_url: 'A' }, student: {} }; rlCurrentIncident = { incident: { referral_receipt_photo_url: 'R' }, student: {} };
+    window.__r = (async () => { await printAcLetter(null); await printReferralLetter(null); acCurrentCase = null; rlCurrentIncident = null; await printAcLetter(null); await printReferralLetter(null); })();`);
+  await app.__r;
+  assert.deepEqual([...app.__args].map(a => [...a]), [
+    ['acLetterPreview', 'A', 'خطاب-إحالة'], ['rlPreview', 'R', 'خطاب-تحويل'],
+    ['acLetterPreview', null, 'خطاب-إحالة'], ['rlPreview', null, 'خطاب-تحويل']]);
+});
+
+test('الخطابان: زر «تنزيل PDF» أُزيل ودوال الصورة المرتبطة به، وزر طباعة/حفظ واحد، وواتساب يبقى ملفًا', async () => {
+  const html = read('index.html'), a4 = read('app/app-04-academic-crm.js');
+  assert.doesNotMatch(html, /downloadAcLetterPDF|downloadReferralLetterPDF/);
+  assert.match(html, /printAcLetter\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
+  assert.match(html, /printReferralLetter\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
+  assert.match(html, /shareAcLetterWhatsApp\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">واتساب/);
+  assert.match(html, /downloadAcLetterWordFile|downloadReferralLetterWordFile/, 'تنزيل Word باقٍ');
+  for(const gone of ['function printLetterContent', 'function downloadLetterPdfFile', 'function downloadAcLetterPDF', 'function downloadReferralLetterPDF'])
+    assert.doesNotMatch(a4, new RegExp(gone), gone);
+  const body = a4.slice(a4.indexOf('async function printLetterPages'), a4.indexOf('async function shareLetterWhatsApp'));
+  for(const g of ['jsPDF', 'html2canvas', 'window.open', 'createObjectURL', 'buildLetterPdfBlob']) assert.doesNotMatch(body, new RegExp(g), 'printLetterPages ← ' + g);
+  assert.match(a4.slice(a4.indexOf('async function shareLetterWhatsApp')), /navigator\.share\(\{ files/, 'المشاركة ما زالت ملفًا');
 });
 
 test('الملف الجديد في index.html وAPP_SHELL، والإصدارات متطابقة', async () => {

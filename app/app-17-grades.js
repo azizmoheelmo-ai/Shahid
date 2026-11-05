@@ -552,8 +552,8 @@ function crmGradeStudentPageHtml(g, studentId){
       <button type="button" class="btn btn-outline"${prev ? ` onclick="openCrmGradeStudentDetail('${prev.id}')"` : ' disabled'}>‹ الطالب السابق</button>
       <button type="button" class="btn btn-outline"${next ? ` onclick="openCrmGradeStudentDetail('${next.id}')"` : ' disabled'}>الطالب التالي ›</button>
     </div>
-    <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="exportCrmStudentReport(this)">🖨 تقرير الطالب — طباعة / حفظ PDF</button>
-    <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openCrmStudentProfile('${st.id}', { type: 'tab', tab: 'grades' })">ملف الطالب</button>`;
+    <button type="button" class="btn btn-export btn-x xb-wide" style="margin-top:8px;" onclick="exportCrmStudentReport(this)"><i class="bi bi-print"></i><span class="xb-label">تقرير الطالب — طباعة / حفظ PDF</span></button>
+    <button type="button" class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="openCrmStudentProfile('${st.id}', { type: 'tab', tab: 'grades' })"><span class="chip"><i class="bi bi-user"></i></span>ملف الطالب</button>`;
 }
 
 /* إعداد فترات عمود في الكشف المحمّل (app-27) */
@@ -632,7 +632,7 @@ function openCrmGradeToolsMenu(){
   const ic = k => `<span class="crm-gs-ic">${svg(ICON[k])}</span>`;
   const tx = (title, sub) => `<span class="crm-gs-tx">${title}${sub ? `<small class="hb-sub">${sub}</small>` : ''}</span>`;
   const head = (key, icon, title, sub) => `<button type="button" class="crm-am-head" aria-expanded="false" onclick="crmAddMenuToggle('${key}')">${ic(icon)}${tx(title, sub)}<span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
-  const opt = (icon, title, sub, attrs) => `<button type="button" class="crm-am-opt" ${attrs}>${ic(icon)}${tx(title, sub)}</button>`;
+  const opt = (icon, title, sub, attrs, cls) => `<button type="button" class="crm-am-opt${cls ? ' ' + cls : ''}" ${attrs}>${ic(icon)}${tx(title, sub)}</button>`;
   const testsOn = appToolOn('tests');
   let html = `<div class="crm-am" style="text-align:right;"><h3 style="margin:0 0 2px;font-size:16px;color:var(--navy);">إضافة</h3>
     <div class="crm-gs-sub">${escapeHtml(crmSectionLabel(g.sectionId))}</div>`;
@@ -648,9 +648,9 @@ function openCrmGradeToolsMenu(){
   if(g.columns.length){
     move += `<label class="crm-am-opt">${ic('down')}${tx('استيراد من Excel', 'ارفع ملفك')}
       <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="startCrmGradeImport(event);closeCrmModal()"></label>`;
-    move += opt('grid', 'قالب جاهز', 'بأسماء طلابك لتعبئته', `onclick="exportCrmGradeSheet('template', this)"`);
+    move += opt('grid', 'قالب جاهز', 'بأسماء طلابك لتعبئته', `onclick="exportCrmGradeSheet('template', this)"`, 'is-export');
   }
-  move += opt('up', 'تصدير الكشف', 'ملف Excel بكل الدرجات', `onclick="exportCrmGradeSheet('sheet', this)"`);
+  move += opt('up', 'تصدير الكشف', 'ملف Excel بكل الدرجات', `onclick="exportCrmGradeSheet('sheet', this)"`, 'is-export');
   html += `<div class="crm-am-item" data-am="move">${head('move', 'swap', 'نقل الدرجات', g.columns.length ? 'استيراد · قالب · تصدير' : 'تصدير')}<div class="crm-am-body">${move}</div></div>`;
   showInfoModal(html + '</div>', '420px');
 }
