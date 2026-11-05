@@ -478,7 +478,7 @@ function gradeReportPrintCss(mark){
     ? `@top-right{content:"${q(mark.right)}";${box}}@top-left{content:"${q(mark.left)}";${box}}` : '';
   return `@page{size:A4;margin:14mm 10mm 14mm;${top}@bottom-center{content:"صفحة " counter(page) " / " counter(pages);${box}}}`
     + '@page :first{@top-right{content:none}@top-left{content:none}}'
-    + '@media print{#printArea.wrap{max-width:none;padding-bottom:0}}';
+    + '@media print{#printArea.wrap{max-width:none;padding-bottom:0}.gr-pg{break-after:page;page-break-after:always}.gr-pg:last-child{break-after:auto;page-break-after:auto}}';
 }
 
 function gradeReportMark(prefs, title, label){
@@ -505,10 +505,10 @@ function gradeReportPrint(html, mark, title){
 }
 
 /* build() يُرجع { html, mark } أو '' (توقّف). التحميل غير المتزامن (شعب أخرى/فصل سابق) داخل build */
-async function gradeReportRun(btn, build, filename){
+async function gradeReportRun(btn, build, filename, busyText){
   if(gradeReportBusy) return;
   gradeReportBusy = true;
-  beginExportBusy(btn, 'جارٍ التجهيز...');
+  beginExportBusy(btn, busyText || 'جارٍ التجهيز...');
   try{
     const out = await build();
     if(!out || !out.html) return;
@@ -584,14 +584,30 @@ async function exportGradeReport(btn){
 }
 
 /* تقرير طالب واحد (لولي الأمر): من الكشف المحمَّل g — لا استعلام جديد */
-async function gradeReportStudentRun(g, id, btn){
+async function gradeReportStudentRun(g, id, btn, busyText){
   if(!g || !id || gradeReportBusy) return;
   const d = gradeReportStudentData(g, id);
   if(!d) return;
   const prefs = gradeReportPrefsNow();
   await gradeReportRun(btn, async () => {
     return { html: gradeReportStudentHtml(d, prefs, { date: new Date().toISOString().slice(0, 10) }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
-  }, gradeReportFile('تقرير-طالب', d.name));
+  }, gradeReportFile('تقرير-طالب', d.name), busyText);
+}
+
+/* كل طلاب الشعبة في ملف PDF واحد: تقرير لكل طالب بصفحة جديدة، ومن لم تُرصد درجاته يُستثنى */
+async function exportCrmAllStudentReports(btn){
+  const a = crmGradeAnalysis;
+  if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId || gradeReportBusy) return;
+  const g = a.g;
+  const prefs = gradeReportPrefsNow();
+  const date = new Date().toISOString().slice(0, 10);
+  const list = a.students.map(st => gradeReportStudentData(g, st.id)).filter(d => d && d.pts !== null);
+  if(!list.length){ showToast('لا طلاب لهم درجات مرصودة', 'error'); return; }
+  const skipped = a.students.length - list.length;
+  if(skipped) showToast(`${skipped} من الطلاب بلا درجات مرصودة — لم تُضمَّن تقاريرهم`, 'ok');
+  await gradeReportRun(btn, async () => {
+    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { date })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label) };
+  }, gradeReportFile('تقارير-الطلاب', a.label));
 }
 
 /* من صفحة الطالب في الكشف */
@@ -603,7 +619,7 @@ function exportCrmStudentReport(btn){
 function exportCrmStudentReportFor(id, btn){
   const a = crmGradeAnalysis;
   if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId) return;
-  return gradeReportStudentRun(a.g, id, btn);
+  return gradeReportStudentRun(a.g, id, btn, '…');
 }
 
 /* ============ خيارات التقارير (إعدادات المعلم) ============ */

@@ -405,6 +405,30 @@ test('تقرير ولي الأمر: زر «تقرير» بجانب كل اسم �
   assert.match(app.__calls[0].out.html, /أحمد/);
   assert.doesNotMatch(app.__calls[0].out.html, /بدر|جاسر|دخيل|عادل/, 'لا أسماء طلاب آخرين في تقرير ولي الأمر');
   assert.match(app.__calls[0].filename, /^تقرير-طالب-أحمد-/);
+  assert.match(app.__d, /title="تقرير الطالب لولي الأمر" onclick="exportCrmStudentReportFor\('a', this\)">⤓<\/button>/, 'سهم فقط بلا نص');
+});
+
+test('تقارير كل الطلاب: ملف واحد، تقرير لكل طالب بصفحة، ومن بلا درجات يُستثنى', async () => {
+  const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(x => x.student_id !== 'e') }); crmGradeAnalysis.g = crmGrades;
+    crmGradeAnalysis.tab = 'students'; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = exportCrmAllStudentReports(null);`);
+  await app.__p;
+  assert.match(app.__d, /exportCrmAllStudentReports\(this\)">⤓ تقارير كل الطلاب \(4\)/);
+  assert.equal(app.__calls.length, 1);
+  const h = app.__calls[0].out.html;
+  assert.equal((h.match(/class="gr-pg"/g) || []).length, 4, 'تقرير لكل طالب له درجات');
+  assert.doesNotMatch(h, /عادل/, 'من بلا درجات لا يُضمَّن');
+  for(const n of ['أحمد', 'بدر', 'جاسر', 'دخيل']) assert.match(h, new RegExp(n));
+  assert.match(app.__calls[0].filename, /^تقارير-الطلاب-/);
+  assert.match(app.__calls[0].out.mark.right, /تقارير أداء الطلاب/);
+  assert.match(fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8'), /\.gr-pg\{break-after:page/, 'فاصل صفحة بين التقارير عند الطباعة');
+});
+
+test('تقارير كل الطلاب: لا تعمل لو تبدّلت الشعبة المعروضة', async () => {
+  const app = opened(`window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
+    crmGrades = Object.assign({}, crmGrades, { sectionId: 'S2' }); exportCrmAllStudentReports(null);`);
+  assert.equal(app.__calls.length, 0);
 });
 
 test('تقرير ولي الأمر: لا يعمل لو تبدّلت الشعبة المعروضة، ولا لطالب ليس في الشعبة', async () => {

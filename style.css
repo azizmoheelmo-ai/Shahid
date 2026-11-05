@@ -2264,7 +2264,9 @@ button.crm-gs-strip-btn:hover{background:#F1EEE6;}
 .crm-ga-rowwrap{display:flex;align-items:center;border-bottom:1px solid #F3EFE6;}
 .crm-ga-rowwrap:last-child{border-bottom:0;}
 .crm-ga-rowwrap .crm-ga-name{flex:1;border-bottom:0;}
-.crm-ga-rep{flex:0 0 auto;min-width:72px;min-height:40px;margin:0 6px;padding:4px 8px;background:#fff;border:1.5px solid var(--navy);border-radius:10px;font-family:inherit;font-size:12px;font-weight:800;color:var(--navy);cursor:pointer;}
+.crm-ga-allrep{display:block;width:100%;min-height:42px;margin:0 0 10px;padding:6px 10px;background:#fff;border:1.5px solid var(--navy);border-radius:10px;font-family:inherit;font-size:13px;font-weight:800;color:var(--navy);cursor:pointer;}
+.crm-ga-allrep:disabled{opacity:.6;cursor:default;}
+.crm-ga-rep{flex:0 0 auto;width:40px;min-height:40px;margin:0 6px;padding:0;font-size:16px;line-height:1;background:#fff;border:1.5px solid var(--navy);border-radius:10px;font-family:inherit;font-weight:800;color:var(--navy);cursor:pointer;}
 .crm-ga-rep:disabled{opacity:.6;cursor:default;}
 .crm-ga-pane{min-height:120px;}
 .crm-ga-bot{position:sticky;bottom:-24px;z-index:2;background:#fff;padding:10px 0 26px;margin-top:10px;border-top:1px solid var(--line);box-shadow:0 -10px 10px -10px rgba(16,30,43,.25);}

@@ -251,7 +251,7 @@ function gaNamesHtml(a, key, list){
   const all = a.showAll === key;
   const shown = all ? list : list.slice(0, GRADE_ANALYSIS_NAMES_PREVIEW);
   const bounds = gradeAnalysisBounds();
-  let html = '<div class="crm-ga-names">' + shown.map(r => `<div class="crm-ga-rowwrap"><button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${gradeAnalysisPctShown(r.pct, bounds)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button><button type="button" class="crm-ga-rep" aria-label="تقرير الطالب ${escapeHtml(r.name)} لولي الأمر (PDF)" onclick="exportCrmStudentReportFor('${escapeHtml(r.id)}', this)">⤓ تقرير</button></div>`).join('');
+  let html = '<div class="crm-ga-names">' + shown.map(r => `<div class="crm-ga-rowwrap"><button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${gradeAnalysisPctShown(r.pct, bounds)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button><button type="button" class="crm-ga-rep" aria-label="تقرير الطالب ${escapeHtml(r.name)} لولي الأمر (PDF)" title="تقرير الطالب لولي الأمر" onclick="exportCrmStudentReportFor('${escapeHtml(r.id)}', this)">⤓</button></div>`).join('');
   if(list.length > GRADE_ANALYSIS_NAMES_PREVIEW) html += `<button type="button" class="crm-ga-more" onclick="toggleCrmGaShowAll('${key}')">${all ? 'عرض أقل ⌃' : `عرض الكل (${list.length}) ⌄`}</button>`;
   return html + '</div>';
 }
@@ -305,7 +305,7 @@ function gaOverviewHtml(a, v){
 function gaStudentsHtml(a, v){
   const s = v.stats;
   const lists = gaLevelLists(s);
-  let html = '';
+  let html = s.recorded ? `<button type="button" class="crm-ga-allrep" onclick="exportCrmAllStudentReports(this)">⤓ تقارير كل الطلاب (${s.recorded}) — ملف واحد</button>` : '';
   GRADE_ANALYSIS_LEVELS.forEach(lv => {
     const list = lists[lv.key];
     const on = a.open === lv.key && list.length;
@@ -313,7 +313,7 @@ function gaStudentsHtml(a, v){
     if(on) html += gaNamesHtml(a, lv.key, list);
     html += '</div>';
   });
-  return html + '<p class="crm-ga-fine">الأسماء من الأدنى إلى الأعلى نسبةً في المستويات الثلاثة الأولى، ومن الأعلى في «جيد» و«متفوقون». اضغط اسمًا لفتح صفحة الطالب، أو «تقرير» لتقرير PDF لولي الأمر.</p>';
+  return html + '<p class="crm-ga-fine">الأسماء من الأدنى إلى الأعلى نسبةً في المستويات الثلاثة الأولى، ومن الأعلى في «جيد» و«متفوقون». اضغط اسمًا لفتح صفحة الطالب، أو السهم ⤓ بجانبه لتقرير PDF لولي الأمر.</p>';
 }
 
 /* شريط التصدير: PDF وExcel زرّان ظاهران دائمًا (نقرتان من فتح التحليل)، والخيارات مطوية */
