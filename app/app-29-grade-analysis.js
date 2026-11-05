@@ -122,7 +122,7 @@ function openCrmGradeAnalysis(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
   const prefs = gradeReportPrefsNow();
-  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, showAll: null, tab: 'overview', detOpen: false, exportOpen: false, withNames: prefs.show.names, withNotes: gradeReportNotesAny(prefs), scope: 'section', repFor: null, repStep: 'to', repScope: 'all', repOther: false, reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
+  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, showAll: null, tab: 'overview', detOpen: false, exportOpen: false, withNames: prefs.show.names, withNotes: gradeReportNotesAny(prefs), scope: 'section', cmpAuto: false, cmpTouched: false, repFor: null, repStep: 'to', repScope: 'all', repOther: false, reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
   const a = crmGradeAnalysis;
   a.open = gradeAnalysisDefaultOpen(a);
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
@@ -169,6 +169,7 @@ function setCrmGaTab(tab){
   if(!a) return;
   a.tab = tab === 'students' || tab === 'compare' ? tab : 'overview';
   a.repFor = null;
+  if(a.tab === 'compare') autoOpenCrmGaCompare(a);
   paintCrmGradeAnalysis();
 }
 
@@ -381,6 +382,10 @@ function gaOverviewHtml(a, v){
     const n = lists[lv.key].length;
     html += `<button type="button" class="crm-ga-lv gs-grp-${lv.tone}" ${n ? '' : 'disabled'} onclick="openCrmGaLevel('${lv.key}')"><b class="crm-ga-lvn">${n}</b><span class="crm-ga-lvt">${gaLevelLabel(lv, s)}${gaGroupRangeHtml(lv.key, s, v.displayMax)}</span><span class="crm-am-chev" aria-hidden="true">‹</span></button>`;
   });
+  /* «أين الصعوبة؟» (كانت بطاقة في المقارنات وليست مقارنة): سطر واحد إن وُجد اختبار صعب، والتفصيل داخل «تفاصيل إحصائية» — للمجموع فقط */
+  const diffList = a.key === 'total' ? gradeColumnDifficulty(a.g.columns, a.g.scores, a.students.map(x => x.id)) : [];
+  const hardCol = hardestGradeColumn(diffList);
+  if(hardCol) html += `<div class="crm-ga-card">⚠ أصعب اختبار: <b>${escapeHtml(hardCol.name)}</b> — ${hardCol.low} من ${hardCol.recorded} ${gradeAnalysisLowLabel()}</div>`;
   const tile = (val, label, sub) => `<div class="crm-ga-tile"><b>${val}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
   html += `<button type="button" class="crm-ga-det${a.detOpen ? ' open' : ''}" aria-expanded="${!!a.detOpen}" onclick="toggleCrmGaDetails()"><span>تفاصيل إحصائية</span><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
   if(a.detOpen){
@@ -388,7 +393,7 @@ function gaOverviewHtml(a, v){
       ${tile(gradeAnalysisPts(s.median), 'الوسيط', 'من ' + formatScore(v.displayMax))}
       ${tile(`${gradeAnalysisPts(s.min)} إلى ${gradeAnalysisPts(s.max)}`, 'أدنى وأعلى درجة', 'من ' + formatScore(v.displayMax))}
       ${tile(s.avgPct === null ? '—' : `<bdi dir="ltr">${s.avgPct}%</bdi>`, 'متوسط النسبة', '')}
-    </div>${gaDistHtml(a, v)}<div class="crm-ga-sechead"><button type="button" class="crm-ga-link" onclick="openCrmGaRulesEditor()">⚙ تعديل حدود المستويات</button></div></div>`;
+    </div>${gaDistHtml(a, v)}${diffList.length ? `<div class="crm-ga-sec">أين الصعوبة؟ (متوسط كل عمود)</div>${gaDiffHtml(a)}` : ''}<div class="crm-ga-sechead"><button type="button" class="crm-ga-link" onclick="openCrmGaRulesEditor()">⚙ تعديل حدود المستويات</button></div></div>`;
   }
   return html;
 }

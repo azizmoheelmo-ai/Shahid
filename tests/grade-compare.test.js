@@ -113,12 +113,55 @@ function opened(extra, client){
   return app;
 }
 
-test('الواجهة: «أين الصعوبة؟» تُظهر أصعب اختبار وما يقيسه مُهرَّبًا', async () => {
-  const app = opened(`crmGradeAnalysis.tab = 'compare'; crmGradeAnalysis.cmp = 'diff'; window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+test('«أين الصعوبة؟» في نظرة عامة: سطر أصعب اختبار، والتفصيل داخل «تفاصيل إحصائية»، وللمجموع فقط', async () => {
+  const app = opened(`const a = crmGradeAnalysis; window.__closed = crmGradeAnalysisHtml(a); a.detOpen = true; window.__h = crmGradeAnalysisHtml(a);
+    a.key = 't1'; window.__col = crmGradeAnalysisHtml(a);`);
+  assert.match(app.__closed, /⚠ أصعب اختبار: <b>اختبار ١<\/b> — 2 من 3 تحت النصف/);
+  assert.doesNotMatch(app.__closed, /أين الصعوبة/, 'التفصيل مطوي افتراضيًا');
+  assert.match(app.__h, /أين الصعوبة؟ \(متوسط كل عمود\)/);
   assert.match(app.__h, /أصعب اختبار: اختبار ١/);
-  assert.match(app.__h, /2 من 3 تحت النصف \(67%\)/);
+  assert.match(app.__h, /2 من 3 تحت النصف \(<bdi dir="ltr">67%<\/bdi>\)/, 'النسبة معزولة اتجاهيًا فلا تنقلب «(%67)»');
   assert.match(app.__h, /يقيس: الكسور &lt;b&gt;/);
   assert.doesNotMatch(app.__h, /الكسور <b>/);
+  assert.doesNotMatch(app.__col, /أصعب اختبار|أين الصعوبة/, 'عمود بعينه: لا تحليل أعمدة');
+});
+
+test('تبويب المقارنات: بطاقتان فقط (الشعب · الفصل السابق)، واسم الشعبة مختصر', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'compare'; crmGradeAnalysis.cmpTouched = true; window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);
+    crmSectionLabel = id => 'ثالث ثانوي — الشعبة ' + id; window.__a = gaShortSectionLabel('5'); window.__b = (crmSectionLabel = () => 'ثاني/٦', gaShortSectionLabel('S'));`);
+  assert.equal((app.__h.match(/toggleCrmGaCompare\('/g) || []).length, 2);
+  assert.doesNotMatch(app.__h, /toggleCrmGaCompare\('diff'\)|أين الصعوبة/);
+  assert.match(app.__h, /من تغيّر عن الفصل السابق؟/);
+  assert.equal(app.__a, 'الشعبة 5');
+  assert.equal(app.__b, 'ثاني/٦', 'تسمية بلا فاصل تبقى كما هي');
+});
+
+test('أول دخول للمقارنات: تُفتح «الفصل السابق» تلقائيًا، فإن لم يوجد سابق تُفتح «الشعب»، وبعد تحكّم المعلم لا تُفتح ثانية', async () => {
+  const app = opened(`loadGradeSheetsRaw = async ids => ids.map(id => ({ id, columns: [], scores: [] }));
+    window.__a = crmGradeAnalysis; setCrmGaTab('compare'); window.__first = __a.cmp;`);
+  assert.equal(app.__first, 'prev');
+  await new Promise(r => setTimeout(r, 20));
+  runInAppContext(app, `window.__second = __a.cmp; window.__sibLoaded = !!__a.sib;`);
+  assert.equal(app.__second, 'sib', 'لا كشف سابق ← مقارنة الشعب');
+  assert.equal(app.__sibLoaded, true);
+  runInAppContext(app, `toggleCrmGaCompare('sib'); window.__closed = __a.cmp; setCrmGaTab('overview'); setCrmGaTab('compare'); window.__again = __a.cmp;`);
+  assert.equal(app.__closed, null);
+  assert.equal(app.__again, null, 'المعلم أغلقها: لا تُفتح تلقائيًا من جديد');
+});
+
+test('تنبيه التغطية: عدد الأعمدة المرصودة المختلف بين الشعب/الفصول يُنبَّه عليه للمجموع فقط', async () => {
+  const app = opened(`
+    crmStudents.push({ id: 'x', full_name: 'ط', section_id: 'T' });
+    const a = crmGradeAnalysis; a.tab = 'compare'; a.cmp = 'sib'; a.cmpTouched = true;
+    a.sib = { status: 'ready', data: [{ id: 'T', columns: [{ id: 'q1', section_id: 'T', category: 'tests', name: 'اختبار ١', max_score: 20, kind: 'manual' }], scores: [{ column_id: 'q1', student_id: 'x', score: 20 }] }] };
+    window.__tot = crmGradeAnalysisHtml(a);
+    a.key = 't1'; window.__col = crmGradeAnalysisHtml(a);
+    a.key = 'total'; a.cmp = 'prev';
+    a.prev = { status: 'ready', data: { id: 'S', columns: [{ id: 'o1', section_id: 'S', category: 'performance', name: 'أداء', max_score: 40, kind: 'manual' }], scores: [{ column_id: 'o1', student_id: 'a', score: 20 }, { column_id: 'o1', student_id: 'b', score: 30 }] } };
+    window.__prev = crmGradeAnalysisHtml(a);`);
+  assert.match(app.__tot, /عدد الأعمدة المرصودة يختلف بين الشعب \(\d+ · \d+\)/);
+  assert.doesNotMatch(app.__col, /عدد الأعمدة المرصودة يختلف/);
+  assert.match(app.__prev, /عدد الأعمدة المرصودة الآن 2 وفي الفصل السابق 1/);
 });
 
 test('الواجهة: مقارنة الشعب معطّلة بلا شعب أخرى للصف، ومفتوحة مع شعبة أخرى', async () => {
