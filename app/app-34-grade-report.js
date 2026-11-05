@@ -662,9 +662,10 @@ function gradeReportEditorHtml(){
     <p class="crm-ga-fine" style="margin-top:0">تُطبَّق على كل تقاريرك: الشعبة والبند ومجموعة الشعب والطالب.</p>
     ${fld('school', 'اسم المدرسة', gradeReportSchool({ school: '' }) ? 'تلقائي: ' + gradeReportSchool({ school: '' }) : 'مثال: ثانوية بدر')}
     ${fld('teacher', 'اسم المعلم', auto ? 'تلقائي: ' + auto : 'اسم المعلم')}
-    <details class="gr-more"><summary>خيارات إضافية: المادة · الوكيل · ما يُطبع</summary>
-    ${fld('subject', 'المادة', gradeReportSubject({ subject: '' }) ? 'تلقائي: ' + gradeReportSubject({ subject: '' }) : 'مثال: الفيزياء')}
     ${fld('vice', 'وكيل شؤون الطلاب', 'يظهر في التوقيع')}
+    <p class="crm-ga-fine">تُدخلها مرة واحدة فتُحفظ وتظهر في كل تقاريرك، وتعدّلها متى شئت.</p>
+    <details class="gr-more"><summary>خيارات إضافية: المادة · ما يُطبع</summary>
+    ${fld('subject', 'المادة', gradeReportSubject({ subject: '' }) ? 'تلقائي: ' + gradeReportSubject({ subject: '' }) : 'مثال: الفيزياء')}
     <div class="crm-ga-sec" style="margin-top:12px">ما يُطبع في التقرير</div>
     ${Object.keys(GRADE_REPORT_SHOW_LABELS).map(k => chk('show', k, GRADE_REPORT_SHOW_LABELS[k])).join('')}
     <div class="crm-ga-sec" style="margin-top:12px">التعليق التربوي (اختياري — مطفأ افتراضيًا)</div>

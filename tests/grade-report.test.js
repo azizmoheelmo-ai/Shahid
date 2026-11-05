@@ -524,14 +524,16 @@ test('تقرير ولي الأمر: لا يعمل لو تبدّلت الشعبة
   assert.equal(app.__calls.length, 0);
 });
 
-test('محرّر الخيارات: الحقلان الأساسيان ظاهران، والبقية داخل «خيارات إضافية»', async () => {
+test('محرّر الخيارات: المدرسة والمعلم والوكيل ظاهرة (تُحفظ مرة واحدة)، والبقية داخل «خيارات إضافية»', async () => {
   const app = opened(`openGradeReportEditor('ga'); window.__d = gradeReportEditorHtml();`);
   const [head, more] = app.__d.split('<details class="gr-more">');
   assert.ok(more, 'قسم الخيارات الإضافية موجود');
   assert.match(head, /id="grFld_school"/);
   assert.match(head, /id="grFld_teacher"/);
-  assert.doesNotMatch(head, /grFld_vice|grFld_subject/);
-  assert.match(more, /grFld_vice/);
+  assert.match(head, /id="grFld_vice"/, 'وكيل الشؤون ظاهر بلا فتح خيارات إضافية');
+  assert.match(head, /تُدخلها مرة واحدة فتُحفظ/);
+  assert.doesNotMatch(head, /grFld_subject/);
+  assert.doesNotMatch(more, /grFld_vice/);
   assert.match(more, /grFld_subject/);
   assert.match(more, /ما يُطبع في التقرير/);
 });
