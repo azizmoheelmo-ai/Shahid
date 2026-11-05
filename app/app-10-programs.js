@@ -946,34 +946,16 @@ function buildProgramSummaryHtml(program){
   </div>`;
 }
 
-function printProgramSummary(programId, evt){
+async function printProgramSummary(programId, evt){
   const p = activityPrograms.find(x => String(x.id) === String(programId));
   if(!p) return;
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
-    document.getElementById('printArea').innerHTML = buildProgramSummaryHtml(p);
-    printNow();
-  } finally { endExportBusy(btn); }
-}
-
-async function exportProgramSummaryPdf(programId, evt){
-  const p = activityPrograms.find(x => String(x.id) === String(programId));
-  if(!p) return;
-  const btn = evt ? evt.target.closest('button') : null;
-  beginExportBusy(btn, 'جارٍ التجهيز...');
-  try{
-    await ensurePdfLibs();
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    const area = document.getElementById('pdfRenderArea');
-    /* addPdfPage معرَّفة في app-08-admin.js (تُحمَّل قبل هذا الملف) */
-    await addPdfPage(pdf, area, buildProgramSummaryHtml(p), { firstPage: true });
-    const dateStr = new Date().toISOString().slice(0, 10);
-    pdf.save(`Program-${dateStr}.pdf`);
-    showToast('تم تصدير ملخص البرنامج بنجاح', 'ok');
+    /* نص حقيقي (app-35): الملخص صفحة واحدة تُضبط على A4 كما كان تصدير PDF */
+    await printPages([{ html: buildProgramSummaryHtml(p), fit: 'page' }], printFileTitle('ملخص-البرنامج'));
   } catch(err){
-    showToast('تعذّر التصدير: ' + err.message, 'error');
+    showToast('تعذّر تجهيز الطباعة: ' + err.message, 'error');
   } finally {
     endExportBusy(btn);
   }

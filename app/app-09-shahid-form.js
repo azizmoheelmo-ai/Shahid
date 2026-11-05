@@ -1577,7 +1577,7 @@ async function buildRecordPdfBlob(rec){
   return pdf.output('blob');
 }
 
-/* ============ تصدير كل الشواهد المحفوظة كملف PDF واحد ============ */
+/* ============ طباعة كل الشواهد المحفوظة / حفظها PDF واحدًا بنص حقيقي (app-35) ============ */
 async function exportAllShawahid(){
   if(!myRecords.length){
     showToast('لا توجد شواهد محفوظة للتصدير بعد.', 'error');
@@ -1585,12 +1585,9 @@ async function exportAllShawahid(){
   }
 
   const btn = document.getElementById('exportAllBtn');
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  activeExportCount++;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
 
   try{
-    await ensurePdfLibs();
     const elements = getElementsOrder();
     const orderIndex = {};
     elements.forEach((e, i) => orderIndex[e.key] = i);
@@ -1602,35 +1599,26 @@ async function exportAllShawahid(){
       return new Date(a.created_at) - new Date(b.created_at);
     });
 
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    const area = document.getElementById('pdfRenderArea');
-    const pageState = { firstPage: true };
-
+    const pages = [];
     for(let i = 0; i < sorted.length; i++){
       const rec = sorted[i];
-      btn.textContent = `جارٍ التجهيز (${i+1}/${sorted.length})...`;
+      setExportBusyText(btn, `جارٍ التجهيز (${i + 1}/${sorted.length})...`);
 
       let photoDataUrls = [];
       if(rec.photo_urls && rec.photo_urls.length){
         const results = await Promise.all(rec.photo_urls.filter(isImageUrl).map(toDataUrl));
         photoDataUrls = results.filter(Boolean);
       }
-
-      /* addPdfPage معرَّفة في app-08-admin.js — هامش صفحة حقيقي بدل الالتصاق بحافتها */
-      await addPdfPage(pdf, area, buildPdfHtml(rec, photoDataUrls), pageState);
+      /* كل شاهد صفحة كاملة تُضبط على A4 (fit:'page') كما كان في التصدير القديم */
+      pages.push({ html: buildPdfHtml(rec, photoDataUrls), fit: 'page' });
     }
 
-    const teacherName = (currentUser.user_metadata && currentUser.user_metadata.full_name) || 'Teacher';
-    const dateStr = new Date().toISOString().slice(0, 10);
-    pdf.save(`All-Shawahid-${dateStr}.pdf`);
-    showToast(`تم تصدير ${sorted.length} شاهدًا بنجاح`, 'ok');
+    await printPages(pages, printFileTitle('كل-الشواهد'));
+    showToast(`جُهّز ${sorted.length} شاهدًا للطباعة`, 'ok');
   } catch(err){
-    showToast('تعذّر التصدير: ' + err.message, 'error');
+    showToast('تعذّر التجهيز: ' + err.message, 'error');
   } finally {
-    activeExportCount = Math.max(0, activeExportCount - 1);
-    btn.disabled = false;
-    btn.textContent = originalText;
+    endExportBusy(btn);
   }
 }
 
