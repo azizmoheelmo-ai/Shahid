@@ -205,10 +205,9 @@ let activeExportCount = 0;
    للعنوان والوصف (.hb-title/.hb-sub) — استبدال textContent الزر كاملًا بها
    يُسطِّح هذا التركيب ولا يُعاد بناؤه صحيحًا عند "الاستعادة". فنحدّث نص
    العنصر الفرعي .hb-sub لو وُجد (يبقى العنوان كما هو، فقط الوصف يتحوّل
-   لرسالة التقدّم)، وكذلك .xb-label في أزرار التصدير ذات الأيقونة (<i class="bi"> + <span class="xb-label">)،
-   وإلا الزر نفسه لو كان نصًا مسطّحًا عاديًا. */
+   لرسالة التقدّم)، وإلا الزر نفسه لو كان نصًا مسطّحًا عاديًا. */
 function exportBusyTextTarget(btn){
-  return btn ? (btn.querySelector('.hb-sub') || btn.querySelector('.xb-label') || btn) : null;
+  return btn ? (btn.querySelector('.hb-sub') || btn) : null;
 }
 
 /* busyText اختياري — التعطيل (disabled) وحده كافٍ لو لم يُطلب نص محدّد

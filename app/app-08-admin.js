@@ -315,8 +315,8 @@ function adminRenderRecCard(r){
       <div class="rec-desc">${escapeHtml(descSnippet)}${(r.description||'').length > 140 ? '…' : ''}</div>
       ${photosHtml}
       <div class="rec-actions">
-        <button class="btn btn-export btn-x xb-pill" onclick="adminPrintRecord('${r.id}', event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
-        <button class="btn btn-danger btn-sm" onclick="adminDeleteRecord('${r.id}')"><span class="chip"><i class="bi bi-trash"></i></span>حذف</button>
+        <button class="btn btn-outline" onclick="adminPrintRecord('${r.id}', event)">طباعة</button>
+        <button class="btn btn-danger" onclick="adminDeleteRecord('${r.id}')">حذف</button>
       </div>
     </div>`;
 }
