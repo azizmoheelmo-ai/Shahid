@@ -162,6 +162,11 @@ async function loadGradeCompare(a, kind){
     }
     if(crmGradeAnalysis !== a) return;
     a[kind] = { status: 'ready', data };
+    /* فُتحت تلقائيًا ولا كشف سابق: ننتقل لمقارنة الشعب إن وُجدت (ما لم يتحكّم المعلم بالبطاقات) */
+    if(kind === 'prev' && !data && a.cmpAuto && !a.cmpTouched && a.cmp === 'prev' && gradeSiblingSectionIds(a.g).length){
+      a.cmp = 'sib';
+      return loadGradeCompare(a, 'sib');
+    }
   } catch(err){
     if(crmGradeAnalysis !== a) return;
     a[kind] = { status: 'error' };
@@ -171,14 +176,34 @@ async function loadGradeCompare(a, kind){
 
 /* ============ الواجهة ============ */
 const GRADE_COMPARE_ITEMS = [
-  { key: 'diff', label: 'أين الصعوبة؟', sub: 'متوسط كل عمود' },
   { key: 'sib', label: 'مقارنة بشعب الصف', sub: 'هل الضعف في الشعبة أم الدرس؟' },
-  { key: 'prev', label: 'مقارنة بالفصل السابق', sub: 'من تحسّن ومن تراجع' }
+  { key: 'prev', label: 'من تغيّر عن الفصل السابق؟', sub: 'من تحسّن ومن تراجع' }
 ];
+
+/* عدد الأعمدة التي رُصد فيها شيء بالكشف: اختلافه بين شعبتين/فصلين يجعل مقارنة «المجموع» غير عادلة */
+function gradeRecordedColumnCount(sheet){
+  const withScores = new Set((sheet.scores || []).map(x => x.column_id));
+  return (sheet.columns || []).filter(c => withScores.has(c.id)).length;
+}
+
+/* «ثالث ثانوي — الشعبة 5» ← «الشعبة 5» (كلها من الصف نفسه، فلا داعي لتكرار اسمه) */
+function gaShortSectionLabel(id){
+  const parts = String(crmSectionLabel(id)).split(' — ');
+  return parts.length > 1 ? parts[parts.length - 1] : parts[0];
+}
+
+/* أول دخول لتبويب «مقارنات»: تُفتح أقوى بطاقة (الفصل السابق) تلقائيًا؛ وإن لم يكن لها كشف سابق وللمعلم شعب أخرى تُفتح «الشعب» */
+function autoOpenCrmGaCompare(a){
+  if(a.cmp !== null || a.cmpTouched) return;
+  a.cmpAuto = true;
+  a.cmp = 'prev';
+  loadGradeCompare(a, 'prev');
+}
 
 function toggleCrmGaCompare(key){
   const a = crmGradeAnalysis;
   if(!a) return;
+  a.cmpTouched = true;
   a.cmp = a.cmp === key ? null : key;
   if(a.cmp === 'sib' || a.cmp === 'prev') loadGradeCompare(a, a.cmp);
   else paintCrmGradeAnalysis();
@@ -228,7 +253,7 @@ function gaCompareHtml(a, v){
     const off = it.key === 'sib' && !sibIds.length;
     const on = a.cmp === it.key && !off;
     html += `<div class="crm-ga-grp${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${on}" ${off ? 'disabled' : ''} onclick="toggleCrmGaCompare('${it.key}')"><span>${it.label}<small>${off ? 'لا شعب أخرى لهذا الصف' : it.sub}</small></span><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
-    if(on) html += '<div class="crm-ga-cmp">' + (it.key === 'diff' ? gaDiffHtml(a) : it.key === 'sib' ? gaSibHtml(a) : gaPrevHtml(a)) + '</div>';
+    if(on) html += '<div class="crm-ga-cmp">' + (it.key === 'sib' ? gaSibHtml(a) : gaPrevHtml(a)) + '</div>';
     html += '</div>';
   });
   return html;
@@ -241,7 +266,7 @@ function gaDiffHtml(a){
   const tone = p => p < gradeAnalysisPassPct() ? 'lo' : p < 70 ? 'mid' : 'hi';
   let html = list.map(x => gaCmpBar(escapeHtml(x.name), x.avgPct, '', tone(x.avgPct), hard && hard.id === x.id ? ' ⚠' : '')).join('');
   html += hard
-    ? `<div class="crm-ga-card"><b>أصعب اختبار: ${escapeHtml(hard.name)}</b><br>${hard.low} من ${hard.recorded} ${gradeAnalysisLowLabel()} (${Math.round(100 * hard.low / hard.recorded)}%).${hard.measures ? `<br>يقيس: ${escapeHtml(hard.measures)}<br><small>← فكّر في إعادة شرحه قبل الانتقال.</small>` : ''}</div>`
+    ? `<div class="crm-ga-card"><b>أصعب اختبار: ${escapeHtml(hard.name)}</b><br>${hard.low} من ${hard.recorded} ${gradeAnalysisLowLabel()} (<bdi dir="ltr">${Math.round(100 * hard.low / hard.recorded)}%</bdi>).${hard.measures ? `<br>يقيس: ${escapeHtml(hard.measures)}<br><small>← فكّر في إعادة شرحه قبل الانتقال.</small>` : ''}</div>`
     : list.some(x => x.category === 'tests') ? '<div class="crm-ga-card">لا اختبار تحته 30% من الطلاب دون النصف ✓</div>' : '';
   return html + '<p class="crm-ga-fine">الأعمدة تختلف في صعوبتها أصلًا، فلا تُقارن عمودًا بآخر حكمًا على الطلاب.</p>';
 }
@@ -253,14 +278,16 @@ function gaSibHtml(a){
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
   const testsOn = appToolOn('tests');
   const spec = gradeSpecOf(a);
-  const items = [{ id: a.g.sectionId, mine: true, map: gradePctMap(a.g, a.students, spec, caps, testsOn) }].concat(
-    st.data.map(d => ({ id: d.id, mine: false, map: gradePctMap(d, crmStudentsOfSection(d.id), spec, caps, testsOn) })));
+  const items = [{ id: a.g.sectionId, mine: true, n: gradeRecordedColumnCount(a.g), map: gradePctMap(a.g, a.students, spec, caps, testsOn) }].concat(
+    st.data.map(d => ({ id: d.id, mine: false, n: gradeRecordedColumnCount(d), map: gradePctMap(d, crmStudentsOfSection(d.id), spec, caps, testsOn) })));
   const rated = items.filter(x => x.map && x.map.size).map(x => Object.assign(x, { mean: gradeMeanPct(x.map) })).sort((p, q) => q.mean - p.mean);
   if(rated.length < 2) return '<div class="crm-ga-empty">لا درجات مرصودة لهذا العمود في شعبة أخرى بعد.</div>';
   const tone = p => p < gradeAnalysisPassPct() ? 'lo' : p < 70 ? 'mid' : 'hi';
-  let html = rated.map(x => gaCmpBar(escapeHtml(crmSectionLabel(x.id)) + (x.mine ? ' ★' : ''), x.mean, `${x.map.size} طالبًا`, tone(x.mean))).join('');
+  let html = rated.map(x => gaCmpBar(escapeHtml(gaShortSectionLabel(x.id)) + (x.mine ? ' ★' : ''), x.mean, `${x.map.size} طالبًا`, tone(x.mean))).join('');
   const gap = rated[0].mean - rated[rated.length - 1].mean;
   html += `<div class="crm-ga-card">الفارق بين أعلى شعبة وأدنى شعبة: <b>${gap}</b> نقطة مئوية.${a.key === 'total' ? '<br><small>اختر عمودًا من الأعلى لتعرف هل الفرق في درس بعينه.</small>' : ''}</div>`;
+  const counts = rated.map(x => x.n);
+  if(a.key === 'total' && new Set(counts).size > 1) html += `<div class="crm-ga-note">عدد الأعمدة المرصودة يختلف بين الشعب (${counts.join(' · ')})، فالفارق قد لا يعكس الأداء وحده. اختر عمودًا من الأعلى لمقارنة عادلة.</div>`;
   const missing = items.length - rated.length;
   return html + (missing ? `<p class="crm-ga-fine">${missing} شعبة بلا رصد لهذا العمود لم تدخل المقارنة.</p>` : '') + '<p class="crm-ga-fine">★ شعبتك. المقارنة بين شعبك أنت فقط.</p>';
 }
@@ -279,8 +306,10 @@ function gaPrevHtml(a){
   const sum = gradeChangeSummary(nowMap, prevMap);
   if(!sum.compared) return '<div class="crm-ga-empty">لا طلاب لهم درجات في الفصلين معًا.</div>';
   const names = new Map(a.students.map(s => [s.id, s.full_name]));
+  const nowCols = gradeRecordedColumnCount(a.g), prevCols = gradeRecordedColumnCount(st.data);
+  const cover = a.key === 'total' && nowCols !== prevCols ? `<div class="crm-ga-note">عدد الأعمدة المرصودة الآن ${nowCols} وفي الفصل السابق ${prevCols}، فقد لا تعكس الفروق الأداء وحده. اختر عمودًا من الأعلى لمقارنة عادلة.</div>` : '';
   const tile = (n, label, tone) => `<div class="crm-ga-tile${tone ? ' gs-tone-' + tone : ''}"><b>${n}</b><span>${label}</span></div>`;
-  let html = `<div class="crm-ga-tiles">${tile(sum.up.length, 'تحسّنوا', 'hi')}${tile(sum.compared - sum.up.length - sum.down.length, 'مستقرون')}${tile(sum.down.length, 'تراجعوا', sum.down.length ? 'lo' : '')}</div>`;
+  let html = cover + `<div class="crm-ga-tiles">${tile(sum.up.length, 'تحسّنوا', 'hi')}${tile(sum.compared - sum.up.length - sum.down.length, 'مستقرون')}${tile(sum.down.length, 'تراجعوا', sum.down.length ? 'lo' : '')}</div>`;
   [['down', 'تراجعوا', 'lo'], ['up', 'تحسّنوا', 'hi']].forEach(([k, label, t]) => {
     const list = sum[k];
     const on = a.prevOpen === k && list.length;
