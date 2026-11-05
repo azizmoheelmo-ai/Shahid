@@ -1111,8 +1111,8 @@ function buildPlanHtml(asDraft){
     </div>`;
 }
 
-/* طباعة الخطة مباشرة عبر نافذة الطباعة */
-function printPlan(evt){
+/* طباعة الخطة / حفظها PDF بنص حقيقي (app-35) */
+async function printPlan(evt){
   const html = buildPlanHtml();
   if(!html){
     showToast('لم تحدد أي مستهدف بعد — عبّئ خطتك أولًا.', 'error');
@@ -1121,8 +1121,9 @@ function printPlan(evt){
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
-    document.getElementById('printArea').innerHTML = html;
-    printNow();
+    await printPages([{ html, fit: 'width' }], printFileTitle('خطة-الأداء'));
+  } catch(err){
+    showToast('تعذّر تجهيز الطباعة: ' + err.message, 'error');
   } finally { endExportBusy(btn); }
 }
 
@@ -1237,33 +1238,6 @@ async function addPdfPagesMulti(pdf, area, html, state){
   }
 }
 
-/* تحميل الخطة كملف PDF على الجهاز */
-async function exportPlanPdf(evt){
-  const html = buildPlanHtml();
-  if(!html){
-    showToast('لم تحدد أي مستهدف بعد — عبّئ خطتك أولًا.', 'error');
-    return;
-  }
-  const btn = evt ? evt.target.closest('button') : null;
-  beginExportBusy(btn, 'جارٍ التجهيز...');
-  showToast('جارٍ تجهيز ملف الخطة...', 'ok');
-  try{
-    await ensurePdfLibs();
-
-    const area = document.getElementById('pdfRenderArea');
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    await addPdfPagesMulti(pdf, area, html, { firstPage: true });
-
-    pdf.save(`Performance-Plan-${new Date().toISOString().slice(0,10)}.pdf`);
-    showToast('تم تحميل ملف الخطة', 'ok');
-  } catch(err){
-    showToast('تعذّر التصدير: ' + err.message, 'error');
-  } finally {
-    endExportBusy(btn);
-  }
-}
-
 /* يبني قالب ورقة التقييم الذاتي — يُستخدم للتحميل والطباعة معًا */
 async function buildSelfAssessmentHtml(){
   await loadPlan();
@@ -1363,7 +1337,7 @@ async function buildSelfAssessmentHtml(){
   }
 }
 
-/* طباعة ورقة التقييم الذاتي */
+/* طباعة ورقة التقييم الذاتي / حفظها PDF بنص حقيقي (app-35) */
 async function printSelfAssessment(evt){
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
@@ -1373,37 +1347,10 @@ async function printSelfAssessment(evt){
       showToast('لم تُقيّم أي عنصر بعد — عبّئ التقييم الذاتي أولًا.', 'error');
       return;
     }
-    document.getElementById('printArea').innerHTML = html;
-    printNow();
-  } finally { endExportBusy(btn); }
-}
-
-/* تحميل ورقة التقييم الذاتي كملف PDF */
-async function exportSelfAssessment(evt){
-  const btn = evt ? evt.target.closest('button') : null;
-  beginExportBusy(btn, 'جارٍ التجهيز...');
-  const html = await buildSelfAssessmentHtml();
-  if(!html){
-    showToast('لم تُقيّم أي عنصر بعد — عبّئ التقييم الذاتي أولًا.', 'error');
-    endExportBusy(btn);
-    return;
-  }
-  showToast('جارٍ تجهيز ورقة التقييم الذاتي...', 'ok');
-  try{
-    await ensurePdfLibs();
-
-    const area = document.getElementById('pdfRenderArea');
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    await addPdfPagesMulti(pdf, area, html, { firstPage: true });
-
-    pdf.save(`Self-Assessment-${new Date().toISOString().slice(0,10)}.pdf`);
-    showToast('تم تحميل ورقة التقييم الذاتي', 'ok');
+    await printPages([{ html, fit: 'width' }], printFileTitle('التقييم-الذاتي'));
   } catch(err){
-    showToast('تعذّر التصدير: ' + err.message, 'error');
-  } finally {
-    endExportBusy(btn);
-  }
+    showToast('تعذّر تجهيز الطباعة: ' + err.message, 'error');
+  } finally { endExportBusy(btn); }
 }
 
 async function exportPortfolio(evt){
@@ -1411,7 +1358,6 @@ async function exportPortfolio(evt){
   beginExportBusy(btn, 'جارٍ التجهيز...');
   showToast('جارٍ تجهيز ملف الإنجاز...', 'ok');
   try{
-    await ensurePdfLibs();
     await loadPlan();
     await loadSelfAssessment();
 
@@ -1423,12 +1369,10 @@ async function exportPortfolio(evt){
     const elements = getElementsOrder();
     const meta = (currentUser && currentUser.user_metadata) || {};
 
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    const area = document.getElementById('pdfRenderArea');
-    const pageState = { firstPage: true };
-    const addHtmlPage = (html) => addPdfPage(pdf, area, html, pageState);
-    const addHtmlPageMultiPage = (html) => addPdfPagesMulti(pdf, area, html, pageState);
+    /* صفحات تُطبع بنص حقيقي (app-35): الغلاف والملخص والشواهد صفحة كاملة، وتفاصيل الخطة تنساب */
+    const pages = [];
+    const addHtmlPage = (html) => pages.push({ html, fit: 'page' });
+    const addHtmlPageMultiPage = (html) => pages.push({ html, fit: 'width' });
 
     /* صفحة الغلاف */
     await addHtmlPage(`
@@ -1507,8 +1451,7 @@ async function exportPortfolio(evt){
       }
     }
 
-    pdf.save(`Portfolio-${new Date().toISOString().slice(0,10)}.pdf`);
-    showToast('تم تجهيز ملف الإنجاز بنجاح', 'ok');
+    await printPages(pages, printFileTitle('ملف-الإنجاز'));
   } catch(err){
     showToast('تعذّر التصدير: ' + err.message, 'error');
   } finally {
