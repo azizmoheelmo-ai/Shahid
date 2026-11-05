@@ -292,15 +292,14 @@ const GRADE_REPORT_CSS = `
 .gr .gh.w{background:#7258a4}.gr .gh.m{background:#3d7eb9}.gr .gh.t{background:#07a869}.gr .gh span{background:rgba(255,255,255,.28);border-radius:10px;padding:0 8px}
 .gr .st{display:flex;height:13px;border-radius:7px;overflow:hidden}.gr .st i{display:block;height:100%}
 .gr .leg{font-size:10px;color:#5b6b74;display:flex;gap:14px;margin:5px 0}.gr .leg s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px;text-decoration:none}
-.gr .nbox{min-height:64px;border:1.5px dashed #c2c1c1;border-radius:9px;padding:5px 12px;margin:6px 0;font-size:11.5px;color:#15445a}
 .gr .sig{margin-top:10px;margin-bottom:0;padding-top:6px;border-top:1px solid #d5dde1;display:flex;justify-content:space-around;font-size:11px;color:#5b6b74;text-align:center}
 .gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#15445a;font-size:12.5px;margin-top:3px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a979f;height:24px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a979f}
 /* ضغط تلقائي (gradeReportFit) حين يزيد التقرير قليلًا عن صفحة: مستويان */
 .gr.cmp1 .hd{margin-bottom:8px}.gr.cmp1 .hd img{height:46px}.gr.cmp1 h2{margin:6px 0 4px;font-size:13px}
 .gr.cmp1 .kp{margin-bottom:6px}.gr.cmp1 .kp>div{padding:3px 4px}.gr.cmp1 .kp b{font-size:17px;line-height:1.35}
 .gr.cmp1 td{padding:1.5px 7px}.gr.cmp1 th{padding:2.5px 7px}.gr.cmp1 .gw{margin-bottom:5px}.gr.cmp1 .gh{padding:2px 9px}
-.gr.cmp1 .nb{padding:4px 12px;margin:3px 0}.gr.cmp1 .nbox{min-height:44px;margin:4px 0}.gr.cmp1 .sig{margin-top:6px}.gr.cmp1 .sig .ln{height:20px}
-.gr.cmp2{font-size:11.5px}.gr.cmp2 table{font-size:10.5px}.gr.cmp2 td{padding:1px 6px}.gr.cmp2 .kp>div{padding:2px 4px}.gr.cmp2 .nbox{min-height:34px}.gr.cmp2 .fn{margin:2px 0}
+.gr.cmp1 .nb{padding:4px 12px;margin:3px 0}.gr.cmp1 .sig{margin-top:6px}.gr.cmp1 .sig .ln{height:20px}
+.gr.cmp2{font-size:11.5px}.gr.cmp2 table{font-size:10.5px}.gr.cmp2 td{padding:1px 6px}.gr.cmp2 .kp>div{padding:2px 4px}.gr.cmp2 .fn{margin:2px 0}
 @media print{.gr{padding:0}.gr .pdf-avoid-break{break-inside:avoid;page-break-inside:avoid}.gr h2{break-after:avoid;page-break-after:avoid}}
 `;
 
@@ -382,12 +381,6 @@ function grNamesCols(low, mid, top){
   return grBlock(grH2('قوائم الطلاب') + `<div class="c3">${cols.map(c => `<div>${c}</div>`).join('')}</div>`);
 }
 
-/* تنبيه ظاهر تحت قوائم الأسماء: ترتيبها بالنسبة، ومن رُصد له جزء من الأعمدة مقامه أقل */
-function grNamesNote(lists, displayMax){
-  const partial = [].concat.apply([], lists).filter(r => r.partial).length;
-  return grBlock(`<div class="nb w">الأسماء مرتّبة بالنسبة المئوية من الأدنى.${partial ? ` <b style="color:#a85d3a">*</b> ${partial === 1 ? 'طالب واحد من المذكورين رُصد له' : `${grn(partial)} من المذكورين رُصد لهم`} جزء من الأعمدة فقط، فمقام درجته أقل من ${grn(formatScore(displayMax))} (الدرجة الكاملة)، ونسبته محسوبة مما رُصد له.` : ''}</div>`);
-}
-
 /* مقارنة بالفصل السابق: ctx.prev = { sum, names: Map } */
 function grCompare(prev, withNames){
   if(!prev) return '';
@@ -404,16 +397,13 @@ function grCompare(prev, withNames){
   return grBlock(html + `<div class="fn">قورن ${grn(sum.compared)} طالبًا؛ التغيّر المعتبر ${grn(GRADE_COMPARE_RULES.changePct)} نقاط مئوية فأكثر، والنسبة مما رُصد في كل فصل.</div>`);
 }
 
-function grFootnote(s){
+function grFootnote(s, withNames){
   const r = s.rules;
   let t = `معيار المستويات: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما. `;
   if(s.missing) t += `المحلَّل ${s.recorded} من ${s.total} طالبًا؛ من لم يُرصد له لا يدخل في الحساب (لا يُعدّ صفرًا). `;
-  if(s.partial) t += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فنسبة كل منهم مما رُصد له. `;
+  if(s.partial) t += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فنسبة كل منهم مما رُصد له${withNames ? ' (يُشار إليهم بنجمة *)' : ''}. `;
   return `<div class="fn">${t}تحليل للدرجات المرصودة فقط.</div>`;
 }
-
-/* خانة «ملاحظات» بخط منقّط يكتب فيها المعلم أو الوكيل بيده */
-function grNotesBox(){ return '<div class="nbox pdf-avoid-break"><b>ملاحظات</b></div>'; }
 
 /* تقرير الشعبة (المجموع) أو بند واحد: a = crmGradeAnalysis، v = gradeAnalysisView(a) */
 function gradeReportSectionHtml(a, v, prefs, ctx){
@@ -430,9 +420,9 @@ function gradeReportSectionHtml(a, v, prefs, ctx){
   const mid = lvBlock || itBlock ? grBlock(`<div class="two">${lvBlock}${itBlock}</div>`) : '';
   const analysed = isTotal ? '' : `<h2>البند المحلَّل: ${escapeHtml(v.colLabel)} (من ${grn(max)})</h2>`;
   const topList = s.topIsFallback ? [] : s.groups.top;
-  const names = ctx.withNames ? grNamesNote([s.groups.low, s.mid, topList], v.displayMax) + grNamesCols(s.groups.low, s.mid, topList) : '';
+  const names = ctx.withNames ? grNamesCols(s.groups.low, s.mid, topList) : '';
   const sub = escapeHtml(a.label) + ' | ' + (isTotal ? `المجموع من ${grn(max)}` : 'تحليل بند واحد');
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج الدرجات — الشعبة', sub)}${analysed}${grKpis(kp)}${mid}${names}${prefs.show.compare ? grCompare(ctx.prev, ctx.withNames) : ''}${grNotes(notes, prefs)}${grFootnote(s)}${grNotesBox()}${grSig(prefs)}</div>`;
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج الدرجات — الشعبة', sub)}${analysed}${grKpis(kp)}${mid}${names}${prefs.show.compare ? grCompare(ctx.prev, ctx.withNames) : ''}${grNotes(notes, prefs)}${grFootnote(s, ctx.withNames)}${grSig(prefs)}</div>`;
 }
 
 /* تقرير مجموعة الشعب: d = { gradeName, key, colLabel, secs:[{ label, s, levels, items }], pooled, displayMax } */
@@ -462,7 +452,7 @@ function gradeReportGroupHtml(d, prefs, ctx){
   }
   const notes = gradeReportGroupNotes({ secs: d.secs });
   const sub = `${escapeHtml(d.gradeName)} | ${d.key === 'total' ? `المجموع من ${grn(formatScore(d.displayMax))}` : 'بند: ' + escapeHtml(d.colLabel)}`;
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج المجموعة — شعب الصف', sub)}${kpis}${table}${levels}${stats}${matrix}${grNotes(notes, prefs)}${grFootnote(p)}${grNotesBox()}${grSig(prefs)}</div>`;
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج المجموعة — شعب الصف', sub)}${kpis}${table}${levels}${stats}${matrix}${grNotes(notes, prefs)}${grFootnote(p)}${grSig(prefs)}</div>`;
 }
 
 /* تقرير طالب: d من gradeReportStudentData */

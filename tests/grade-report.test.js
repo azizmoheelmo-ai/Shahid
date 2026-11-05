@@ -224,8 +224,9 @@ test('قوائم الأسماء: ثلاثة أعمدة بالنسبة، ونجم
   const h = app.__h;
   assert.match(h, /<th>اسم الطالب<\/th><th class="n">الدرجة<\/th><th class="n">النسبة<\/th>/);
   assert.match(h, /<td>أحمد <b style="color:#7258a4">\*<\/b><\/td>/, 'النجمة بجانب الاسم');
-  assert.match(h, /مرتّبة بالنسبة المئوية/);
-  assert.ok(h.indexOf('رُصد له جزء من الأعمدة') < h.indexOf('<div class="c3">'), 'التنبيه قبل أول جدول');
+  assert.doesNotMatch(h, /مرتّبة بالنسبة المئوية|الأسماء مرتبة/, 'لا سطر ترتيب فوق القوائم');
+  assert.match(h, /رُصد لهم جزء من الأعمدة فنسبة كل منهم مما رُصد له \(يُشار إليهم بنجمة \*\)/, 'شرح النجمة في الحاشية');
+  assert.ok(h.indexOf('<div class="c3">') < h.indexOf('معيار المستويات'), 'القوائم قبل الحاشية');
   assert.match(h, /1 رُصد لهم جزء|رُصد لهم جزء/, 'تنبيه تحت عدد الطلاب أيضًا');
   const full = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
   assert.doesNotMatch(full.__h, /<b style="color:#7258a4">\*<\/b>/, 'بلا نقص: بلا نجمة');
@@ -389,7 +390,8 @@ test('لا لغة نجاح ورسوب في أي تقرير: الشعبة (بال
     window.__x = gradeAnalysisExportRows(crmGradeAnalysis, v, true);`, NOTES_ON);
   for(const k of ['__a', '__b', '__s', '__g']) assert.doesNotMatch(app[k], /نجاح|ناجح|نجحوا|رسوب|الحافة|جيد/, k);
   assert.doesNotMatch(JSON.stringify(app.__x), /ناجحون|نجاح/, 'Excel');
-  assert.match(app.__a, /ملاحظات/, 'خانة ملاحظات');
+  for(const k of ['__a', '__b', '__g']) assert.doesNotMatch(app[k], /nbox|>ملاحظات</, 'لا خانة ملاحظات بالأسفل');
+  assert.doesNotMatch(app.__a, /الأسماء مرتبة بالنسبة/, 'لا سطر ترتيب فوق القوائم');
   assert.match(app.__a, /<span class="cp w">ضعاف<\/span>/);
 });
 
