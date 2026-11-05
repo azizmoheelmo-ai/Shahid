@@ -399,13 +399,12 @@ test('تقرير ولي الأمر: زر «تقرير» بجانب كل اسم �
   await app.__p;
   const shownNames = (app.__d.match(/class="crm-ga-name"/g) || []).length;
   assert.ok(shownNames >= 1);
-  assert.equal((app.__d.match(/exportCrmStudentReportFor\('/g) || []).length, shownNames, 'زر تقرير لكل اسم ظاهر');
-  assert.match(app.__d, /exportCrmStudentReportFor\('a', this\)/);
+  assert.equal((app.__d.match(/toggleCrmGaReportTo\('(?!\*)/g) || []).length, shownNames, 'سهم لكل اسم ظاهر');
   assert.equal(app.__calls.length, 1);
   assert.match(app.__calls[0].out.html, /أحمد/);
   assert.doesNotMatch(app.__calls[0].out.html, /بدر|جاسر|دخيل|عادل/, 'لا أسماء طلاب آخرين في تقرير ولي الأمر');
   assert.match(app.__calls[0].filename, /^تقرير-طالب-أحمد-/);
-  assert.match(app.__d, /title="تقرير الطالب لولي الأمر" onclick="exportCrmStudentReportFor\('a', this\)">⤓<\/button>/, 'سهم فقط بلا نص');
+  assert.match(app.__d, /title="تنزيل تقرير الطالب"[^>]*onclick="toggleCrmGaReportTo\('a'\)">⤓<\/button>/, 'سهم فقط بلا نص');
 });
 
 test('تقارير كل الطلاب: ملف واحد، تقرير لكل طالب بصفحة، ومن بلا درجات يُستثنى', async () => {
@@ -414,7 +413,7 @@ test('تقارير كل الطلاب: ملف واحد، تقرير لكل طال
     window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
     window.__p = exportCrmAllStudentReports(null);`);
   await app.__p;
-  assert.match(app.__d, /exportCrmAllStudentReports\(this\)">⤓ تقارير كل الطلاب \(4\)/);
+  assert.match(app.__d, /toggleCrmGaReportTo\('\*'\)">⤓ تقارير كل الطلاب \(4\)/);
   assert.equal(app.__calls.length, 1);
   const h = app.__calls[0].out.html;
   assert.equal((h.match(/class="gr-pg"/g) || []).length, 4, 'تقرير لكل طالب له درجات');
@@ -423,6 +422,54 @@ test('تقارير كل الطلاب: ملف واحد، تقرير لكل طال
   assert.match(app.__calls[0].filename, /^تقارير-الطلاب-/);
   assert.match(app.__calls[0].out.mark.right, /تقارير أداء الطلاب/);
   assert.match(fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8'), /\.gr-pg\{break-after:page/, 'فاصل صفحة بين التقارير عند الطباعة');
+});
+
+test('الجهة الموجَّه إليها: السهم يفتح الخيارات الأربعة، والاختيار ينزّل التقرير مكتوبًا عليه الجهة', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; crmGradeAnalysis.open = 'low';
+    window.__before = crmGradeAnalysisHtml(crmGradeAnalysis);
+    toggleCrmGaReportTo('a'); window.__open = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = pickCrmGaReportTo('vice', null);`);
+  assert.doesNotMatch(app.__before, /crm-ga-to"/, 'الخيارات مخفية قبل ضغط السهم');
+  for(const k of ['guardian', 'vice', 'counselor', 'other']) assert.match(app.__open, new RegExp(`pickCrmGaReportTo\\('${k}'`));
+  for(const t of ['ولي الأمر', 'وكيل شؤون الطلاب', 'الموجه الطلابي', 'أخرى']) assert.match(app.__open, new RegExp(t));
+  await app.__p;
+  assert.equal(app.__calls.length, 1);
+  const h = app.__calls[0].out.html;
+  assert.match(h, /موجّه إلى: وكيل شؤون الطلاب/);
+  assert.equal((h.match(/وكيل شؤون الطلاب/g) || []).length, 2, 'سطر الجهة + خانة توقيع واحدة (بلا تكرار)');
+  const app2 = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a');
+    window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
+    window.__p = pickCrmGaReportTo('counselor', null);`);
+  await app2.__p;
+  assert.match(app2.__calls[0].html, /موجّه إلى: الموجه الطلابي/);
+  assert.match(app2.__calls[0].html, /<div>الموجه الطلابي<b>/, 'خانة توقيع للجهة');
+  assert.equal(app2.__repFor, undefined);
+});
+
+test('الجهة «أخرى»: نص حرّ يُهرَّب ويُقصّ، والفارغ لا ينزّل، و«كل الطلاب» يحمل الجهة', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a'); pickCrmGaReportTo('other', null);
+    window.__o = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
+    const orig = document.getElementById.bind(document); document.getElementById = id => id === 'crmGaToOther' ? { value: '  <img src=x onerror=1>  مدير ' + 'م'.repeat(80), focus(){} } : orig(id);
+    window.__p = pickCrmGaReportTo('otherGo', null);`);
+  assert.match(app.__o, /id="crmGaToOther"/);
+  await app.__p;
+  const h = app.__calls[0].html;
+  assert.doesNotMatch(h, /<img src=x/, 'النص مُهرَّب');
+  assert.match(h, /&lt;img src=x onerror=1&gt;/);
+  assert.doesNotMatch(h, /م{50}/, 'يُقصّ على 40 حرفًا');
+  const empty = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a'); pickCrmGaReportTo('other', null);
+    window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
+    const orig = document.getElementById.bind(document); document.getElementById = id => id === 'crmGaToOther' ? { value: '   ', focus(){} } : orig(id);
+    window.__p = pickCrmGaReportTo('otherGo', null);`);
+  await empty.__p;
+  assert.equal(empty.__calls.length, 0);
+  const all = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('*');
+    window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
+    window.__p = pickCrmGaReportTo('guardian', null);`);
+  await all.__p;
+  assert.equal((all.__calls[0].html.match(/موجّه إلى: ولي الأمر/g) || []).length, 5, 'كل تقرير يحمل الجهة');
 });
 
 test('تقارير كل الطلاب: لا تعمل لو تبدّلت الشعبة المعروضة', async () => {

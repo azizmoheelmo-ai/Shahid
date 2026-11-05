@@ -2265,6 +2265,14 @@ button.crm-gs-strip-btn:hover{background:#F1EEE6;}
 .crm-ga-rowwrap:last-child{border-bottom:0;}
 .crm-ga-rowwrap .crm-ga-name{flex:1;border-bottom:0;}
 .crm-ga-allrep{display:block;width:100%;min-height:42px;margin:0 0 10px;padding:6px 10px;background:#fff;border:1.5px solid var(--navy);border-radius:10px;font-family:inherit;font-size:13px;font-weight:800;color:var(--navy);cursor:pointer;}
+.crm-ga-to{padding:8px 12px 10px;background:#FBF8F1;border-bottom:1px solid #F3EFE6;}
+.crm-ga-allrep + .crm-ga-to{margin:-6px 0 10px;border:1px solid var(--line);border-radius:0 0 10px 10px;}
+.crm-ga-to-t{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px;}
+.crm-ga-to-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.crm-ga-to-chip{min-height:40px;padding:6px 12px;background:#fff;border:1.5px solid var(--navy);border-radius:20px;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--navy);cursor:pointer;}
+.crm-ga-to-chip:disabled{opacity:.6;cursor:default;}
+.crm-ga-to-other{display:flex;gap:6px;width:100%;}
+.crm-ga-to-other .goal-input{flex:1;min-height:40px;}
 .crm-ga-allrep:disabled{opacity:.6;cursor:default;}
 .crm-ga-rep{flex:0 0 auto;width:40px;min-height:40px;margin:0 6px;padding:0;font-size:16px;line-height:1;background:#fff;border:1.5px solid var(--navy);border-radius:10px;font-family:inherit;font-weight:800;color:var(--navy);cursor:pointer;}
 .crm-ga-rep:disabled{opacity:.6;cursor:default;}

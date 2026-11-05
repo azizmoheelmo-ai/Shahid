@@ -339,7 +339,7 @@ function grNotes(notes, prefs){
 }
 
 function grSig(prefs, third){
-  const cell = (label, name) => `<div>${label}<b>${name ? escapeHtml(name) : ''}</b><i class="ln"></i><small>التوقيع</small></div>`;
+  const cell = (label, name) => `<div>${escapeHtml(label)}<b>${name ? escapeHtml(name) : ''}</b><i class="ln"></i><small>التوقيع</small></div>`;
   return `<div class="sig pdf-avoid-break">${third ? cell(third, '') : ''}${cell('معلم المادة', gradeReportTeacherName(prefs))}${cell('وكيل شؤون الطلاب', prefs.vice)}</div>`;
 }
 
@@ -460,7 +460,11 @@ function gradeReportStudentHtml(d, prefs, ctx){
     }).join('') + '<div class="fn">ما لم يُرصد لا يُحسب على الطالب.</div>') : '';
   const notes = gradeReportStudentNotes({ pts: d.pts, max: d.max, pct: d.pct, classPts: d.classPts, classPct: d.classPct, items: d.items, rules: r });
   const meta = { date: ctx.date, year: d.year, semester: d.semester };
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار التحليل: الحاجة للدعم أقل من ${r.pass}%، والحافة حتى +${r.edge} نقاط، والمتفوق ${r.top}% فأكثر. هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>${grSig(prefs, 'ولي الأمر')}</div>`;
+  const to = ctx.to ? String(ctx.to) : '';
+  /* الجهة الموجَّه إليها: سطر تحت العنوان + خانة توقيعها (وكيل الشؤون له خانة ثابتة أصلًا) */
+  const toLine = to ? `<br><b>موجّه إلى: ${escapeHtml(to)}</b>` : '';
+  const sigTo = to === 'وكيل شؤون الطلاب' ? '' : (to || 'ولي الأمر');
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}${toLine}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار التحليل: الحاجة للدعم أقل من ${r.pass}%، والحافة حتى +${r.edge} نقاط، والمتفوق ${r.top}% فأكثر. هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>${grSig(prefs, sigTo)}</div>`;
 }
 
 /* ============ التصدير ============ */
@@ -584,18 +588,18 @@ async function exportGradeReport(btn){
 }
 
 /* تقرير طالب واحد (لولي الأمر): من الكشف المحمَّل g — لا استعلام جديد */
-async function gradeReportStudentRun(g, id, btn, busyText){
+async function gradeReportStudentRun(g, id, btn, busyText, to){
   if(!g || !id || gradeReportBusy) return;
   const d = gradeReportStudentData(g, id);
   if(!d) return;
   const prefs = gradeReportPrefsNow();
   await gradeReportRun(btn, async () => {
-    return { html: gradeReportStudentHtml(d, prefs, { date: new Date().toISOString().slice(0, 10) }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
+    return { html: gradeReportStudentHtml(d, prefs, { date: new Date().toISOString().slice(0, 10), to }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
   }, gradeReportFile('تقرير-طالب', d.name), busyText);
 }
 
 /* كل طلاب الشعبة في ملف PDF واحد: تقرير لكل طالب بصفحة جديدة، ومن لم تُرصد درجاته يُستثنى */
-async function exportCrmAllStudentReports(btn){
+async function exportCrmAllStudentReports(btn, to){
   const a = crmGradeAnalysis;
   if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId || gradeReportBusy) return;
   const g = a.g;
@@ -606,8 +610,8 @@ async function exportCrmAllStudentReports(btn){
   const skipped = a.students.length - list.length;
   if(skipped) showToast(`${skipped} من الطلاب بلا درجات مرصودة — لم تُضمَّن تقاريرهم`, 'ok');
   await gradeReportRun(btn, async () => {
-    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { date })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label) };
-  }, gradeReportFile('تقارير-الطلاب', a.label));
+    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label) };
+  }, gradeReportFile('تقارير-الطلاب', a.label), btn && to ? '…' : undefined);
 }
 
 /* من صفحة الطالب في الكشف */
@@ -616,10 +620,10 @@ function exportCrmStudentReport(btn){
 }
 
 /* من قائمة الطلاب داخل نافذة التحليل: نقرة واحدة بجانب الاسم */
-function exportCrmStudentReportFor(id, btn){
+function exportCrmStudentReportFor(id, btn, to){
   const a = crmGradeAnalysis;
   if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId) return;
-  return gradeReportStudentRun(a.g, id, btn, '…');
+  return gradeReportStudentRun(a.g, id, btn, '…', to);
 }
 
 /* ============ خيارات التقارير (إعدادات المعلم) ============ */

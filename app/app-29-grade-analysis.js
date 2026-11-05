@@ -121,7 +121,7 @@ function openCrmGradeAnalysis(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
   const prefs = gradeReportPrefsNow();
-  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, showAll: null, tab: 'overview', detOpen: false, exportOpen: false, withNames: prefs.show.names, withNotes: gradeReportNotesAny(prefs), scope: 'section', reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
+  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, showAll: null, tab: 'overview', detOpen: false, exportOpen: false, withNames: prefs.show.names, withNotes: gradeReportNotesAny(prefs), scope: 'section', repFor: null, repOther: false, reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
   const a = crmGradeAnalysis;
   a.open = gradeAnalysisDefaultOpen(a);
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
@@ -246,12 +246,57 @@ function gaGroupRangeHtml(key, s, displayMax){
   return `<small>${txt}</small>`;
 }
 
+/* الجهة الموجَّه إليها التقرير: تظهر بعد ضغط السهم (طالب واحد أو «كل الطلاب»)، والاختيار ينزّل التقرير مباشرة */
+const GA_REPORT_TO = [['guardian', 'ولي الأمر'], ['vice', 'وكيل شؤون الطلاب'], ['counselor', 'الموجه الطلابي']];
+
+function gaReportToHtml(a){
+  const chips = GA_REPORT_TO.map(([k, label]) => `<button type="button" class="crm-ga-to-chip" onclick="pickCrmGaReportTo('${k}', this)">${label}</button>`).join('');
+  const other = a.repOther
+    ? `<div class="crm-ga-to-other"><input class="goal-input" type="text" id="crmGaToOther" maxlength="40" placeholder="مثال: مدير المدرسة" aria-label="الجهة الموجّه إليها التقرير"><button type="button" class="crm-ga-to-chip" onclick="pickCrmGaReportTo('otherGo', this)">تنزيل</button></div>`
+    : `<button type="button" class="crm-ga-to-chip" onclick="pickCrmGaReportTo('other', this)">أخرى…</button>`;
+  return `<div class="crm-ga-to" role="group" aria-label="الجهة الموجّه إليها التقرير"><div class="crm-ga-to-t">موجّه إلى:</div><div class="crm-ga-to-chips">${chips}${other}</div></div>`;
+}
+
+function toggleCrmGaReportTo(id){
+  const a = crmGradeAnalysis;
+  if(!a) return;
+  a.repFor = a.repFor === id ? null : id;
+  a.repOther = false;
+  paintCrmGradeAnalysis();
+}
+
+async function pickCrmGaReportTo(kind, btn){
+  const a = crmGradeAnalysis;
+  if(!a || !a.repFor) return;
+  let to;
+  if(kind === 'other'){
+    a.repOther = true;
+    paintCrmGradeAnalysis();
+    const inp = document.getElementById('crmGaToOther');
+    if(inp) inp.focus();
+    return;
+  }
+  if(kind === 'otherGo'){
+    const inp = document.getElementById('crmGaToOther');
+    to = (inp ? inp.value : '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if(!to){ showToast('اكتب الجهة الموجّه إليها التقرير', 'error'); return; }
+  } else {
+    const f = GA_REPORT_TO.find(x => x[0] === kind);
+    if(!f) return;
+    to = f[1];
+  }
+  const target = a.repFor;
+  if(target === '*') await exportCrmAllStudentReports(btn, to);
+  else await exportCrmStudentReportFor(target, btn, to);
+  if(crmGradeAnalysis === a && a.repFor === target){ a.repFor = null; a.repOther = false; paintCrmGradeAnalysis(); }
+}
+
 /* قائمة أسماء مستوى: أول 5 ثم «عرض الكل» */
 function gaNamesHtml(a, key, list){
   const all = a.showAll === key;
   const shown = all ? list : list.slice(0, GRADE_ANALYSIS_NAMES_PREVIEW);
   const bounds = gradeAnalysisBounds();
-  let html = '<div class="crm-ga-names">' + shown.map(r => `<div class="crm-ga-rowwrap"><button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${gradeAnalysisPctShown(r.pct, bounds)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button><button type="button" class="crm-ga-rep" aria-label="تقرير الطالب ${escapeHtml(r.name)} لولي الأمر (PDF)" title="تقرير الطالب لولي الأمر" onclick="exportCrmStudentReportFor('${escapeHtml(r.id)}', this)">⤓</button></div>`).join('');
+  let html = '<div class="crm-ga-names">' + shown.map(r => `<div class="crm-ga-rowwrap"><button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${gradeAnalysisPctShown(r.pct, bounds)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button><button type="button" class="crm-ga-rep" aria-label="تنزيل تقرير الطالب ${escapeHtml(r.name)} (PDF)" title="تنزيل تقرير الطالب" aria-expanded="${a.repFor === r.id}" onclick="toggleCrmGaReportTo('${escapeHtml(r.id)}')">⤓</button></div>${a.repFor === r.id ? gaReportToHtml(a) : ''}`).join('');
   if(list.length > GRADE_ANALYSIS_NAMES_PREVIEW) html += `<button type="button" class="crm-ga-more" onclick="toggleCrmGaShowAll('${key}')">${all ? 'عرض أقل ⌃' : `عرض الكل (${list.length}) ⌄`}</button>`;
   return html + '</div>';
 }
@@ -305,7 +350,7 @@ function gaOverviewHtml(a, v){
 function gaStudentsHtml(a, v){
   const s = v.stats;
   const lists = gaLevelLists(s);
-  let html = s.recorded ? `<button type="button" class="crm-ga-allrep" onclick="exportCrmAllStudentReports(this)">⤓ تقارير كل الطلاب (${s.recorded}) — ملف واحد</button>` : '';
+  let html = s.recorded ? `<button type="button" class="crm-ga-allrep" aria-expanded="${a.repFor === '*'}" onclick="toggleCrmGaReportTo('*')">⤓ تقارير كل الطلاب (${s.recorded}) — ملف واحد</button>${a.repFor === '*' ? gaReportToHtml(a) : ''}` : '';
   GRADE_ANALYSIS_LEVELS.forEach(lv => {
     const list = lists[lv.key];
     const on = a.open === lv.key && list.length;
@@ -313,7 +358,7 @@ function gaStudentsHtml(a, v){
     if(on) html += gaNamesHtml(a, lv.key, list);
     html += '</div>';
   });
-  return html + '<p class="crm-ga-fine">الأسماء من الأدنى إلى الأعلى نسبةً في المستويات الثلاثة الأولى، ومن الأعلى في «جيد» و«متفوقون». اضغط اسمًا لفتح صفحة الطالب، أو السهم ⤓ بجانبه لتقرير PDF لولي الأمر.</p>';
+  return html + '<p class="crm-ga-fine">الأسماء من الأدنى إلى الأعلى نسبةً في المستويات الثلاثة الأولى، ومن الأعلى في «جيد» و«متفوقون». اضغط اسمًا لفتح صفحة الطالب، أو السهم ⤓ بجانبه لتنزيل تقريره.</p>';
 }
 
 /* شريط التصدير: PDF وExcel زرّان ظاهران دائمًا (نقرتان من فتح التحليل)، والخيارات مطوية */
