@@ -263,40 +263,54 @@ const GRADE_REPORT_CSS = `
 .gr,.gr *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .gr{font-family:'Cairo',sans-serif;color:#1b2a35;direction:rtl;padding:26px 34px 0;background:#fff;font-size:13px}
 .gr *{box-sizing:border-box}
-.gr .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #A9852E;padding-bottom:10px;margin-bottom:14px}
+.gr .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #A9852E;padding-bottom:6px;margin-bottom:9px}
+.gr .hd img{height:54px}
 .gr .hd .lg{width:150px}
 .gr .hd .t{text-align:center;flex:1}.gr .hd .t small{display:block;font-size:11px;color:#55646f}
-.gr .hd .t h1{margin:2px 0;font-size:21px;color:#1B3245;font-weight:800}.gr .hd .t .m{font-size:11px;color:#55646f}
+.gr .hd .t h1{margin:0;font-size:19px;color:#1B3245;font-weight:800}.gr .hd .t .m{font-size:11px;color:#55646f}
 .gr .hd .mt{width:150px;font-size:10.5px;color:#55646f;text-align:left;line-height:1.7}
-.gr .kp{display:flex;gap:9px;margin-bottom:12px}.gr .kp>div{flex:1;border:1px solid #b9e0d0;border-radius:10px;padding:9px 4px;text-align:center;background:#fbfefd}
-.gr .kp b{display:block;font-size:22px;color:#0a8f5b;font-weight:800}.gr .kp span{font-size:10.5px;color:#55646f}.gr .kp small{display:block;font-size:9.5px;color:#8a97a0}
+.gr .kp{display:flex;gap:9px;margin-bottom:8px}.gr .kp>div{flex:1;border:1px solid #b9e0d0;border-radius:10px;padding:5px 4px;text-align:center;background:#fbfefd}
+.gr .kp b{display:block;font-size:19px;line-height:1.5;color:#0a8f5b;font-weight:800}.gr .kp span{font-size:10.5px;color:#55646f}.gr .kp small{display:block;font-size:9.5px;color:#8a97a0}
 .gr .kp .b b{color:#3d7eb9}.gr .kp .n b{color:#1B3245}.gr .kp .r b{color:#a85d3a}
-.gr h2{font-size:14px;color:#1B3245;margin:14px 0 7px;padding-right:9px;border-right:4px solid #A9852E;font-weight:800}
-.gr .hb{display:flex;align-items:center;margin:5px 0;font-size:11.5px}.gr .hb .a{width:96px;font-weight:700}
-.gr .hb .tr{flex:1;height:14px;background:#e9efee;border-radius:8px;overflow:hidden}.gr .hb .tr i{display:block;height:100%;border-radius:8px}
+.gr h2{font-size:14px;color:#1B3245;margin:9px 0 5px;padding-right:9px;border-right:4px solid #A9852E;font-weight:800}
+.gr .hb{display:flex;align-items:center;margin:3px 0;font-size:11.5px}.gr .hb .a{width:96px;font-weight:700}
+.gr .hb .tr{flex:1;height:11px;background:#e9efee;border-radius:8px;overflow:hidden}.gr .hb .tr i{display:block;height:100%;border-radius:8px}
 .gr .hb .v{width:118px;text-align:left;font-size:11px;color:#40505b}
 .gr .g{background:#07a869}.gr .bl{background:#3d7eb9}.gr .tn{background:#c1b489}
-.gr .nb{background:#f1f6f9;border-right:4px solid #3d7eb9;padding:9px 13px;font-size:11.5px;line-height:1.9;margin:8px 0}
+.gr .nb{background:#f1f6f9;border-right:4px solid #3d7eb9;padding:6px 12px;font-size:11.5px;line-height:1.7;margin:5px 0}
 .gr .nb.w{background:#fbf6ea;border-color:#c1b489}.gr .nb.gr2{background:#effaf5;border-color:#07a869}
 .gr .li{display:flex;gap:8px;align-items:flex-start;margin:1px 0}.gr .li .mk{flex:0 0 20px;color:#0a8f5b;font-weight:800;text-align:right}.gr .li .tx{flex:1}
-.gr .fn{font-size:9.5px;color:#7a8791;margin:6px 0;line-height:1.7}
-.gr .sm{display:flex;gap:8px;margin:5px 0 8px}.gr .sm>div{flex:1;background:#f4f8f8;border-radius:8px;padding:6px;text-align:center;font-size:10px;color:#55646f}
+.gr .fn{font-size:9.5px;color:#7a8791;margin:4px 0;line-height:1.7}
+.gr .sm{display:flex;gap:8px;margin:4px 0 5px}.gr .sm>div{flex:1;background:#f4f8f8;border-radius:8px;padding:3px 6px;text-align:center;font-size:10px;color:#55646f}
 .gr .sm b{display:block;font-size:15px;color:#1B3245}
-.gr .it{display:flex;align-items:center;margin:5px 0;font-size:11.5px;padding:3px 8px;border-radius:6px}
+.gr .it{display:flex;align-items:center;margin:3px 0;font-size:11.5px;padding:2px 8px;border-radius:6px}
 .gr .it.on{background:#effaf5;outline:1px solid #b9e0d0}.gr .it .a{width:150px}
 .gr .it .tr{flex:1;height:13px;background:#e9efee;border-radius:7px;position:relative}.gr .it .tr i{display:block;height:100%;border-radius:7px}
 .gr .it .tr u{position:absolute;top:-3px;width:3px;height:19px;background:#1B3245;border-radius:2px}
 .gr .it .v{width:140px;text-align:left;font-weight:700;font-size:11px}
 .gr .cn{display:inline-block;background:#e3f1ee;color:#0a6b4a;border-radius:10px;padding:0 9px;font-size:10px;font-weight:700}
-.gr table{width:100%;border-collapse:collapse;font-size:11.5px}.gr th{background:#1B3245;color:#fff;padding:5px 8px;font-weight:700;text-align:right}
-.gr td{padding:4px 8px;border-bottom:1px solid #e6ecee}.gr tr:nth-child(even) td{background:#f7fafa}.gr td.n,.gr th.n{text-align:center}
+.gr table{width:100%;border-collapse:collapse;font-size:11px}.gr th{background:#1B3245;color:#fff;padding:3.5px 8px;font-weight:700;text-align:right}
+.gr td{padding:2.5px 8px;border-bottom:1px solid #e6ecee}.gr tr:nth-child(even) td{background:#f7fafa}.gr td.n,.gr th.n{text-align:center}
 .gr .two{display:flex;gap:16px}.gr .two>div{flex:1}
 .gr .st{display:flex;height:15px;border-radius:8px;overflow:hidden}.gr .st i{display:block;height:100%}
 .gr .leg{font-size:10px;color:#55646f;display:flex;gap:14px;margin:5px 0}.gr .leg s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px;text-decoration:none}
-.gr .sig{margin-top:18px;margin-bottom:0;padding-top:10px;border-top:1px solid #d5dbe3;display:flex;justify-content:space-around;font-size:11px;color:#55646f;text-align:center}
-.gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#1B3245;font-size:12.5px;margin-top:4px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a97a0;height:34px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a97a0}
+.gr .sig{margin-top:10px;margin-bottom:0;padding-top:10px;border-top:1px solid #d5dbe3;display:flex;justify-content:space-around;font-size:11px;color:#55646f;text-align:center}
+.gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#1B3245;font-size:12.5px;margin-top:4px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a97a0;height:26px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a97a0}
 @media print{.gr{padding:0}.gr .pdf-avoid-break{break-inside:avoid;page-break-inside:avoid}.gr h2{break-after:avoid;page-break-after:avoid}}
 `;
+
+/* شعار وزارة التعليم: يُقرأ مرة ويُخزَّن (data URL) ليُطبع مع النص؛ فشل تحميله لا يمنع التقرير (خانة فارغة) */
+let gradeReportLogoCache = null;
+async function gradeReportLogoData(){
+  if(gradeReportLogoCache !== null) return gradeReportLogoCache;
+  try{
+    const res = await fetch('moe-logo.png');
+    if(!res.ok) throw new Error('logo');
+    const blob = await res.blob();
+    gradeReportLogoCache = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(blob); });
+  } catch(e){ gradeReportLogoCache = ''; }
+  return gradeReportLogoCache;
+}
 
 function grBlock(inner){ return inner ? `<div class="pdf-avoid-break">${inner}</div>` : ''; }
 const grH2 = t => `<h2>${t}</h2>`;
@@ -305,7 +319,7 @@ function grHead(ctx, prefs, title, sub){
   const semester = Number(ctx.semester) === 2 ? 'الثاني' : 'الأول';
   const school = gradeReportSchool(prefs) ? escapeHtml(gradeReportSchool(prefs)) : 'اسم المدرسة';
   const subject = gradeReportSubject(prefs);
-  return `<div class="hd"><span class="lg"></span>
+  return `<div class="hd">${ctx.logo ? `<img src="${ctx.logo}" alt="">` : '<span class="lg"></span>'}
     <div class="t"><small>${school}</small><h1>${escapeHtml(title)}</h1><div class="m">${subject ? `<b>المادة: ${escapeHtml(subject)}</b> | ` : ''}${sub}</div></div>
     <div class="mt">${grn(ctx.date)}<br>الفصل الدراسي ${semester}<br>العام ${grn(escapeHtml(ctx.year || ''))}</div></div>`;
 }
@@ -459,7 +473,7 @@ function gradeReportStudentHtml(d, prefs, ctx){
       return `<div class="it"><div class="a">${escapeHtml(x.name)}</div><div class="tr"><i class="${gradeReportItemTone(x.pct, r)}" style="width:${Math.min(100, x.pct)}%"></i>${x.classPct === null ? '' : `<u style="right:${Math.min(100, x.classPct)}%"></u>`}</div><div class="v">${grn(formatScore(x.score) + ' / ' + formatScore(x.max))} ${dl === null ? '' : `<span style="font-weight:700;color:${dl >= 0 ? '#0a8f5b' : '#a85d3a'}">${dl >= 0 ? '▲' : '▼'} ${grn(Math.abs(dl) + '%')}</span>`}</div></div>`;
     }).join('') + '<div class="fn">ما لم يُرصد لا يُحسب على الطالب.</div>') : '';
   const notes = gradeReportStudentNotes({ pts: d.pts, max: d.max, pct: d.pct, classPts: d.classPts, classPct: d.classPct, items: d.items, rules: r });
-  const meta = { date: ctx.date, year: d.year, semester: d.semester };
+  const meta = { logo: ctx.logo, date: ctx.date, year: d.year, semester: d.semester };
   const to = ctx.to ? String(ctx.to) : '';
   /* الجهة الموجَّه إليها: سطر تحت العنوان + خانة توقيعها (وكيل الشؤون له خانة ثابتة أصلًا) */
   const toLine = to ? `<br><b>موجّه إلى: ${escapeHtml(to)}</b>` : '';
@@ -545,7 +559,8 @@ async function exportGradeReport(btn){
   const level = typeof crmGradeLevels !== 'undefined' && sec ? crmGradeLevels.find(x => x.id === sec.grade_level_id) : null;
   const gradeName = level ? level.name : 'الصف';
   await gradeReportRun(btn, async () => {
-    const base = { date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames };
+    const logo = await gradeReportLogoData();
+    const base = { logo, date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames };
     if(scope === 'section'){
       const v = gradeAnalysisView(a);
       if(!v.stats.recorded){ showToast('لا درجات مرصودة لتصديرها', 'error'); return ''; }
@@ -596,7 +611,7 @@ async function gradeReportStudentRun(g, id, btn, busyText, to){
   if(!d) return;
   const prefs = gradeReportPrefsNow();
   await gradeReportRun(btn, async () => {
-    return { html: gradeReportStudentHtml(d, prefs, { date: new Date().toISOString().slice(0, 10), to }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
+    return { html: gradeReportStudentHtml(d, prefs, { logo: await gradeReportLogoData(), date: new Date().toISOString().slice(0, 10), to }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
   }, gradeReportFile('تقرير-طالب', d.name), busyText);
 }
 
@@ -613,7 +628,8 @@ async function exportCrmAllStudentReports(btn, to, ids, scopeLabel){
   const skipped = ids ? 0 : a.students.length - list.length;
   if(skipped) showToast(`${skipped} من الطلاب بلا درجات مرصودة — لم تُضمَّن تقاريرهم`, 'ok');
   await gradeReportRun(btn, async () => {
-    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
+    const logo = await gradeReportLogoData();
+    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { logo, date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
   }, gradeReportFile(scopeLabel ? 'تقارير-' + scopeLabel : 'تقارير-الطلاب', a.label), btn && to ? '…' : undefined);
 }
 

@@ -341,6 +341,34 @@ test('زر واحد بدل زرين: PDF — طباعة / حفظ، في النا
   assert.doesNotMatch(grades, /exportCrmStudentReport\(this, 'print'\)/);
 });
 
+test('شعار الوزارة: يظهر بترويسة كل التقارير حين يتوفر، وغيابه لا يمنع التقرير، وكل مسارات التصدير تمرّره', async () => {
+  const app = opened(`const v = gradeAnalysisView(crmGradeAnalysis);
+    window.__with = gradeReportSectionHtml(crmGradeAnalysis, v, gradeReportPrefsNow(), { logo: 'data:image/png;base64,AAAA', date: 'd' });
+    window.__without = gradeReportSectionHtml(crmGradeAnalysis, v, gradeReportPrefsNow(), { date: 'd' });
+    window.__stu = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), gradeReportPrefsNow(), { logo: 'data:image/png;base64,AAAA', date: 'd' });
+    gradeReportLogoData = async () => 'data:image/png;base64,LOGO'; window.__runs = [];
+    gradeReportRun = async (btn, build) => { window.__runs.push((await build()).html); };
+    window.__p = Promise.all([exportGradeReport(null), exportCrmStudentReportFor('a', null, 'ولي الأمر'), (toggleCrmGaReportTo('*'), exportCrmAllStudentReports(null, 'ولي الأمر'))]);`);
+  await app.__p;
+  assert.match(app.__with, /<img src="data:image\/png;base64,AAAA" alt="">/);
+  assert.doesNotMatch(app.__without, /<img/);
+  assert.match(app.__without, /<span class="lg"><\/span>/, 'بلا شعار: خانة فارغة ولا انهيار');
+  assert.match(app.__stu, /<img src="data:image\/png;base64,AAAA"/);
+  assert.equal(app.__runs.length, 3);
+  for(const h of app.__runs) assert.match(h, /<img src="data:image\/png;base64,LOGO"/, 'تقرير الشعبة والطالب والجماعي كلها بالشعار');
+  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  assert.match(css, /\.gr \.hd img\{height:54px\}/);
+});
+
+test('تقرير الشعبة بالأسماء (33 طالبًا) لا يتجاوز صفحتين: تباعد مضغوط، وصف التوقيع لا يتيم صفحة ثالثة', async () => {
+  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  /* قيم القياس الفعلي (Playwright/Chromium بخط Cairo): 33 ← صفحتان، و45 ← صفحتان */
+  assert.match(css, /\.gr h2\{[^}]*margin:9px 0 5px/);
+  assert.match(css, /\.gr td\{padding:2\.5px 8px/);
+  assert.match(css, /\.gr \.sig\{margin-top:10px/);
+  assert.match(css, /\.gr \.kp>div\{[^}]*padding:5px 4px/);
+});
+
 test('طالب بلا درجات: لا انهيار، ولا يُحسب صفرًا', async () => {
   const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: [] });
     window.__d = gradeReportStudentData(crmGrades, 'a'); window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { date: 'd' });`, NOTES_ON);
@@ -615,14 +643,14 @@ test('أزرار التصدير: الطالب والتحليل يمرّان بـ
   assert.match(fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8'), /exportCrmStudentReport\(this\)/);
 });
 
-test('الملف في index.html وAPP_SHELL، ولا شعار وزارة، والإصدارات متطابقة', async () => {
+test('الملف في index.html وAPP_SHELL، وشعار الوزارة في المشروع وAPP_SHELL، والإصدارات متطابقة', async () => {
   const v = JSON.parse(fs.readFileSync(path.join(root, 'version.json'), 'utf8'));
   assert.match(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), /app-34-grade-report\.js/);
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
   assert.match(sw, /app-34-grade-report\.js/);
-  assert.doesNotMatch(sw, /moe-logo/);
-  assert.ok(!fs.existsSync(path.join(root, 'moe-logo.png')), 'شعار الوزارة أُزيل من المشروع');
-  assert.doesNotMatch(fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8'), /moe-logo|gradeReportLogoData/);
+  assert.match(sw, /\.\/moe-logo\.png/, 'الشعار في APP_SHELL ليعمل بلا اتصال');
+  assert.ok(fs.existsSync(path.join(root, 'moe-logo.png')), 'ملف شعار الوزارة موجود');
+  assert.match(fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8'), /fetch\('moe-logo\.png'\)/);
   assert.match(sw, new RegExp(`APP_VERSION_SW = '${v.version}'`));
   assert.match(fs.readFileSync(path.join(root, 'app/app-26-update-check.js'), 'utf8'), new RegExp(`APP_VERSION = '${v.version}'`));
   assert.ok(v.notes.length >= 1);
