@@ -387,14 +387,10 @@ function renderRecCard(r){
       <div class="rec-desc">${escapeHtml(descSnippet)}${(r.description||'').length > 160 ? '…' : ''}</div>
       ${photosHtml}
       <div class="rec-actions">
-        <div class="xbar">
-          <button class="btn btn-export btn-x xb-card" onclick="printRecord('${r.id}', event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
-          <button class="btn btn-wa btn-x xb-card" onclick="shareWhatsApp('${r.id}', event)"><i class="bi bi-wa"></i><span class="xb-label">واتساب</span></button>
-        </div>
-        <div class="rec-sub">
-          <button class="btn btn-outline btn-sm" onclick="editRecord('${r.id}')"><span class="chip"><i class="bi bi-edit"></i></span>تعديل</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteRecord('${r.id}')"><span class="chip"><i class="bi bi-trash"></i></span>حذف</button>
-        </div>
+        <button class="btn btn-outline" onclick="editRecord('${r.id}')">تعديل</button>
+        <button class="btn btn-outline" onclick="printRecord('${r.id}', event)">طباعة</button>
+        <button class="btn btn-danger" onclick="deleteRecord('${r.id}')">حذف</button>
+        <button class="btn btn-whatsapp" onclick="shareWhatsApp('${r.id}', event)">إرسال واتساب</button>
       </div>
     </div>`;
 }
@@ -1579,7 +1575,9 @@ async function shareWhatsApp(id, evt){
   if(!rec) return;
 
   const btn = evt ? evt.target.closest('button') : null;
-  beginExportBusy(btn, 'جارٍ التجهيز...');
+  const originalText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ التجهيز...'; }
+  activeExportCount++;
 
   try{
     const blob = await buildRecordPdfBlob(rec);
@@ -1625,7 +1623,8 @@ async function shareWhatsApp(id, evt){
       showToast('تعذّر تجهيز الملف: ' + err.message, 'error');
     }
   } finally {
-    endExportBusy(btn);
+    activeExportCount = Math.max(0, activeExportCount - 1);
+    if(btn){ btn.disabled = false; btn.textContent = originalText; }
   }
 }
 
