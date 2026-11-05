@@ -105,7 +105,7 @@ function gradeReportItems(g, students){
   }).filter(Boolean);
 }
 
-/* مستويات ثلاثة (متقن · متوسط · دون النجاح) بحدود المعلم، لمن رُصد له فقط */
+/* مستويات ثلاثة (متفوق · متوسط · ضعيف) بحدود المعلم، لمن رُصد له فقط */
 function gradeReportLevels(rows, rules){
   const rec = (rows || []).filter(r => r.pct !== null);
   return {
@@ -139,24 +139,21 @@ function gradeReportSectionNotes(c){
   }
   if(s.max !== null && s.min !== null && s.max - s.min >= 0.5 * c.displayMax) reading.push(`المدى (${grn(f(Math.round((s.max - s.min) * 100) / 100))}) كبير، وهذا تباين واضح بين الطلاب يستدعي تنويع التعليم.`);
   reading.push(s.groups.low.length
-    ? `وجود ${gradeReportCount(s.groups.low.length)} دون حد النجاح (${grn(r.pass + '%')}) يستدعي متابعة علاجية.`
-    : `لا طالب دون حد النجاح (${grn(r.pass + '%')}).`);
+    ? `وجود ${gradeReportCount(s.groups.low.length)} أقل من ${grn(r.pass + '%')} يستدعي متابعة علاجية.`
+    : `لا طالب أقل من ${grn(r.pass + '%')}.`);
 
-  if(s.passRate !== null && s.passRate >= 80) strengths.push(`نسبة النجاح مرتفعة (${grn(s.passRate + '%')}).`);
   if(!s.topIsFallback && s.groups.top.length) strengths.push(`حقق ${gradeReportCount(s.groups.top.length)} ${grn(r.top + '%')} فأكثر.`);
   const best = c.isTotal && c.items.length > 1 ? c.items.reduce((m, x) => x.avgPct > m.avgPct ? x : m) : null;
   const worst = c.isTotal && c.items.length > 1 ? c.items.reduce((m, x) => x.avgPct < m.avgPct ? x : m) : null;
   if(best && best.avgPct >= r.pass && (!worst || best.id !== worst.id)) strengths.push(`أقوى البنود: ${escapeHtml(best.name)} (${grn(best.avgPct + '%')}).`);
 
-  if(s.groups.low.length) weaknesses.push(`${gradeReportCount(s.groups.low.length)} (${pct(s.groups.low.length)}) دون حد النجاح.`);
-  if(s.groups.edge.length) weaknesses.push(`${gradeReportCount(s.groups.edge.length)} نجحوا بهامش قليل (أقل من ${grn(r.edge)} نقاط مئوية فوق حد النجاح).`);
+  if(s.groups.low.length) weaknesses.push(`${gradeReportCount(s.groups.low.length)} (${pct(s.groups.low.length)}) أقل من ${grn(r.pass + '%')}.`);
   if(worst && worst.avgPct < r.pass + r.edge && (!best || best.id !== worst.id)) weaknesses.push(`أضعف البنود: ${escapeHtml(worst.name)} (${grn(worst.avgPct + '%')}).`);
 
   if(s.groups.low.length){
-    plans.push(`مراجعة أوراق الطلاب الأقل من حد النجاح (${grn(s.groups.low.length)}) لتحديد مواطن التعثر لكل طالب.`);
+    plans.push(`مراجعة أوراق الطلاب الأقل من ${grn(r.pass + '%')} (${grn(s.groups.low.length)}) لتحديد مواطن التعثر لكل طالب.`);
     plans.push('تنفيذ نشاط علاجي قصير ثم اختبار تحقق مماثل في المهارات المستهدفة.');
   }
-  if(s.groups.edge.length) plans.push('متابعة الطلاب الذين نجحوا بهامش قليل لئلا يهبطوا دون حد النجاح.');
   if(!s.topIsFallback && s.groups.top.length) plans.push('تقديم مسائل إثرائية للمتفوقين مع الاستفادة منهم في تعليم الأقران.');
   if(worst && worst.avgPct < r.pass + r.edge && (!best || best.id !== worst.id)) plans.push(`إعادة شرح المهارات التي يقيسها «${escapeHtml(worst.name)}» قبل الانتقال لما بعده.`);
   plans.push('مقارنة نتائج التقييم التالي بهذه النتائج لقياس أثر التدخل.');
@@ -174,16 +171,14 @@ function gradeReportStudentNotes(c){
   }
   const diff = c.classPts === null ? null : Math.round((c.pts - c.classPts) * 10) / 10;
   reading.push(`حقق الطالب ${grn(f(c.pts))} من ${grn(f(c.max))} (${grn(Math.round(c.pct) + '%')})${diff === null ? '' : diff >= 0 ? `، فوق متوسط الشعبة بـ ${grn(f(diff))} درجة` : `، دون متوسط الشعبة بـ ${grn(f(Math.abs(diff)))} درجة`}.`);
-  reading.push(c.pct < r.pass ? `وهو دون حد النجاح (${grn(r.pass + '%')})، أي من الضعاف ويحتاج دعمًا.`
-    : c.pct < r.pass + r.edge ? 'ونجاحه بهامش قليل، فيحتاج متابعة لئلا يهبط.'
-    : c.pct >= r.top ? 'وهو في فئة المتفوقين.' : 'وهو ضمن مستوى النجاح.');
+  reading.push(c.pct < r.pass ? `وهو أقل من ${grn(r.pass + '%')}، أي من الضعاف ويحتاج دعمًا.`
+    : c.pct >= r.top ? 'وهو في فئة المتفوقين.' : 'وهو في مستوى المتوسطين.');
   const up = recorded.filter(x => x.classPct !== null && x.pct - x.classPct >= 10).sort((a, b) => (b.pct - b.classPct) - (a.pct - a.classPct));
   const down = recorded.filter(x => x.pct < r.pass || (x.classPct !== null && x.pct - x.classPct <= -10)).sort((a, b) => a.pct - b.pct);
   up.forEach(x => strengths.push(`${escapeHtml(x.name)} (${grn(Math.round(x.pct) + '%')}) أعلى من متوسط الشعبة (${grn(Math.round(x.classPct) + '%')}).`));
   down.forEach(x => weaknesses.push(`${escapeHtml(x.name)} (${grn(Math.round(x.pct) + '%')})${x.classPct !== null && x.pct < x.classPct ? ` دون متوسط الشعبة (${grn(Math.round(x.classPct) + '%')})` : ''}.`));
   down.slice(0, 2).forEach(x => plans.push(`مراجعة «${escapeHtml(x.name)}» لتحديد المهارات التي فقد فيها الدرجات، وتكليفه بتدريبات قصيرة عليها.`));
   if(c.pct < r.pass) plans.push('التواصل مع ولي الأمر ووضع خطة علاجية بمتابعة أسبوعية.');
-  else if(c.pct < r.pass + r.edge) plans.push('متابعة أدائه في التقييم القادم لئلا يهبط دون حد النجاح.');
   if(up.length) plans.push(`الإبقاء على مستواه في «${escapeHtml(up[0].name)}»، وإشراكه في تعليم الأقران.`);
   if(!plans.length) plans.push('الاستمرار على المستوى الحالي ومتابعة التقييم القادم.');
   return { reading, strengths, weaknesses, plans };
@@ -203,13 +198,12 @@ function gradeReportGroupNotes(c){
     reading.push(`أعلى الشعب تحصيلًا ${escapeHtml(top.label)} (${grn(top.s.avgPct + '%')}) وأدناها ${escapeHtml(bot.label)} (${grn(bot.s.avgPct + '%')})، بفارق ${grn(gap)} نقطة مئوية.`);
     reading.push(gap >= 15 ? 'الفارق كبير، وهذا يرجّح أن السبب في الشعبة (التوزيع والتهيئة) لا في المحتوى.' : 'الفارق محدود، وهذا يرجّح أن مستوى الشعب متقارب في المحتوى نفسه.');
   }
-  if(top !== bot) strengths.push(`${escapeHtml(top.label)}: الأعلى تحصيلًا، ونسبة نجاحها ${grn(top.s.passRate + '%')}.`);
-  secs.filter(x => x.s.passRate >= 80 && x !== top).forEach(x => strengths.push(`${escapeHtml(x.label)}: نسبة نجاح مرتفعة (${grn(x.s.passRate + '%')}).`));
+  if(top !== bot) strengths.push(`${escapeHtml(top.label)}: الأعلى تحصيلًا (${grn(top.s.avgPct + '%')}).`);
   secs.filter(x => x.s.groups.low.length).sort((a, b) => b.s.groups.low.length / b.s.recorded - a.s.groups.low.length / a.s.recorded).slice(0, 3)
-    .forEach(x => weaknesses.push(`${escapeHtml(x.label)}: ${gradeReportCount(x.s.groups.low.length)} دون حد النجاح (${grn(Math.round(100 * x.s.groups.low.length / x.s.recorded) + '%')}).`));
+    .forEach(x => weaknesses.push(`${escapeHtml(x.label)}: ${gradeReportCount(x.s.groups.low.length)} ضعاف (${grn(Math.round(100 * x.s.groups.low.length / x.s.recorded) + '%')}).`));
   if(top !== bot && gap >= 15) plans.push(`عقد جلسة مراجعة لطلاب ${escapeHtml(bot.label)} ومقارنة طرائق التدريس بين الشعب.`);
-  plans.push('تنفيذ أنشطة علاجية للطلاب دون حد النجاح في كل شعبة، بحسب قائمة كل شعبة.');
-  plans.push('تبادل الأنشطة الناجحة بين الشعب، ثم إعادة المقارنة بعد التقييم التالي.');
+  plans.push('تنفيذ أنشطة علاجية للضعاف في كل شعبة، بحسب قائمة كل شعبة.');
+  plans.push('تبادل الأنشطة الفعّالة بين الشعب، ثم إعادة المقارنة بعد التقييم التالي.');
   return { reading, strengths, weaknesses, plans };
 }
 
@@ -261,41 +255,46 @@ function gradeReportStudentData(g, studentId){
 
 const GRADE_REPORT_CSS = `
 .gr,.gr *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.gr{font-family:'Cairo',sans-serif;color:#1b2a35;direction:rtl;padding:26px 34px 0;background:#fff;font-size:13px}
+.gr{font-family:'Cairo',sans-serif;color:#15445a;direction:rtl;padding:26px 34px 0;background:#fff;font-size:12.5px}
 .gr *{box-sizing:border-box}
-.gr .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #A9852E;padding-bottom:6px;margin-bottom:9px}
-.gr .hd img{height:54px}
-.gr .hd .lg{width:150px}
-.gr .hd .t{text-align:center;flex:1}.gr .hd .t small{display:block;font-size:11px;color:#55646f}
-.gr .hd .t h1{margin:0;font-size:19px;color:#1B3245;font-weight:800}.gr .hd .t .m{font-size:11px;color:#55646f}
-.gr .hd .mt{width:150px;font-size:10.5px;color:#55646f;text-align:left;line-height:1.7}
-.gr .kp{display:flex;gap:9px;margin-bottom:8px}.gr .kp>div{flex:1;border:1px solid #b9e0d0;border-radius:10px;padding:5px 4px;text-align:center;background:#fbfefd}
-.gr .kp b{display:block;font-size:19px;line-height:1.5;color:#0a8f5b;font-weight:800}.gr .kp span{font-size:10.5px;color:#55646f}.gr .kp small{display:block;font-size:9.5px;color:#8a97a0}
-.gr .kp .b b{color:#3d7eb9}.gr .kp .n b{color:#1B3245}.gr .kp .r b{color:#a85d3a}
-.gr h2{font-size:14px;color:#1B3245;margin:9px 0 5px;padding-right:9px;border-right:4px solid #A9852E;font-weight:800}
-.gr .hb{display:flex;align-items:center;margin:3px 0;font-size:11.5px}.gr .hb .a{width:96px;font-weight:700}
-.gr .hb .tr{flex:1;height:11px;background:#e9efee;border-radius:8px;overflow:hidden}.gr .hb .tr i{display:block;height:100%;border-radius:8px}
-.gr .hb .v{width:118px;text-align:left;font-size:11px;color:#40505b}
-.gr .g{background:#07a869}.gr .bl{background:#3d7eb9}.gr .tn{background:#c1b489}
-.gr .nb{background:#f1f6f9;border-right:4px solid #3d7eb9;padding:6px 12px;font-size:11.5px;line-height:1.7;margin:5px 0}
-.gr .nb.w{background:#fbf6ea;border-color:#c1b489}.gr .nb.gr2{background:#effaf5;border-color:#07a869}
-.gr .li{display:flex;gap:8px;align-items:flex-start;margin:1px 0}.gr .li .mk{flex:0 0 20px;color:#0a8f5b;font-weight:800;text-align:right}.gr .li .tx{flex:1}
+.gr .hd{position:relative;display:flex;align-items:center;justify-content:space-between;padding-bottom:7px;margin-bottom:12px}
+.gr .hd:after{content:'';position:absolute;right:0;left:0;bottom:0;height:4px;border-radius:2px;background:linear-gradient(90deg,#3B83B7,#4CB176)}
+.gr .hd img{height:54px}.gr .hd .lg{width:150px}
+.gr .hd .t{text-align:center;flex:1}.gr .hd .t small{display:block;font-size:11px;color:#5b6b74}
+.gr .hd .t h1{margin:0;font-size:20px;color:#351375;font-weight:800}.gr .hd .t .m{font-size:11px;color:#5b6b74}
+.gr .hd .mt{width:150px;font-size:10.5px;color:#5b6b74;text-align:left;line-height:1.7}
+.gr .kp{display:flex;gap:9px;margin-bottom:10px}.gr .kp>div{flex:1;border:1.5px solid #dfe6ea;border-radius:11px;padding:5px 4px;text-align:center;background:#fff}
+.gr .kp b{display:block;font-size:20px;line-height:1.5;color:#15445a;font-weight:800}.gr .kp span{font-size:10.5px;color:#5b6b74}.gr .kp small{display:block;font-size:9.5px;color:#8a97a0}
+.gr .kp .b b{color:#3d7eb9}.gr .kp .n b{color:#15445a}.gr .kp .r b{color:#7258a4}
+.gr h2{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#15445a;margin:10px 0 6px;font-weight:800}
+.gr h2:before{content:'';width:5px;height:16px;border-radius:3px;background:linear-gradient(180deg,#3B83B7,#4CB176)}
+.gr .tr{flex:1;height:13px;background:#e8eef1;border-radius:7px;position:relative}.gr .tr i{display:block;height:100%;border-radius:7px}
+.gr .g{background:#07a869}.gr .bl{background:#3d7eb9}.gr .tn{background:#7258a4}
+.gr .nb{background:#eef5f9;border-right:4px solid #3d7eb9;padding:6px 12px;font-size:11.5px;line-height:1.7;margin:5px 0}
+.gr .nb.w{background:#f1eef7;border-color:#7258a4}.gr .nb.gr2{background:#e9f7f1;border-color:#07a869}
+.gr .li{display:flex;gap:8px;align-items:flex-start;margin:1px 0}.gr .li .mk{flex:0 0 20px;color:#07a869;font-weight:800;text-align:right}.gr .li .tx{flex:1}
 .gr .fn{font-size:9.5px;color:#7a8791;margin:4px 0;line-height:1.7}
-.gr .sm{display:flex;gap:8px;margin:4px 0 5px}.gr .sm>div{flex:1;background:#f4f8f8;border-radius:8px;padding:3px 6px;text-align:center;font-size:10px;color:#55646f}
-.gr .sm b{display:block;font-size:15px;color:#1B3245}
+.gr .sm{display:flex;gap:8px;margin:4px 0 5px}.gr .sm>div{flex:1;background:#f4f8f8;border-radius:8px;padding:3px 6px;text-align:center;font-size:10px;color:#5b6b74}
+.gr .sm b{display:block;font-size:15px;color:#15445a}
 .gr .it{display:flex;align-items:center;margin:3px 0;font-size:11.5px;padding:2px 8px;border-radius:6px}
-.gr .it.on{background:#effaf5;outline:1px solid #b9e0d0}.gr .it .a{width:150px}
-.gr .it .tr{flex:1;height:13px;background:#e9efee;border-radius:7px;position:relative}.gr .it .tr i{display:block;height:100%;border-radius:7px}
-.gr .it .tr u{position:absolute;top:-3px;width:3px;height:19px;background:#1B3245;border-radius:2px}
+.gr .it.on,.gr tr.on td{background:#e9f7f1}.gr .it .a{width:150px}
+.gr .it .tr u{position:absolute;top:-3px;width:3px;height:19px;background:#15445a;border-radius:2px}
 .gr .it .v{width:140px;text-align:left;font-weight:700;font-size:11px}
 .gr .cn{display:inline-block;background:#e3f1ee;color:#0a6b4a;border-radius:10px;padding:0 9px;font-size:10px;font-weight:700}
-.gr table{width:100%;border-collapse:collapse;font-size:11px}.gr th{background:#1B3245;color:#fff;padding:3.5px 8px;font-weight:700;text-align:right}
-.gr td{padding:2.5px 8px;border-bottom:1px solid #e6ecee}.gr tr:nth-child(even) td{background:#f7fafa}.gr td.n,.gr th.n{text-align:center}
-.gr .two{display:flex;gap:16px}.gr .two>div{flex:1}
-.gr .st{display:flex;height:15px;border-radius:8px;overflow:hidden}.gr .st i{display:block;height:100%}
-.gr .leg{font-size:10px;color:#55646f;display:flex;gap:14px;margin:5px 0}.gr .leg s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px;text-decoration:none}
-.gr .sig{margin-top:10px;margin-bottom:0;padding-top:10px;border-top:1px solid #d5dbe3;display:flex;justify-content:space-around;font-size:11px;color:#55646f;text-align:center}
-.gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#1B3245;font-size:12.5px;margin-top:4px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a97a0;height:26px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a97a0}
+.gr .cp{display:inline-block;border-radius:10px;padding:0 10px;font-size:10.5px;font-weight:700;color:#fff;line-height:1.7}.gr .cp.w{background:#7258a4}.gr .cp.m{background:#3d7eb9}.gr .cp.t{background:#07a869}
+.gr .lb{display:flex;height:13px;border-radius:7px;overflow:hidden;margin-top:6px}.gr .lb i{display:block;height:100%}
+.gr table{width:100%;border-collapse:collapse;font-size:11px;line-height:1.25}.gr th{background:#15445a;color:#fff;padding:3.5px 7px;font-weight:700;text-align:right}
+.gr td{padding:2.5px 7px;border-bottom:1px solid #e3e9ec}.gr tr:nth-child(even) td{background:#f6f9fa}.gr td.n,.gr th.n{text-align:center}
+.gr .mb{position:relative;height:9px;background:#e8eef1;border-radius:5px}.gr .mb i{display:block;height:100%;border-radius:5px}.gr .mb u{position:absolute;top:-3px;width:2px;height:15px;background:#15445a}
+.gr .two{display:flex;gap:16px;align-items:flex-start}.gr .two>div{flex:1;min-width:0}
+.gr .c3{display:flex;gap:10px;align-items:flex-start}.gr .c3>div{flex:1;min-width:0}.gr .c3 td,.gr .c3 th{padding-left:4px;padding-right:5px;white-space:nowrap}.gr .c3 td:first-child{white-space:normal}
+.gr .gw{margin-bottom:8px}.gr .gh{display:flex;justify-content:space-between;align-items:center;padding:3px 9px;border-radius:7px 7px 0 0;color:#fff;font-size:12px;font-weight:700}
+.gr .gh.w{background:#7258a4}.gr .gh.m{background:#3d7eb9}.gr .gh.t{background:#07a869}.gr .gh span{background:rgba(255,255,255,.28);border-radius:10px;padding:0 8px}
+.gr .st{display:flex;height:13px;border-radius:7px;overflow:hidden}.gr .st i{display:block;height:100%}
+.gr .leg{font-size:10px;color:#5b6b74;display:flex;gap:14px;margin:5px 0}.gr .leg s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px;text-decoration:none}
+.gr .nbox{min-height:64px;border:1.5px dashed #c2c1c1;border-radius:9px;padding:5px 12px;margin:6px 0;font-size:11.5px;color:#15445a}
+.gr .sig{margin-top:10px;margin-bottom:0;padding-top:6px;border-top:1px solid #d5dde1;display:flex;justify-content:space-around;font-size:11px;color:#5b6b74;text-align:center}
+.gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#15445a;font-size:12.5px;margin-top:3px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a979f;height:24px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a979f}
 @media print{.gr{padding:0}.gr .pdf-avoid-break{break-inside:avoid;page-break-inside:avoid}.gr h2{break-after:avoid;page-break-after:avoid}}
 `;
 
@@ -329,15 +328,23 @@ function grKpis(list){
   return `<div class="kp">${list.map(([v, l, s, c]) => `<div class="${c || ''}"><b>${val(v)}</b><span>${l}</span>${s ? `<small>${s}</small>` : ''}</div>`).join('')}</div>`;
 }
 
-function grBands(s){
-  const rules = s.rules;
-  const m = Math.max.apply(null, s.bands.concat(1));
-  const t = s.recorded || 1;
-  return s.bands.map((n, i) => `<div class="hb"><div class="a">${GRADE_ANALYSIS_BANDS[i]}</div><div class="tr"><i class="${gradeReportBandTone(i, rules)}" style="width:${n ? Math.max(2, 100 * n / m) : 0}%"></i></div><div class="v">${gradeReportCount(n)} · ${grn(Math.round(100 * n / t) + '%')}</div></div>`).join('');
+/* مستويات الطلاب: جدول (الحد · العدد · النسبة) + شريط واحد — ضعاف · متوسطون · متفوقون */
+function grLevels(s){
+  const r = s.rules, t = s.recorded || 1;
+  const lowN = s.groups.low.length, midN = s.mid.length, topN = s.groups.top.length;
+  const pc = n => grn(Math.round(100 * n / t) + '%');
+  const row = (cls, label, limit, n) => `<tr><td><span class="cp ${cls}">${label}</span></td><td class="n">${limit}</td><td class="n"><b>${grn(n)}</b></td><td class="n">${pc(n)}</td></tr>`;
+  return `<table><tr><th>المستوى</th><th class="n">الحد</th><th class="n">العدد</th><th class="n">النسبة</th></tr>` +
+    row('w', 'ضعاف', `أقل من ${r.pass}%`, lowN) + row('m', 'متوسطون', `من ${r.pass}% إلى أقل من ${r.top}%`, midN) +
+    row('t', s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.topIsFallback ? 'أعلى 3 درجات' : `${r.top}% فأكثر`, topN) +
+    `</table><div class="lb"><i class="g" style="flex:${topN}"></i><i class="bl" style="flex:${midN}"></i><i class="tn" style="flex:${lowN}"></i></div>`;
 }
 
-function grItems(items, onId, rules){
-  return items.map(x => `<div class="it${onId === x.id ? ' on' : ''}"><div class="a">${escapeHtml(x.name)}${onId === x.id ? ' <span class="cn">المحلَّل</span>' : ''}</div><div class="tr"><i class="${gradeReportItemTone(x.avgPct, rules)}" style="width:${Math.min(100, x.avgPct)}%"></i></div><div class="v">${grn(formatScore(x.avg) + ' / ' + formatScore(x.max))} <span style="font-weight:400;color:#7a8791">(${grn(x.avgPct + '%')})</span></div></div>`).join('');
+/* البنود: جدول بمتوسط كل بند وشريط صغير مقابل خط حدّ الضعاف */
+function grItemsTable(items, onId, rules){
+  const tone = p => p < rules.pass ? 'tn' : p >= rules.top ? 'g' : 'bl';
+  return `<table><tr><th>البند</th><th class="n">المتوسط</th><th class="n">النسبة</th><th>مقابل خط ${rules.pass}%</th></tr>` +
+    items.map(x => `<tr${onId === x.id ? ' class="on"' : ''}><td>${escapeHtml(x.name)}${onId === x.id ? ' <span class="cn">المحلَّل</span>' : ''}</td><td class="n">${grn(formatScore(x.avg) + ' / ' + formatScore(x.max))}</td><td class="n"><b>${grn(x.avgPct + '%')}</b></td><td style="width:30%"><div class="mb"><i class="${tone(x.avgPct)}" style="width:${Math.min(100, x.avgPct)}%"></i><u style="right:${rules.pass}%"></u></div></td></tr>`).join('') + '</table>';
 }
 
 /* التعليق التربوي بحسب اختيار المعلم؛ فارغ = لا يُكتب */
@@ -357,15 +364,16 @@ function grSig(prefs, third, thirdName){
   return `<div class="sig pdf-avoid-break">${third ? cell(third, thirdName || '') : ''}${cell('معلم المادة', gradeReportTeacherName(prefs))}${cell('وكيل شؤون الطلاب', prefs.vice)}</div>`;
 }
 
-function grNamesTable(title, list){
-  if(!list.length) return '';
-  const rowOf = r => `<tr><td>${escapeHtml(r.name)}${r.partial ? ' <b style="color:#a85d3a">*</b>' : ''}</td><td class="n">${grn(formatScore(r.points) + ' / ' + formatScore(r.recordedMax))}</td><td class="n">${grn(Math.round(r.pct) + '%')}</td></tr>`;
+/* قوائم الأسماء بثلاثة أعمدة: الضعاف والمتفوقون في عمود، والمتوسطون في عمودين (عمود واحد إن قلّوا) */
+function grNamesCols(low, mid, top){
+  const rowOf = r => `<tr><td>${escapeHtml(r.name)}${r.partial ? ' <b style="color:#7258a4">*</b>' : ''}</td><td class="n">${grn(formatScore(r.points) + ' / ' + formatScore(r.recordedMax))}</td><td class="n">${grn(Math.round(r.pct) + '%')}</td></tr>`;
   const head = '<tr><th>اسم الطالب</th><th class="n">الدرجة</th><th class="n">النسبة</th></tr>';
-  if(list.length > 8){
-    const h = Math.ceil(list.length / 2);
-    return grBlock(grH2(`${title} — ${grn(list.length)}`) + `<div class="two"><div><table>${head}${list.slice(0, h).map(rowOf).join('')}</table></div><div><table>${head}${list.slice(h).map(rowOf).join('')}</table></div></div>`);
-  }
-  return grBlock(grH2(`${title} — ${grn(list.length)}`) + `<table>${head}${list.map(rowOf).join('')}</table>`);
+  const tbl = (title, cls, list) => list.length ? `<div class="gw"><div class="gh ${cls}"><b>${title}</b><span>${grn(list.length)}</span></div><table>${head}${list.map(rowOf).join('')}</table></div>` : '';
+  if(!low.length && !mid.length && !top.length) return '';
+  const half = Math.ceil(mid.length / 2);
+  const midCols = mid.length > 10 ? [mid.slice(0, half), mid.slice(half)] : [mid];
+  const cols = [tbl('الضعاف', 'w', low) + tbl('المتفوقون', 't', top)].concat(midCols.map((l, i) => tbl(i ? 'المتوسطون (تابع)' : 'المتوسطون', 'm', l)));
+  return grBlock(grH2('قوائم الطلاب') + `<div class="c3">${cols.map(c => `<div>${c}</div>`).join('')}</div>`);
 }
 
 /* تنبيه ظاهر تحت قوائم الأسماء: ترتيبها بالنسبة، ومن رُصد له جزء من الأعمدة مقامه أقل */
@@ -392,11 +400,14 @@ function grCompare(prev, withNames){
 
 function grFootnote(s){
   const r = s.rules;
-  let t = `معيار التحليل: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما. `;
+  let t = `معيار المستويات: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما. `;
   if(s.missing) t += `المحلَّل ${s.recorded} من ${s.total} طالبًا؛ من لم يُرصد له لا يدخل في الحساب (لا يُعدّ صفرًا). `;
   if(s.partial) t += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فنسبة كل منهم مما رُصد له. `;
-  return `<div class="fn">${t}هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>`;
+  return `<div class="fn">${t}تحليل للدرجات المرصودة فقط.</div>`;
 }
+
+/* خانة «ملاحظات» بخط منقّط يكتب فيها المعلم أو الوكيل بيده */
+function grNotesBox(){ return '<div class="nbox pdf-avoid-break"><b>ملاحظات</b></div>'; }
 
 /* تقرير الشعبة (المجموع) أو بند واحد: a = crmGradeAnalysis، v = gradeAnalysisView(a) */
 function gradeReportSectionHtml(a, v, prefs, ctx){
@@ -404,26 +415,18 @@ function gradeReportSectionHtml(a, v, prefs, ctx){
   const isTotal = a.key === 'total';
   const items = gradeReportItems(a.g, a.students);
   const notes = gradeReportSectionNotes({ s, displayMax: v.displayMax, items, isTotal, colLabel: v.colLabel });
-  const pctOf = n => Math.round(100 * n / s.recorded) + '%';
-  const kpis = grKpis([
-    [s.passRate + '%', 'نسبة النجاح', `(${r.pass}% فأكثر)`, ''],
-    [(s.avgPct === null ? '—' : s.avgPct + '%'), 'متوسط نسبة التحصيل', '', 'b'],
-    [formatScore(s.avg), `المتوسط من ${formatScore(v.displayMax)}`, '', 'n'],
-    [s.recorded, 'عدد الطلاب', [s.missing ? `من ${s.total} (لم يُرصد ${s.missing})` : '', s.partial ? `${s.partial} رُصد لهم جزء` : ''].filter(Boolean).join(' · '), 'n']]);
-  const levels = prefs.show.levels ? grBlock(grH2('توزيع الطلاب حسب مستوى الأداء') + grBands(s) +
-    `<div class="nb">بلغ عدد الناجحين <b>${gradeReportCount(s.passed)} (${grn(s.passRate + '%')})</b>، ودون حد النجاح <b>${gradeReportCount(s.groups.low.length)} (${grn(pctOf(s.groups.low.length))})</b>، والمتوسطون ${gradeReportCount(s.mid.length)}.</div>`) : '';
-  const stats = prefs.show.stats ? grBlock(grH2('المؤشرات الإحصائية') + `<div class="sm"><div><b>${grn(formatScore(s.min))}</b>أقل درجة</div><div><b>${grn(formatScore(s.max))}</b>أعلى درجة</div><div><b>${grn(formatScore(s.median))}</b>الوسيط</div><div><b>${grn(formatScore(Math.round((s.max - s.min) * 100) / 100))}</b>المدى</div></div>`) : '';
-  const itemsHtml = prefs.show.items && items.length ? grBlock(grH2(isTotal ? 'متوسط درجات البنود' : 'درجات البنود (متوسط الشعبة)') + grItems(items, isTotal ? null : a.key, r) +
-    (isTotal ? '<div class="fn">المجموع بعد تطبيق أوزان الدرجات؛ لذلك لا يساوي مجموع الدرجات العظمى للبنود.</div>' : '')) : '';
-  const analysed = isTotal ? '' : `<h2>البند المحلَّل: ${escapeHtml(v.colLabel)} (من ${grn(formatScore(v.displayMax))})</h2>`;
+  const max = formatScore(v.displayMax);
+  const kp = [[(s.avgPct === null ? '—' : s.avgPct + '%'), 'متوسط التحصيل', `${formatScore(s.avg)} من ${max}`, 'b']];
+  if(prefs.show.stats) kp.push([formatScore(s.median), 'الوسيط', `من ${max}`, 'n'], [`${formatScore(s.min)} – ${formatScore(s.max)}`, 'أدنى وأعلى درجة', '', 'n']);
+  kp.push([s.recorded, 'عدد الطلاب', [s.missing ? `من ${s.total} (لم يُرصد ${s.missing})` : '', s.partial ? `${s.partial} رُصد لهم جزء` : ''].filter(Boolean).join(' · '), 'n']);
+  const lvBlock = prefs.show.levels ? `<div><h2>مستويات الطلاب</h2>${grLevels(s)}</div>` : '';
+  const itBlock = prefs.show.items && items.length ? `<div><h2>${isTotal ? 'متوسط درجات البنود' : 'درجات البنود (متوسط الشعبة)'}</h2>${grItemsTable(items, isTotal ? null : a.key, r)}<div class="fn">الخط الأسود = ${r.pass}% من الدرجة.${isTotal ? ' المجموع بعد تطبيق أوزان الدرجات؛ لذلك لا يساوي مجموع الدرجات العظمى للبنود.' : ''}</div></div>` : '';
+  const mid = lvBlock || itBlock ? grBlock(`<div class="two">${lvBlock}${itBlock}</div>`) : '';
+  const analysed = isTotal ? '' : `<h2>البند المحلَّل: ${escapeHtml(v.colLabel)} (من ${grn(max)})</h2>`;
   const topList = s.topIsFallback ? [] : s.groups.top;
-  const names = ctx.withNames ? grNamesNote([s.groups.low, s.mid, topList], v.displayMax) + grNamesTable('الطلاب الضعاف', s.groups.low) +
-    grNamesTable('الطلاب المتوسطون', s.mid) + grNamesTable('المتفوقون', topList) : '';
-  const sub = escapeHtml(a.label) + ' | ' + (isTotal ? `المجموع من ${grn(formatScore(v.displayMax))}` : 'تحليل بند واحد');
-  const body = isTotal
-    ? kpis + levels + stats + itemsHtml
-    : itemsHtml + grBlock(analysed + kpis) + levels + stats;
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج الدرجات — الشعبة', sub)}${body}${names}${prefs.show.compare ? grCompare(ctx.prev, ctx.withNames) : ''}${grNotes(notes, prefs)}${grFootnote(s)}${grSig(prefs)}</div>`;
+  const names = ctx.withNames ? grNamesNote([s.groups.low, s.mid, topList], v.displayMax) + grNamesCols(s.groups.low, s.mid, topList) : '';
+  const sub = escapeHtml(a.label) + ' | ' + (isTotal ? `المجموع من ${grn(max)}` : 'تحليل بند واحد');
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج الدرجات — الشعبة', sub)}${analysed}${grKpis(kp)}${mid}${names}${prefs.show.compare ? grCompare(ctx.prev, ctx.withNames) : ''}${grNotes(notes, prefs)}${grFootnote(s)}${grNotesBox()}${grSig(prefs)}</div>`;
 }
 
 /* تقرير مجموعة الشعب: d = { gradeName, key, colLabel, secs:[{ label, s, levels, items }], pooled, displayMax } */
@@ -431,28 +434,29 @@ function gradeReportGroupHtml(d, prefs, ctx){
   const rules = d.pooled.rules;
   const p = d.pooled;
   const total = d.secs.reduce((a, x) => a + x.s.recorded, 0);
+  const lowPct = p.recorded ? Math.round(100 * p.groups.low.length / p.recorded) : 0;
   const kpis = grKpis([
-    [p.passRate + '%', 'نسبة النجاح العامة', `(${d.secs.length} شعب)`, ''],
-    [(p.avgPct === null ? '—' : p.avgPct + '%'), 'متوسط نسبة التحصيل', '', 'b'],
+    [(p.avgPct === null ? '—' : p.avgPct + '%'), 'متوسط التحصيل العام', `(${d.secs.length} شعب)`, 'b'],
+    [p.groups.low.length, 'عدد الضعاف', `${lowPct}% من الطلاب`, 'r'],
     [total, 'عدد الطلاب', '', 'n'], [d.secs.length, 'عدد الشعب', '', 'n']]);
   const stk = lv => { const t = (lv.top + lv.mid + lv.low) || 1; return `<div class="st"><i class="g" style="width:${100 * lv.top / t}%"></i><i class="bl" style="width:${100 * lv.mid / t}%"></i><i class="tn" style="width:${100 * lv.low / t}%"></i></div>`; };
-  const table = grBlock(grH2('مقارنة الشعب') + `<table><tr><th>الشعبة</th><th class="n">الطلاب</th><th class="n">المتوسط</th><th class="n">نسبة النجاح</th><th>توزيع المستويات</th><th class="n">دون النجاح</th></tr>${d.secs.map(x =>
-    `<tr><td><b>${escapeHtml(x.label)}</b></td><td class="n">${grn(x.s.recorded)}</td><td class="n">${grn(formatScore(x.s.avg) + ' (' + x.s.avgPct + '%)')}</td><td class="n">${grn(x.s.passRate + '%')}</td><td style="width:170px">${stk(x.levels)}</td><td class="n">${grn(Math.round(100 * x.s.groups.low.length / x.s.recorded) + '%')}</td></tr>`).join('')}</table>` +
-    '<div class="leg"><span><s class="g"></s>متقن</span><span><s class="bl"></s>متوسط</span><span><s class="tn"></s>دون حد النجاح</span></div>');
-  const levels = prefs.show.levels ? grBlock(grH2('توزيع طلاب المجموعة حسب مستوى الأداء') + grBands(p)) : '';
+  const table = grBlock(grH2('مقارنة الشعب') + `<table><tr><th>الشعبة</th><th class="n">الطلاب</th><th class="n">المتوسط</th><th>توزيع المستويات</th><th class="n">الضعاف</th></tr>${d.secs.map(x =>
+    `<tr><td><b>${escapeHtml(x.label)}</b></td><td class="n">${grn(x.s.recorded)}</td><td class="n">${grn(formatScore(x.s.avg) + ' (' + x.s.avgPct + '%)')}</td><td style="width:170px">${stk(x.levels)}</td><td class="n">${grn(x.s.groups.low.length + ' (' + Math.round(100 * x.s.groups.low.length / x.s.recorded) + '%)')}</td></tr>`).join('')}</table>` +
+    '<div class="leg"><span><s class="g"></s>متفوقون</span><span><s class="bl"></s>متوسطون</span><span><s class="tn"></s>ضعاف</span></div>');
+  const levels = prefs.show.levels ? grBlock(grH2('مستويات طلاب المجموعة') + grLevels(p)) : '';
   const stats = prefs.show.stats ? grBlock(grH2('المؤشرات الإحصائية للمجموعة') + `<div class="sm"><div><b>${grn(formatScore(p.min))}</b>أقل درجة</div><div><b>${grn(formatScore(p.max))}</b>أعلى درجة</div><div><b>${grn(formatScore(p.median))}</b>الوسيط</div><div><b>${grn(formatScore(p.avg))}</b>المتوسط</div></div>`) : '';
   let matrix = '';
   if(prefs.show.items){
     const names = [];
     d.secs.forEach(x => x.items.forEach(i => { if(!names.some(n => n.key === normalizeGradeColumnName(i.name))) names.push({ key: normalizeGradeColumnName(i.name), name: i.name }); }));
     if(names.length){
-      const cell = (x, n) => { const i = x.items.find(q => normalizeGradeColumnName(q.name) === n.key); return i ? `<td class="n" style="color:${i.avgPct < rules.pass ? '#8a6d1d' : i.avgPct >= rules.top ? '#0a8f5b' : '#1B3245'};font-weight:700">${grn(i.avgPct + '%')}</td>` : '<td class="n">—</td>'; };
+      const cell = (x, n) => { const i = x.items.find(q => normalizeGradeColumnName(q.name) === n.key); return i ? `<td class="n" style="color:${i.avgPct < rules.pass ? '#7258a4' : i.avgPct >= rules.top ? '#0a8f5b' : '#15445a'};font-weight:700">${grn(i.avgPct + '%')}</td>` : '<td class="n">—</td>'; };
       matrix = grBlock(grH2('مقارنة الشعب في كل بند (متوسط النسبة)') + `<table><tr><th>البند</th>${d.secs.map(x => `<th class="n">${escapeHtml(x.label)}</th>`).join('')}</tr>${names.map(n => `<tr><td>${escapeHtml(n.name)}</td>${d.secs.map(x => cell(x, n)).join('')}</tr>`).join('')}</table>`);
     }
   }
   const notes = gradeReportGroupNotes({ secs: d.secs });
   const sub = `${escapeHtml(d.gradeName)} | ${d.key === 'total' ? `المجموع من ${grn(formatScore(d.displayMax))}` : 'بند: ' + escapeHtml(d.colLabel)}`;
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج المجموعة — شعب الصف', sub)}${kpis}${table}${levels}${stats}${matrix}${grNotes(notes, prefs)}${grFootnote(p)}${grSig(prefs)}</div>`;
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج المجموعة — شعب الصف', sub)}${kpis}${table}${levels}${stats}${matrix}${grNotes(notes, prefs)}${grFootnote(p)}${grNotesBox()}${grSig(prefs)}</div>`;
 }
 
 /* تقرير طالب: d من gradeReportStudentData */
@@ -464,9 +468,9 @@ function gradeReportStudentHtml(d, prefs, ctx){
     [d.pts === null ? '—' : formatScore(d.pts), `مجموع الدرجات من ${formatScore(d.max)}`, '', 'n'],
     [d.pct === null ? '—' : Math.round(d.pct) + '%', 'النسبة المئوية', '', ''],
     [diff === null ? '—' : (diff > 0 ? '+' : '') + formatScore(diff), 'الفارق عن متوسط الشعبة', d.classPts === null ? '' : `(${formatScore(Math.round(d.classPts * 100) / 100)})`, diff !== null && diff < 0 ? 'r' : 'b'],
-    [state, 'الحالة', '', 'n']]);
+    [state, 'المستوى', '', 'n']]);
   const itemsHtml = prefs.show.items ? grBlock(grH2('درجات البنود مقارنةً بمتوسط الشعبة') +
-    '<div class="leg"><span><s class="g"></s>متفوق</span><span><s class="bl"></s>ناجح</span><span><s class="tn"></s>دون حد النجاح</span><span>▏ علامة متوسط الشعبة</span></div>' +
+    '<div class="leg"><span><s class="g"></s>متفوق</span><span><s class="bl"></s>متوسط</span><span><s class="tn"></s>ضعيف</span><span>▏ علامة متوسط الشعبة</span></div>' +
     d.items.map(x => {
       if(x.score === null) return `<div class="it"><div class="a">${escapeHtml(x.name)}</div><div class="tr"></div><div class="v">لم يُرصد</div></div>`;
       const dl = x.classPct === null ? null : Math.round(x.pct - x.classPct);
@@ -480,7 +484,7 @@ function gradeReportStudentHtml(d, prefs, ctx){
   const sigTo = to === 'وكيل شؤون الطلاب' ? '' : (to || 'ولي الأمر');
   /* اسم الجهة في توقيعها إن كان المعلم أدخله مرة (الموجه الطلابي · وكيل شؤون المعلمين) */
   const sigName = to === 'الموجه الطلابي' ? prefs.counselor : to === 'وكيل شؤون المعلمين' ? prefs.staff : '';
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}${toLine}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار التحليل: الحاجة للدعم أقل من ${r.pass}%، والحافة حتى +${r.edge} نقاط، والمتفوق ${r.top}% فأكثر. هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>${grSig(prefs, sigTo, sigName)}</div>`;
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}${toLine}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار المستويات: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما.</div>${grSig(prefs, sigTo, sigName)}</div>`;
 }
 
 /* ============ التصدير ============ */
@@ -496,7 +500,7 @@ function gradeReportPrintCss(mark){
   const box = 'font-family:Cairo,sans-serif;font-size:8.5pt;color:#55646f';
   const top = mark && (mark.right || mark.left)
     ? `@top-right{content:"${q(mark.right)}";${box}}@top-left{content:"${q(mark.left)}";${box}}` : '';
-  return `@page{size:A4;margin:14mm 10mm 14mm;${top}@bottom-center{content:"صفحة " counter(page) " / " counter(pages);${box}}}`
+  return `@page{size:A4;margin:15mm 15mm 14mm;${top}@bottom-center{content:"صفحة " counter(page) " / " counter(pages);${box}}}`
     + '@page :first{@top-right{content:none}@top-left{content:none}}'
     + '@media print{#printArea.wrap{max-width:none;padding-bottom:0}.gr-pg{break-after:page;page-break-after:always}.gr-pg:last-child{break-after:auto;page-break-after:auto}}';
 }

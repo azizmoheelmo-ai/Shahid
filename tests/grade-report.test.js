@@ -106,16 +106,15 @@ test('التعليق التربوي شرطي على الأرقام: ضعف · ه
   const n = app.__n;
   const flat = k => [...n[k]].join(' ');
   assert.match(flat('plans'), /مراجعة أوراق الطلاب/);
-  assert.match(flat('plans'), /نجحوا بهامش قليل/);
-  assert.doesNotMatch(flat('plans') + flat('weaknesses'), /على الحافة/, 'لا تسمية «على الحافة» في التعليق');
+  assert.doesNotMatch(flat('plans') + flat('weaknesses') + flat('reading') + flat('strengths'), /على الحافة|نجاح|نجحوا|ناجح|رسوب/, 'لا لغة نجاح ولا «على الحافة» في التعليق');
   assert.match(flat('plans'), /إثرائية/);
   assert.match(flat('plans'), /مقارنة نتائج التقييم التالي/);
-  assert.match(flat('weaknesses'), /دون حد النجاح/);
+  assert.match(flat('weaknesses'), /أقل من <bdi dir="ltr">50%<\/bdi>/);
   assert.match(flat('strengths'), /90%/);
   assert.match(flat('reading'), /المتوسط/);
 });
 
-test('بلا ضعف: لا خطة علاجية ولا نقطة ضعف، والقراءة تقول لا طالب دون حد النجاح', async () => {
+test('بلا ضعف: لا خطة علاجية ولا نقطة ضعف، والقراءة تقول لا طالب أقل من حدّ الضعاف', async () => {
   const app = opened('');
   const s = JSON.parse(JSON.stringify(runInAppContext(app, `analyzeGradeRows(gradeAnalysisRows(crmGradeAnalysis.g, crmGradeAnalysis.students.slice(2), 'p', { performance: 40, tests: 20 }, true).rows, 40)`)));
   app.__s = runInAppContext(app, `gradeAnalysisRows(crmGradeAnalysis.g, crmGradeAnalysis.students.slice(2), 'p', { performance: 40, tests: 20 }, true)`);
@@ -123,7 +122,7 @@ test('بلا ضعف: لا خطة علاجية ولا نقطة ضعف، والق�
   assert.equal(s.groups.low.length, 0);
   assert.equal(app.__n.weaknesses.length, 0);
   assert.doesNotMatch([...app.__n.plans].join(' '), /مراجعة أوراق الطلاب/);
-  assert.match([...app.__n.reading].join(' '), /لا طالب دون حد النجاح/);
+  assert.match([...app.__n.reading].join(' '), /لا طالب أقل من <bdi dir="ltr">50%<\/bdi>/);
 });
 
 test('تقرير الشعبة: العنوان عام (لا اسم عمود فيه)، وتفصيل البند في جسم التقرير', async () => {
@@ -142,15 +141,15 @@ test('تقرير الشعبة: العنوان عام (لا اسم عمود في�
 test('ما يُطبع بيد المعلم: الأقسام والتعليق يُحذفان بإيقافهما، والأسماء بطلب فقط', async () => {
   const off = { reportPrefs: { show: { levels: false, stats: false, items: false }, notes: { reading: false, strengths: false, weaknesses: false, plans: false } } };
   const app = opened(`window.__x = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});`, off);
-  for(const gone of ['توزيع الطلاب حسب مستوى الأداء', 'المؤشرات الإحصائية', 'متوسط درجات البنود', 'قراءة تربوية', 'نقاط القوة', 'نقاط الضعف', 'الخطط العلاجية'])
+  for(const gone of ['مستويات الطلاب', 'أدنى وأعلى درجة', 'الوسيط', 'متوسط درجات البنود', 'قراءة تربوية', 'نقاط القوة', 'نقاط الضعف', 'الخطط العلاجية'])
     assert.doesNotMatch(app.__x, new RegExp(gone), gone);
   const on = opened(`window.__x = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});
     window.__n = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`, NOTES_ON);
-  for(const here of ['توزيع الطلاب حسب مستوى الأداء', 'المؤشرات الإحصائية', 'قراءة تربوية', 'نقاط القوة', 'نقاط الضعف وفرص التحسين', 'الخطط العلاجية والتوصيات'])
+  for(const here of ['مستويات الطلاب', 'أدنى وأعلى درجة', 'قراءة تربوية', 'نقاط القوة', 'نقاط الضعف وفرص التحسين', 'الخطط العلاجية والتوصيات'])
     assert.match(on.__x, new RegExp(here), here);
   assert.doesNotMatch(on.__x, /<td>أحمد<\/td>/, 'بلا أسماء افتراضيًا');
   assert.match(on.__n, /<td>أحمد<\/td>/);
-  assert.match(on.__n, /الطلاب الضعاف/);
+  assert.match(on.__n, /<div class="gh w"><b>الضعاف<\/b>/);
 });
 
 test('XSS: اسم المدرسة والمعلم والوكيل وأسماء الطلاب كلها بـ escapeHtml', async () => {
@@ -224,12 +223,12 @@ test('قوائم الأسماء: ثلاثة أعمدة بالنسبة، ونجم
     window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
   const h = app.__h;
   assert.match(h, /<th>اسم الطالب<\/th><th class="n">الدرجة<\/th><th class="n">النسبة<\/th>/);
-  assert.match(h, /<td>أحمد <b style="color:#a85d3a">\*<\/b><\/td>/, 'النجمة بجانب الاسم');
+  assert.match(h, /<td>أحمد <b style="color:#7258a4">\*<\/b><\/td>/, 'النجمة بجانب الاسم');
   assert.match(h, /مرتّبة بالنسبة المئوية/);
-  assert.ok(h.indexOf('رُصد له جزء من الأعمدة') < h.indexOf('الطلاب الضعاف'), 'التنبيه قبل أول جدول');
+  assert.ok(h.indexOf('رُصد له جزء من الأعمدة') < h.indexOf('<div class="c3">'), 'التنبيه قبل أول جدول');
   assert.match(h, /1 رُصد لهم جزء|رُصد لهم جزء/, 'تنبيه تحت عدد الطلاب أيضًا');
   const full = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
-  assert.doesNotMatch(full.__h, /<b style="color:#a85d3a">\*<\/b>/, 'بلا نقص: بلا نجمة');
+  assert.doesNotMatch(full.__h, /<b style="color:#7258a4">\*<\/b>/, 'بلا نقص: بلا نجمة');
   assert.doesNotMatch(full.__h, /رُصد له جزء من الأعمدة فقط/);
 });
 
@@ -360,13 +359,38 @@ test('شعار الوزارة: يظهر بترويسة كل التقارير ح�
   assert.match(css, /\.gr \.hd img\{height:54px\}/);
 });
 
-test('تقرير الشعبة بالأسماء (33 طالبًا) لا يتجاوز صفحتين: تباعد مضغوط، وصف التوقيع لا يتيم صفحة ثالثة', async () => {
+test('تقرير الشعبة بالأسماء (33 طالبًا) لا يتجاوز صفحتين: تباعد مضغوط وهوامش الشعار (1.5 سم)', async () => {
   const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  /* قيم القياس الفعلي (Playwright/Chromium بخط Cairo): 33 ← صفحتان، و45 ← صفحتان */
-  assert.match(css, /\.gr h2\{[^}]*margin:9px 0 5px/);
-  assert.match(css, /\.gr td\{padding:2\.5px 8px/);
+  /* قيم القياس الفعلي (Chromium بخط Cairo، بتوزيع تقرير المعلم): 33 ← صفحتان، و45 ← صفحتان */
+  assert.match(css, /\.gr h2\{[^}]*margin:10px 0 6px/);
+  assert.match(css, /\.gr td\{padding:2\.5px 7px/);
   assert.match(css, /\.gr \.sig\{margin-top:10px/);
   assert.match(css, /\.gr \.kp>div\{[^}]*padding:5px 4px/);
+  assert.match(css, /@page\{size:A4;margin:15mm 15mm 14mm;/, 'مسافة آمنة 1.5 سم حول الشعار');
+});
+
+test('هوية الوزارة: ألوان اللوحة فقط، «ضعاف» بنفسجي #7258a4 بلا بني، والتدرج أزرق يسارًا وأخضر يمينًا', async () => {
+  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  const block = css.slice(css.indexOf('const GRADE_REPORT_CSS'), css.indexOf('@media print{.gr{padding:0}'));
+  assert.match(block, /\.gr \.tn\{background:#7258a4\}/, 'ضعاف بنفسجي');
+  assert.match(block, /linear-gradient\(90deg,#3B83B7,#4CB176\)/);
+  assert.match(block, /h1\{[^}]*color:#351375/);
+  assert.doesNotMatch(block, /#A9852E|#a85d3a|#c1b489|#9c6a45|#8a6d1d/i, 'لا ذهبي ولا بني ولا رملي');
+});
+
+test('لا لغة نجاح ورسوب في أي تقرير: الشعبة (بالأسماء وبلا) والمجموعة والطالب', async () => {
+  const app = opened(`const v = gradeAnalysisView(crmGradeAnalysis); const prefs = gradeReportPrefsNow();
+    window.__a = gradeReportSectionHtml(crmGradeAnalysis, v, prefs, { date: 'd', withNames: true });
+    window.__b = gradeReportSectionHtml(crmGradeAnalysis, v, prefs, { date: 'd', withNames: false });
+    window.__s = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), prefs, { date: 'd' });
+    const st = crmStudentsOfSection('S'); const res = gradeAnalysisRows(crmGrades, st, 'total', { performance: 40, tests: 20 }, true);
+    const sec = { label: 'ش1', s: analyzeGradeRows(res.rows, res.displayMax), levels: gradeReportLevels(res.rows, v.stats.rules), items: gradeReportItems(crmGrades, st) };
+    window.__g = gradeReportGroupHtml({ gradeName: 'ثاني', key: 'total', colLabel: 'المجموع', secs: [sec, Object.assign({}, sec, { label: 'ش2' })], pooled: sec.s, displayMax: res.displayMax }, prefs, { date: 'd' });
+    window.__x = gradeAnalysisExportRows(crmGradeAnalysis, v, true);`, NOTES_ON);
+  for(const k of ['__a', '__b', '__s', '__g']) assert.doesNotMatch(app[k], /نجاح|ناجح|نجحوا|رسوب|الحافة|جيد/, k);
+  assert.doesNotMatch(JSON.stringify(app.__x), /ناجحون|نجاح/, 'Excel');
+  assert.match(app.__a, /ملاحظات/, 'خانة ملاحظات');
+  assert.match(app.__a, /<span class="cp w">ضعاف<\/span>/);
 });
 
 test('طالب بلا درجات: لا انهيار، ولا يُحسب صفرًا', async () => {
