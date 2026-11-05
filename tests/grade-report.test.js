@@ -100,13 +100,14 @@ test('اسم المعلم تلقائي من الحساب، ويغلبه ما ك�
   assert.equal(app.gradeReportTeacherName({ teacher: 'أ. فلان' }), 'أ. فلان');
 });
 
-test('التعليق التربوي شرطي على الأرقام: ضعف · حافة · تفوق → خطة علاجية وإثرائية', async () => {
+test('التعليق التربوي شرطي على الأرقام: ضعف · هامش قليل · تفوق → خطة علاجية وإثرائية', async () => {
   const app = opened(`window.__v = gradeAnalysisView(crmGradeAnalysis);
     window.__n = gradeReportSectionNotes({ s: __v.stats, displayMax: __v.displayMax, items: gradeReportItems(crmGradeAnalysis.g, crmGradeAnalysis.students), isTotal: true });`);
   const n = app.__n;
   const flat = k => [...n[k]].join(' ');
   assert.match(flat('plans'), /مراجعة أوراق الطلاب/);
-  assert.match(flat('plans'), /الحافة/);
+  assert.match(flat('plans'), /نجحوا بهامش قليل/);
+  assert.doesNotMatch(flat('plans') + flat('weaknesses'), /على الحافة/, 'لا تسمية «على الحافة» في التعليق');
   assert.match(flat('plans'), /إثرائية/);
   assert.match(flat('plans'), /مقارنة نتائج التقييم التالي/);
   assert.match(flat('weaknesses'), /دون حد النجاح/);
@@ -149,7 +150,7 @@ test('ما يُطبع بيد المعلم: الأقسام والتعليق يُ�
     assert.match(on.__x, new RegExp(here), here);
   assert.doesNotMatch(on.__x, /<td>أحمد<\/td>/, 'بلا أسماء افتراضيًا');
   assert.match(on.__n, /<td>أحمد<\/td>/);
-  assert.match(on.__n, /الطلاب المحتاجون إلى دعم علاجي/);
+  assert.match(on.__n, /الطلاب الضعاف/);
 });
 
 test('XSS: اسم المدرسة والمعلم والوكيل وأسماء الطلاب كلها بـ escapeHtml', async () => {
@@ -182,7 +183,7 @@ test('تقرير الطالب: الدرجة والفارق عن متوسط ال�
   assert.equal(d.items.length, 2);
   assert.ok(d.pts < d.classPts, 'الطالب a أدنى من متوسط الشعبة');
   assert.match(app.__h, /تقرير أداء طالب/);
-  assert.match(app.__h, /يحتاج دعمًا/);
+  assert.match(app.__h, /ضعيف/);
   assert.match(app.__h, /التواصل مع ولي الأمر/);
   const e = JSON.parse(JSON.stringify(app.__top));
   assert.ok(e.pts > e.classPts);
@@ -225,7 +226,7 @@ test('قوائم الأسماء: ثلاثة أعمدة بالنسبة، ونجم
   assert.match(h, /<th>اسم الطالب<\/th><th class="n">الدرجة<\/th><th class="n">النسبة<\/th>/);
   assert.match(h, /<td>أحمد <b style="color:#a85d3a">\*<\/b><\/td>/, 'النجمة بجانب الاسم');
   assert.match(h, /مرتّبة بالنسبة المئوية/);
-  assert.ok(h.indexOf('رُصد له جزء من الأعمدة') < h.indexOf('الطلاب المحتاجون إلى دعم علاجي'), 'التنبيه قبل أول جدول');
+  assert.ok(h.indexOf('رُصد له جزء من الأعمدة') < h.indexOf('الطلاب الضعاف'), 'التنبيه قبل أول جدول');
   assert.match(h, /1 رُصد لهم جزء|رُصد لهم جزء/, 'تنبيه تحت عدد الطلاب أيضًا');
   const full = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
   assert.doesNotMatch(full.__h, /<b style="color:#a85d3a">\*<\/b>/, 'بلا نقص: بلا نجمة');
@@ -333,7 +334,7 @@ test('زر واحد بدل زرين: PDF — طباعة / حفظ، في النا
   assert.equal((app.__d.match(/exportGradeReport\(this\)/g) || []).length, 1);
   assert.doesNotMatch(app.__d, /exportCrmGradeAnalysis\('pdf'/, 'زر الصورة القديم أُزيل');
   assert.doesNotMatch(app.__d, /تجريبي/);
-  assert.match(app.__d, /PDF — طباعة \/ حفظ/);
+  assert.match(app.__d, /⤓ PDF للطباعة/);
   assert.doesNotMatch(app.__d, /الوزارة/, 'لا هوية وزارة في الأزرار');
   const grades = fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8');
   assert.equal((grades.match(/exportCrmStudentReport\(this\)/g) || []).length, 1);
@@ -381,6 +382,158 @@ test('نافذة التحليل: نطاق التقرير، وزر PDF، ومفت
   assert.match(app.__d, /<option value="group"[^>]*>كل شعب الصف/);
   const solo = opened(`crmSections = [{ id: 'S', grade_level_id: 'G' }]; crmGradeAnalysis.exportOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.match(solo.__d, /<option value="group"[^>]*disabled[^>]*>/, 'بلا شعب أخرى: الخيار معطّل');
+});
+
+test('التصدير بنقرتين: PDF وExcel ظاهران دون فتح الخيارات، والخيارات مطوية افتراضيًا', async () => {
+  const app = opened(`window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(app.__d, /onclick="exportGradeReport\(this\)"/, 'PDF ظاهر مباشرة');
+  assert.match(app.__d, /exportCrmGradeAnalysis\('xlsx', this\)/, 'Excel ظاهر مباشرة');
+  assert.doesNotMatch(app.__d, /id="crmGaScope"/, 'النطاق والخانات مطوية حتى يفتح المعلم الخيارات');
+  const css = fs.readFileSync(path.join(root, 'style.css'), 'utf8');
+  assert.match(css, /\.crm-ga-bot\{position:sticky;bottom:-24px;/, 'الشريط يلتصق بحافة النافذة لا بحافة المحتوى (حشو confirm-box = 24px) فلا يظهر محتوى تحته');
+});
+
+test('تقرير ولي الأمر: زر «تقرير» بجانب كل اسم في قائمة الطلاب، ويُنتج تقرير ذلك الطالب وحده', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; crmGradeAnalysis.open = 'low'; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = exportCrmStudentReportFor('a', null);`);
+  await app.__p;
+  const shownNames = (app.__d.match(/class="crm-ga-name"/g) || []).length;
+  assert.ok(shownNames >= 1);
+  assert.equal((app.__d.match(/toggleCrmGaReportTo\('(?!\*)/g) || []).length, shownNames, 'سهم لكل اسم ظاهر');
+  assert.equal(app.__calls.length, 1);
+  assert.match(app.__calls[0].out.html, /أحمد/);
+  assert.doesNotMatch(app.__calls[0].out.html, /بدر|جاسر|دخيل|عادل/, 'لا أسماء طلاب آخرين في تقرير ولي الأمر');
+  assert.match(app.__calls[0].filename, /^تقرير-طالب-أحمد-/);
+  assert.match(app.__d, /title="تنزيل تقرير الطالب"[^>]*onclick="toggleCrmGaReportTo\('a'\)">⤓<\/button>/, 'سهم فقط بلا نص');
+});
+
+test('تقارير كل الطلاب: ملف واحد، تقرير لكل طالب بصفحة، ومن بلا درجات يُستثنى', async () => {
+  const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(x => x.student_id !== 'e') }); crmGradeAnalysis.g = crmGrades;
+    crmGradeAnalysis.tab = 'students'; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = exportCrmAllStudentReports(null);`);
+  await app.__p;
+  assert.match(app.__d, /toggleCrmGaReportTo\('\*'\)">⤓ تقارير الطلاب — ملفات PDF/);
+  assert.equal(app.__calls.length, 1);
+  const h = app.__calls[0].out.html;
+  assert.equal((h.match(/class="gr-pg"/g) || []).length, 4, 'تقرير لكل طالب له درجات');
+  assert.doesNotMatch(h, /عادل/, 'من بلا درجات لا يُضمَّن');
+  for(const n of ['أحمد', 'بدر', 'جاسر', 'دخيل']) assert.match(h, new RegExp(n));
+  assert.match(app.__calls[0].filename, /^تقارير-الطلاب-/);
+  assert.match(app.__calls[0].out.mark.right, /تقارير أداء الطلاب/);
+  assert.match(fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8'), /\.gr-pg\{break-after:page/, 'فاصل صفحة بين التقارير عند الطباعة');
+});
+
+test('الجهة الموجَّه إليها: السهم يفتح الخيارات الأربعة، والاختيار ينزّل التقرير مكتوبًا عليه الجهة', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; crmGradeAnalysis.open = 'low';
+    window.__before = crmGradeAnalysisHtml(crmGradeAnalysis);
+    toggleCrmGaReportTo('a'); window.__open = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = pickCrmGaReportTo('vice', null);`);
+  assert.doesNotMatch(app.__before, /crm-ga-pop"/, 'الخيارات مخفية قبل ضغط السهم');
+  for(const k of ['guardian', 'vice', 'counselor', 'other']) assert.match(app.__open, new RegExp(`pickCrmGaReportTo\\('${k}'`));
+  for(const t of ['ولي الأمر', 'وكيل شؤون الطلاب', 'الموجه الطلابي', 'أخرى']) assert.match(app.__open, new RegExp(t));
+  await app.__p;
+  assert.equal(app.__calls.length, 1);
+  const h = app.__calls[0].out.html;
+  assert.match(h, /موجّه إلى: وكيل شؤون الطلاب/);
+  assert.equal((h.match(/وكيل شؤون الطلاب/g) || []).length, 2, 'سطر الجهة + خانة توقيع واحدة (بلا تكرار)');
+  const app2 = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a');
+    window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
+    window.__p = pickCrmGaReportTo('counselor', null);`);
+  await app2.__p;
+  assert.match(app2.__calls[0].html, /موجّه إلى: الموجه الطلابي/);
+  assert.match(app2.__calls[0].html, /<div>الموجه الطلابي<b>/, 'خانة توقيع للجهة');
+  assert.equal(app2.__repFor, undefined);
+});
+
+test('الجهة «أخرى»: نص حرّ يُهرَّب ويُقصّ، والفارغ لا ينزّل، و«كل الطلاب» يحمل الجهة', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a'); pickCrmGaReportTo('other', null);
+    window.__o = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
+    const orig = document.getElementById.bind(document); document.getElementById = id => id === 'crmGaToOther' ? { value: '  <img src=x onerror=1>  مدير ' + 'م'.repeat(80), focus(){} } : orig(id);
+    window.__p = pickCrmGaReportTo('otherGo', null);`);
+  assert.match(app.__o, /id="crmGaToOther"/);
+  await app.__p;
+  const h = app.__calls[0].html;
+  assert.doesNotMatch(h, /<img src=x/, 'النص مُهرَّب');
+  assert.match(h, /&lt;img src=x onerror=1&gt;/);
+  assert.doesNotMatch(h, /م{50}/, 'يُقصّ على 40 حرفًا');
+  const empty = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a'); pickCrmGaReportTo('other', null);
+    window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
+    const orig = document.getElementById.bind(document); document.getElementById = id => id === 'crmGaToOther' ? { value: '   ', focus(){} } : orig(id);
+    window.__p = pickCrmGaReportTo('otherGo', null);`);
+  await empty.__p;
+  assert.equal(empty.__calls.length, 0);
+  const all = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('*');
+    window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
+    window.__p = pickCrmGaReportTo('guardian', null);`);
+  await all.__p;
+  assert.equal((all.__calls[0].html.match(/موجّه إلى: ولي الأمر/g) || []).length, 5, 'كل تقرير يحمل الجهة');
+});
+
+test('تقارير الطلاب (الزر العام): تختار الفئة ثم الجهة، والفئة تحدّد من يُنزَّل لهم', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('*'); window.__s1 = crmGradeAnalysisHtml(crmGradeAnalysis);
+    pickCrmGaScope('mid'); window.__s2 = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = pickCrmGaReportTo('vice', null);`);
+  await app.__p;
+  for(const k of ['all', 'low', 'mid', 'top']) assert.match(app.__s1, new RegExp(`pickCrmGaScope\\('${k}'\\)`));
+  assert.match(app.__s1, /الضعاف<\/span><b>1<\/b>/);
+  assert.match(app.__s1, /المتوسطون<\/span><b>2<\/b>/);
+  assert.match(app.__s1, /المتفوقون<\/span><b>2<\/b>/);
+  assert.doesNotMatch(app.__s1, /pickCrmGaReportTo\('guardian'/, 'الخطوة الأولى فئات فقط، لا جهات');
+  assert.match(app.__s2, /المتوسطون — موجّه إلى/);
+  assert.match(app.__s2, /pickCrmGaScope\(null\)/, 'رجوع لاختيار الفئة');
+  const c = app.__calls[0];
+  assert.equal((c.out.html.match(/class="gr-pg"/g) || []).length, 2, 'المتوسطون اثنان فقط');
+  assert.match(c.out.html, /بدر/);
+  assert.match(c.out.html, /جاسر/);
+  assert.doesNotMatch(c.out.html, /أحمد|دخيل|عادل/, 'لا طلاب من فئات أخرى');
+  assert.match(c.out.html, /موجّه إلى: وكيل شؤون الطلاب/);
+  assert.match(c.filename, /^تقارير-المتوسطون-/);
+  assert.match(c.out.mark.right, /المتوسطون/);
+  const none = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(x => !['d', 'e'].includes(x.student_id)) }); crmGradeAnalysis.g = crmGrades;
+    crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('*'); window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(none.__d, /disabled onclick="pickCrmGaScope\('top'\)"/, 'فئة فارغة معطّلة');
+});
+
+test('قائمة السهم تذكر اسم الطالب، وبديل «الأعلى درجات» لا يُسمّى «المتفوقون» في الفئات ولا Excel', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a'); window.__n = crmGradeAnalysisHtml(crmGradeAnalysis); pickCrmGaReportTo('other', null); window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(app.__n, /<span>أحمد — موجّه إلى<\/span>/);
+  assert.match(app.__h, /onkeydown="if\(event\.key==='Enter'\)/, 'Enter في خانة «أخرى» ينزّل');
+  const fb = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(x => x.student_id !== 'e') }); crmGradeAnalysis.g = crmGrades;
+    crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('*'); window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
+    const v = gradeAnalysisView(crmGradeAnalysis); window.__x = gradeAnalysisExportRows(crmGradeAnalysis, v, true);`, { analysisRules: { pass: 50, edge: 10, top: 95, fallback: true } });
+  assert.match(fb.__d, /<span>الأعلى درجات<\/span><b>\d+<\/b>/, 'اسم الفئة بالبديل');
+  assert.doesNotMatch(fb.__d, /<span>المتفوقون<\/span>/);
+  assert.match(JSON.stringify(fb.__x), /"الأعلى درجات"/, 'Excel يوسم أصحاب البديل');
+});
+
+test('تقارير كل الطلاب: لا تعمل لو تبدّلت الشعبة المعروضة', async () => {
+  const app = opened(`window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
+    crmGrades = Object.assign({}, crmGrades, { sectionId: 'S2' }); exportCrmAllStudentReports(null);`);
+  assert.equal(app.__calls.length, 0);
+});
+
+test('تقرير ولي الأمر: لا يعمل لو تبدّلت الشعبة المعروضة، ولا لطالب ليس في الشعبة', async () => {
+  const app = opened(`window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
+    exportCrmStudentReportFor('zzz', null);
+    crmGrades = Object.assign({}, crmGrades, { sectionId: 'S2' }); exportCrmStudentReportFor('a', null);`);
+  assert.equal(app.__calls.length, 0);
+});
+
+test('محرّر الخيارات: الحقلان الأساسيان ظاهران، والبقية داخل «خيارات إضافية»', async () => {
+  const app = opened(`openGradeReportEditor('ga'); window.__d = gradeReportEditorHtml();`);
+  const [head, more] = app.__d.split('<details class="gr-more">');
+  assert.ok(more, 'قسم الخيارات الإضافية موجود');
+  assert.match(head, /id="grFld_school"/);
+  assert.match(head, /id="grFld_teacher"/);
+  assert.doesNotMatch(head, /grFld_vice|grFld_subject/);
+  assert.match(more, /grFld_vice/);
+  assert.match(more, /grFld_subject/);
+  assert.match(more, /ما يُطبع في التقرير/);
 });
 
 test('خيار «الأسماء» الافتراضي يتبع إعداد المعلم', async () => {

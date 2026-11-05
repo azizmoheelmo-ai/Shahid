@@ -77,11 +77,13 @@ function opened(extra){
 }
 
 test('الواجهة: زر «تعديل حدود المستويات»، وحدّ المستوى يتبع الضبط، واسم «الأعلى درجات» عند البديل', async () => {
-  const app = opened(`window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
+  const app = opened(`crmGradeAnalysis.detOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
     appFeatures = { analysisRules: ${JSON.stringify(R(60, 10, 90, true))} }; window.__c = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  const closed = opened(`window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.doesNotMatch(closed.__d, /openCrmGaRulesEditor/, 'الشاشة الأولى بلا رابط الحدود (داخل «تفاصيل إحصائية»)');
   assert.match(app.__d, /<button type="button" class="crm-ga-link" onclick="openCrmGaRulesEditor\(\)">⚙ تعديل حدود المستويات<\/button>/);
-  assert.match(app.__d, /يحتاجون دعمًا<small>أقل من 50%/);
-  assert.match(app.__c, /يحتاجون دعمًا<small>أقل من 60%/, 'الحدّ 60 يظهر في وصف المستوى');
+  assert.match(app.__d, /ضعاف<small>أقل من 50%/);
+  assert.match(app.__c, /ضعاف<small>أقل من 60%/, 'الحدّ 60 يظهر في وصف المستوى');
   assert.match(app.__c, /class="crm-ga-lvn">3<\/b><span class="crm-ga-lvt">الأعلى درجات/);
   assert.doesNotMatch(app.__c, /class="crm-ga-lvt">متفوقون</);
 });
