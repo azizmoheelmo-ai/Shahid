@@ -224,8 +224,9 @@ test('قوائم الأسماء: ثلاثة أعمدة بالنسبة، ونجم
   const h = app.__h;
   assert.match(h, /<th>اسم الطالب<\/th><th class="n">الدرجة<\/th><th class="n">النسبة<\/th>/);
   assert.match(h, /<td>أحمد <b style="color:#7258a4">\*<\/b><\/td>/, 'النجمة بجانب الاسم');
-  assert.match(h, /مرتّبة بالنسبة المئوية/);
-  assert.ok(h.indexOf('رُصد له جزء من الأعمدة') < h.indexOf('<div class="c3">'), 'التنبيه قبل أول جدول');
+  assert.doesNotMatch(h, /مرتّبة بالنسبة المئوية|الأسماء مرتبة/, 'لا سطر ترتيب فوق القوائم');
+  assert.match(h, /رُصد لهم جزء من الأعمدة فنسبة كل منهم مما رُصد له \(يُشار إليهم بنجمة \*\)/, 'شرح النجمة في الحاشية');
+  assert.ok(h.indexOf('<div class="c3">') < h.indexOf('معيار المستويات'), 'القوائم قبل الحاشية');
   assert.match(h, /1 رُصد لهم جزء|رُصد لهم جزء/, 'تنبيه تحت عدد الطلاب أيضًا');
   const full = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
   assert.doesNotMatch(full.__h, /<b style="color:#7258a4">\*<\/b>/, 'بلا نقص: بلا نجمة');
@@ -389,8 +390,43 @@ test('لا لغة نجاح ورسوب في أي تقرير: الشعبة (بال
     window.__x = gradeAnalysisExportRows(crmGradeAnalysis, v, true);`, NOTES_ON);
   for(const k of ['__a', '__b', '__s', '__g']) assert.doesNotMatch(app[k], /نجاح|ناجح|نجحوا|رسوب|الحافة|جيد/, k);
   assert.doesNotMatch(JSON.stringify(app.__x), /ناجحون|نجاح/, 'Excel');
-  assert.match(app.__a, /ملاحظات/, 'خانة ملاحظات');
+  for(const k of ['__a', '__b', '__g']) assert.doesNotMatch(app[k], /nbox|>ملاحظات</, 'لا خانة ملاحظات بالأسفل');
+  assert.doesNotMatch(app.__a, /الأسماء مرتبة بالنسبة/, 'لا سطر ترتيب فوق القوائم');
   assert.match(app.__a, /<span class="cp w">ضعاف<\/span>/);
+});
+
+test('الطباعة تنتظر فكّ صورة الشعار (وإلا خرجت الترويسة بلا شعار)، وفشل تحميل الشعار لا يُخزَّن', async () => {
+  const app = opened(`window.__printed = 0; let release; const gate = new Promise(r => { release = r; });
+    const area = { innerHTML: '', querySelector: () => ({}), querySelectorAll: sel => sel === 'img' ? [{ decode: () => gate }] : [] };
+    document.getElementById = id => id === 'printArea' ? area : null;
+    printNow = () => { window.__printed++; };
+    window.addEventListener = () => {}; window.removeEventListener = () => {};
+    window.__p = gradeReportPrint('<div class="gr"><img src="data:image/png;base64,AA"></div>', null);
+    window.__before = window.__printed; window.__release = release;`);
+  assert.equal(app.__before, 0, 'لا طباعة قبل فكّ الصورة');
+  app.__release();
+  await app.__p;
+  assert.equal(app.__printed, 1);
+  const f = opened(`fetch = () => Promise.reject(new Error('x')); window.__r = gradeReportLogoData(); `);
+  assert.equal(await f.__r, '');
+  assert.equal(runInAppContext(f, 'gradeReportLogoCache'), null, 'الفشل لا يُخزَّن فيُعاد المحاولة بالتصدير التالي');
+});
+
+test('gradeReportFit: يضغط التباعد تدريجيًا فقط حين يزيد التقرير قليلًا عن صفحة، ولا يلمس ما يناسب أو ما يطول كثيرًا', async () => {
+  const run = heights => {
+    const app = opened(`const H = ${JSON.stringify(heights)};
+      document.createElement = () => { const probe = { style: {}, remove() {}, set innerHTML(h) { this._h = h; }, get innerHTML() { return this._h; },
+        querySelector: () => ({ style: {}, get offsetHeight() { const m = /class="gr( (cmp\\d))?"/.exec(probe._h); return H[m && m[2] ? m[2] : 'base']; } }) }; return probe; };
+      window.__r = gradeReportFit('<style>x</style><div class="gr">تقرير</div>');`);
+    return (/class="gr( cmp\d)?"/.exec(app.__r) || [])[1] || '';
+  };
+  assert.equal(run({ base: 980, cmp1: 900, cmp2: 880 }), '', 'يناسب صفحة: لا ضغط');
+  assert.equal(run({ base: 1060, cmp1: 970, cmp2: 940 }).trim(), 'cmp1');
+  assert.equal(run({ base: 1100, cmp1: 1010, cmp2: 960 }).trim(), 'cmp2');
+  assert.equal(run({ base: 1100, cmp1: 1050, cmp2: 1020 }), '', 'لا ينفع الضغط: يبقى التصميم الأصلي');
+  assert.equal(run({ base: 1400, cmp1: 900, cmp2: 800 }), '', 'أطول من أن يُنقذه الضغط: صفحتان كما هو');
+  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  assert.match(css, /\.gr\.cmp1 td\{padding:1\.5px 7px\}/);
 });
 
 test('طالب بلا درجات: لا انهيار، ولا يُحسب صفرًا', async () => {
