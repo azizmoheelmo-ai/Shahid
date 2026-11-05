@@ -159,11 +159,11 @@ test('لا صورة ولا jsPDF في المسارات الخمسة، والأز
     assert.doesNotMatch(html, new RegExp(gone), gone);
     assert.doesNotMatch(a8 + a9 + a10, new RegExp('function ' + gone), gone);
   }
-  assert.match(html, /printPlan\(event\)">طباعة \/ حفظ PDF/);
-  assert.match(html, /printSelfAssessment\(event\)">طباعة \/ حفظ التقييم PDF/);
-  assert.match(html, /printProgramSummary\(currentProgramId, event\)">🖨 طباعة \/ حفظ PDF/);
+  assert.match(html, /printPlan\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
+  assert.match(html, /printSelfAssessment\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ التقييم PDF/);
+  assert.match(html, /printProgramSummary\(currentProgramId, event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
   assert.match(html, /طباعة \/ حفظ الكل PDF/);
-  assert.match(html, /ملف الإنجاز \(طباعة \/ حفظ PDF\)/);
+  assert.match(html, /ملف الإنجاز — طباعة \/ حفظ PDF/);
 });
 
 function letterApp(extra){
@@ -214,9 +214,9 @@ test('أزرار الخطابين: تمرّر المعاينة والصورة ا
 test('الخطابان: زر «تنزيل PDF» أُزيل ودوال الصورة المرتبطة به، وزر طباعة/حفظ واحد، وواتساب يبقى ملفًا', async () => {
   const html = read('index.html'), a4 = read('app/app-04-academic-crm.js');
   assert.doesNotMatch(html, /downloadAcLetterPDF|downloadReferralLetterPDF/);
-  assert.match(html, /printAcLetter\(event\)">طباعة \/ حفظ PDF/);
-  assert.match(html, /printReferralLetter\(event\)">طباعة \/ حفظ PDF/);
-  assert.match(html, /shareAcLetterWhatsApp\(event\)">إرسال واتساب/);
+  assert.match(html, /printAcLetter\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
+  assert.match(html, /printReferralLetter\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">طباعة \/ حفظ PDF/);
+  assert.match(html, /shareAcLetterWhatsApp\(event\)"[^>]*>(?:<i class="bi bi-[a-z]+"><\/i>)?<span class="xb-label">واتساب/);
   assert.match(html, /downloadAcLetterWordFile|downloadReferralLetterWordFile/, 'تنزيل Word باقٍ');
   for(const gone of ['function printLetterContent', 'function downloadLetterPdfFile', 'function downloadAcLetterPDF', 'function downloadReferralLetterPDF'])
     assert.doesNotMatch(a4, new RegExp(gone), gone);

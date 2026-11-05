@@ -210,9 +210,9 @@ function crmGradeAnalysisHtml(a){
         <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value">
           <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
           <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
-        <button type="button" class="crm-am-opt" onclick="exportGradeReport(this)">تقرير بهوية الوزارة — طباعة / حفظ PDF</button>
-        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button>
-        <button type="button" class="crm-am-opt" onclick="openGradeReportEditor('ga')">⚙ خيارات التقرير (المدرسة · ما يُطبع · التعليق)</button></div>`
+        <button type="button" class="btn btn-export btn-x xb-wide" style="margin:6px 0;" onclick="exportGradeReport(this)"><i class="bi bi-print"></i><span class="xb-label">تقرير بهوية الوزارة — طباعة / حفظ PDF</span></button>
+        <button type="button" class="btn btn-export btn-x xb-wide" style="margin:6px 0;" onclick="exportCrmGradeAnalysis('xlsx', this)"><i class="bi bi-dl"></i><span class="xb-label">تنزيل Excel</span></button>
+        <button type="button" class="btn btn-link" style="width:100%;" onclick="openGradeReportEditor('ga')">⚙ خيارات التقرير (المدرسة · ما يُطبع · التعليق)</button></div>`
     : '<button type="button" class="btn btn-outline crm-ga-expbtn" onclick="toggleCrmGaExport()">⤓ تصدير</button>';
   return html;
 }

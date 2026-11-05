@@ -254,7 +254,7 @@
       <div class="sh-more">
         <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleShawahidMore(event)">⋯</button>
         <div class="sh-more-menu" id="shMoreMenu" style="display:none;">
-          <button class="btn btn-outline" id="exportAllBtn" onclick="closeShawahidMore();exportAllShawahid()">📄 طباعة / حفظ الكل PDF</button>
+          <button class="btn btn-export btn-x xb-row" id="exportAllBtn" onclick="closeShawahidMore();exportAllShawahid()"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ الكل PDF</span></button>
           <label class="sh-theme-row" for="shPrintTheme">🎨 تصميم الطباعة
             <select id="shPrintTheme" onchange="setShahidPrintTheme(this.value)"></select>
           </label>
@@ -341,7 +341,7 @@
       </div>
 
       <div class="home-footer">
-        <button type="button" class="home-link-btn" id="homeExportPortfolioBtn" onclick="exportPortfolio(event)">📄 ملف الإنجاز (طباعة / حفظ PDF)</button>
+        <button type="button" class="btn btn-export btn-x xb-pill" id="homeExportPortfolioBtn" onclick="exportPortfolio(event)"><i class="bi bi-print"></i><span class="xb-label">ملف الإنجاز — طباعة / حفظ PDF</span></button>
         <span aria-hidden="true" id="homeExportPortfolioSep">·</span>
         <a href="#" onclick="showTermsModal();return false;">سياسة الخصوصية</a>
       </div>
@@ -473,10 +473,12 @@
         <div id="acLetterPreview" style="background:#fff;border:1px solid var(--line);padding:20px 16px;font-size:13px;line-height:2;"></div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
-          <button class="btn btn-outline" onclick="printAcLetter(event)">طباعة / حفظ PDF</button>
-          <button class="btn btn-outline" onclick="downloadAcLetterWordFile(event)">تنزيل Word</button>
-          <button class="btn btn-outline" onclick="shareAcLetterWhatsApp(event)">إرسال واتساب</button>
-          <button class="btn btn-primary" onclick="confirmAcLetterIssued()">تأكيد الإصدار ✅</button>
+          <div class="xbar">
+            <button class="btn btn-export btn-x xb-card" onclick="printAcLetter(event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
+            <button class="btn btn-word btn-x xb-card" onclick="downloadAcLetterWordFile(event)"><i class="bi bi-word"></i><span class="xb-label">Word</span></button>
+            <button class="btn btn-wa btn-x xb-card" onclick="shareAcLetterWhatsApp(event)"><i class="bi bi-wa"></i><span class="xb-label">واتساب</span></button>
+          </div>
+          <button class="btn btn-primary xb-wide" onclick="confirmAcLetterIssued()">تأكيد الإصدار ✅</button>
         </div>
 
         <div id="acPhotoUploadSection" style="display:none;margin-top:20px;padding-top:16px;border-top:2px dashed var(--line);">
@@ -620,7 +622,7 @@
       <div id="settingsDataBody" class="section" style="display:none;">
         <button class="btn btn-outline" style="margin-bottom:16px;" onclick="showSettingsSection('menu')">→ رجوع لقائمة الإعدادات</button>
         <div class="home-actions">
-          <button class="home-btn tool" style="grid-column:1/-1;" onclick="exportBackup(event)">
+          <button class="home-btn tool export" style="grid-column:1/-1;" onclick="exportBackup(event)">
             <span class="hb-title">نسخة احتياطية</span>
             <span class="hb-sub">ملف Excel + كل صورك، على جهازك</span>
           </button>
@@ -915,10 +917,12 @@
         <div id="rlPreview" style="background:#fff;border:1px solid var(--line);padding:0;font-size:13px;line-height:2;overflow-x:auto;"></div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
-          <button class="btn btn-outline" onclick="printReferralLetter(event)">طباعة / حفظ PDF</button>
-          <button class="btn btn-outline" onclick="downloadReferralLetterWordFile(event)">تنزيل Word</button>
-          <button class="btn btn-outline" onclick="shareReferralLetterWhatsApp(event)">إرسال واتساب</button>
-          <button class="btn btn-primary" onclick="confirmReferralLetterIssued()">تأكيد الإصدار ✅</button>
+          <div class="xbar">
+            <button class="btn btn-export btn-x xb-card" onclick="printReferralLetter(event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
+            <button class="btn btn-word btn-x xb-card" onclick="downloadReferralLetterWordFile(event)"><i class="bi bi-word"></i><span class="xb-label">Word</span></button>
+            <button class="btn btn-wa btn-x xb-card" onclick="shareReferralLetterWhatsApp(event)"><i class="bi bi-wa"></i><span class="xb-label">واتساب</span></button>
+          </div>
+          <button class="btn btn-primary xb-wide" onclick="confirmReferralLetterIssued()">تأكيد الإصدار ✅</button>
         </div>
 
         <div id="rlPhotoUploadSection" style="display:none;margin-top:20px;padding-top:16px;border-top:2px dashed var(--line);">
@@ -976,8 +980,8 @@
             <div id="selfEditControls" style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-primary" onclick="saveSelfAssessment()">حفظ التقييم</button>
             </div>
-            <button class="btn btn-outline" onclick="printSelfAssessment(event)">طباعة / حفظ التقييم PDF</button>
-            <button class="btn btn-outline" onclick="exportPortfolio(event)">ملف الإنجاز (طباعة / حفظ PDF)</button>
+            <button class="btn btn-export btn-x xb-pill" onclick="printSelfAssessment(event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ التقييم PDF</span></button>
+            <button class="btn btn-export btn-x xb-pill" onclick="exportPortfolio(event)"><i class="bi bi-print"></i><span class="xb-label">ملف الإنجاز — طباعة / حفظ PDF</span></button>
           </div>
         </div>
 
@@ -1025,9 +1029,9 @@
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div id="planEditControls" style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn btn-outline" onclick="savePlan()">حفظ البيانات الأساسية</button>
+              <button class="btn btn-outline" onclick="savePlan()"><span class="chip"><i class="bi bi-check"></i></span>حفظ البيانات الأساسية</button>
             </div>
-            <button class="btn btn-outline" onclick="printPlan(event)">طباعة / حفظ PDF</button>
+            <button class="btn btn-export btn-x xb-pill" onclick="printPlan(event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
           </div>
         </div>
 
@@ -1078,7 +1082,7 @@
             <div style="font-size:13.5px;font-weight:700;color:var(--navy);">النسخة الاحتياطية الشاملة</div>
             <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">كل بيانات المعلمين والشواهد والخطط والتقييمات + الصور في ملف واحد</div>
           </div>
-          <button class="btn btn-primary" id="fullBackupBtn" onclick="exportFullBackup()">تنزيل نسخة شاملة</button>
+          <button class="btn btn-export btn-x xb-pill" id="fullBackupBtn" onclick="exportFullBackup()"><i class="bi bi-dl"></i><span class="xb-label">تنزيل نسخة شاملة</span></button>
         </div>
         <div id="fullBackupProgress" style="display:none;margin-top:12px;">
           <div style="background:#F1EEE6;height:8px;">
@@ -1296,11 +1300,11 @@
     </div>
 
     <div class="action-row">
-      <button class="btn btn-primary" id="saveBtn" onclick="saveShahid()">حفظ الشاهد</button>
-      <button class="btn btn-outline" id="planBtn" onclick="openLessonPlanModal()" title="لم تنفّذها بعد؟ احفظها خطة ثم وثّقها بعد الحصة">📅 احفظها كخطة لحصة قادمة</button>
-      <button class="btn btn-outline" onclick="printCurrentForm(event)">طباعة / حفظ PDF</button>
+      <button class="btn btn-export btn-x xb-wide" onclick="printCurrentForm(event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
+      <button class="btn btn-primary xb-wide" id="saveBtn" onclick="saveShahid()">حفظ الشاهد</button>
+      <button class="btn btn-outline" id="planBtn" onclick="openLessonPlanModal()" title="لم تنفّذها بعد؟ احفظها خطة ثم وثّقها بعد الحصة"><span class="chip"><i class="bi bi-cal"></i></span>احفظها كخطة لحصة قادمة</button>
       <button class="btn btn-outline" id="cancelEditBtn" style="display:none;" onclick="startNewShahid()">إلغاء التعديل</button>
-      <button class="btn btn-danger" onclick="cancelForm()">إلغاء وخروج</button>
+      <button class="btn btn-link" onclick="cancelForm()">إلغاء وخروج</button>
     </div>
     <div id="saveMsg" class="save-msg"></div>
     <div id="draftIndicator" style="padding:0 32px 14px;font-size:11px;color:var(--muted);opacity:0.45;transition:opacity .3s;"></div>
@@ -1411,7 +1415,7 @@
           <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleProgramMenu('pgDetailMenu', event)">⋯</button>
           <div class="pg-menu" id="pgDetailMenu" style="display:none;">
             <button type="button" onclick="closeProgramMenus(); editProgramSchedule(currentProgramId)">✎ تعديل الجدول</button>
-            <button type="button" onclick="closeProgramMenus(); printProgramSummary(currentProgramId, event)">🖨 طباعة / حفظ PDF</button>
+            <button type="button" class="btn btn-export btn-x xb-row" onclick="closeProgramMenus(); printProgramSummary(currentProgramId, event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
             <button type="button" class="dng" onclick="closeProgramMenus(); deleteActivityProgram(currentProgramId)">🗑 حذف البرنامج</button>
           </div>
         </div>

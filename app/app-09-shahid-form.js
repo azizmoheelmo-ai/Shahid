@@ -387,11 +387,14 @@ function renderRecCard(r){
       <div class="rec-desc">${escapeHtml(descSnippet)}${(r.description||'').length > 160 ? '…' : ''}</div>
       ${photosHtml}
       <div class="rec-actions">
-        <button class="btn btn-outline" onclick="editRecord('${r.id}')">تعديل</button>
-        <button class="btn btn-outline" onclick="duplicateRecord('${r.id}')">نسخ</button>
-        <button class="btn btn-outline" onclick="printRecord('${r.id}', event)">طباعة</button>
-        <button class="btn btn-danger" onclick="deleteRecord('${r.id}')">حذف</button>
-        <button class="btn btn-whatsapp" onclick="shareWhatsApp('${r.id}', event)">إرسال واتساب</button>
+        <div class="xbar">
+          <button class="btn btn-export btn-x xb-card" onclick="printRecord('${r.id}', event)"><i class="bi bi-print"></i><span class="xb-label">طباعة / حفظ PDF</span></button>
+          <button class="btn btn-wa btn-x xb-card" onclick="shareWhatsApp('${r.id}', event)"><i class="bi bi-wa"></i><span class="xb-label">واتساب</span></button>
+        </div>
+        <div class="rec-sub">
+          <button class="btn btn-outline btn-sm" onclick="editRecord('${r.id}')"><span class="chip"><i class="bi bi-edit"></i></span>تعديل</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteRecord('${r.id}')"><span class="chip"><i class="bi bi-trash"></i></span>حذف</button>
+        </div>
       </div>
     </div>`;
 }
@@ -1138,58 +1141,6 @@ function editRecord(id){
 }
 
 /* ============ نسخ شاهد كنقطة بداية لشاهد جديد ============ */
-function duplicateRecord(id){
-  const rec = myRecords.find(r => String(r.id) === String(id));
-  if(!rec) return;
-
-  /* شاهد جديد تمامًا — لا نرث المعرّف ولا الصور ولا التاريخ */
-  editingId = null;
-  programSessionContext = null; /* نفس سبب إلغائه في editRecord أعلاه */
-  followupShahidContext = null;
-  planShahidContext = null;
-  taskShahidContext = null;
-  document.getElementById('planBtn').style.display = '';
-  formDirty = true;
-  document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
-  document.getElementById('cancelEditBtn').style.display = 'none';
-
-  document.getElementById('mSchool').value = rec.school || '';
-  document.getElementById('mSubject').value = rec.subject || '';
-  document.getElementById('mTeacher').value = rec.teacher_name || '';
-  document.getElementById('mClass').value = '';   // يُتوقع تغيير الفصل
-  document.getElementById('mDate').value = '';    // تاريخ جديد
-  document.getElementById('mLesson').value = rec.lesson_title || '';
-
-  elementSelect.value = rec.element_key || '';
-  updateExample();
-
-  descBox.value = rec.description || '';
-  goalBox.value = rec.goal || '';
-  quantBox.value = rec.quant_impact || '';
-  qualBox.value = rec.qual_impact || '';
-  reflectionBox.value = rec.reflection || '';
-
-  stepsList.innerHTML = '';
-  const steps = (rec.steps && rec.steps.length) ? rec.steps : [''];
-  steps.forEach((s, i) => {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="num">${i+1}</span><textarea rows="1" maxlength="500" placeholder="اكتب الخطوة..."></textarea><button class="remove-step" title="حذف الخطوة" onclick="removeStep(this)">×</button>`;
-    li.querySelector('textarea').value = s;
-    stepsList.appendChild(li);
-  });
-
-  /* الصور لا تُنسخ — كل شاهد له شواهده المصورة الخاصة */
-  grid.innerHTML = '';
-  selectedPhotoFiles.length = 0;
-
-  document.getElementById('saveMsg').className = 'save-msg';
-  document.getElementById('saveMsg').textContent = '';
-  showForm();
-  saveDraftNow();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  showToast('نُسخ الشاهد — عدّل الفصل والتاريخ وأضف صوره ثم احفظ.', 'ok');
-}
-
 /* ============ بدء شاهد جديد (إلغاء وضع التعديل) ============ */
 /* ============ إلغاء النموذج والخروج بدون حفظ ============ */
 async function cancelForm(){
@@ -1628,9 +1579,7 @@ async function shareWhatsApp(id, evt){
   if(!rec) return;
 
   const btn = evt ? evt.target.closest('button') : null;
-  const originalText = btn ? btn.textContent : '';
-  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ التجهيز...'; }
-  activeExportCount++;
+  beginExportBusy(btn, 'جارٍ التجهيز...');
 
   try{
     const blob = await buildRecordPdfBlob(rec);
@@ -1676,8 +1625,7 @@ async function shareWhatsApp(id, evt){
       showToast('تعذّر تجهيز الملف: ' + err.message, 'error');
     }
   } finally {
-    activeExportCount = Math.max(0, activeExportCount - 1);
-    if(btn){ btn.disabled = false; btn.textContent = originalText; }
+    endExportBusy(btn);
   }
 }
 

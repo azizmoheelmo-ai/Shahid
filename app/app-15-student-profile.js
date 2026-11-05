@@ -288,7 +288,7 @@ async function renderCrmStudentProfile(){
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
       <div class="crm-sheet-head">${escapeHtml(student.full_name)}</div>
       <div style="display:flex;gap:6px;align-items:center;">
-        <button class="btn btn-outline crm-mini-btn" onclick="printCrmStudentReport(event)" title="صفحة واحدة للاجتماع مع الموجه أو الوكيل">🖨 تقرير</button>
+        <button class="btn btn-export btn-x xb-pill crm-mini-btn" onclick="printCrmStudentReport(event)" title="صفحة واحدة للاجتماع مع الموجه أو الوكيل"><i class="bi bi-print"></i><span class="xb-label">تقرير</span></button>
         ${student.is_active === false ? '' : `<button type="button" class="crm-ic-btn" aria-label="خيارات الطالب" title="نقل أو حذف" onclick="openCrmProfileMenu('${student.id}')">⋯</button>`}
       </div>
     </div>
