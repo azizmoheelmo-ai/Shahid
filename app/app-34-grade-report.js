@@ -295,6 +295,12 @@ const GRADE_REPORT_CSS = `
 .gr .nbox{min-height:64px;border:1.5px dashed #c2c1c1;border-radius:9px;padding:5px 12px;margin:6px 0;font-size:11.5px;color:#15445a}
 .gr .sig{margin-top:10px;margin-bottom:0;padding-top:6px;border-top:1px solid #d5dde1;display:flex;justify-content:space-around;font-size:11px;color:#5b6b74;text-align:center}
 .gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#15445a;font-size:12.5px;margin-top:3px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a979f;height:24px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a979f}
+/* ضغط تلقائي (gradeReportFit) حين يزيد التقرير قليلًا عن صفحة: مستويان */
+.gr.cmp1 .hd{margin-bottom:8px}.gr.cmp1 .hd img{height:46px}.gr.cmp1 h2{margin:6px 0 4px;font-size:13px}
+.gr.cmp1 .kp{margin-bottom:6px}.gr.cmp1 .kp>div{padding:3px 4px}.gr.cmp1 .kp b{font-size:17px;line-height:1.35}
+.gr.cmp1 td{padding:1.5px 7px}.gr.cmp1 th{padding:2.5px 7px}.gr.cmp1 .gw{margin-bottom:5px}.gr.cmp1 .gh{padding:2px 9px}
+.gr.cmp1 .nb{padding:4px 12px;margin:3px 0}.gr.cmp1 .nbox{min-height:44px;margin:4px 0}.gr.cmp1 .sig{margin-top:6px}.gr.cmp1 .sig .ln{height:20px}
+.gr.cmp2{font-size:11.5px}.gr.cmp2 table{font-size:10.5px}.gr.cmp2 td{padding:1px 6px}.gr.cmp2 .kp>div{padding:2px 4px}.gr.cmp2 .nbox{min-height:34px}.gr.cmp2 .fn{margin:2px 0}
 @media print{.gr{padding:0}.gr .pdf-avoid-break{break-inside:avoid;page-break-inside:avoid}.gr h2{break-after:avoid;page-break-after:avoid}}
 `;
 
@@ -307,7 +313,7 @@ async function gradeReportLogoData(){
     if(!res.ok) throw new Error('logo');
     const blob = await res.blob();
     gradeReportLogoCache = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(blob); });
-  } catch(e){ gradeReportLogoCache = ''; }
+  } catch(e){ return ''; } /* الفشل لا يُخزَّن: التصدير التالي يعيد المحاولة */
   return gradeReportLogoCache;
 }
 
@@ -511,10 +517,45 @@ function gradeReportMark(prefs, title, label){
 }
 
 let gradeReportSavedTitle = null;
+
+/* عرض ارتفاع صفحة A4 المطبوعة بعد الهوامش (180×268 مم) بالبكسل، وهامش أمان */
+const GR_FIT_W = 680, GR_FIT_H = 989;
+
+/* إن زاد تقرير الشعبة قليلًا عن صفحة (جهاز بخط أطول مما نتوقع) نضغط التباعد تدريجيًا ليُطبع في صفحة واحدة بدل أن
+   ينزل التوقيع وحده لصفحة ثانية. يُقاس على جهاز المعلم نفسه بعرض الطباعة؛ فإن لم ينفع الضغط يبقى التصميم الأصلي. */
+function gradeReportFit(html){
+  if(typeof document === 'undefined' || !document.createElement || html.indexOf('class="gr-pg"') !== -1 || html.indexOf('<div class="gr">') === -1) return html;
+  const probe = document.createElement('div');
+  probe.style.cssText = `position:absolute;left:-10000px;top:0;width:${GR_FIT_W}px;visibility:hidden`;
+  try{
+    document.body.appendChild(probe);
+    const heightOf = h => {
+      probe.innerHTML = h;
+      const gr = probe.querySelector('.gr');
+      if(!gr) return 0;
+      gr.style.padding = '0';
+      return Number(gr.offsetHeight) || 0;
+    };
+    const h0 = heightOf(html);
+    if(!(h0 > 0) || h0 <= GR_FIT_H || h0 > GR_FIT_H * 1.18) return html; /* يناسب صفحة، أو أطول من أن يُنقذه الضغط */
+    for(const cls of ['cmp1', 'cmp2']){
+      const cand = html.replace('<div class="gr">', `<div class="gr ${cls}">`);
+      const h = heightOf(cand);
+      if(h > 0 && h <= GR_FIT_H) return cand;
+    }
+    return html;
+  } catch(e){
+    return html;
+  } finally {
+    if(probe.remove) probe.remove();
+  }
+}
+
+/* تُرجع وعدًا: لا تُطبع الصفحة قبل أن تُفكّ صورة الشعار (وإلا خرجت الترويسة بلا شعار في أول تصدير) */
 function gradeReportPrint(html, mark, title){
   const area = document.getElementById('printArea');
-  if(!area) return;
-  area.innerHTML = `<style>${gradeReportPrintCss(mark)}</style>` + html;
+  if(!area) return Promise.resolve();
+  area.innerHTML = `<style>${gradeReportPrintCss(mark)}</style>` + gradeReportFit(html);
   if(title){
     if(gradeReportSavedTitle === null) gradeReportSavedTitle = document.title;
     document.title = title;
@@ -525,7 +566,10 @@ function gradeReportPrint(html, mark, title){
     if(gradeReportSavedTitle !== null){ document.title = gradeReportSavedTitle; gradeReportSavedTitle = null; }
   };
   window.addEventListener('afterprint', clear);
-  printNow();
+  const imgs = area.querySelectorAll ? Array.from(area.querySelectorAll('img')) : [];
+  if(!imgs.length){ printNow(); return Promise.resolve(); }
+  const decoded = Promise.all(imgs.map(im => (im.decode ? im.decode() : Promise.resolve()).catch(() => {})));
+  return Promise.race([decoded, new Promise(r => setTimeout(r, 3000))]).then(() => { printNow(); });
 }
 
 /* build() يُرجع { html, mark } أو '' (توقّف). التحميل غير المتزامن (شعب أخرى/فصل سابق) داخل build */
@@ -539,7 +583,7 @@ async function gradeReportRun(btn, build, filename, busyText){
     if(document.fonts && document.fonts.load){
       try{ await Promise.all(['400', '700', '800'].map(w => document.fonts.load(`${w} 12px 'Cairo'`, 'شاهد الأداء الوظيفي'))); } catch(e){ /* لا يمنع الطباعة */ }
     }
-    gradeReportPrint(out.html, out.mark, filename);
+    await gradeReportPrint(out.html, out.mark, filename);
   } catch(err){
     showToast('تعذّر تجهيز التقرير: ' + (err.message || ''), 'error');
   } finally {

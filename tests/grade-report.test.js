@@ -393,6 +393,40 @@ test('لا لغة نجاح ورسوب في أي تقرير: الشعبة (بال
   assert.match(app.__a, /<span class="cp w">ضعاف<\/span>/);
 });
 
+test('الطباعة تنتظر فكّ صورة الشعار (وإلا خرجت الترويسة بلا شعار)، وفشل تحميل الشعار لا يُخزَّن', async () => {
+  const app = opened(`window.__printed = 0; let release; const gate = new Promise(r => { release = r; });
+    const area = { innerHTML: '', querySelector: () => ({}), querySelectorAll: sel => sel === 'img' ? [{ decode: () => gate }] : [] };
+    document.getElementById = id => id === 'printArea' ? area : null;
+    printNow = () => { window.__printed++; };
+    window.addEventListener = () => {}; window.removeEventListener = () => {};
+    window.__p = gradeReportPrint('<div class="gr"><img src="data:image/png;base64,AA"></div>', null);
+    window.__before = window.__printed; window.__release = release;`);
+  assert.equal(app.__before, 0, 'لا طباعة قبل فكّ الصورة');
+  app.__release();
+  await app.__p;
+  assert.equal(app.__printed, 1);
+  const f = opened(`fetch = () => Promise.reject(new Error('x')); window.__r = gradeReportLogoData(); `);
+  assert.equal(await f.__r, '');
+  assert.equal(runInAppContext(f, 'gradeReportLogoCache'), null, 'الفشل لا يُخزَّن فيُعاد المحاولة بالتصدير التالي');
+});
+
+test('gradeReportFit: يضغط التباعد تدريجيًا فقط حين يزيد التقرير قليلًا عن صفحة، ولا يلمس ما يناسب أو ما يطول كثيرًا', async () => {
+  const run = heights => {
+    const app = opened(`const H = ${JSON.stringify(heights)};
+      document.createElement = () => { const probe = { style: {}, remove() {}, set innerHTML(h) { this._h = h; }, get innerHTML() { return this._h; },
+        querySelector: () => ({ style: {}, get offsetHeight() { const m = /class="gr( (cmp\\d))?"/.exec(probe._h); return H[m && m[2] ? m[2] : 'base']; } }) }; return probe; };
+      window.__r = gradeReportFit('<style>x</style><div class="gr">تقرير</div>');`);
+    return (/class="gr( cmp\d)?"/.exec(app.__r) || [])[1] || '';
+  };
+  assert.equal(run({ base: 980, cmp1: 900, cmp2: 880 }), '', 'يناسب صفحة: لا ضغط');
+  assert.equal(run({ base: 1060, cmp1: 970, cmp2: 940 }).trim(), 'cmp1');
+  assert.equal(run({ base: 1100, cmp1: 1010, cmp2: 960 }).trim(), 'cmp2');
+  assert.equal(run({ base: 1100, cmp1: 1050, cmp2: 1020 }), '', 'لا ينفع الضغط: يبقى التصميم الأصلي');
+  assert.equal(run({ base: 1400, cmp1: 900, cmp2: 800 }), '', 'أطول من أن يُنقذه الضغط: صفحتان كما هو');
+  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  assert.match(css, /\.gr\.cmp1 td\{padding:1\.5px 7px\}/);
+});
+
 test('طالب بلا درجات: لا انهيار، ولا يُحسب صفرًا', async () => {
   const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: [] });
     window.__d = gradeReportStudentData(crmGrades, 'a'); window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { date: 'd' });`, NOTES_ON);
