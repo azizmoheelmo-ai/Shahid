@@ -262,21 +262,27 @@ function gaScopeIds(a, scope){
   return new Set((lists[scope] || []).map(r => r.id));
 }
 
+function gaStudentName(a, id){
+  const st = (a.students || []).find(x => x.id === id);
+  return st ? st.full_name : '';
+}
+
 function gaPopHtml(a){
   const bulk = a.repFor === '*';
   const row = (label, click, extra) => `<button type="button" class="crm-ga-pop-row" role="menuitem" ${extra || ''} onclick="${click}">${label}</button>`;
   let head, body;
   if(bulk && a.repStep !== 'to'){
     const lists = gaLevelLists(gradeAnalysisView(a).stats);
+    const st = gradeAnalysisView(a).stats;
     const n = k => k === 'all' ? gradeAnalysisView(a).stats.recorded : lists[k].length;
     head = '<span>أي فئة تريد؟</span>';
-    body = GA_REPORT_SCOPES.map(([k, label]) => row(`<span>${label}</span><b>${n(k)}</b>`, `pickCrmGaScope('${k}')`, n(k) ? '' : 'disabled')).join('');
+    body = GA_REPORT_SCOPES.map(([k, label]) => row(`<span>${k === 'top' && st.topIsFallback ? 'الأعلى درجات' : label}</span><b>${n(k)}</b>`, `pickCrmGaScope('${k}')`, n(k) ? '' : 'disabled')).join('');
   } else {
     const sc = bulk ? GA_REPORT_SCOPES.find(x => x[0] === (a.repScope || 'all')) : null;
-    head = bulk ? `<button type="button" class="crm-ga-pop-back" aria-label="رجوع لاختيار الفئة" onclick="pickCrmGaScope(null)">‹</button><span>${sc ? sc[1] : ''} — موجّه إلى</span>` : '<span>موجّه إلى</span>';
+    head = bulk ? `<button type="button" class="crm-ga-pop-back" aria-label="رجوع لاختيار الفئة" onclick="pickCrmGaScope(null)">‹</button><span>${sc ? sc[1] : ''} — موجّه إلى</span>` : `<span>${escapeHtml(gaStudentName(a, a.repFor))} — موجّه إلى</span>`;
     body = GA_REPORT_TO.map(([k, label]) => row(label, `pickCrmGaReportTo('${k}', this)`)).join('')
       + (a.repOther
-        ? `<div class="crm-ga-to-other"><input class="goal-input" type="text" id="crmGaToOther" maxlength="40" placeholder="مثال: مدير المدرسة" aria-label="الجهة الموجّه إليها التقرير"><button type="button" class="crm-ga-to-chip" onclick="pickCrmGaReportTo('otherGo', this)">تنزيل</button></div>`
+        ? `<div class="crm-ga-to-other"><input class="goal-input" type="text" id="crmGaToOther" maxlength="40" placeholder="مثال: مدير المدرسة" aria-label="الجهة الموجّه إليها التقرير" onkeydown="if(event.key==='Enter'){event.preventDefault();pickCrmGaReportTo('otherGo', this.nextElementSibling);}"><button type="button" class="crm-ga-to-chip" onclick="pickCrmGaReportTo('otherGo', this)">تنزيل</button></div>`
         : row('أخرى…', "pickCrmGaReportTo('other', this)"));
   }
   return `<div class="crm-ga-pop" role="menu"><div class="crm-ga-pop-h">${head}<button type="button" class="crm-ga-pop-x" aria-label="إغلاق" onclick="toggleCrmGaReportTo(crmGradeAnalysis.repFor)">✕</button></div>${body}</div>`;
@@ -453,7 +459,8 @@ function gradeAnalysisExportRows(a, v, withNames){
   rows.push([], ['التقدير', 'من %', 'العدد']);
   letters.forEach((l, i) => rows.push([l.label, l.min, lc[i]]));
   if(withNames){
-    const grpOf = r => r.points === null ? 'لم يُرصد' : r.pct < s.passPct ? 'ضعيف' : r.pct >= s.rules.top ? 'متفوق' : 'متوسط';
+    const topIds = new Set(s.groups.top.map(x => x.id));
+    const grpOf = r => r.points === null ? 'لم يُرصد' : r.pct < s.passPct ? 'ضعيف' : topIds.has(r.id) ? (s.topIsFallback ? 'الأعلى درجات' : 'متفوق') : 'متوسط';
     rows.push([], ['الطالب', 'الدرجة', 'النسبة %', 'الفئة', 'التقدير']);
     v.rows.forEach(r => rows.push([r.name, r.points === null ? '' : r.points, r.pct === null ? '' : Math.round(r.pct), grpOf(r), r.pct === null ? '' : letters[gradeLetterIndex(r.pct, letters)].label]));
   }

@@ -174,7 +174,7 @@ function gradeReportStudentNotes(c){
   }
   const diff = c.classPts === null ? null : Math.round((c.pts - c.classPts) * 10) / 10;
   reading.push(`حقق الطالب ${grn(f(c.pts))} من ${grn(f(c.max))} (${grn(Math.round(c.pct) + '%')})${diff === null ? '' : diff >= 0 ? `، فوق متوسط الشعبة بـ ${grn(f(diff))} درجة` : `، دون متوسط الشعبة بـ ${grn(f(Math.abs(diff)))} درجة`}.`);
-  reading.push(c.pct < r.pass ? `وهو دون حد النجاح (${grn(r.pass + '%')}) وهو من الضعاف.`
+  reading.push(c.pct < r.pass ? `وهو دون حد النجاح (${grn(r.pass + '%')})، أي من الضعاف ويحتاج دعمًا.`
     : c.pct < r.pass + r.edge ? 'ونجاحه بهامش قليل، فيحتاج متابعة لئلا يهبط.'
     : c.pct >= r.top ? 'وهو في فئة المتفوقين.' : 'وهو ضمن مستوى النجاح.');
   const up = recorded.filter(x => x.classPct !== null && x.pct - x.classPct >= 10).sort((a, b) => (b.pct - b.classPct) - (a.pct - a.classPct));

@@ -499,6 +499,18 @@ test('تقارير الطلاب (الزر العام): تختار الفئة ث�
   assert.match(none.__d, /disabled onclick="pickCrmGaScope\('top'\)"/, 'فئة فارغة معطّلة');
 });
 
+test('قائمة السهم تذكر اسم الطالب، وبديل «الأعلى درجات» لا يُسمّى «المتفوقون» في الفئات ولا Excel', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a'); window.__n = crmGradeAnalysisHtml(crmGradeAnalysis); pickCrmGaReportTo('other', null); window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(app.__n, /<span>أحمد — موجّه إلى<\/span>/);
+  assert.match(app.__h, /onkeydown="if\(event\.key==='Enter'\)/, 'Enter في خانة «أخرى» ينزّل');
+  const fb = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(x => x.student_id !== 'e') }); crmGradeAnalysis.g = crmGrades;
+    crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('*'); window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
+    const v = gradeAnalysisView(crmGradeAnalysis); window.__x = gradeAnalysisExportRows(crmGradeAnalysis, v, true);`, { analysisRules: { pass: 50, edge: 10, top: 95, fallback: true } });
+  assert.match(fb.__d, /<span>الأعلى درجات<\/span><b>\d+<\/b>/, 'اسم الفئة بالبديل');
+  assert.doesNotMatch(fb.__d, /<span>المتفوقون<\/span>/);
+  assert.match(JSON.stringify(fb.__x), /"الأعلى درجات"/, 'Excel يوسم أصحاب البديل');
+});
+
 test('تقارير كل الطلاب: لا تعمل لو تبدّلت الشعبة المعروضة', async () => {
   const app = opened(`window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
     crmGrades = Object.assign({}, crmGrades, { sectionId: 'S2' }); exportCrmAllStudentReports(null);`);
