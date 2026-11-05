@@ -106,7 +106,7 @@ let crmGradeAnalysisBusy = false;
 function openCrmGradeAnalysis(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
-  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, exportOpen: false, withNames: false, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
+  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, exportOpen: false, withNames: gradeReportPrefsNow().show.names, scope: 'section', reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
   const a = crmGradeAnalysis;
   a.open = gradeAnalysisDefaultOpen(a);
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
@@ -174,6 +174,7 @@ function gaGroupRangeHtml(key, s, displayMax){
 }
 
 function crmGradeAnalysisHtml(a){
+  if(a.reportEdit) return gradeReportEditorHtml(); /* app-34 */
   if(a.editing) return gaLettersEditorHtml(a); /* app-30 */
   if(a.rulesEdit) return gaRulesEditorHtml(a); /* app-31 */
   const v = gradeAnalysisView(a);
@@ -203,10 +204,15 @@ function crmGradeAnalysisHtml(a){
     html += '</div>';
   });
   html += gaCompareHtml(a, v);
+  const hasSib = gradeSiblingSectionIds(a.g).length > 0;
   html += a.exportOpen
     ? `<div class="crm-ga-exp"><label class="crm-ga-chk"><input type="checkbox" id="crmGaNames"${a.withNames ? ' checked' : ''} onchange="crmGradeAnalysis.withNames = this.checked"> مع أسماء الطلاب</label>
-        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('pdf', this)">PDF صفحة واحدة</button>
-        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button></div>`
+        <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value">
+          <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
+          <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
+        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('pdf', this)">تقرير PDF بهوية الوزارة</button>
+        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button>
+        <button type="button" class="crm-am-opt" onclick="openGradeReportEditor('ga')">⚙ خيارات التقرير (المدرسة · ما يُطبع · التعليق)</button></div>`
     : '<button type="button" class="btn btn-outline crm-ga-expbtn" onclick="toggleCrmGaExport()">⤓ تصدير</button>';
   return html;
 }
@@ -242,27 +248,9 @@ function gradeAnalysisExportRows(a, v, withNames){
   return rows;
 }
 
-function gradeAnalysisPdfHtml(a, v, withNames){
-  const s = v.stats;
-  const cell = (val, label) => `<td style="border:1px solid #D8D2C4;padding:10px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#1B3245;">${val}</div><div style="font-size:11px;color:#6B6659;">${label}</div></td>`;
-  const maxBand = Math.max.apply(null, s.bands.concat(1));
-  const bars = s.bands.map((n, i) => `<tr><td style="width:90px;font-size:11px;padding:3px 0;">${GRADE_ANALYSIS_BANDS[i]}</td><td><div style="background:#1B3245;height:12px;width:${Math.round(100 * n / maxBand)}%;min-width:${n ? 2 : 0}px;"></div></td><td style="width:34px;font-size:11px;text-align:left;">${n}</td></tr>`).join('');
-  const names = withNames ? ['low', 'edge'].map(k => {
-    const gr = GRADE_ANALYSIS_GROUPS.find(x => x.key === k);
-    return s.groups[k].length ? `<div style="margin-top:12px;"><b style="font-size:13px;color:#1B3245;">${gr.label} (${s.groups[k].length})</b><div style="font-size:11.5px;line-height:1.9;">${s.groups[k].map(r => `${escapeHtml(r.name)} (${formatScore(r.points)})`).join(' · ')}</div></div>` : '';
-  }).join('') : '';
-  return `<div dir="rtl" style="font-family:'Cairo',sans-serif;padding:28px 32px;color:#232323;">
-    <div style="background:#1B3245;color:#fff;padding:14px 18px;"><div style="font-size:20px;font-weight:800;">تحليل الدرجات</div>
-      <div style="font-size:12px;opacity:.9;margin-top:4px;">${escapeHtml(a.label)} · ${escapeHtml(v.colLabel)}</div></div>
-    <p style="font-size:11.5px;color:#6B6659;margin:10px 0;">المحلَّل ${s.recorded} من ${s.total} طالبًا (لم يُرصد: ${s.missing}). نسبة النجاح من ${s.passPct}%.</p>
-    <table style="width:100%;border-collapse:collapse;"><tr>${cell(formatScore(s.avg), 'المتوسط')}${cell(formatScore(s.median), 'الوسيط')}${cell(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى')}</tr>
-    <tr>${cell(s.passed + ' (' + s.passRate + '%)', 'ناجحون')}${cell(s.groups.low.length, gradeAnalysisLowLabel())}${cell(s.groups.edge.length, 'على الحافة')}</tr></table>
-    <div style="font-size:13px;font-weight:800;color:#1B3245;margin:14px 0 6px;">توزيع الطلاب حسب النسبة</div>
-    <table style="width:100%;border-collapse:collapse;">${bars}</table>${names}</div>`;
-}
-
 async function exportCrmGradeAnalysis(kind, btn){
   const a = crmGradeAnalysis;
+  if(kind === 'pdf') return exportGradeReport(btn); /* app-34: تقرير الشعبة/البند/مجموعة الشعب */
   if(crmGradeAnalysisBusy || !a) return;
   const v = gradeAnalysisView(a);
   if(!v.stats.recorded){ showToast('لا درجات مرصودة لتصديرها', 'error'); return; }
@@ -272,13 +260,7 @@ async function exportCrmGradeAnalysis(kind, btn){
   const dateStr = new Date().toISOString().slice(0, 10);
   const base = `تحليل-درجات-${String(a.label).replace(/[\\\/:*?"<>|\s]+/g, '-')}-${dateStr}`;
   try{
-    if(kind === 'pdf'){
-      await ensurePdfLibs();
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF('p', 'pt', 'a4');
-      await addPdfPage(pdf, document.getElementById('pdfRenderArea'), gradeAnalysisPdfHtml(a, v, withNames), { firstPage: true });
-      pdf.save(base + '.pdf');
-    } else {
+    {
       await ensureXlsxLib();
       const wb = XLSX.utils.book_new();
       wb.Workbook = { Views: [{ RTL: true }] };

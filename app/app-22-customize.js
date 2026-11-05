@@ -79,6 +79,9 @@ function normalizeFeatures(raw){
   /* حدود تحليل الدرجات (app-31) */
   const ar = typeof normalizeGradeRules === 'function' ? normalizeGradeRules(raw && raw.analysisRules) : null;
   if(ar) out.analysisRules = ar;
+  /* خيارات تقارير الدرجات: المدرسة والمعلم والوكيل وما يُطبع (app-34) */
+  const rp = typeof normalizeReportPrefs === 'function' ? normalizeReportPrefs(raw && raw.reportPrefs) : null;
+  if(rp) out.reportPrefs = rp;
   return out;
 }
 
@@ -269,7 +272,10 @@ function renderAppCustomize(){
     ${classroom ? APP_TOOLS.map(t => customizeRowHtml('tools', t)).join('') : '<p class="cust-note">فعّل قسم "إدارة الصف" لاختيار أدواته.</p>'}
     ${classroom ? `<h3 class="cust-h">الدرجات</h3>
       <p class="cust-note">توزيع الدرجات، ومكوّنات الأداء (مثل البحوث)، والاختبارات — كلها في مكان واحد:</p>
-      <button class="btn btn-outline crm-mini-btn" onclick="openGradeSettingsFromAnywhere()">⚙ إعداد الدرجات</button>` : ''}`;
+      <button class="btn btn-outline crm-mini-btn" onclick="openGradeSettingsFromAnywhere()">⚙ إعداد الدرجات</button>
+      <h3 class="cust-h">تقارير الدرجات</h3>
+      <p class="cust-note">اسم المدرسة واسم المعلم ووكيل شؤون الطلاب، وما تريد طباعته، والتعليق التربوي (نقاط القوة · الضعف · الخطط العلاجية):</p>
+      <button class="btn btn-outline crm-mini-btn" onclick="openGradeReportEditor('cust')">⚙ خيارات التقارير</button>` : ''}`;
   fillHiddenSavedCounts(++appCustomizeToken);
 }
 

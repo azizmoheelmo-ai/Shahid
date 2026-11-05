@@ -552,6 +552,7 @@ function crmGradeStudentPageHtml(g, studentId){
       <button type="button" class="btn btn-outline"${prev ? ` onclick="openCrmGradeStudentDetail('${prev.id}')"` : ' disabled'}>‹ الطالب السابق</button>
       <button type="button" class="btn btn-outline"${next ? ` onclick="openCrmGradeStudentDetail('${next.id}')"` : ' disabled'}>الطالب التالي ›</button>
     </div>
+    <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="exportCrmStudentReport(this)">⤓ تقرير الطالب PDF</button>
     <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openCrmStudentProfile('${st.id}', { type: 'tab', tab: 'grades' })">ملف الطالب</button>`;
 }
 
