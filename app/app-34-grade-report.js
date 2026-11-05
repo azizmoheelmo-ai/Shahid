@@ -465,9 +465,11 @@ function gradeReportStudentHtml(d, prefs, ctx){
 /* ============ التصدير ============ */
 let gradeReportBusy = false;
 
-/* ===== الطباعة / الحفظ كـPDF من المتصفح: نص حقيقي (يرسمه المتصفح بخطه) بدل صورة =====
-   - الترويسة المصغّرة والترقيم في هوامش @page (يدعمها Chrome الحديث؛ غيره يتجاهلها).
-   - تُنظَّف #printArea بعد الطباعة حتى لا يبقى @page هذا يؤثر في طباعة أخرى. */
+/* ===== الطباعة / الحفظ كـPDF من المتصفح: نص حقيقي (يرسمه المتصفح بخطه) =====
+   - لا صورة ولا مكتبات PDF: المتصفح يرسم العربية بنفسه (تشكيل واتجاه صحيحان) والنص قابل للتحديد والبحث.
+   - الترويسة المصغّرة (من الصفحة 2) والترقيم في هوامش @page (يدعمها Chrome الحديث؛ غيره يتجاهلها).
+   - تُنظَّف #printArea بعد الطباعة حتى لا يبقى @page هذا يؤثر في طباعة أخرى.
+   - عنوان الصفحة يصير اسم الملف المقترح عند «حفظ كـPDF»، ثم يُعاد. */
 function gradeReportPrintCss(mark){
   const q = t => String(t || '').replace(/[\\"]/g, '').replace(/[\r\n]+/g, ' ');
   const box = 'font-family:Cairo,sans-serif;font-size:8.5pt;color:#55646f';
@@ -478,75 +480,43 @@ function gradeReportPrintCss(mark){
     + '@media print{#printArea.wrap{max-width:none;padding-bottom:0}}';
 }
 
-function gradeReportPrint(html, mark){
-  const area = document.getElementById('printArea');
-  if(!area) return;
-  area.innerHTML = `<style>${gradeReportPrintCss(mark)}</style>` + html;
-  const clear = () => { window.removeEventListener('afterprint', clear); if(area.querySelector('.gr')) area.innerHTML = ''; };
-  window.addEventListener('afterprint', clear);
-  printNow();
-}
-
-/* ترويسة مصغّرة (من الصفحة 2) وترقيم «س / ص» على كل صفحة — في هامش الورقة، فلا تأخذ من مساحة المحتوى.
-   mark = { right, left } نصان بسيطان (يُهرَّبان هنا) */
-async function gradeReportAddMarks(pdf, mark){
-  const area = document.getElementById('pdfRenderArea');
-  const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
-  const boxW = W - PDF_MARGIN_PT * 2, cssH = 24;
-  let h = boxW * cssH / 800;
-  const strip = async inner => {
-    area.innerHTML = `<div dir="rtl" style="width:800px;height:${cssH}px;line-height:${cssH}px;box-sizing:border-box;padding:0 34px;display:flex;justify-content:space-between;font-family:'Cairo',sans-serif;font-size:11px;color:#55646f;background:#fff">${inner}</div>`;
-    const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
-    h = boxW * canvas.height / canvas.width; /* النسبة الفعلية للملتقَط، لا المفترضة: أي حشوة في الحاوية تُضغط الشريحة */
-    return canvas.toDataURL('image/jpeg', 0.92);
-  };
-  const n = pdf.getNumberOfPages();
-  const head = mark && (mark.right || mark.left) ? await strip(`<span>${escapeHtml(mark.right || '')}</span><span>${escapeHtml(mark.left || '')}</span>`) : null;
-  for(let i = 1; i <= n; i++){
-    pdf.setPage(i);
-    if(head && i > 1) pdf.addImage(head, 'JPEG', PDF_MARGIN_PT, 6, boxW, h);
-    const foot = await strip(`<span style="flex:1;text-align:center">صفحة <bdi dir="ltr">${i} / ${n}</bdi></span>`);
-    pdf.addImage(foot, 'JPEG', PDF_MARGIN_PT, H - h - 4, boxW, h);
-  }
-}
-
 function gradeReportMark(prefs, title, label){
   const subject = gradeReportSubject(prefs);
   return { right: `${title} · ${label}${subject ? ' · ' + subject : ''}`, left: gradeReportSchool(prefs) };
 }
 
-/* #pdfRenderArea عليه class="wrap" (padding-bottom:70px): يُلتقط معه فراغ أبيض يُنتج صفحة فارغة ويُضغط الترويسة والترقيم.
-   نصفّر الحشوة أثناء تصوير التقرير فقط ثم نعيدها */
-async function gradeReportWithFlatArea(area, fn){
-  const prev = area.style.paddingBottom;
-  area.style.paddingBottom = '0';
-  try{ return await fn(); } finally { area.style.paddingBottom = prev; }
+let gradeReportSavedTitle = null;
+function gradeReportPrint(html, mark, title){
+  const area = document.getElementById('printArea');
+  if(!area) return;
+  area.innerHTML = `<style>${gradeReportPrintCss(mark)}</style>` + html;
+  if(title){
+    if(gradeReportSavedTitle === null) gradeReportSavedTitle = document.title;
+    document.title = title;
+  }
+  const clear = () => {
+    window.removeEventListener('afterprint', clear);
+    if(area.querySelector('.gr')) area.innerHTML = '';
+    if(gradeReportSavedTitle !== null){ document.title = gradeReportSavedTitle; gradeReportSavedTitle = null; }
+  };
+  window.addEventListener('afterprint', clear);
+  printNow();
 }
 
-async function gradeReportRun(btn, build, filename, mode){
+/* build() يُرجع { html, mark } أو '' (توقّف). التحميل غير المتزامن (شعب أخرى/فصل سابق) داخل build */
+async function gradeReportRun(btn, build, filename){
   if(gradeReportBusy) return;
   gradeReportBusy = true;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     const out = await build();
-    const html = out && typeof out === 'object' ? out.html : out;
-    if(!html) return;
-    if(mode === 'print'){ gradeReportPrint(html, out && typeof out === 'object' ? out.mark : null); return; }
-    await ensurePdfLibs();
+    if(!out || !out.html) return;
     if(document.fonts && document.fonts.load){
-      try{ await Promise.all(['400', '700', '800'].map(w => document.fonts.load(`${w} 12px 'Cairo'`, 'شاهد الأداء الوظيفي'))); } catch(e){ /* لا يمنع التصدير */ }
+      try{ await Promise.all(['400', '700', '800'].map(w => document.fonts.load(`${w} 12px 'Cairo'`, 'شاهد الأداء الوظيفي'))); } catch(e){ /* لا يمنع الطباعة */ }
     }
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    const area = document.getElementById('pdfRenderArea');
-    await gradeReportWithFlatArea(area, async () => {
-      await addPdfPagesMulti(pdf, area, html, { firstPage: true });
-      await gradeReportAddMarks(pdf, out && typeof out === 'object' ? out.mark : null);
-    });
-    pdf.save(filename + '.pdf');
-    showToast('تم التصدير', 'ok');
+    gradeReportPrint(out.html, out.mark, filename);
   } catch(err){
-    showToast('تعذّر التصدير: ' + (err.message || ''), 'error');
+    showToast('تعذّر تجهيز التقرير: ' + (err.message || ''), 'error');
   } finally {
     gradeReportBusy = false;
     endExportBusy(btn);
@@ -556,7 +526,7 @@ async function gradeReportRun(btn, build, filename, mode){
 const gradeReportFile = (prefix, label) => `${prefix}-${String(label).replace(/[\\\/:*?"<>|\s]+/g, '-')}-${new Date().toISOString().slice(0, 10)}`;
 
 /* من نافذة التحليل: تقرير الشعبة/البند، أو مجموعة شعب الصف */
-async function exportGradeReport(btn, mode){
+async function exportGradeReport(btn){
   const a = crmGradeAnalysis;
   if(!a || gradeReportBusy) return;
   const prefs = gradeReportPrefsNow();
@@ -610,11 +580,11 @@ async function exportGradeReport(btn, mode){
     secs.sort((p, q) => q.s.avgPct - p.s.avgPct);
     const col = spec.total ? null : a.g.columns.find(c => c.id === a.key);
     return { html: gradeReportGroupHtml({ gradeName, key: a.key, colLabel: col ? col.name : 'المجموع', secs, pooled: analyzeGradeRows(allRows, displayMax), displayMax }, prefs, base), mark: gradeReportMark(prefs, 'تحليل نتائج المجموعة', gradeName) };
-  }, scope === 'group' ? gradeReportFile('تقرير-مجموعة-شعب', gradeName) : gradeReportFile('تقرير-درجات', a.label), mode);
+  }, scope === 'group' ? gradeReportFile('تقرير-مجموعة-شعب', gradeName) : gradeReportFile('تقرير-درجات', a.label));
 }
 
 /* من صفحة الطالب في الكشف */
-async function exportCrmStudentReport(btn, mode){
+async function exportCrmStudentReport(btn){
   const g = crmGrades, id = crmGradeStudentId;
   if(!g || !id || gradeReportBusy) return;
   const d = gradeReportStudentData(g, id);
@@ -623,7 +593,7 @@ async function exportCrmStudentReport(btn, mode){
   await gradeReportRun(btn, async () => {
     const logo = await gradeReportLogoData();
     return { html: gradeReportStudentHtml(d, prefs, { logo, date: new Date().toISOString().slice(0, 10) }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
-  }, gradeReportFile('تقرير-طالب', d.name), mode);
+  }, gradeReportFile('تقرير-طالب', d.name));
 }
 
 /* ============ خيارات التقارير (إعدادات المعلم) ============ */
