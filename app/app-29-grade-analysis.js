@@ -1,12 +1,14 @@
 /* ============================================================
    تحليل درجات الشعبة — يُفتح بالضغط على شريط الملخص أعلى الكشف
    ------------------------------------------------------------
-   - نافذة واحدة بلا تبويب: اختيار العمود (المجموع أو أي عمود)، أرقام أساسية،
-     توزيع الطلاب، ثلاث فئات بأسماء (يحتاج دعمًا · على الحافة · متفوقون)، وزر تصدير واحد.
-   - ما لم يُرصد لا يُحسب (لا صفر): التحليل لمن رُصد له فقط، والعدد مذكور صراحةً.
-   - «المجموع» يطابق شريط الكشف: نفس النقاط، والنسبة مما رُصد للطالب فعلًا.
+   - نافذة بثلاث تبويبات: «نظرة عامة» (جملة خلاصة + شريط المستويات + أربع بطاقات)،
+     «الطلاب» (أسماء كل مستوى)، «مقارنات» (app-30)، وزر تصدير واحد ثابت أسفل النافذة.
+   - أربعة مستويات تغطي كل من رُصد له: يحتاجون دعمًا · على الحافة · جيد · متفوقون.
+   - الأرقام المعروضة صحيحة (بلا كسور)؛ الكسور في ملف Excel فقط. التصنيف دائمًا بالرقم الدقيق،
+     والتقريب لا يُظهر رقمًا يوحي بتجاوز حدّ لم يبلغه الطالب (49.6 لا تُعرض 50%).
+   - ما لم يُرصد لا يُحسب (لا صفر)؛ ومن رُصد له جزء من الأعمدة يُحسب بنسبته مما رُصد له.
    - الأسماء من طلاب الشعبة المحمَّلة فقط (فلترة صريحة بـ teacher_id في تحميل الكشف نفسه)،
-     والتصدير بلا أسماء ما لم يُحدَّد غير ذلك.
+     والتصدير بلا أسماء ما لم يُحدَّد غير ذلك، وبلا تعليق تربوي ما لم يُطلب.
    ============================================================ */
 
 const GRADE_ANALYSIS_RULES = {
@@ -19,6 +21,14 @@ const GRADE_ANALYSIS_GROUPS = [
   { key: 'edge', label: 'على الحافة', tone: 'mid' },
   { key: 'top', label: 'متفوقون', tone: 'hi' }
 ];
+/* مستويات النافذة (الأخطر أولًا): تغطي كل من رُصد له بلا تداخل */
+const GRADE_ANALYSIS_LEVELS = [
+  { key: 'low', label: 'يحتاجون دعمًا', tone: 'lo' },
+  { key: 'edge', label: 'على الحافة', tone: 'mid' },
+  { key: 'good', label: 'جيد', tone: 'good' },
+  { key: 'top', label: 'متفوقون', tone: 'hi' }
+];
+const GRADE_ANALYSIS_NAMES_PREVIEW = 5; /* أسماء كل مستوى قبل «عرض الكل» */
 
 /* ============ دوال صرفة ============ */
 
@@ -86,7 +96,11 @@ function analyzeGradeRows(rows, displayMax){
   /* لا أحد بلغ حدّ المتفوق: اختياريًا تُعرض أعلى 3 (ممن نجحوا) باسم «الأعلى درجات» */
   const topIsFallback = !groups.top.length && rules.fallback;
   if(topIsFallback) groups.top = rec.filter(r => r.pct >= pass).sort((a, b) => -byPct(a, b)).slice(0, 3);
+  /* «جيد»: من نجح بهامش كافٍ ولم يبلغ حدّ المتفوق (دون من عُرضوا بالبديل «الأعلى درجات») */
+  const inTop = new Set(groups.top.map(r => r.id));
+  const good = rec.filter(r => r.pct >= pass + rules.edge && r.pct < rules.top && !inTop.has(r.id)).sort((a, b) => -byPct(a, b));
   return {
+    good,
     total: rows.length, recorded: rec.length, missing: rows.length - rec.length,
     partial: rec.filter(r => r.partial).length,
     avg: pts.length ? r2(sum / pts.length) : null,
@@ -106,14 +120,16 @@ let crmGradeAnalysisBusy = false;
 function openCrmGradeAnalysis(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
-  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, exportOpen: false, withNames: gradeReportPrefsNow().show.names, scope: 'section', reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
+  const prefs = gradeReportPrefsNow();
+  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, showAll: null, tab: 'overview', detOpen: false, exportOpen: false, withNames: prefs.show.names, withNotes: gradeReportNotesAny(prefs), scope: 'section', reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
   const a = crmGradeAnalysis;
   a.open = gradeAnalysisDefaultOpen(a);
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
   showInfoModal(`<div class="crm-ga">
     <h3 class="crm-ga-h">تحليل الدرجات</h3>
     <div class="crm-gs-sub">${escapeHtml(a.label)}</div>
-    <select class="crm-ga-sel" aria-label="العمود المراد تحليله" onchange="onCrmGradeAnalysisKey(this.value)">${opts.join('')}</select>
+    <label class="crm-ga-sellbl" for="crmGaKey">ماذا تريد أن تحلّل؟</label>
+    <select class="crm-ga-sel" id="crmGaKey" onchange="onCrmGradeAnalysisKey(this.value)">${opts.join('')}</select>
     <div id="crmGaBody"></div></div>`, '420px');
   paintCrmGradeAnalysis();
 }
@@ -125,7 +141,7 @@ function gradeAnalysisView(a){
   return { rows, displayMax, stats: analyzeGradeRows(rows, displayMax), colLabel: col ? col.name : 'المجموع' };
 }
 
-/* فئة «يحتاج دعمًا» مفتوحة من البداية إن وُجد فيها أحد — هي أول ما يبحث عنه المعلم */
+/* مستوى «يحتاجون دعمًا» مفتوح من البداية إن وُجد فيه أحد — هو أول ما يبحث عنه المعلم */
 function gradeAnalysisDefaultOpen(a){
   return gradeAnalysisView(a).stats.groups.low.length ? 'low' : null;
 }
@@ -134,12 +150,45 @@ function onCrmGradeAnalysisKey(key){
   if(!crmGradeAnalysis) return;
   crmGradeAnalysis.key = key;
   crmGradeAnalysis.open = gradeAnalysisDefaultOpen(crmGradeAnalysis);
+  crmGradeAnalysis.showAll = null;
   paintCrmGradeAnalysis();
 }
 
 function toggleCrmGaGroup(key){
   if(!crmGradeAnalysis) return;
   crmGradeAnalysis.open = crmGradeAnalysis.open === key ? null : key;
+  crmGradeAnalysis.showAll = null;
+  paintCrmGradeAnalysis();
+}
+
+/* تبويب: نظرة عامة | الطلاب | مقارنات (مقارنة الشعب/الفصل السابق تُحمَّل عند فتح بطاقتها فقط) */
+function setCrmGaTab(tab){
+  const a = crmGradeAnalysis;
+  if(!a) return;
+  a.tab = tab === 'students' || tab === 'compare' ? tab : 'overview';
+  paintCrmGradeAnalysis();
+}
+
+/* الضغط على بطاقة مستوى بنظرة عامة: ينقل لتبويب الطلاب والمستوى مفتوح */
+function openCrmGaLevel(key){
+  const a = crmGradeAnalysis;
+  if(!a) return;
+  a.tab = 'students';
+  a.open = key;
+  a.showAll = null;
+  paintCrmGradeAnalysis();
+}
+
+function toggleCrmGaShowAll(key){
+  const a = crmGradeAnalysis;
+  if(!a) return;
+  a.showAll = a.showAll === key ? null : key;
+  paintCrmGradeAnalysis();
+}
+
+function toggleCrmGaDetails(){
+  if(!crmGradeAnalysis) return;
+  crmGradeAnalysis.detOpen = !crmGradeAnalysis.detOpen;
   paintCrmGradeAnalysis();
 }
 
@@ -154,23 +203,137 @@ function paintCrmGradeAnalysis(){
   if(box && crmGradeAnalysis) box.innerHTML = crmGradeAnalysisHtml(crmGradeAnalysis);
 }
 
-/* درجة بمنزلة عشرية واحدة كحد أقصى (2.33 ← 2.3) */
-function gradeAnalysisPts(n){ return String(Math.round(Number(n) * 10) / 10); }
+/* درجة صحيحة (2.6 ← 3) — الكسور في Excel فقط */
+function gradeAnalysisPts(n){ return String(Math.round(Number(n))); }
+
+/* نسبة صحيحة لا تتجاوز حدًّا لم يبلغه صاحبها: 49.6 تُعرض 49% لا 50% (التصنيف بالرقم الدقيق).
+   bounds = حدود المستويات الصحيحة (النجاح، الحافة، المتفوق). */
+function gradeAnalysisPctShown(pct, bounds){
+  let r = Math.round(pct);
+  (bounds || []).forEach(b => { if(pct < b && r >= b) r = b - 1; });
+  return r;
+}
+
+function gradeAnalysisBounds(){
+  const r = gradeAnalysisRulesNow();
+  return [r.pass, r.pass + r.edge, r.top];
+}
+
+/* نسبة n من total صحيحة، دون أن تُظهر 100% وفيها من لم ينجح، ولا 0% وفيها من نجح */
+function gaRateShown(n, total){
+  if(!total) return 0;
+  const r = Math.round(100 * n / total);
+  return n < total && r >= 100 ? 99 : n > 0 && r <= 0 ? 1 : r;
+}
 
 function gradeAnalysisTone(pct){
   const pass = gradeAnalysisPassPct();
   return pct < pass ? 'lo' : pct < gradeAnalysisRulesNow().top ? 'mid' : 'hi';
 }
 
-/* حدّ الفئة بالنسبة وما يقابله بالدرجات (لا يُعرض لـ«الأعلى درجات» الاحتياطية: ليس لها حدّ) */
+/* تمييز العدد: 3 طلاب · 11 طالبًا */
+function gaStudentsWord(n){ return n <= 10 ? 'طلاب' : 'طالبًا'; }
+
+/* حدّ المستوى بالنسبة، وما يقابله بالدرجات إن كان عددًا صحيحًا فقط (لا نعرض تقريبًا غير دقيق) */
 function gaGroupRangeHtml(key, s, displayMax){
   if(key === 'top' && s.topIsFallback) return '';
-  const pts = p => formatScore(Math.round(p * displayMax) / 100);
   const r = s.rules;
-  const txt = key === 'low' ? `أقل من ${r.pass}% أي أقل من ${pts(r.pass)} درجة`
+  const pts = p => { const v = p * displayMax / 100; return Number.isInteger(v) ? formatScore(v) : ''; };
+  const lowPts = pts(r.pass), topPts = pts(r.top);
+  const txt = key === 'low' ? `أقل من ${r.pass}%${lowPts ? ` (أقل من ${lowPts} درجة)` : ''}`
     : key === 'edge' ? `من ${r.pass}% إلى أقل من ${r.pass + r.edge}%`
-    : `${r.top}% فأكثر أي ${pts(r.top)} درجة فأكثر`;
+    : key === 'good' ? `من ${r.pass + r.edge}% إلى أقل من ${r.top}%`
+    : `${r.top}% فأكثر${topPts ? ` (${topPts} درجة فأكثر)` : ''}`;
   return `<small>${txt}</small>`;
+}
+
+/* قائمة أسماء مستوى: أول 5 ثم «عرض الكل» */
+function gaNamesHtml(a, key, list){
+  const all = a.showAll === key;
+  const shown = all ? list : list.slice(0, GRADE_ANALYSIS_NAMES_PREVIEW);
+  const bounds = gradeAnalysisBounds();
+  let html = '<div class="crm-ga-names">' + shown.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${gradeAnalysisPctShown(r.pct, bounds)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button>`).join('');
+  if(list.length > GRADE_ANALYSIS_NAMES_PREVIEW) html += `<button type="button" class="crm-ga-more" onclick="toggleCrmGaShowAll('${key}')">${all ? 'عرض أقل ⌃' : `عرض الكل (${list.length}) ⌄`}</button>`;
+  return html + '</div>';
+}
+
+/* الأعداد الصحيحة لكل مستوى بعد الاستبدال بالقائمة المعروضة (البديل «الأعلى درجات» يغيّر قائمة المتفوقين) */
+function gaLevelLists(s){
+  return { low: s.groups.low, edge: s.groups.edge, good: s.good, top: s.groups.top };
+}
+
+function gaLevelLabel(lv, s){ return lv.key === 'top' && s.topIsFallback ? 'الأعلى درجات' : lv.label; }
+
+function gaTabsHtml(a){
+  const tab = (k, label) => `<button type="button" role="tab" class="${a.tab === k ? 'is-on' : ''}" aria-selected="${a.tab === k}" onclick="setCrmGaTab('${k}')">${label}</button>`;
+  return `<div class="crm-ga-tabs" role="tablist">${tab('overview', 'نظرة عامة')}${tab('students', 'الطلاب')}${tab('compare', 'مقارنات')}</div>`;
+}
+
+/* ملاحظات قصيرة: من لم يُرصد له شيء (خارج الحساب) ومن رُصد له جزء (داخل الحساب) */
+function gaNotesHtml(s){
+  const parts = [];
+  if(s.missing) parts.push(`لم يُرصد لـ ${s.missing} من ${s.total} ${gaStudentsWord(s.total)} شيء بعد — لا يدخلون في الحساب (لا يُعدّون أصفارًا).`);
+  if(s.partial) parts.push(`${s.partial} ${gaStudentsWord(s.partial)} لم تكتمل درجاتهم — حُسبت نتائجهم مما رُصد.`);
+  return parts.length ? `<div class="crm-ga-note">${parts.join('<br>')}</div>` : '';
+}
+
+function gaOverviewHtml(a, v){
+  const s = v.stats;
+  const lists = gaLevelLists(s);
+  const total = s.recorded;
+  const rate = gaRateShown(s.passed, total);
+  const segs = ['top', 'good', 'edge', 'low'].map(k => ({ k, n: lists[k].length })).filter(x => x.n);
+  const bar = segs.map(x => `<i class="gs-lv-${x.k}" style="flex:${x.n}" title="${x.n}"></i>`).join('');
+  const legend = GRADE_ANALYSIS_LEVELS.slice().reverse().map(lv => `<span><s class="gs-lv-${lv.key}"></s>${gaLevelLabel(lv, s)} ${lists[lv.key].length}</span>`).join('');
+  let html = `<div class="crm-ga-hero"><div class="crm-ga-hero-t"><b>${s.passed} من ${total}</b> ${gaStudentsWord(total)} ناجحون (<bdi dir="ltr">${rate}%</bdi>)</div>
+    <div class="crm-ga-hero-s">المتوسط <b>${gradeAnalysisPts(s.avg)} من ${formatScore(v.displayMax)}</b></div>
+    <div class="crm-ga-stack">${bar}</div><div class="crm-ga-legend">${legend}</div></div>` + gaNotesHtml(s);
+  GRADE_ANALYSIS_LEVELS.forEach(lv => {
+    const n = lists[lv.key].length;
+    html += `<button type="button" class="crm-ga-lv gs-grp-${lv.tone}" ${n ? '' : 'disabled'} onclick="openCrmGaLevel('${lv.key}')"><b class="crm-ga-lvn">${n}</b><span class="crm-ga-lvt">${gaLevelLabel(lv, s)}${gaGroupRangeHtml(lv.key, s, v.displayMax)}</span><span class="crm-am-chev" aria-hidden="true">‹</span></button>`;
+  });
+  html += `<div class="crm-ga-sechead"><button type="button" class="crm-ga-link" onclick="openCrmGaRulesEditor()">⚙ تعديل حدود المستويات</button></div>`;
+  const tile = (val, label, sub) => `<div class="crm-ga-tile"><b>${val}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  html += `<button type="button" class="crm-ga-det${a.detOpen ? ' open' : ''}" aria-expanded="${!!a.detOpen}" onclick="toggleCrmGaDetails()"><span>تفاصيل إحصائية</span><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
+  if(a.detOpen){
+    html += `<div class="crm-ga-detbody"><div class="crm-ga-tiles">
+      ${tile(gradeAnalysisPts(s.median), 'الوسيط', 'من ' + formatScore(v.displayMax))}
+      ${tile(`${gradeAnalysisPts(s.min)} إلى ${gradeAnalysisPts(s.max)}`, 'أدنى وأعلى درجة', 'من ' + formatScore(v.displayMax))}
+      ${tile(s.avgPct === null ? '—' : `<bdi dir="ltr">${s.avgPct}%</bdi>`, 'متوسط النسبة', '')}
+    </div>${gaDistHtml(a, v)}</div>`;
+  }
+  return html;
+}
+
+function gaStudentsHtml(a, v){
+  const s = v.stats;
+  const lists = gaLevelLists(s);
+  let html = '';
+  GRADE_ANALYSIS_LEVELS.forEach(lv => {
+    const list = lists[lv.key];
+    const on = a.open === lv.key && list.length;
+    html += `<div class="crm-ga-grp gs-grp-${lv.tone}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${!!on}" ${list.length ? '' : 'disabled'} onclick="toggleCrmGaGroup('${lv.key}')"><span>${gaLevelLabel(lv, s)}${gaGroupRangeHtml(lv.key, s, v.displayMax)}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
+    if(on) html += gaNamesHtml(a, lv.key, list);
+    html += '</div>';
+  });
+  return html + '<p class="crm-ga-fine">الأسماء من الأدنى إلى الأعلى نسبةً في المستويات الثلاثة الأولى، ومن الأعلى في «جيد» و«متفوقون». اضغط اسمًا لفتح صفحة الطالب.</p>';
+}
+
+/* ورقة التصدير: PDF وExcel، ومفاتيح الأسماء والتعليق التربوي، ونطاق التقرير */
+function gaExportHtml(a){
+  const hasSib = gradeSiblingSectionIds(a.g).length > 0;
+  const bar = a.exportOpen
+    ? `<div class="crm-ga-exp"><label class="crm-ga-chk"><input type="checkbox" id="crmGaNames"${a.withNames ? ' checked' : ''} onchange="crmGradeAnalysis.withNames = this.checked"> مع أسماء الطلاب</label>
+        <label class="crm-ga-chk"><input type="checkbox" id="crmGaNotes"${a.withNotes ? ' checked' : ''} onchange="crmGradeAnalysis.withNotes = this.checked"> مع التعليق التربوي (للـ PDF)</label>
+        <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value">
+          <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
+          <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
+        <button type="button" class="crm-am-opt" onclick="exportGradeReport(this)">PDF — طباعة / حفظ</button>
+        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button>
+        <button type="button" class="crm-am-opt" onclick="openGradeReportEditor('ga')">⚙ بيانات التقرير (المدرسة · المعلم · المادة · ما يُطبع)</button>
+        <button type="button" class="crm-ga-link" onclick="toggleCrmGaExport()">إخفاء</button></div>`
+    : '<button type="button" class="btn btn-primary crm-ga-expbtn" onclick="toggleCrmGaExport()">⤓ تصدير التقرير</button>';
+  return `<div class="crm-ga-bot">${bar}</div>`;
 }
 
 function crmGradeAnalysisHtml(a){
@@ -181,40 +344,8 @@ function crmGradeAnalysisHtml(a){
   const s = v.stats;
   if(!s.total) return '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>';
   if(!s.recorded) return '<div class="empty-state">لم تُرصد درجات لهذا العمود بعد.</div>';
-  const tile = (val, label, sub, tone) => `<div class="crm-ga-tile${tone ? ' gs-tone-' + tone : ''}"><b>${val}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
-  const pctOf = n => Math.round(100 * n / s.recorded) + '%';
-  let notes = '';
-  if(s.missing) notes += `المحلَّل ${s.recorded} من ${s.total} طالبًا — لم يُرصد لـ ${s.missing} فلا يدخلون في الحساب (لا يُعدّون أصفارًا). `;
-  if(s.partial) notes += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فقط، ونسبة كل منهم مما رُصد له.`;
-  let html = (notes ? `<div class="crm-ga-note">${notes}</div>` : '') + `<div class="crm-ga-tiles">
-    ${tile(formatScore(s.avg), 'المتوسط', 'من ' + formatScore(v.displayMax) + (s.avgPct === null ? '' : ' · ' + s.avgPct + '%'))}
-    ${tile(formatScore(s.median), 'الوسيط', 'من ' + formatScore(v.displayMax))}
-    ${tile(formatScore(s.min) + '–' + formatScore(s.max), 'أدنى – أعلى', 'من ' + formatScore(v.displayMax))}
-    ${tile(s.passed, 'ناجحون', pctOf(s.passed), 'hi')}
-    ${tile(s.groups.low.length, gradeAnalysisLowLabel(), pctOf(s.groups.low.length), s.groups.low.length ? 'lo' : '')}
-    ${tile(s.groups.edge.length, 'على الحافة', 'نجحوا بهامش قليل')}
-  </div>
-  ${gaDistHtml(a, v)}
-  <div class="crm-ga-sechead"><span class="crm-ga-sec">من هم؟</span><button type="button" class="crm-ic-btn" aria-label="حدود التحليل" title="حدود التحليل: النجاح والحافة والمتفوق" onclick="openCrmGaRulesEditor()">⚙</button></div>`;
-  GRADE_ANALYSIS_GROUPS.forEach(gr => {
-    const list = s.groups[gr.key];
-    const on = a.open === gr.key && list.length;
-    html += `<div class="crm-ga-grp gs-grp-${gr.tone}${on ? ' open' : ''}"><button type="button" class="crm-ga-ghead" aria-expanded="${!!on}" ${list.length ? '' : 'disabled'} onclick="toggleCrmGaGroup('${gr.key}')"><span>${gr.key === 'top' && s.topIsFallback ? 'الأعلى درجات' : gr.label}${gaGroupRangeHtml(gr.key, s, v.displayMax)}</span><b>${list.length}</b><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
-    if(on) html += '<div class="crm-ga-names">' + list.map(r => `<button type="button" class="crm-ga-name" onclick="openCrmGradeAnalysisStudent('${escapeHtml(r.id)}')"><span>${escapeHtml(r.name)}</span><span class="crm-ga-sc"><b class="gs-tone-${gradeAnalysisTone(r.pct)}"><bdi dir="ltr">${Math.round(r.pct)}%</bdi></b><small>${gradeAnalysisPts(r.points)} من ${formatScore(r.recordedMax)}</small></span></button>`).join('') + '</div>';
-    html += '</div>';
-  });
-  html += gaCompareHtml(a, v);
-  const hasSib = gradeSiblingSectionIds(a.g).length > 0;
-  html += a.exportOpen
-    ? `<div class="crm-ga-exp"><label class="crm-ga-chk"><input type="checkbox" id="crmGaNames"${a.withNames ? ' checked' : ''} onchange="crmGradeAnalysis.withNames = this.checked"> مع أسماء الطلاب</label>
-        <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value">
-          <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
-          <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
-        <button type="button" class="crm-am-opt" onclick="exportGradeReport(this)">تقرير بهوية الوزارة — طباعة / حفظ PDF</button>
-        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button>
-        <button type="button" class="crm-am-opt" onclick="openGradeReportEditor('ga')">⚙ خيارات التقرير (المدرسة · ما يُطبع · التعليق)</button></div>`
-    : '<button type="button" class="btn btn-outline crm-ga-expbtn" onclick="toggleCrmGaExport()">⤓ تصدير</button>';
-  return html;
+  const body = a.tab === 'students' ? gaStudentsHtml(a, v) : a.tab === 'compare' ? gaCompareHtml(a, v) : gaOverviewHtml(a, v);
+  return gaTabsHtml(a) + `<div class="crm-ga-pane">${body}</div>` + gaExportHtml(a);
 }
 
 /* الضغط على اسم: يفتح صفحة الطالب بالكشف (إن لم تتغيّر الشعبة المعروضة منذ فتح النافذة) */
