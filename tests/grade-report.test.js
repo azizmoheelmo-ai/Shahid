@@ -333,7 +333,7 @@ test('زر واحد بدل زرين: PDF — طباعة / حفظ، في النا
   assert.equal((app.__d.match(/exportGradeReport\(this\)/g) || []).length, 1);
   assert.doesNotMatch(app.__d, /exportCrmGradeAnalysis\('pdf'/, 'زر الصورة القديم أُزيل');
   assert.doesNotMatch(app.__d, /تجريبي/);
-  assert.match(app.__d, /PDF — طباعة \/ حفظ/);
+  assert.match(app.__d, /⤓ PDF للطباعة/);
   assert.doesNotMatch(app.__d, /الوزارة/, 'لا هوية وزارة في الأزرار');
   const grades = fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8');
   assert.equal((grades.match(/exportCrmStudentReport\(this\)/g) || []).length, 1);
@@ -381,6 +381,27 @@ test('نافذة التحليل: نطاق التقرير، وزر PDF، ومفت
   assert.match(app.__d, /<option value="group"[^>]*>كل شعب الصف/);
   const solo = opened(`crmSections = [{ id: 'S', grade_level_id: 'G' }]; crmGradeAnalysis.exportOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.match(solo.__d, /<option value="group"[^>]*disabled[^>]*>/, 'بلا شعب أخرى: الخيار معطّل');
+});
+
+test('التصدير بنقرتين: PDF وExcel ظاهران دون فتح الخيارات، والخيارات مطوية افتراضيًا', async () => {
+  const app = opened(`window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(app.__d, /onclick="exportGradeReport\(this\)"/, 'PDF ظاهر مباشرة');
+  assert.match(app.__d, /exportCrmGradeAnalysis\('xlsx', this\)/, 'Excel ظاهر مباشرة');
+  assert.doesNotMatch(app.__d, /id="crmGaScope"/, 'النطاق والخانات مطوية حتى يفتح المعلم الخيارات');
+  const css = fs.readFileSync(path.join(root, 'style.css'), 'utf8');
+  assert.match(css, /\.crm-ga-bot\{position:sticky;bottom:-24px;/, 'الشريط يلتصق بحافة النافذة لا بحافة المحتوى (حشو confirm-box = 24px) فلا يظهر محتوى تحته');
+});
+
+test('محرّر الخيارات: الحقلان الأساسيان ظاهران، والبقية داخل «خيارات إضافية»', async () => {
+  const app = opened(`openGradeReportEditor('ga'); window.__d = gradeReportEditorHtml();`);
+  const [head, more] = app.__d.split('<details class="gr-more">');
+  assert.ok(more, 'قسم الخيارات الإضافية موجود');
+  assert.match(head, /id="grFld_school"/);
+  assert.match(head, /id="grFld_teacher"/);
+  assert.doesNotMatch(head, /grFld_vice|grFld_subject/);
+  assert.match(more, /grFld_vice/);
+  assert.match(more, /grFld_subject/);
+  assert.match(more, /ما يُطبع في التقرير/);
 });
 
 test('خيار «الأسماء» الافتراضي يتبع إعداد المعلم', async () => {

@@ -127,9 +127,8 @@ function openCrmGradeAnalysis(){
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
   showInfoModal(`<div class="crm-ga">
     <h3 class="crm-ga-h">تحليل الدرجات</h3>
-    <div class="crm-gs-sub">${escapeHtml(a.label)}</div>
-    <label class="crm-ga-sellbl" for="crmGaKey">ماذا تريد أن تحلّل؟</label>
-    <select class="crm-ga-sel" id="crmGaKey" onchange="onCrmGradeAnalysisKey(this.value)">${opts.join('')}</select>
+    <div class="crm-ga-top"><div class="crm-gs-sub">${escapeHtml(a.label)}</div>
+    <select class="crm-ga-sel" id="crmGaKey" aria-label="ماذا تريد أن تحلّل؟" onchange="onCrmGradeAnalysisKey(this.value)">${opts.join('')}</select></div>
     <div id="crmGaBody"></div></div>`, '420px');
   paintCrmGradeAnalysis();
 }
@@ -284,15 +283,13 @@ function gaOverviewHtml(a, v){
   const rate = gaRateShown(s.passed, total);
   const segs = ['top', 'good', 'edge', 'low'].map(k => ({ k, n: lists[k].length })).filter(x => x.n);
   const bar = segs.map(x => `<i class="gs-lv-${x.k}" style="flex:${x.n}" title="${x.n}"></i>`).join('');
-  const legend = GRADE_ANALYSIS_LEVELS.slice().reverse().map(lv => `<span><s class="gs-lv-${lv.key}"></s>${gaLevelLabel(lv, s)} ${lists[lv.key].length}</span>`).join('');
   let html = `<div class="crm-ga-hero"><div class="crm-ga-hero-t"><b>${s.passed} من ${total}</b> ${gaStudentsWord(total)} ناجحون (<bdi dir="ltr">${rate}%</bdi>)</div>
     <div class="crm-ga-hero-s">المتوسط <b>${gradeAnalysisPts(s.avg)} من ${formatScore(v.displayMax)}</b></div>
-    <div class="crm-ga-stack">${bar}</div><div class="crm-ga-legend">${legend}</div></div>` + gaNotesHtml(s);
+    <div class="crm-ga-stack">${bar}</div></div>` + gaNotesHtml(s);
   GRADE_ANALYSIS_LEVELS.forEach(lv => {
     const n = lists[lv.key].length;
     html += `<button type="button" class="crm-ga-lv gs-grp-${lv.tone}" ${n ? '' : 'disabled'} onclick="openCrmGaLevel('${lv.key}')"><b class="crm-ga-lvn">${n}</b><span class="crm-ga-lvt">${gaLevelLabel(lv, s)}${gaGroupRangeHtml(lv.key, s, v.displayMax)}</span><span class="crm-am-chev" aria-hidden="true">‹</span></button>`;
   });
-  html += `<div class="crm-ga-sechead"><button type="button" class="crm-ga-link" onclick="openCrmGaRulesEditor()">⚙ تعديل حدود المستويات</button></div>`;
   const tile = (val, label, sub) => `<div class="crm-ga-tile"><b>${val}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
   html += `<button type="button" class="crm-ga-det${a.detOpen ? ' open' : ''}" aria-expanded="${!!a.detOpen}" onclick="toggleCrmGaDetails()"><span>تفاصيل إحصائية</span><span class="crm-am-chev" aria-hidden="true">⌄</span></button>`;
   if(a.detOpen){
@@ -300,7 +297,7 @@ function gaOverviewHtml(a, v){
       ${tile(gradeAnalysisPts(s.median), 'الوسيط', 'من ' + formatScore(v.displayMax))}
       ${tile(`${gradeAnalysisPts(s.min)} إلى ${gradeAnalysisPts(s.max)}`, 'أدنى وأعلى درجة', 'من ' + formatScore(v.displayMax))}
       ${tile(s.avgPct === null ? '—' : `<bdi dir="ltr">${s.avgPct}%</bdi>`, 'متوسط النسبة', '')}
-    </div>${gaDistHtml(a, v)}</div>`;
+    </div>${gaDistHtml(a, v)}<div class="crm-ga-sechead"><button type="button" class="crm-ga-link" onclick="openCrmGaRulesEditor()">⚙ تعديل حدود المستويات</button></div></div>`;
   }
   return html;
 }
@@ -319,21 +316,19 @@ function gaStudentsHtml(a, v){
   return html + '<p class="crm-ga-fine">الأسماء من الأدنى إلى الأعلى نسبةً في المستويات الثلاثة الأولى، ومن الأعلى في «جيد» و«متفوقون». اضغط اسمًا لفتح صفحة الطالب.</p>';
 }
 
-/* ورقة التصدير: PDF وExcel، ومفاتيح الأسماء والتعليق التربوي، ونطاق التقرير */
+/* شريط التصدير: PDF وExcel زرّان ظاهران دائمًا (نقرتان من فتح التحليل)، والخيارات مطوية */
 function gaExportHtml(a){
   const hasSib = gradeSiblingSectionIds(a.g).length > 0;
-  const bar = a.exportOpen
+  const opts = a.exportOpen
     ? `<div class="crm-ga-exp"><label class="crm-ga-chk"><input type="checkbox" id="crmGaNames"${a.withNames ? ' checked' : ''} onchange="crmGradeAnalysis.withNames = this.checked"> مع أسماء الطلاب</label>
-        <label class="crm-ga-chk"><input type="checkbox" id="crmGaNotes"${a.withNotes ? ' checked' : ''} onchange="crmGradeAnalysis.withNotes = this.checked"> مع التعليق التربوي (للـ PDF)</label>
+        <label class="crm-ga-chk"><input type="checkbox" id="crmGaNotes"${a.withNotes ? ' checked' : ''} onchange="crmGradeAnalysis.withNotes = this.checked"> مع ملاحظات تربوية (في PDF فقط)</label>
         <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value">
           <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
           <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
-        <button type="button" class="crm-am-opt" onclick="exportGradeReport(this)">PDF — طباعة / حفظ</button>
-        <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button>
-        <button type="button" class="crm-am-opt" onclick="openGradeReportEditor('ga')">⚙ بيانات التقرير (المدرسة · المعلم · المادة · ما يُطبع)</button>
-        <button type="button" class="crm-ga-link" onclick="toggleCrmGaExport()">إخفاء</button></div>`
-    : '<button type="button" class="btn btn-primary crm-ga-expbtn" onclick="toggleCrmGaExport()">⤓ تصدير التقرير</button>';
-  return `<div class="crm-ga-bot">${bar}</div>`;
+        <button type="button" class="crm-ga-link" onclick="openGradeReportEditor('ga')">ترويسة التقرير: المدرسة والمعلم</button></div>`
+    : '';
+  return `<div class="crm-ga-bot">${opts}<div class="crm-ga-acts"><button type="button" class="btn btn-primary" onclick="exportGradeReport(this)">⤓ PDF للطباعة</button><button type="button" class="btn btn-outline" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button></div>
+    <button type="button" class="crm-ga-link crm-ga-optlink" aria-expanded="${!!a.exportOpen}" onclick="toggleCrmGaExport()">${a.exportOpen ? 'إخفاء خيارات التقرير ⌃' : 'خيارات التقرير ⌄'}</button></div>`;
 }
 
 function crmGradeAnalysisHtml(a){
