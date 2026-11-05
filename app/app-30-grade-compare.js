@@ -222,7 +222,7 @@ function gaCmpBar(label, pct, sub, tone, mark){
 }
 
 function gaCompareHtml(a, v){
-  let html = '<div class="crm-ga-sec">مقارنات</div>';
+  let html = '';
   const sibIds = gradeSiblingSectionIds(a.g);
   GRADE_COMPARE_ITEMS.forEach(it => {
     const off = it.key === 'sib' && !sibIds.length;

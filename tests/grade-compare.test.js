@@ -114,7 +114,7 @@ function opened(extra, client){
 }
 
 test('الواجهة: «أين الصعوبة؟» تُظهر أصعب اختبار وما يقيسه مُهرَّبًا', async () => {
-  const app = opened(`crmGradeAnalysis.cmp = 'diff'; window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  const app = opened(`crmGradeAnalysis.tab = 'compare'; crmGradeAnalysis.cmp = 'diff'; window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.match(app.__h, /أصعب اختبار: اختبار ١/);
   assert.match(app.__h, /2 من 3 تحت النصف \(67%\)/);
   assert.match(app.__h, /يقيس: الكسور &lt;b&gt;/);
@@ -122,7 +122,7 @@ test('الواجهة: «أين الصعوبة؟» تُظهر أصعب اختبا
 });
 
 test('الواجهة: مقارنة الشعب معطّلة بلا شعب أخرى للصف، ومفتوحة مع شعبة أخرى', async () => {
-  const app = opened(`window.__h1 = crmGradeAnalysisHtml(crmGradeAnalysis);
+  const app = opened(`crmGradeAnalysis.tab = 'compare'; window.__h1 = crmGradeAnalysisHtml(crmGradeAnalysis);
     crmSections = crmSections.filter(s => s.id !== 'T'); window.__h2 = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.doesNotMatch(app.__h1, /toggleCrmGaCompare\('sib'\)"[^>]*disabled/);
   assert.match(app.__h2, /disabled onclick="toggleCrmGaCompare\('sib'\)"[\s\S]*?لا شعب أخرى لهذا الصف/);
@@ -131,7 +131,7 @@ test('الواجهة: مقارنة الشعب معطّلة بلا شعب أخر�
 test('الواجهة: مقارنة الشعب تحسب متوسط نسبة كل شعبة وتُهرّب الاسم، وتتجاهل شعبة بلا رصد', async () => {
   const app = opened(`
     crmStudents.push({ id: 'x', full_name: 'ط', section_id: 'T' }, { id: 'y', full_name: 'ي', section_id: 'T' });
-    const a = crmGradeAnalysis; a.cmp = 'sib'; a.key = 't1';
+    const a = crmGradeAnalysis; a.tab = 'compare'; a.cmp = 'sib'; a.key = 't1';
     a.sib = { status: 'ready', data: [{ id: 'T', columns: [{ id: 'q1', section_id: 'T', category: 'tests', name: 'اختبار  ١', max_score: 20, kind: 'manual' }], scores: [{ column_id: 'q1', student_id: 'x', score: 20 }, { column_id: 'q1', student_id: 'y', score: 10 }] }] };
     window.__h = crmGradeAnalysisHtml(a);`);
   /* شعبتي: (25% + 30% + 90%) / 3 = 48% ؛ الأخرى: (100% + 50%) / 2 = 75% — والأعلى أولًا */
@@ -141,7 +141,7 @@ test('الواجهة: مقارنة الشعب تحسب متوسط نسبة كل 
 
 test('الواجهة: الفصل السابق — تحسّن/تراجع بأسماء، وغياب الكشف السابق برسالة', async () => {
   const app = opened(`
-    const a = crmGradeAnalysis; a.cmp = 'prev'; a.prevOpen = 'up';
+    const a = crmGradeAnalysis; a.tab = 'compare'; a.cmp = 'prev'; a.prevOpen = 'up';
     a.prev = { status: 'ready', data: { id: 'S', columns: [{ id: 'o1', section_id: 'S', category: 'performance', name: 'أداء', max_score: 40, kind: 'manual' }], scores: [{ column_id: 'o1', student_id: 'a', score: 20 }, { column_id: 'o1', student_id: 'b', score: 36 }, { column_id: 'o1', student_id: 'c', score: 36 }] } };
     window.__h = crmGradeAnalysisHtml(a);
     a.prev = { status: 'ready', data: null }; window.__none = crmGradeAnalysisHtml(a);`);
@@ -165,7 +165,7 @@ test('سباق: جواب تحميل المقارنة يُهمَل إن فُتح�
 });
 
 test('خطأ التحميل يُظهر «إعادة المحاولة» ولا يترك التحميل معلّقًا', async () => {
-  const app = opened(`window.__a = crmGradeAnalysis; window.__a.cmp = 'prev'; window.__p = loadGradeCompare(__a, 'prev');`,
+  const app = opened(`window.__a = crmGradeAnalysis; window.__a.tab = 'compare'; window.__a.cmp = 'prev'; window.__p = loadGradeCompare(__a, 'prev');`,
     fakeSb((table, res) => res({ data: null, error: { message: 'x' } })));
   await app.__p;
   assert.equal(app.__a.prev.status, 'error');
@@ -209,7 +209,7 @@ test('محرّر التقديرات — حفظ ناجح يغلق المحرّر 
     showToast = () => {};
     openCrmGaLettersEditor(); window.__p = saveCrmGaLetters();`);
   await app.__p;
-  runInAppContext(app, `window.__st = [crmGradeAnalysis.editing, crmGradeAnalysis.mode]; window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  runInAppContext(app, `crmGradeAnalysis.detOpen = true; window.__st = [crmGradeAnalysis.editing, crmGradeAnalysis.mode]; window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.equal(app.__persist, 1);
   assert.equal(app.__st[0], null);
   assert.equal(app.__st[1], 'letters');

@@ -1,7 +1,7 @@
 /* ============================================================
-   تقارير الدرجات PDF (شعبة · بند · مجموعة شعب · طالب) بهوية الوزارة
+   تقارير الدرجات PDF (شعبة · بند · مجموعة شعب · طالب) — بلا شعار ولا هوية جهة
    ------------------------------------------------------------
-   - المعلم يختار ما يُطبع (الأقسام) وما يُكتب من تعليق تربوي (قراءة · قوة · ضعف · خطة)،
+   - المعلم يختار ما يُطبع (الأقسام)، والتعليق التربوي (قراءة · قوة · ضعف · خطة) اختياري ومطفأ افتراضيًا،
      وبياناته (المدرسة · المعلم · وكيل شؤون الطلاب) — كلها في features.reportPrefs
      (user_app_settings) وتُطبَّق على كل تقاريره. غياب المفتاح = الافتراضي.
    - التعليق التربوي قواعد شرطية على الأرقام (بلا ذكاء اصطناعي): نفس الأرقام → نفس الكلام.
@@ -13,7 +13,7 @@
 const GRADE_REPORT_DEFAULT = {
   school: '', teacher: '', vice: '', subject: '',
   show: { levels: true, stats: true, items: true, names: false, compare: false },
-  notes: { reading: true, strengths: true, weaknesses: true, plans: true }
+  notes: { reading: false, strengths: false, weaknesses: false, plans: false } /* الأصل: تقرير أرقام بلا تعليق تربوي */
 };
 const GRADE_REPORT_SHOW_LABELS = {
   levels: 'توزيع الطلاب على المستويات',
@@ -32,6 +32,19 @@ const GRADE_REPORT_NAME_MAX = 80;
 const GRADE_REPORT_BAND_LOWER = [0, 50, 60, 70, 80, 90];
 
 /* ============ دوال صرفة: الإعدادات ============ */
+
+/* هل في خيارات المعلم تعليق تربوي مفعَّل؟ (الأصل: لا) */
+function gradeReportNotesAny(prefs){
+  return Object.keys(GRADE_REPORT_NOTE_LABELS).some(k => prefs && prefs.notes && prefs.notes[k] === true);
+}
+
+/* خيارات هذا التصدير: بلا تعليق (الأصل)، أو مع التعليق — بما اختاره المعلم، وإلا بكل أقسامه */
+function gradeReportPrefsForRun(prefs, withNotes){
+  const notes = {};
+  const any = gradeReportNotesAny(prefs);
+  Object.keys(GRADE_REPORT_NOTE_LABELS).forEach(k => { notes[k] = !!withNotes && (any ? prefs.notes[k] === true : true); });
+  return Object.assign({}, prefs, { notes });
+}
 
 function gradeReportDefaultCopy(){ return JSON.parse(JSON.stringify(GRADE_REPORT_DEFAULT)); }
 
@@ -250,15 +263,15 @@ const GRADE_REPORT_CSS = `
 .gr,.gr *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .gr{font-family:'Cairo',sans-serif;color:#1b2a35;direction:rtl;padding:26px 34px 0;background:#fff;font-size:13px}
 .gr *{box-sizing:border-box}
-.gr .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #07a869;padding-bottom:10px;margin-bottom:14px}
-.gr .hd img{height:56px}.gr .hd .lg{width:150px}
+.gr .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #A9852E;padding-bottom:10px;margin-bottom:14px}
+.gr .hd .lg{width:150px}
 .gr .hd .t{text-align:center;flex:1}.gr .hd .t small{display:block;font-size:11px;color:#55646f}
-.gr .hd .t h1{margin:2px 0;font-size:21px;color:#15445a;font-weight:800}.gr .hd .t .m{font-size:11px;color:#55646f}
+.gr .hd .t h1{margin:2px 0;font-size:21px;color:#1B3245;font-weight:800}.gr .hd .t .m{font-size:11px;color:#55646f}
 .gr .hd .mt{width:150px;font-size:10.5px;color:#55646f;text-align:left;line-height:1.7}
 .gr .kp{display:flex;gap:9px;margin-bottom:12px}.gr .kp>div{flex:1;border:1px solid #b9e0d0;border-radius:10px;padding:9px 4px;text-align:center;background:#fbfefd}
 .gr .kp b{display:block;font-size:22px;color:#0a8f5b;font-weight:800}.gr .kp span{font-size:10.5px;color:#55646f}.gr .kp small{display:block;font-size:9.5px;color:#8a97a0}
-.gr .kp .b b{color:#3d7eb9}.gr .kp .n b{color:#15445a}.gr .kp .r b{color:#a85d3a}
-.gr h2{font-size:14px;color:#15445a;margin:14px 0 7px;padding-right:9px;border-right:4px solid #07a869;font-weight:800}
+.gr .kp .b b{color:#3d7eb9}.gr .kp .n b{color:#1B3245}.gr .kp .r b{color:#a85d3a}
+.gr h2{font-size:14px;color:#1B3245;margin:14px 0 7px;padding-right:9px;border-right:4px solid #A9852E;font-weight:800}
 .gr .hb{display:flex;align-items:center;margin:5px 0;font-size:11.5px}.gr .hb .a{width:96px;font-weight:700}
 .gr .hb .tr{flex:1;height:14px;background:#e9efee;border-radius:8px;overflow:hidden}.gr .hb .tr i{display:block;height:100%;border-radius:8px}
 .gr .hb .v{width:118px;text-align:left;font-size:11px;color:#40505b}
@@ -268,34 +281,22 @@ const GRADE_REPORT_CSS = `
 .gr .li{display:flex;gap:8px;align-items:flex-start;margin:1px 0}.gr .li .mk{flex:0 0 20px;color:#0a8f5b;font-weight:800;text-align:right}.gr .li .tx{flex:1}
 .gr .fn{font-size:9.5px;color:#7a8791;margin:6px 0;line-height:1.7}
 .gr .sm{display:flex;gap:8px;margin:5px 0 8px}.gr .sm>div{flex:1;background:#f4f8f8;border-radius:8px;padding:6px;text-align:center;font-size:10px;color:#55646f}
-.gr .sm b{display:block;font-size:15px;color:#15445a}
+.gr .sm b{display:block;font-size:15px;color:#1B3245}
 .gr .it{display:flex;align-items:center;margin:5px 0;font-size:11.5px;padding:3px 8px;border-radius:6px}
 .gr .it.on{background:#effaf5;outline:1px solid #b9e0d0}.gr .it .a{width:150px}
 .gr .it .tr{flex:1;height:13px;background:#e9efee;border-radius:7px;position:relative}.gr .it .tr i{display:block;height:100%;border-radius:7px}
-.gr .it .tr u{position:absolute;top:-3px;width:3px;height:19px;background:#15445a;border-radius:2px}
+.gr .it .tr u{position:absolute;top:-3px;width:3px;height:19px;background:#1B3245;border-radius:2px}
 .gr .it .v{width:140px;text-align:left;font-weight:700;font-size:11px}
 .gr .cn{display:inline-block;background:#e3f1ee;color:#0a6b4a;border-radius:10px;padding:0 9px;font-size:10px;font-weight:700}
-.gr table{width:100%;border-collapse:collapse;font-size:11.5px}.gr th{background:#15445a;color:#fff;padding:5px 8px;font-weight:700;text-align:right}
+.gr table{width:100%;border-collapse:collapse;font-size:11.5px}.gr th{background:#1B3245;color:#fff;padding:5px 8px;font-weight:700;text-align:right}
 .gr td{padding:4px 8px;border-bottom:1px solid #e6ecee}.gr tr:nth-child(even) td{background:#f7fafa}.gr td.n,.gr th.n{text-align:center}
 .gr .two{display:flex;gap:16px}.gr .two>div{flex:1}
 .gr .st{display:flex;height:15px;border-radius:8px;overflow:hidden}.gr .st i{display:block;height:100%}
 .gr .leg{font-size:10px;color:#55646f;display:flex;gap:14px;margin:5px 0}.gr .leg s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px;text-decoration:none}
 .gr .sig{margin-top:18px;margin-bottom:0;padding-top:10px;border-top:1px solid #d5dbe3;display:flex;justify-content:space-around;font-size:11px;color:#55646f;text-align:center}
-.gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#15445a;font-size:12.5px;margin-top:4px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a97a0;height:34px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a97a0}
+.gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#1B3245;font-size:12.5px;margin-top:4px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a97a0;height:34px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a97a0}
 @media print{.gr{padding:0}.gr .pdf-avoid-break{break-inside:avoid;page-break-inside:avoid}.gr h2{break-after:avoid;page-break-after:avoid}}
 `;
-
-let gradeReportLogoCache = null;
-async function gradeReportLogoData(){
-  if(gradeReportLogoCache !== null) return gradeReportLogoCache;
-  try{
-    const res = await fetch('moe-logo.png');
-    if(!res.ok) throw new Error('logo');
-    const blob = await res.blob();
-    gradeReportLogoCache = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(blob); });
-  } catch(e){ gradeReportLogoCache = ''; }
-  return gradeReportLogoCache;
-}
 
 function grBlock(inner){ return inner ? `<div class="pdf-avoid-break">${inner}</div>` : ''; }
 const grH2 = t => `<h2>${t}</h2>`;
@@ -304,7 +305,7 @@ function grHead(ctx, prefs, title, sub){
   const semester = Number(ctx.semester) === 2 ? 'الثاني' : 'الأول';
   const school = gradeReportSchool(prefs) ? escapeHtml(gradeReportSchool(prefs)) : 'اسم المدرسة';
   const subject = gradeReportSubject(prefs);
-  return `<div class="hd">${ctx.logo ? `<img src="${ctx.logo}" alt="">` : '<span class="lg"></span>'}
+  return `<div class="hd"><span class="lg"></span>
     <div class="t"><small>${school}</small><h1>${escapeHtml(title)}</h1><div class="m">${subject ? `<b>المادة: ${escapeHtml(subject)}</b> | ` : ''}${sub}</div></div>
     <div class="mt">${grn(ctx.date)}<br>الفصل الدراسي ${semester}<br>العام ${grn(escapeHtml(ctx.year || ''))}</div></div>`;
 }
@@ -431,7 +432,7 @@ function gradeReportGroupHtml(d, prefs, ctx){
     const names = [];
     d.secs.forEach(x => x.items.forEach(i => { if(!names.some(n => n.key === normalizeGradeColumnName(i.name))) names.push({ key: normalizeGradeColumnName(i.name), name: i.name }); }));
     if(names.length){
-      const cell = (x, n) => { const i = x.items.find(q => normalizeGradeColumnName(q.name) === n.key); return i ? `<td class="n" style="color:${i.avgPct < rules.pass ? '#8a6d1d' : i.avgPct >= rules.top ? '#0a8f5b' : '#15445a'};font-weight:700">${grn(i.avgPct + '%')}</td>` : '<td class="n">—</td>'; };
+      const cell = (x, n) => { const i = x.items.find(q => normalizeGradeColumnName(q.name) === n.key); return i ? `<td class="n" style="color:${i.avgPct < rules.pass ? '#8a6d1d' : i.avgPct >= rules.top ? '#0a8f5b' : '#1B3245'};font-weight:700">${grn(i.avgPct + '%')}</td>` : '<td class="n">—</td>'; };
       matrix = grBlock(grH2('مقارنة الشعب في كل بند (متوسط النسبة)') + `<table><tr><th>البند</th>${d.secs.map(x => `<th class="n">${escapeHtml(x.label)}</th>`).join('')}</tr>${names.map(n => `<tr><td>${escapeHtml(n.name)}</td>${d.secs.map(x => cell(x, n)).join('')}</tr>`).join('')}</table>`);
     }
   }
@@ -458,7 +459,7 @@ function gradeReportStudentHtml(d, prefs, ctx){
       return `<div class="it"><div class="a">${escapeHtml(x.name)}</div><div class="tr"><i class="${gradeReportItemTone(x.pct, r)}" style="width:${Math.min(100, x.pct)}%"></i>${x.classPct === null ? '' : `<u style="right:${Math.min(100, x.classPct)}%"></u>`}</div><div class="v">${grn(formatScore(x.score) + ' / ' + formatScore(x.max))} ${dl === null ? '' : `<span style="font-weight:700;color:${dl >= 0 ? '#0a8f5b' : '#a85d3a'}">${dl >= 0 ? '▲' : '▼'} ${grn(Math.abs(dl) + '%')}</span>`}</div></div>`;
     }).join('') + '<div class="fn">ما لم يُرصد لا يُحسب على الطالب.</div>') : '';
   const notes = gradeReportStudentNotes({ pts: d.pts, max: d.max, pct: d.pct, classPts: d.classPts, classPct: d.classPct, items: d.items, rules: r });
-  const meta = { logo: ctx.logo, date: ctx.date, year: d.year, semester: d.semester };
+  const meta = { date: ctx.date, year: d.year, semester: d.semester };
   return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار التحليل: الحاجة للدعم أقل من ${r.pass}%، والحافة حتى +${r.edge} نقاط، والمتفوق ${r.top}% فأكثر. هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>${grSig(prefs, 'ولي الأمر')}</div>`;
 }
 
@@ -529,7 +530,7 @@ const gradeReportFile = (prefix, label) => `${prefix}-${String(label).replace(/[
 async function exportGradeReport(btn){
   const a = crmGradeAnalysis;
   if(!a || gradeReportBusy) return;
-  const prefs = gradeReportPrefsNow();
+  const prefs = gradeReportPrefsForRun(gradeReportPrefsNow(), a.withNotes);
   const scope = a.scope === 'group' ? 'group' : 'section';
   const withNames = !!a.withNames;
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
@@ -538,8 +539,7 @@ async function exportGradeReport(btn){
   const level = typeof crmGradeLevels !== 'undefined' && sec ? crmGradeLevels.find(x => x.id === sec.grade_level_id) : null;
   const gradeName = level ? level.name : 'الصف';
   await gradeReportRun(btn, async () => {
-    const logo = await gradeReportLogoData();
-    const base = { logo, date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames };
+    const base = { date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames };
     if(scope === 'section'){
       const v = gradeAnalysisView(a);
       if(!v.stats.recorded){ showToast('لا درجات مرصودة لتصديرها', 'error'); return ''; }
@@ -591,8 +591,7 @@ async function exportCrmStudentReport(btn){
   if(!d) return;
   const prefs = gradeReportPrefsNow();
   await gradeReportRun(btn, async () => {
-    const logo = await gradeReportLogoData();
-    return { html: gradeReportStudentHtml(d, prefs, { logo, date: new Date().toISOString().slice(0, 10) }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
+    return { html: gradeReportStudentHtml(d, prefs, { date: new Date().toISOString().slice(0, 10) }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
   }, gradeReportFile('تقرير-طالب', d.name));
 }
 
@@ -635,7 +634,7 @@ function gradeReportEditorHtml(){
     ${fld('vice', 'وكيل شؤون الطلاب', 'يظهر في التوقيع')}
     <div class="crm-ga-sec" style="margin-top:12px">ما يُطبع في التقرير</div>
     ${Object.keys(GRADE_REPORT_SHOW_LABELS).map(k => chk('show', k, GRADE_REPORT_SHOW_LABELS[k])).join('')}
-    <div class="crm-ga-sec" style="margin-top:12px">التعليق التربوي</div>
+    <div class="crm-ga-sec" style="margin-top:12px">التعليق التربوي (اختياري — مطفأ افتراضيًا)</div>
     ${Object.keys(GRADE_REPORT_NOTE_LABELS).map(k => chk('notes', k, GRADE_REPORT_NOTE_LABELS[k])).join('')}
     <div class="crm-ga-err" id="grEditorErr">${escapeHtml(d.error)}</div>
     <button type="button" class="btn btn-primary" id="grEditorSave" style="width:100%" ${d.saving ? 'disabled' : ''} onclick="saveGradeReportPrefs()">حفظ</button>
@@ -686,7 +685,7 @@ async function saveGradeReportPrefs(){
   if(err){ d.error = err; paintGradeReportEditor(); return; }
   gradeReportDraft = null;
   if(d.host === 'ga'){
-    if(crmGradeAnalysis === a && a){ a.reportEdit = null; a.withNames = gradeReportPrefsNow().show.names; paintCrmGradeAnalysis(); }
+    if(crmGradeAnalysis === a && a){ a.reportEdit = null; a.withNames = gradeReportPrefsNow().show.names; a.withNotes = gradeReportNotesAny(gradeReportPrefsNow()); paintCrmGradeAnalysis(); }
   } else {
     closeCrmModal();
   }

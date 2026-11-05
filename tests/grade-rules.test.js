@@ -76,14 +76,14 @@ function opened(extra){
   return app;
 }
 
-test('الواجهة: ترس بجانب «من هم؟»، والتسمية تتبع الحدّ، واسم «الأعلى درجات» عند البديل', async () => {
+test('الواجهة: زر «تعديل حدود المستويات»، وحدّ المستوى يتبع الضبط، واسم «الأعلى درجات» عند البديل', async () => {
   const app = opened(`window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
     appFeatures = { analysisRules: ${JSON.stringify(R(60, 10, 90, true))} }; window.__c = crmGradeAnalysisHtml(crmGradeAnalysis);`);
-  assert.match(app.__d, /<span class="crm-ga-sec">من هم؟<\/span><button type="button" class="crm-ic-btn" aria-label="حدود التحليل"[^>]*onclick="openCrmGaRulesEditor\(\)">/);
-  assert.match(app.__d, /<span>تحت النصف<\/span>|>تحت النصف</);
-  assert.match(app.__c, />تحت 60%</, 'الحدّ 60: لم تعد «النصف»');
-  assert.match(app.__c, /<span>الأعلى درجات<\/span><b>3<\/b>/);
-  assert.doesNotMatch(app.__c, /<span>متفوقون<\/span>/);
+  assert.match(app.__d, /<button type="button" class="crm-ga-link" onclick="openCrmGaRulesEditor\(\)">⚙ تعديل حدود المستويات<\/button>/);
+  assert.match(app.__d, /يحتاجون دعمًا<small>أقل من 50%/);
+  assert.match(app.__c, /يحتاجون دعمًا<small>أقل من 60%/, 'الحدّ 60 يظهر في وصف المستوى');
+  assert.match(app.__c, /class="crm-ga-lvn">3<\/b><span class="crm-ga-lvt">الأعلى درجات/);
+  assert.doesNotMatch(app.__c, /class="crm-ga-lvt">متفوقون</);
 });
 
 test('المحرّر: − و+ يتقيّدان بالحدود، والأرقام الجاهزة تضبط المتفوق، والافتراضي يرجع', async () => {
