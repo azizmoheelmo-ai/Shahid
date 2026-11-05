@@ -19,7 +19,7 @@ const GRADE_REPORT_SHOW_LABELS = {
   levels: 'توزيع الطلاب على المستويات',
   stats: 'المؤشرات الإحصائية (أدنى · أعلى · وسيط)',
   items: 'درجات البنود',
-  names: 'أسماء الطلاب (يحتاج دعمًا · الحافة · متفوقون)',
+  names: 'أسماء الطلاب (ضعاف · متوسطون · متفوقون)',
   compare: 'مقارنة بالفصل السابق (تقرير الشعبة)'
 };
 const GRADE_REPORT_NOTE_LABELS = {
@@ -149,14 +149,14 @@ function gradeReportSectionNotes(c){
   if(best && best.avgPct >= r.pass && (!worst || best.id !== worst.id)) strengths.push(`أقوى البنود: ${escapeHtml(best.name)} (${grn(best.avgPct + '%')}).`);
 
   if(s.groups.low.length) weaknesses.push(`${gradeReportCount(s.groups.low.length)} (${pct(s.groups.low.length)}) دون حد النجاح.`);
-  if(s.groups.edge.length) weaknesses.push(`${gradeReportCount(s.groups.edge.length)} على الحافة بهامش نجاح أقل من ${grn(r.edge)} نقاط مئوية.`);
+  if(s.groups.edge.length) weaknesses.push(`${gradeReportCount(s.groups.edge.length)} نجحوا بهامش قليل (أقل من ${grn(r.edge)} نقاط مئوية فوق حد النجاح).`);
   if(worst && worst.avgPct < r.pass + r.edge && (!best || best.id !== worst.id)) weaknesses.push(`أضعف البنود: ${escapeHtml(worst.name)} (${grn(worst.avgPct + '%')}).`);
 
   if(s.groups.low.length){
     plans.push(`مراجعة أوراق الطلاب الأقل من حد النجاح (${grn(s.groups.low.length)}) لتحديد مواطن التعثر لكل طالب.`);
     plans.push('تنفيذ نشاط علاجي قصير ثم اختبار تحقق مماثل في المهارات المستهدفة.');
   }
-  if(s.groups.edge.length) plans.push('متابعة الطلاب الواقعين على الحافة لئلا يهبطوا دون حد النجاح.');
+  if(s.groups.edge.length) plans.push('متابعة الطلاب الذين نجحوا بهامش قليل لئلا يهبطوا دون حد النجاح.');
   if(!s.topIsFallback && s.groups.top.length) plans.push('تقديم مسائل إثرائية للمتفوقين مع الاستفادة منهم في تعليم الأقران.');
   if(worst && worst.avgPct < r.pass + r.edge && (!best || best.id !== worst.id)) plans.push(`إعادة شرح المهارات التي يقيسها «${escapeHtml(worst.name)}» قبل الانتقال لما بعده.`);
   plans.push('مقارنة نتائج التقييم التالي بهذه النتائج لقياس أثر التدخل.');
@@ -174,7 +174,7 @@ function gradeReportStudentNotes(c){
   }
   const diff = c.classPts === null ? null : Math.round((c.pts - c.classPts) * 10) / 10;
   reading.push(`حقق الطالب ${grn(f(c.pts))} من ${grn(f(c.max))} (${grn(Math.round(c.pct) + '%')})${diff === null ? '' : diff >= 0 ? `، فوق متوسط الشعبة بـ ${grn(f(diff))} درجة` : `، دون متوسط الشعبة بـ ${grn(f(Math.abs(diff)))} درجة`}.`);
-  reading.push(c.pct < r.pass ? `وهو دون حد النجاح (${grn(r.pass + '%')}) ويحتاج دعمًا.`
+  reading.push(c.pct < r.pass ? `وهو دون حد النجاح (${grn(r.pass + '%')}) وهو من الضعاف.`
     : c.pct < r.pass + r.edge ? 'ونجاحه بهامش قليل، فيحتاج متابعة لئلا يهبط.'
     : c.pct >= r.top ? 'وهو في فئة المتفوقين.' : 'وهو ضمن مستوى النجاح.');
   const up = recorded.filter(x => x.classPct !== null && x.pct - x.classPct >= 10).sort((a, b) => (b.pct - b.classPct) - (a.pct - a.classPct));
@@ -378,7 +378,7 @@ function grCompare(prev, withNames){
 
 function grFootnote(s){
   const r = s.rules;
-  let t = `معيار التحليل: الحاجة للدعم أقل من ${r.pass}%، والحافة حتى +${r.edge} نقاط، والمتفوق ${r.top}% فأكثر. `;
+  let t = `معيار التحليل: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما. `;
   if(s.missing) t += `المحلَّل ${s.recorded} من ${s.total} طالبًا؛ من لم يُرصد له لا يدخل في الحساب (لا يُعدّ صفرًا). `;
   if(s.partial) t += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فنسبة كل منهم مما رُصد له. `;
   return `<div class="fn">${t}هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>`;
@@ -397,14 +397,14 @@ function gradeReportSectionHtml(a, v, prefs, ctx){
     [formatScore(s.avg), `المتوسط من ${formatScore(v.displayMax)}`, '', 'n'],
     [s.recorded, 'عدد الطلاب', [s.missing ? `من ${s.total} (لم يُرصد ${s.missing})` : '', s.partial ? `${s.partial} رُصد لهم جزء` : ''].filter(Boolean).join(' · '), 'n']]);
   const levels = prefs.show.levels ? grBlock(grH2('توزيع الطلاب حسب مستوى الأداء') + grBands(s) +
-    `<div class="nb">بلغ عدد الناجحين <b>${gradeReportCount(s.passed)} (${grn(s.passRate + '%')})</b>، ودون حد النجاح <b>${gradeReportCount(s.groups.low.length)} (${grn(pctOf(s.groups.low.length))})</b>، ويقف ${gradeReportCount(s.groups.edge.length)} على الحافة.</div>`) : '';
+    `<div class="nb">بلغ عدد الناجحين <b>${gradeReportCount(s.passed)} (${grn(s.passRate + '%')})</b>، ودون حد النجاح <b>${gradeReportCount(s.groups.low.length)} (${grn(pctOf(s.groups.low.length))})</b>، والمتوسطون ${gradeReportCount(s.mid.length)}.</div>`) : '';
   const stats = prefs.show.stats ? grBlock(grH2('المؤشرات الإحصائية') + `<div class="sm"><div><b>${grn(formatScore(s.min))}</b>أقل درجة</div><div><b>${grn(formatScore(s.max))}</b>أعلى درجة</div><div><b>${grn(formatScore(s.median))}</b>الوسيط</div><div><b>${grn(formatScore(Math.round((s.max - s.min) * 100) / 100))}</b>المدى</div></div>`) : '';
   const itemsHtml = prefs.show.items && items.length ? grBlock(grH2(isTotal ? 'متوسط درجات البنود' : 'درجات البنود (متوسط الشعبة)') + grItems(items, isTotal ? null : a.key, r) +
     (isTotal ? '<div class="fn">المجموع بعد تطبيق أوزان الدرجات؛ لذلك لا يساوي مجموع الدرجات العظمى للبنود.</div>' : '')) : '';
   const analysed = isTotal ? '' : `<h2>البند المحلَّل: ${escapeHtml(v.colLabel)} (من ${grn(formatScore(v.displayMax))})</h2>`;
   const topList = s.topIsFallback ? [] : s.groups.top;
-  const names = ctx.withNames ? grNamesNote([s.groups.low, s.groups.edge, topList], v.displayMax) + grNamesTable('الطلاب المحتاجون إلى دعم علاجي', s.groups.low) +
-    grNamesTable('الطلاب على الحافة', s.groups.edge) + grNamesTable('المتفوقون', topList) : '';
+  const names = ctx.withNames ? grNamesNote([s.groups.low, s.mid, topList], v.displayMax) + grNamesTable('الطلاب الضعاف', s.groups.low) +
+    grNamesTable('الطلاب المتوسطون', s.mid) + grNamesTable('المتفوقون', topList) : '';
   const sub = escapeHtml(a.label) + ' | ' + (isTotal ? `المجموع من ${grn(formatScore(v.displayMax))}` : 'تحليل بند واحد');
   const body = isTotal
     ? kpis + levels + stats + itemsHtml
@@ -445,7 +445,7 @@ function gradeReportGroupHtml(d, prefs, ctx){
 function gradeReportStudentHtml(d, prefs, ctx){
   const r = d.rules;
   const diff = d.pts === null || d.classPts === null ? null : Math.round((d.pts - d.classPts) * 10) / 10;
-  const state = d.pct === null ? '—' : d.pct < r.pass ? 'يحتاج دعمًا' : d.pct < r.pass + r.edge ? 'ناجح بهامش' : d.pct >= r.top ? 'متفوق' : 'ناجح';
+  const state = d.pct === null ? '—' : d.pct < r.pass ? 'ضعيف' : d.pct >= r.top ? 'متفوق' : 'متوسط';
   const kpis = grKpis([
     [d.pts === null ? '—' : formatScore(d.pts), `مجموع الدرجات من ${formatScore(d.max)}`, '', 'n'],
     [d.pct === null ? '—' : Math.round(d.pct) + '%', 'النسبة المئوية', '', ''],
@@ -599,19 +599,20 @@ async function gradeReportStudentRun(g, id, btn, busyText, to){
 }
 
 /* كل طلاب الشعبة في ملف PDF واحد: تقرير لكل طالب بصفحة جديدة، ومن لم تُرصد درجاته يُستثنى */
-async function exportCrmAllStudentReports(btn, to){
+async function exportCrmAllStudentReports(btn, to, ids, scopeLabel){
   const a = crmGradeAnalysis;
   if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId || gradeReportBusy) return;
   const g = a.g;
   const prefs = gradeReportPrefsNow();
   const date = new Date().toISOString().slice(0, 10);
-  const list = a.students.map(st => gradeReportStudentData(g, st.id)).filter(d => d && d.pts !== null);
+  const pool = ids ? a.students.filter(st => ids.has(st.id)) : a.students;
+  const list = pool.map(st => gradeReportStudentData(g, st.id)).filter(d => d && d.pts !== null);
   if(!list.length){ showToast('لا طلاب لهم درجات مرصودة', 'error'); return; }
-  const skipped = a.students.length - list.length;
+  const skipped = ids ? 0 : a.students.length - list.length;
   if(skipped) showToast(`${skipped} من الطلاب بلا درجات مرصودة — لم تُضمَّن تقاريرهم`, 'ok');
   await gradeReportRun(btn, async () => {
-    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label) };
-  }, gradeReportFile('تقارير-الطلاب', a.label), btn && to ? '…' : undefined);
+    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
+  }, gradeReportFile(scopeLabel ? 'تقارير-' + scopeLabel : 'تقارير-الطلاب', a.label), btn && to ? '…' : undefined);
 }
 
 /* من صفحة الطالب في الكشف */

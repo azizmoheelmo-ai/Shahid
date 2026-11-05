@@ -3,7 +3,7 @@
    تحليل درجات الشعبة (app-29):
    - الشريط أعلى الكشف هو الزر (لا عنصر جديد)
    - لم يُرصد ≠ صفر: التحليل لمن رُصد له فقط، والعدد مذكور
-   - المستويات الأربعة: يحتاجون دعمًا (< 50%) · على الحافة (50–59%) · جيد (60–89%) · متفوقون (≥ 90%)
+   - المستويات الثلاثة: ضعاف (< 50%) · متوسطون (50–89%) · متفوقون (≥ 90%)
    - أسماء الطلاب بـ escapeHtml، والتصدير بلا أسماء ما لم يُطلب
    ============================================================ */
 const assert = require('node:assert/strict');
@@ -95,7 +95,7 @@ test('الكشف: شريط الملخص نفسه زر التحليل، ولا ز
   assert.equal((html.match(/openCrmGradeAnalysis\(\)/g) || []).length, 1);
 });
 
-test('فتح النافذة: عمود المجموع افتراضيًا، ومستوى «يحتاجون دعمًا» مفتوح بأسمائه في تبويب الطلاب، والاسم يُهرَّب', async () => {
+test('فتح النافذة: عمود المجموع افتراضيًا، ومستوى «ضعاف» مفتوح بأسمائه في تبويب الطلاب، والاسم يُهرَّب', async () => {
   const app = openedApp(SCORES);
   runInAppContext(app, `crmStudents[0].full_name = 'سامي <b>علي</b>'; openCrmGradeAnalysis();
     window.__over = crmGradeAnalysisHtml(crmGradeAnalysis); setCrmGaTab('students');
@@ -107,22 +107,22 @@ test('فتح النافذة: عمود المجموع افتراضيًا، ومس
   assert.doesNotMatch(app.__over, /سامي/, 'نظرة عامة: أعداد فقط بلا أسماء');
   assert.match(app.__body, /سامي &lt;b&gt;علي&lt;\/b&gt;/);
   assert.doesNotMatch(app.__body, /<b>علي<\/b>/);
-  assert.match(app.__body, /يحتاجون دعمًا<small>[^<]*<\/small><\/span><b>1<\/b>/);
+  assert.match(app.__body, /ضعاف<small>[^<]*<\/small><\/span><b>1<\/b>/);
 });
 
-test('نظرة عامة: جملة خلاصة، أربعة مستويات تغطي الجميع بلا تداخل، وأرقام صحيحة بلا كسور', async () => {
+test('نظرة عامة: جملة خلاصة، ثلاثة مستويات تغطي الجميع بلا تداخل، وأرقام صحيحة بلا كسور', async () => {
   const app = openedApp(SCORES);
   runInAppContext(app, `openCrmGradeAnalysis(); window.__body = crmGradeAnalysisHtml(crmGradeAnalysis);
     window.__s = gradeAnalysisView(crmGradeAnalysis).stats;`);
-  /* 5 طلاب: 25% · 55% · 75% · 90% · 100% ← دعم 1 · حافة 1 · جيد 1 · متفوقون 2 */
+  /* 5 طلاب: 25% · 55% · 75% · 90% · 100% ← ضعاف 1 · متوسطون 2 (55 و75) · متفوقون 2 */
   assert.match(app.__body, /<b>4 من 5<\/b> طلاب ناجحون \(<bdi dir="ltr">80%<\/bdi>\)/);
   assert.match(app.__body, /المتوسط <b>\d+ من 60<\/b>/);
-  assert.deepEqual([app.__s.groups.low.length, app.__s.groups.edge.length, app.__s.good.length, app.__s.groups.top.length], [1, 1, 1, 2]);
-  assert.equal(app.__s.groups.low.length + app.__s.groups.edge.length + app.__s.good.length + app.__s.groups.top.length, app.__s.recorded);
-  for(const label of ['يحتاجون دعمًا', 'على الحافة', 'جيد', 'متفوقون']) assert.match(app.__body, new RegExp(`class="crm-ga-lvt">${label}<small>`));
+  assert.deepEqual([app.__s.groups.low.length, app.__s.mid.length, app.__s.groups.top.length], [1, 2, 2]);
+  assert.equal(app.__s.groups.low.length + app.__s.mid.length + app.__s.groups.top.length, app.__s.recorded);
+  for(const label of ['ضعاف', 'متوسطون', 'متفوقون']) assert.match(app.__body, new RegExp(`class="crm-ga-lvt">${label}<small>`));
+  assert.doesNotMatch(app.__body, /على الحافة|يحتاجون دعمًا|>جيد</, 'لا تصنيف رابع');
   assert.match(app.__body, /أقل من 50% \(أقل من 30 درجة\)/);
-  assert.match(app.__body, /من 50% إلى أقل من 60%/);
-  assert.match(app.__body, /من 60% إلى أقل من 90%/);
+  assert.match(app.__body, /من 50% إلى أقل من 90%/);
   assert.match(app.__body, /90% فأكثر \(54 درجة فأكثر\)/);
   assert.doesNotMatch(app.__body, /\d\.\d/, 'لا كسور عشرية بالواجهة');
   assert.doesNotMatch(app.__body, /الوسيط|أدنى وأعلى/, 'التفاصيل الإحصائية مطويّة افتراضيًا');
@@ -165,7 +165,7 @@ test('تبويب الطلاب: أول 5 أسماء ثم «عرض الكل»، و
 
 test('تغيير المستوى أو العمود يعيد «عرض الكل» لحالته المطوية (لا يبقى مفتوحًا لمستوى آخر)', async () => {
   const app = openedApp(SCORES);
-  runInAppContext(app, `openCrmGradeAnalysis(); crmGradeAnalysis.showAll = 'low'; toggleCrmGaGroup('edge'); window.__a = crmGradeAnalysis.showAll;
+  runInAppContext(app, `openCrmGradeAnalysis(); crmGradeAnalysis.showAll = 'low'; toggleCrmGaGroup('mid'); window.__a = crmGradeAnalysis.showAll;
     crmGradeAnalysis.showAll = 'low'; onCrmGradeAnalysisKey('p'); window.__b = crmGradeAnalysis.showAll;
     openCrmGaLevel('top'); window.__t = [crmGradeAnalysis.tab, crmGradeAnalysis.open];`);
   assert.equal(app.__a, null);
@@ -212,7 +212,7 @@ test('التصدير: بلا أسماء افتراضيًا، ومع الأسما
   const flat = rows => JSON.stringify(rows);
   assert.doesNotMatch(flat(app.__plain), /"الطالب"/);
   assert.match(flat(app.__named), /\["الطالب","الدرجة","النسبة %","الفئة","التقدير"\]/);
-  assert.match(flat(app.__named), /\["a",10,25,"يحتاج دعمًا","هـ"\]/);
+  assert.match(flat(app.__named), /\["a",10,25,"ضعيف","هـ"\]/);
   assert.doesNotMatch(app.__pdf, /<td>a<\/td>/, 'PDF بلا أسماء الطلاب');
 });
 
