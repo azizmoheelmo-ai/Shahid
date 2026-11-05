@@ -11,7 +11,7 @@
    ============================================================ */
 
 const GRADE_REPORT_DEFAULT = {
-  school: '', teacher: '', vice: '', subject: '',
+  school: '', teacher: '', vice: '', staff: '', counselor: '', subject: '', /* vice = وكيل شؤون الطلاب · staff = وكيل شؤون المعلمين · counselor = الموجه الطلابي */
   show: { levels: true, stats: true, items: true, names: false, compare: false },
   notes: { reading: false, strengths: false, weaknesses: false, plans: false } /* الأصل: تقرير أرقام بلا تعليق تربوي */
 };
@@ -52,7 +52,7 @@ function gradeReportDefaultCopy(){ return JSON.parse(JSON.stringify(GRADE_REPORT
 function normalizeReportPrefs(raw){
   if(!raw || typeof raw !== 'object') return null;
   const out = gradeReportDefaultCopy();
-  ['school', 'teacher', 'vice', 'subject'].forEach(k => {
+  ['school', 'teacher', 'vice', 'staff', 'counselor', 'subject'].forEach(k => {
     if(typeof raw[k] === 'string') out[k] = raw[k].replace(/\s+/g, ' ').trim().slice(0, GRADE_REPORT_NAME_MAX);
   });
   [['show', GRADE_REPORT_SHOW_LABELS], ['notes', GRADE_REPORT_NOTE_LABELS]].forEach(([grp, labels]) => {
@@ -338,9 +338,9 @@ function grNotes(notes, prefs){
   return html;
 }
 
-function grSig(prefs, third){
+function grSig(prefs, third, thirdName){
   const cell = (label, name) => `<div>${escapeHtml(label)}<b>${name ? escapeHtml(name) : ''}</b><i class="ln"></i><small>التوقيع</small></div>`;
-  return `<div class="sig pdf-avoid-break">${third ? cell(third, '') : ''}${cell('معلم المادة', gradeReportTeacherName(prefs))}${cell('وكيل شؤون الطلاب', prefs.vice)}</div>`;
+  return `<div class="sig pdf-avoid-break">${third ? cell(third, thirdName || '') : ''}${cell('معلم المادة', gradeReportTeacherName(prefs))}${cell('وكيل شؤون الطلاب', prefs.vice)}</div>`;
 }
 
 function grNamesTable(title, list){
@@ -464,7 +464,9 @@ function gradeReportStudentHtml(d, prefs, ctx){
   /* الجهة الموجَّه إليها: سطر تحت العنوان + خانة توقيعها (وكيل الشؤون له خانة ثابتة أصلًا) */
   const toLine = to ? `<br><b>موجّه إلى: ${escapeHtml(to)}</b>` : '';
   const sigTo = to === 'وكيل شؤون الطلاب' ? '' : (to || 'ولي الأمر');
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}${toLine}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار التحليل: الحاجة للدعم أقل من ${r.pass}%، والحافة حتى +${r.edge} نقاط، والمتفوق ${r.top}% فأكثر. هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>${grSig(prefs, sigTo)}</div>`;
+  /* اسم الجهة في توقيعها إن كان المعلم أدخله مرة (الموجه الطلابي · وكيل شؤون المعلمين) */
+  const sigName = to === 'الموجه الطلابي' ? prefs.counselor : to === 'وكيل شؤون المعلمين' ? prefs.staff : '';
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}${toLine}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار التحليل: الحاجة للدعم أقل من ${r.pass}%، والحافة حتى +${r.edge} نقاط، والمتفوق ${r.top}% فأكثر. هذه معايير تحليلية وليست حكمًا رسميًا على النجاح أو الرسوب.</div>${grSig(prefs, sigTo, sigName)}</div>`;
 }
 
 /* ============ التصدير ============ */
@@ -632,7 +634,7 @@ let gradeReportDraft = null; /* { host: 'ga' | 'cust', school, teacher, vice, sh
 
 function openGradeReportEditor(host){
   const p = gradeReportPrefsNow();
-  gradeReportDraft = { host, school: p.school, teacher: p.teacher, vice: p.vice, subject: p.subject, show: Object.assign({}, p.show), notes: Object.assign({}, p.notes), error: '', saving: false };
+  gradeReportDraft = { host, school: p.school, teacher: p.teacher, vice: p.vice, staff: p.staff, counselor: p.counselor, subject: p.subject, show: Object.assign({}, p.show), notes: Object.assign({}, p.notes), error: '', saving: false };
   if(host === 'ga'){
     const a = crmGradeAnalysis;
     if(!a) return;
@@ -662,9 +664,12 @@ function gradeReportEditorHtml(){
     <p class="crm-ga-fine" style="margin-top:0">تُطبَّق على كل تقاريرك: الشعبة والبند ومجموعة الشعب والطالب.</p>
     ${fld('school', 'اسم المدرسة', gradeReportSchool({ school: '' }) ? 'تلقائي: ' + gradeReportSchool({ school: '' }) : 'مثال: ثانوية بدر')}
     ${fld('teacher', 'اسم المعلم', auto ? 'تلقائي: ' + auto : 'اسم المعلم')}
-    <details class="gr-more"><summary>خيارات إضافية: المادة · الوكيل · ما يُطبع</summary>
-    ${fld('subject', 'المادة', gradeReportSubject({ subject: '' }) ? 'تلقائي: ' + gradeReportSubject({ subject: '' }) : 'مثال: الفيزياء')}
     ${fld('vice', 'وكيل شؤون الطلاب', 'يظهر في التوقيع')}
+    ${fld('staff', 'وكيل شؤون المعلمين', 'يظهر في توقيعه عند التوجيه إليه')}
+    ${fld('counselor', 'الموجه الطلابي', 'يظهر في توقيعه عند التوجيه إليه')}
+    <p class="crm-ga-fine">تُدخلها مرة واحدة فتُحفظ وتظهر في كل تقاريرك، وتعدّلها متى شئت.</p>
+    <details class="gr-more"><summary>خيارات إضافية: المادة · ما يُطبع</summary>
+    ${fld('subject', 'المادة', gradeReportSubject({ subject: '' }) ? 'تلقائي: ' + gradeReportSubject({ subject: '' }) : 'مثال: الفيزياء')}
     <div class="crm-ga-sec" style="margin-top:12px">ما يُطبع في التقرير</div>
     ${Object.keys(GRADE_REPORT_SHOW_LABELS).map(k => chk('show', k, GRADE_REPORT_SHOW_LABELS[k])).join('')}
     <div class="crm-ga-sec" style="margin-top:12px">التعليق التربوي (اختياري — مطفأ افتراضيًا)</div>
@@ -709,7 +714,7 @@ async function saveGradeReportPrefs(){
   const d = gradeReportDraft;
   if(!d || d.saving) return;
   const a = crmGradeAnalysis;
-  const p = { school: d.school, teacher: d.teacher, vice: d.vice, subject: d.subject, show: d.show, notes: d.notes };
+  const p = { school: d.school, teacher: d.teacher, vice: d.vice, staff: d.staff, counselor: d.counselor, subject: d.subject, show: d.show, notes: d.notes };
   d.saving = true;
   const btn = document.getElementById('grEditorSave');
   if(btn) btn.disabled = true;
