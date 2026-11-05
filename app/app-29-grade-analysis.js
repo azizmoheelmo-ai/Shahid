@@ -211,6 +211,7 @@ function crmGradeAnalysisHtml(a){
           <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
           <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
         <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('pdf', this)">تقرير PDF بهوية الوزارة</button>
+        <button type="button" class="crm-am-opt" onclick="exportGradeReport(this, 'print')">طباعة / حفظ PDF بنص حقيقي (تجريبي)</button>
         <button type="button" class="crm-am-opt" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button>
         <button type="button" class="crm-am-opt" onclick="openGradeReportEditor('ga')">⚙ خيارات التقرير (المدرسة · ما يُطبع · التعليق)</button></div>`
     : '<button type="button" class="btn btn-outline crm-ga-expbtn" onclick="toggleCrmGaExport()">⤓ تصدير</button>';

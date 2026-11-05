@@ -238,6 +238,58 @@ test('gradeReportRun: يضيف الترويسة والترقيم بعد تولي
   assert.match(src, /out && typeof out === 'object' \? out\.html : out/);
 });
 
+test('الطباعة بنص حقيقي: CSS الصفحة (ترويسة صفحات 2+، ترقيم، هامش) وتهريب النص', async () => {
+  const app = opened(`window.__css = gradeReportPrintCss(${JSON.stringify({ right: 'تقرير "خطير" \\ سطر\nثانٍ', left: 'مدرسة' })}); window.__none = gradeReportPrintCss(null);`);
+  const css = app.__css;
+  assert.match(css, /@page\{size:A4;margin:/);
+  assert.match(css, /@top-right\{content:"تقرير خطير  سطر ثانٍ"/, 'الاقتباس والشرطة المائلة تُحذف والسطر الجديد مسافة');
+  assert.match(css, /@top-left\{content:"مدرسة"/);
+  assert.match(css, /@page :first\{@top-right\{content:none\}@top-left\{content:none\}\}/, 'لا ترويسة مصغّرة بالصفحة 1');
+  assert.match(css, /@bottom-center\{content:"صفحة " counter\(page\) " \/ " counter\(pages\)/);
+  assert.match(css, /#printArea\.wrap\{max-width:none;padding-bottom:0\}/, 'padding-bottom:70px لـ.wrap يولّد صفحة فارغة');
+  assert.doesNotMatch(app.__none, /@top-right\{content:"/);
+});
+
+test('CSS التقرير للطباعة: ألوان الأشرطة تُطبع، والكتل لا تُقسَم، والحشوة تُصفَّر', async () => {
+  const src = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  assert.match(src, /print-color-adjust:exact/);
+  assert.match(src, /@media print\{\.gr\{padding:0\}\.gr \.pdf-avoid-break\{break-inside:avoid/);
+});
+
+test('gradeReportPrint: يضع التقرير في #printArea ويطبع، ويُنظَّف بعد الطباعة', async () => {
+  const app = opened(`window.__printed = 0; window.__handlers = [];
+    const area = { innerHTML: '', querySelector: sel => area.innerHTML.includes('class="gr"') ? {} : null };
+    document.getElementById = id => id === 'printArea' ? area : null; window.__area = area;
+    printNow = () => { window.__printed++; };
+    window.addEventListener = (ev, fn) => window.__handlers.push([ev, fn]); window.removeEventListener = () => {};
+    gradeReportPrint('<div class="gr">تقرير</div>', { right: 'ي', left: 'ش' });
+    window.__during = area.innerHTML; window.__ev = window.__handlers[0] && window.__handlers[0][0]; window.__handlers[0][1]();`);
+  assert.equal(app.__printed, 1);
+  assert.match(app.__during, /^<style>@page\{/);
+  assert.match(app.__during, /<div class="gr">تقرير<\/div>/);
+  assert.equal(app.__ev, 'afterprint');
+  assert.equal(app.__area.innerHTML, '', 'بعد الطباعة يُفرَّغ فلا يبقى @page يؤثر في طباعات أخرى');
+});
+
+test('وضع الطباعة لا يحمّل مكتبات PDF ولا ينشئ ملفًا (نص حقيقي من المتصفح)', async () => {
+  const app = opened(`window.__lib = 0; window.__printed = 0; window.__saved = 0;
+    ensurePdfLibs = async () => { window.__lib++; }; gradeReportPrint = () => { window.__printed++; };
+    window.__p = gradeReportRun(null, async () => ({ html: '<div class="gr">x</div>', mark: null }), 'f', 'print');`);
+  await app.__p;
+  assert.equal(app.__printed, 1);
+  assert.equal(app.__lib, 0);
+  const png = opened(`window.__lib = 0; window.jspdf = { jsPDF: function(){ throw new Error('stop'); } }; ensurePdfLibs = async () => { window.__lib++; };
+    window.__p = gradeReportRun(null, async () => '<div>x</div>', 'f');`);
+  await png.__p;
+  assert.equal(png.__lib, 1, 'الوضع الافتراضي (ملف PDF) يحمّل المكتبات كما كان');
+});
+
+test('أزرار الطباعة النصية: في نافذة التحليل وصفحة الطالب', async () => {
+  const app = opened(`crmGradeAnalysis.exportOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(app.__d, /exportGradeReport\(this, 'print'\)/);
+  assert.match(fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8'), /exportCrmStudentReport\(this, 'print'\)/);
+});
+
 test('طالب بلا درجات: لا انهيار، ولا يُحسب صفرًا', async () => {
   const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: [] });
     window.__d = gradeReportStudentData(crmGrades, 'a'); window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: '', date: 'd' });`);

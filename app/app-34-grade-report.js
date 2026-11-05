@@ -247,6 +247,7 @@ function gradeReportStudentData(g, studentId){
 /* ============ HTML التقرير (يُلتقط صورةً ثم يُوزَّع على صفحات A4) ============ */
 
 const GRADE_REPORT_CSS = `
+.gr,.gr *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .gr{font-family:'Cairo',sans-serif;color:#1b2a35;direction:rtl;padding:26px 34px 0;background:#fff;font-size:13px}
 .gr *{box-sizing:border-box}
 .gr .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #07a869;padding-bottom:10px;margin-bottom:14px}
@@ -281,6 +282,7 @@ const GRADE_REPORT_CSS = `
 .gr .leg{font-size:10px;color:#55646f;display:flex;gap:14px;margin:5px 0}.gr .leg s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px;text-decoration:none}
 .gr .sig{margin-top:18px;margin-bottom:0;padding-top:10px;border-top:1px solid #d5dbe3;display:flex;justify-content:space-around;font-size:11px;color:#55646f;text-align:center}
 .gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#15445a;font-size:12.5px;margin-top:4px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a97a0;height:34px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a97a0}
+@media print{.gr{padding:0}.gr .pdf-avoid-break{break-inside:avoid;page-break-inside:avoid}.gr h2{break-after:avoid;page-break-after:avoid}}
 `;
 
 let gradeReportLogoCache = null;
@@ -463,6 +465,28 @@ function gradeReportStudentHtml(d, prefs, ctx){
 /* ============ التصدير ============ */
 let gradeReportBusy = false;
 
+/* ===== الطباعة / الحفظ كـPDF من المتصفح: نص حقيقي (يرسمه المتصفح بخطه) بدل صورة =====
+   - الترويسة المصغّرة والترقيم في هوامش @page (يدعمها Chrome الحديث؛ غيره يتجاهلها).
+   - تُنظَّف #printArea بعد الطباعة حتى لا يبقى @page هذا يؤثر في طباعة أخرى. */
+function gradeReportPrintCss(mark){
+  const q = t => String(t || '').replace(/[\\"]/g, '').replace(/[\r\n]+/g, ' ');
+  const box = 'font-family:Cairo,sans-serif;font-size:8.5pt;color:#55646f';
+  const top = mark && (mark.right || mark.left)
+    ? `@top-right{content:"${q(mark.right)}";${box}}@top-left{content:"${q(mark.left)}";${box}}` : '';
+  return `@page{size:A4;margin:14mm 10mm 14mm;${top}@bottom-center{content:"صفحة " counter(page) " / " counter(pages);${box}}}`
+    + '@page :first{@top-right{content:none}@top-left{content:none}}'
+    + '@media print{#printArea.wrap{max-width:none;padding-bottom:0}}';
+}
+
+function gradeReportPrint(html, mark){
+  const area = document.getElementById('printArea');
+  if(!area) return;
+  area.innerHTML = `<style>${gradeReportPrintCss(mark)}</style>` + html;
+  const clear = () => { window.removeEventListener('afterprint', clear); if(area.querySelector('.gr')) area.innerHTML = ''; };
+  window.addEventListener('afterprint', clear);
+  printNow();
+}
+
 /* ترويسة مصغّرة (من الصفحة 2) وترقيم «س / ص» على كل صفحة — في هامش الورقة، فلا تأخذ من مساحة المحتوى.
    mark = { right, left } نصان بسيطان (يُهرَّبان هنا) */
 async function gradeReportAddMarks(pdf, mark){
@@ -489,7 +513,7 @@ function gradeReportMark(prefs, title, label){
   return { right: `${title} · ${label}${subject ? ' · ' + subject : ''}`, left: gradeReportSchool(prefs) };
 }
 
-async function gradeReportRun(btn, build, filename){
+async function gradeReportRun(btn, build, filename, mode){
   if(gradeReportBusy) return;
   gradeReportBusy = true;
   beginExportBusy(btn, 'جارٍ التجهيز...');
@@ -497,6 +521,7 @@ async function gradeReportRun(btn, build, filename){
     const out = await build();
     const html = out && typeof out === 'object' ? out.html : out;
     if(!html) return;
+    if(mode === 'print'){ gradeReportPrint(html, out && typeof out === 'object' ? out.mark : null); return; }
     await ensurePdfLibs();
     if(document.fonts && document.fonts.load){
       try{ await Promise.all(['400', '700', '800'].map(w => document.fonts.load(`${w} 12px 'Cairo'`, 'شاهد الأداء الوظيفي'))); } catch(e){ /* لا يمنع التصدير */ }
@@ -518,7 +543,7 @@ async function gradeReportRun(btn, build, filename){
 const gradeReportFile = (prefix, label) => `${prefix}-${String(label).replace(/[\\\/:*?"<>|\s]+/g, '-')}-${new Date().toISOString().slice(0, 10)}`;
 
 /* من نافذة التحليل: تقرير الشعبة/البند، أو مجموعة شعب الصف */
-async function exportGradeReport(btn){
+async function exportGradeReport(btn, mode){
   const a = crmGradeAnalysis;
   if(!a || gradeReportBusy) return;
   const prefs = gradeReportPrefsNow();
@@ -572,11 +597,11 @@ async function exportGradeReport(btn){
     secs.sort((p, q) => q.s.avgPct - p.s.avgPct);
     const col = spec.total ? null : a.g.columns.find(c => c.id === a.key);
     return { html: gradeReportGroupHtml({ gradeName, key: a.key, colLabel: col ? col.name : 'المجموع', secs, pooled: analyzeGradeRows(allRows, displayMax), displayMax }, prefs, base), mark: gradeReportMark(prefs, 'تحليل نتائج المجموعة', gradeName) };
-  }, scope === 'group' ? gradeReportFile('تقرير-مجموعة-شعب', gradeName) : gradeReportFile('تقرير-درجات', a.label));
+  }, scope === 'group' ? gradeReportFile('تقرير-مجموعة-شعب', gradeName) : gradeReportFile('تقرير-درجات', a.label), mode);
 }
 
 /* من صفحة الطالب في الكشف */
-async function exportCrmStudentReport(btn){
+async function exportCrmStudentReport(btn, mode){
   const g = crmGrades, id = crmGradeStudentId;
   if(!g || !id || gradeReportBusy) return;
   const d = gradeReportStudentData(g, id);
@@ -585,7 +610,7 @@ async function exportCrmStudentReport(btn){
   await gradeReportRun(btn, async () => {
     const logo = await gradeReportLogoData();
     return { html: gradeReportStudentHtml(d, prefs, { logo, date: new Date().toISOString().slice(0, 10) }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
-  }, gradeReportFile('تقرير-طالب', d.name));
+  }, gradeReportFile('تقرير-طالب', d.name), mode);
 }
 
 /* ============ خيارات التقارير (إعدادات المعلم) ============ */
