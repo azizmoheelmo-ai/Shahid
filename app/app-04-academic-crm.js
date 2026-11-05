@@ -494,64 +494,27 @@ async function buildLetterPdfBlob(previewElId, photoUrl){
   return pdf.output('blob');
 }
 
-/* الطباعة المباشرة (window.print على HTML خام) لا "تُصغّر لتناسب الصفحة"
-   كما يفعل تصدير PDF (الذي يرسم المحتوى صورةً ثم يقلّصها رياضيًا لتضبط
-   بالضبط داخل صفحة A4) — فهامش المتصفح الافتراضي وتخطيط DOM الحقيقي قد
-   يدفعان آخر سطر (الشريط السفلي مثلاً) لصفحة ثانية رغم أن نفس المحتوى
-   يتسع بصفحة واحدة عند تصديره PDF. الحل الموثوق: "الطباعة" تُنتج نفس ملف
-   الـPDF المُتحقَّق أصلاً من ضبطه على صفحة واحدة (buildBlobFn)، وتفتحه
-   لتُطبَع من عارض PDF بالمتصفح مباشرة — بدل إعادة توليد تخطيط HTML مستقل
-   عرضة لنفس مشكلة عدم التناسب. */
-async function printLetterContent(buildBlobFn, evt){
+/* طباعة الخطاب / حفظه PDF بنص حقيقي (app-35): صفحة الخطاب تُضبط على A4 كما كان تصدير PDF،
+   وصورة إثبات التسليم (إن وُجدت) صفحة ثانية. المشاركة عبر واتساب تبقى ملفًا (buildLetterPdfBlob)
+   لأن نافذة الطباعة لا تنتج ملفًا يُرفق. */
+async function printLetterPages(previewElId, photoUrl, title, evt){
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
-  let win = null;
   try{
-    /* تُفتح النافذة فورًا وبشكل متزامن (قبل أي await) لتبقى مرتبطة بإيماءة
-       المستخدم (نقرة الزر) — بعض المتصفحات (Safari خصوصًا) تمنع window.open
-       لو جاءت بعد عملية غير متزامنة، حتى لو نتجت عن نفس النقرة أصلاً. هذا
-       السطر يبقى أول شيء بالـtry فور دخوله (لا await قبله) فلا يتأثر ترتيبه. */
-    win = window.open('', '_blank');
-    showToast('جارٍ تجهيز الطباعة...', 'ok');
-    const blob = await buildBlobFn();
-    const url = URL.createObjectURL(blob);
-    if(win){
-      const triggerPrint = () => { try{ win.focus(); win.print(); }catch(e){} };
-      win.addEventListener('load', triggerPrint);
-      win.location.href = url;
-      setTimeout(triggerPrint, 800); /* شبكة أمان لو لم يُطلق load بشكل موثوق */
-    } else {
-      const a = document.createElement('a');
-      a.href = url; a.download = 'خطاب.pdf';
-      document.body.appendChild(a); a.click(); a.remove();
-      showToast('نافذة الطباعة محظورة بالمتصفح — نزّلنا PDF بدلاً منها، افتحه واطبعه يدويًا', 'error');
+    const letterHtml = document.getElementById(previewElId).innerHTML;
+    const pages = [{ html: '<div dir="rtl" style="font-family:Arial;font-size:14px;line-height:2;padding:30px;background:#fff;">' + letterHtml + '</div>', fit: 'page' }];
+    if(photoUrl){
+      const dataUrl = await toDataUrl(photoUrl);
+      if(dataUrl){
+        pages.push({ html: '<div dir="rtl" style="font-family:Arial;padding:30px;background:#fff;text-align:center;">' +
+          '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
+          '<img src="' + escapeHtml(dataUrl) + '" style="max-width:60%;border:1px solid #999;">' +
+          '</div>', fit: 'page' });
+      }
     }
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    await printPages(pages, printFileTitle(title));
   } catch(err){
-    if(win) win.close();
     showToast('تعذّر تجهيز الطباعة: ' + err.message, 'error');
-  } finally {
-    endExportBusy(btn);
-  }
-}
-
-async function downloadLetterPdfFile(buildBlobFn, studentName, letterLabel, evt){
-  const btn = evt ? evt.target.closest('button') : null;
-  beginExportBusy(btn, 'جارٍ التجهيز...');
-  try{
-    showToast('جارٍ تجهيز PDF...', 'ok');
-    const blob = await buildBlobFn();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = letterLabel + ' - ' + studentName + '.pdf';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    showToast('تم تنزيل PDF', 'ok');
-  } catch(err){
-    showToast('تعذّر إنشاء PDF: ' + err.message, 'error');
   } finally {
     endExportBusy(btn);
   }
@@ -723,16 +686,11 @@ const RL_LETTER_CFG = {
 };
 
 async function printAcLetter(evt){
-  return printLetterContent(buildAcLetterPdfBlob, evt);
+  return printLetterPages('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url, 'خطاب-إحالة', evt);
 }
 
 async function buildAcLetterPdfBlob(){
   return buildLetterPdfBlob('acLetterPreview', acCurrentCase && acCurrentCase.case.referral_receipt_photo_url);
-}
-
-async function downloadAcLetterPDF(evt){
-  const studentName = acCurrentCase ? acCurrentCase.student.full_name : 'خطاب';
-  return downloadLetterPdfFile(buildAcLetterPdfBlob, studentName, 'خطاب إحالة', evt);
 }
 
 async function shareAcLetterWhatsApp(evt){
@@ -2288,18 +2246,13 @@ async function buildReferralLetterPdfBlob(){
   return buildLetterPdfBlob('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url);
 }
 
-async function downloadReferralLetterPDF(evt){
-  const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
-  return downloadLetterPdfFile(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل', evt);
-}
-
 async function shareReferralLetterWhatsApp(evt){
   const studentName = rlCurrentIncident ? rlCurrentIncident.student.full_name : 'خطاب';
   return shareLetterWhatsApp(buildReferralLetterPdfBlob, studentName, 'خطاب تحويل', evt);
 }
 
 async function printReferralLetter(evt){
-  return printLetterContent(buildReferralLetterPdfBlob, evt);
+  return printLetterPages('rlPreview', rlCurrentIncident && rlCurrentIncident.incident.referral_receipt_photo_url, 'خطاب-تحويل', evt);
 }
 
 async function downloadReferralLetterWordFile(evt){
