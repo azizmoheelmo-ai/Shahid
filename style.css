@@ -2261,6 +2261,11 @@ button.crm-gs-strip-btn:hover{background:#F1EEE6;}
 .crm-ga-detbody{padding-top:10px;}
 .crm-ga-more{display:block;width:100%;min-height:40px;border:0;background:#FFFDF8;font-family:inherit;font-size:13px;font-weight:700;color:var(--gold-text);cursor:pointer;}
 .crm-ga-names{max-height:none;overflow:visible;}
+.crm-ga-rowwrap{display:flex;align-items:center;border-bottom:1px solid #F3EFE6;}
+.crm-ga-rowwrap:last-child{border-bottom:0;}
+.crm-ga-rowwrap .crm-ga-name{flex:1;border-bottom:0;}
+.crm-ga-rep{flex:0 0 auto;min-width:72px;min-height:40px;margin:0 6px;padding:4px 8px;background:#fff;border:1.5px solid var(--navy);border-radius:10px;font-family:inherit;font-size:12px;font-weight:800;color:var(--navy);cursor:pointer;}
+.crm-ga-rep:disabled{opacity:.6;cursor:default;}
 .crm-ga-pane{min-height:120px;}
 .crm-ga-bot{position:sticky;bottom:-24px;z-index:2;background:#fff;padding:10px 0 26px;margin-top:10px;border-top:1px solid var(--line);box-shadow:0 -10px 10px -10px rgba(16,30,43,.25);}
 .crm-ga-acts{display:flex;gap:8px;}

@@ -583,9 +583,8 @@ async function exportGradeReport(btn){
   }, scope === 'group' ? gradeReportFile('تقرير-مجموعة-شعب', gradeName) : gradeReportFile('تقرير-درجات', a.label));
 }
 
-/* من صفحة الطالب في الكشف */
-async function exportCrmStudentReport(btn){
-  const g = crmGrades, id = crmGradeStudentId;
+/* تقرير طالب واحد (لولي الأمر): من الكشف المحمَّل g — لا استعلام جديد */
+async function gradeReportStudentRun(g, id, btn){
   if(!g || !id || gradeReportBusy) return;
   const d = gradeReportStudentData(g, id);
   if(!d) return;
@@ -593,6 +592,18 @@ async function exportCrmStudentReport(btn){
   await gradeReportRun(btn, async () => {
     return { html: gradeReportStudentHtml(d, prefs, { date: new Date().toISOString().slice(0, 10) }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
   }, gradeReportFile('تقرير-طالب', d.name));
+}
+
+/* من صفحة الطالب في الكشف */
+function exportCrmStudentReport(btn){
+  return gradeReportStudentRun(crmGrades, crmGradeStudentId, btn);
+}
+
+/* من قائمة الطلاب داخل نافذة التحليل: نقرة واحدة بجانب الاسم */
+function exportCrmStudentReportFor(id, btn){
+  const a = crmGradeAnalysis;
+  if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId) return;
+  return gradeReportStudentRun(a.g, id, btn);
 }
 
 /* ============ خيارات التقارير (إعدادات المعلم) ============ */

@@ -392,6 +392,28 @@ test('التصدير بنقرتين: PDF وExcel ظاهران دون فتح ال
   assert.match(css, /\.crm-ga-bot\{position:sticky;bottom:-24px;/, 'الشريط يلتصق بحافة النافذة لا بحافة المحتوى (حشو confirm-box = 24px) فلا يظهر محتوى تحته');
 });
 
+test('تقرير ولي الأمر: زر «تقرير» بجانب كل اسم في قائمة الطلاب، ويُنتج تقرير ذلك الطالب وحده', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; crmGradeAnalysis.open = 'low'; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = exportCrmStudentReportFor('a', null);`);
+  await app.__p;
+  const shownNames = (app.__d.match(/class="crm-ga-name"/g) || []).length;
+  assert.ok(shownNames >= 1);
+  assert.equal((app.__d.match(/exportCrmStudentReportFor\('/g) || []).length, shownNames, 'زر تقرير لكل اسم ظاهر');
+  assert.match(app.__d, /exportCrmStudentReportFor\('a', this\)/);
+  assert.equal(app.__calls.length, 1);
+  assert.match(app.__calls[0].out.html, /أحمد/);
+  assert.doesNotMatch(app.__calls[0].out.html, /بدر|جاسر|دخيل|عادل/, 'لا أسماء طلاب آخرين في تقرير ولي الأمر');
+  assert.match(app.__calls[0].filename, /^تقرير-طالب-أحمد-/);
+});
+
+test('تقرير ولي الأمر: لا يعمل لو تبدّلت الشعبة المعروضة، ولا لطالب ليس في الشعبة', async () => {
+  const app = opened(`window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
+    exportCrmStudentReportFor('zzz', null);
+    crmGrades = Object.assign({}, crmGrades, { sectionId: 'S2' }); exportCrmStudentReportFor('a', null);`);
+  assert.equal(app.__calls.length, 0);
+});
+
 test('محرّر الخيارات: الحقلان الأساسيان ظاهران، والبقية داخل «خيارات إضافية»', async () => {
   const app = opened(`openGradeReportEditor('ga'); window.__d = gradeReportEditorHtml();`);
   const [head, more] = app.__d.split('<details class="gr-more">');
