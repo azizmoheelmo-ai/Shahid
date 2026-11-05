@@ -432,8 +432,8 @@ test('الجهة الموجَّه إليها: السهم يفتح الخيارا
     window.__calls = []; gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
     window.__p = pickCrmGaReportTo('vice', null);`);
   assert.doesNotMatch(app.__before, /crm-ga-pop"/, 'الخيارات مخفية قبل ضغط السهم');
-  for(const k of ['guardian', 'vice', 'counselor', 'other']) assert.match(app.__open, new RegExp(`pickCrmGaReportTo\\('${k}'`));
-  for(const t of ['ولي الأمر', 'وكيل شؤون الطلاب', 'الموجه الطلابي', 'أخرى']) assert.match(app.__open, new RegExp(t));
+  for(const k of ['guardian', 'vice', 'staff', 'counselor', 'other']) assert.match(app.__open, new RegExp(`pickCrmGaReportTo\\('${k}'`));
+  for(const t of ['ولي الأمر', 'وكيل شؤون الطلاب', 'وكيل شؤون المعلمين', 'الموجه الطلابي', 'أخرى']) assert.match(app.__open, new RegExp(t));
   await app.__p;
   assert.equal(app.__calls.length, 1);
   const h = app.__calls[0].out.html;
@@ -536,6 +536,22 @@ test('محرّر الخيارات: المدرسة والمعلم والوكيل 
   assert.doesNotMatch(more, /grFld_vice/);
   assert.match(more, /grFld_subject/);
   assert.match(more, /ما يُطبع في التقرير/);
+});
+
+test('وكيل شؤون المعلمين والموجه الطلابي: حقلان يُحفظان، واسم كل منهما في توقيعه عند التوجيه إليه فقط', async () => {
+  const app = opened(`openGradeReportEditor('ga'); window.__e = gradeReportEditorHtml(); window.__n = normalizeReportPrefs({ staff: '  أ.  خالد ', counselor: 'م. سعد', vice: 'ف' });
+    const html = to => gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), gradeReportPrefsNow(), { date: 'd', to });
+    window.__c = html('الموجه الطلابي'); window.__s = html('وكيل شؤون المعلمين'); window.__g = html('ولي الأمر'); window.__v = html('وكيل شؤون الطلاب');`,
+    { reportPrefs: { staff: 'أ. خالد', counselor: 'م. سعد', vice: 'أ. فهد' } });
+  const head = app.__e.split('<details class="gr-more">')[0];
+  for(const k of ['vice', 'staff', 'counselor']) assert.match(head, new RegExp(`id="grFld_${k}"`));
+  assert.equal(app.__n.staff, 'أ. خالد', 'الحقل يُنقّى ويُحفظ');
+  assert.equal(app.__n.counselor, 'م. سعد');
+  assert.match(app.__c, /<div>الموجه الطلابي<b>م\. سعد<\/b>/);
+  assert.match(app.__s, /<div>وكيل شؤون المعلمين<b>أ\. خالد<\/b>/);
+  assert.doesNotMatch(app.__g, /م\. سعد|أ\. خالد/, 'لا تظهر أسماؤهما إلا عند التوجيه إليهما');
+  assert.doesNotMatch(app.__v, /م\. سعد|أ\. خالد/);
+  assert.match(app.__v, /أ\. فهد/, 'وكيل الطلاب كما كان');
 });
 
 test('خيار «الأسماء» الافتراضي يتبع إعداد المعلم', async () => {
