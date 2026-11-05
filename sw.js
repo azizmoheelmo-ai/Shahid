@@ -26,7 +26,7 @@
      HTTPS/localhost، وهذا سلوك طبيعي متوقّع.
 */
 
-const APP_VERSION_SW = '2.57';
+const APP_VERSION_SW = '2.58';
 const CACHE_NAME = 'shahid-shell-v' + APP_VERSION_SW;
 /* الخطوط (خارجية): نخدمها من الكاش فورًا ونحدّثها بالخلفية.
    كاش منفصل لا يُحذف بتغيّر الإصدار. */
@@ -77,7 +77,9 @@ const APP_SHELL = [
   './app/app-30-grade-compare.js',
   './app/app-31-grade-rules.js',
   './app/app-32-trash.js',
-  './app/app-33-shahid-batch.js'
+  './app/app-33-shahid-batch.js',
+  './app/app-34-grade-report.js',
+  './moe-logo.png'
 ];
 
 /* بعض الاستضافات تحوّل /index.html إلى / فتأتي الاستجابة "redirected"، والمتصفح
