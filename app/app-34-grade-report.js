@@ -356,7 +356,7 @@ function grNamesTable(title, list){
 /* تنبيه ظاهر تحت قوائم الأسماء: ترتيبها بالنسبة، ومن رُصد له جزء من الأعمدة مقامه أقل */
 function grNamesNote(lists, displayMax){
   const partial = [].concat.apply([], lists).filter(r => r.partial).length;
-  return grBlock(`<div class="nb w">الأسماء مرتّبة بالنسبة المئوية من الأدنى.${partial ? ` <b style="color:#a85d3a">*</b> ${grn(partial)} ${partial === 1 ? 'طالب رُصد له' : 'طلاب رُصد لهم'} جزء من الأعمدة فقط، فمقام درجته أقل من ${grn(formatScore(displayMax))} (الدرجة الكاملة)، ونسبته محسوبة مما رُصد له.` : ''}</div>`);
+  return grBlock(`<div class="nb w">الأسماء مرتّبة بالنسبة المئوية من الأدنى.${partial ? ` <b style="color:#a85d3a">*</b> ${partial === 1 ? 'طالب واحد من المذكورين رُصد له' : `${grn(partial)} من المذكورين رُصد لهم`} جزء من الأعمدة فقط، فمقام درجته أقل من ${grn(formatScore(displayMax))} (الدرجة الكاملة)، ونسبته محسوبة مما رُصد له.` : ''}</div>`);
 }
 
 /* مقارنة بالفصل السابق: ctx.prev = { sum, names: Map } */
@@ -493,10 +493,12 @@ async function gradeReportAddMarks(pdf, mark){
   const area = document.getElementById('pdfRenderArea');
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
   const boxW = W - PDF_MARGIN_PT * 2, cssH = 24;
-  const h = boxW * cssH / 800;
+  let h = boxW * cssH / 800;
   const strip = async inner => {
     area.innerHTML = `<div dir="rtl" style="width:800px;height:${cssH}px;line-height:${cssH}px;box-sizing:border-box;padding:0 34px;display:flex;justify-content:space-between;font-family:'Cairo',sans-serif;font-size:11px;color:#55646f;background:#fff">${inner}</div>`;
-    return (await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' })).toDataURL('image/jpeg', 0.92);
+    const canvas = await html2canvas(area, { scale: 2, backgroundColor: '#ffffff' });
+    h = boxW * canvas.height / canvas.width; /* النسبة الفعلية للملتقَط، لا المفترضة: أي حشوة في الحاوية تُضغط الشريحة */
+    return canvas.toDataURL('image/jpeg', 0.92);
   };
   const n = pdf.getNumberOfPages();
   const head = mark && (mark.right || mark.left) ? await strip(`<span>${escapeHtml(mark.right || '')}</span><span>${escapeHtml(mark.left || '')}</span>`) : null;
@@ -511,6 +513,14 @@ async function gradeReportAddMarks(pdf, mark){
 function gradeReportMark(prefs, title, label){
   const subject = gradeReportSubject(prefs);
   return { right: `${title} · ${label}${subject ? ' · ' + subject : ''}`, left: gradeReportSchool(prefs) };
+}
+
+/* #pdfRenderArea عليه class="wrap" (padding-bottom:70px): يُلتقط معه فراغ أبيض يُنتج صفحة فارغة ويُضغط الترويسة والترقيم.
+   نصفّر الحشوة أثناء تصوير التقرير فقط ثم نعيدها */
+async function gradeReportWithFlatArea(area, fn){
+  const prev = area.style.paddingBottom;
+  area.style.paddingBottom = '0';
+  try{ return await fn(); } finally { area.style.paddingBottom = prev; }
 }
 
 async function gradeReportRun(btn, build, filename, mode){
@@ -528,8 +538,11 @@ async function gradeReportRun(btn, build, filename, mode){
     }
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'pt', 'a4');
-    await addPdfPagesMulti(pdf, document.getElementById('pdfRenderArea'), html, { firstPage: true });
-    await gradeReportAddMarks(pdf, out && typeof out === 'object' ? out.mark : null);
+    const area = document.getElementById('pdfRenderArea');
+    await gradeReportWithFlatArea(area, async () => {
+      await addPdfPagesMulti(pdf, area, html, { firstPage: true });
+      await gradeReportAddMarks(pdf, out && typeof out === 'object' ? out.mark : null);
+    });
     pdf.save(filename + '.pdf');
     showToast('تم التصدير', 'ok');
   } catch(err){

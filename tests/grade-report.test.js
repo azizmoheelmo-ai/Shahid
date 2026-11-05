@@ -212,7 +212,7 @@ test('التوقيع: خط توقيع لكل خانة', async () => {
 
 test('ترويسة مصغّرة من الصفحة 2 وترقيم «س / ص» على كل صفحة (في الهامش)', async () => {
   const app = opened(`window.__calls = []; window.__html = [];
-    html2canvas = async () => ({ toDataURL: () => 'data:image/jpeg;base64,x' });
+    html2canvas = async () => ({ width: 1600, height: 48, toDataURL: () => 'data:image/jpeg;base64,x' });
     const area = document.getElementById('pdfRenderArea');
     let cur = 0;
     const pdf = { internal: { pageSize: { getWidth: () => 595, getHeight: () => 842 } }, getNumberOfPages: () => 3, setPage: i => { cur = i; }, addImage: (d, f, x, y, w, h) => window.__calls.push({ page: cur, y, h }) };
@@ -224,6 +224,34 @@ test('ترويسة مصغّرة من الصفحة 2 وترقيم «س / ص» ع�
   assert.deepEqual(foot.map(c => c.page), [1, 2, 3], 'الترقيم على كل صفحة');
   assert.ok(head.every(c => c.y + c.h <= 28), 'الترويسة داخل الهامش العلوي (28pt)');
   assert.ok(foot.every(c => c.y >= 842 - 28), 'الترقيم داخل الهامش السفلي');
+});
+
+test('الترويسة والترقيم: ارتفاعهما من نسبة الملتقَط الفعلية (لا المفترضة) فلا يُضغطان لو كان للحاوية حشوة', async () => {
+  /* في الموقع #pdfRenderArea عليه .wrap (padding-bottom:70px): الملتقَط 800×94 لا 800×24 */
+  const app = opened(`window.__calls = [];
+    html2canvas = async () => ({ width: 1600, height: 188, toDataURL: () => 'data:image/jpeg;base64,x' });
+    let cur = 0; const pdf = { internal: { pageSize: { getWidth: () => 595, getHeight: () => 842 } }, getNumberOfPages: () => 1, setPage: i => { cur = i; }, addImage: (d, f, x, y, w, h) => window.__calls.push({ y, w, h }) };
+    window.__p = gradeReportAddMarks(pdf, { right: 'ي', left: 'ش' });`);
+  await app.__p;
+  const foot = [...app.__calls].find(c => c.y > 700);
+  assert.ok(Math.abs(foot.h - foot.w * 188 / 1600) < 0.01, 'الارتفاع = العرض × نسبة الملتقَط');
+});
+
+test('حشوة #pdfRenderArea تُصفَّر أثناء تصوير التقرير ثم تُعاد، حتى عند الخطأ', async () => {
+  const app = opened(`window.__seen = []; window.__area = { style: { paddingBottom: '70px' } };
+    window.__run = (async () => {
+      window.__ok = await gradeReportWithFlatArea(__area, async () => { window.__seen.push(__area.style.paddingBottom); return 7; });
+      window.__mid = __area.style.paddingBottom;
+      window.__bad = await gradeReportWithFlatArea(__area, async () => { throw new Error('x'); }).catch(() => 'caught');
+      window.__end = __area.style.paddingBottom; })();`);
+  await app.__run;
+  assert.equal(app.__ok, 7);
+  assert.equal(app.__bad, 'caught');
+  assert.equal(app.__seen[0], '0');
+  assert.equal(app.__mid, '70px', 'تُعاد القيمة الأصلية');
+  assert.equal(app.__end, '70px', 'وتُعاد حتى عند الخطأ');
+  const src = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  assert.match(src, /gradeReportWithFlatArea\(area, async \(\) => \{\s+await addPdfPagesMulti/);
 });
 
 test('gradeReportMark: العنوان والشعبة والمادة يمين، والمدرسة يسار', async () => {
