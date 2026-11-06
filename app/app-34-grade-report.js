@@ -585,7 +585,7 @@ let gradeReportBusy = false;
    - عنوان الصفحة يصير اسم الملف المقترح عند «حفظ كـPDF»، ثم يُعاد. */
 function gradeReportPrintCss(mark){
   const q = t => String(t || '').replace(/[\\"]/g, '').replace(/[\r\n]+/g, ' ');
-  const box = 'font-family:Cairo,sans-serif;font-size:8.5pt;color:#55646f';
+  const box = "font-family:'Helvetica Neue W23 for SKY',Cairo,sans-serif;font-size:8.5pt;color:#55646f"; /* خط الوزارة (style.css) ثم Cairo احتياطًا */
   const top = mark && (mark.right || mark.left)
     ? `@top-right{content:"${q(mark.right)}";${box}}@top-left{content:"${q(mark.left)}";${box}}` : '';
   return `@page{size:A4;margin:15mm 15mm 14mm;${top}@bottom-center{content:"صفحة " counter(page) " / " counter(pages);${box}}}`
@@ -735,16 +735,6 @@ async function exportGradeReport(btn){
 }
 
 /* تقرير طالب واحد (لولي الأمر): من الكشف المحمَّل g — لا استعلام جديد */
-async function gradeReportStudentRun(g, id, btn, busyText, to){
-  if(!g || !id || gradeReportBusy) return;
-  const d = gradeReportStudentData(g, id);
-  if(!d) return;
-  const prefs = gradeReportPrefsNow();
-  await gradeReportRun(btn, async () => {
-    return { html: gradeReportStudentHtml(d, prefs, { logo: await gradeReportLogoData(), schoolLogo: await gradeReportSchoolLogoData(), date: new Date().toISOString().slice(0, 10), to }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
-  }, gradeReportFile('تقرير-طالب', d.name), busyText);
-}
-
 /* كل طلاب الشعبة في ملف PDF واحد: تقرير لكل طالب بصفحة جديدة، ومن لم تُرصد درجاته يُستثنى */
 async function exportCrmAllStudentReports(btn, to, ids, scopeLabel){
   const a = crmGradeAnalysis;
@@ -753,27 +743,31 @@ async function exportCrmAllStudentReports(btn, to, ids, scopeLabel){
   const prefs = gradeReportPrefsNow();
   const date = new Date().toISOString().slice(0, 10);
   const pool = ids ? a.students.filter(st => ids.has(st.id)) : a.students;
-  const list = pool.map(st => gradeReportStudentData(g, st.id)).filter(d => d && d.pts !== null);
+  const list = pool.filter(st => { const d = gradeReportStudentData(g, st.id); return d && d.pts !== null; });
   if(!list.length){ showToast('لا طلاب لهم درجات مرصودة', 'error'); return; }
   const skipped = ids ? 0 : a.students.length - list.length;
   if(skipped) showToast(`${skipped} من الطلاب بلا درجات مرصودة — لم تُضمَّن تقاريرهم`, 'ok');
   await gradeReportRun(btn, async () => {
-    const logo = await gradeReportLogoData();
-    const schoolLogo = await gradeReportSchoolLogoData();
-    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { logo, schoolLogo, date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
+    /* تقرير الطالب الجديد (app-36، نسخة الدرجات): بنفس كشف الشعبة المحمَّل فلا استعلام إضافي لكل طالب */
+    const pages = [];
+    for(const st of list){
+      const one = await srBuildReport(st.id, 'grades', to, { g });
+      pages.push(`<div class="gr-pg">${one.html}</div>`);
+    }
+    return { html: pages.join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
   }, gradeReportFile(scopeLabel ? 'تقارير-' + scopeLabel : 'تقارير-الطلاب', a.label), btn && to ? '…' : undefined);
 }
 
-/* من صفحة الطالب في الكشف */
+/* من صفحة الطالب في الكشف: نافذة اختيار النسخة (app-36) */
 function exportCrmStudentReport(btn){
-  return gradeReportStudentRun(crmGrades, crmGradeStudentId, btn);
+  return openStudentReportChooser(crmGradeStudentId);
 }
 
-/* من قائمة الطلاب داخل نافذة التحليل: نقرة واحدة بجانب الاسم */
+/* من قائمة الطلاب داخل نافذة التحليل: نسخة الدرجات بنقرة، والجهة اسمها تحت التوقيع */
 function exportCrmStudentReportFor(id, btn, to){
   const a = crmGradeAnalysis;
   if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId) return;
-  return gradeReportStudentRun(a.g, id, btn, '…', to);
+  return srRun(id, 'grades', to, btn, a.g);
 }
 
 /* ============ خيارات التقارير (إعدادات المعلم) ============ */

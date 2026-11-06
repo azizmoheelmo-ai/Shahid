@@ -377,8 +377,8 @@ test('زر واحد بدل زرين: PDF — طباعة / حفظ، في النا
   assert.match(app.__d, /⤓ PDF للطباعة/);
   assert.doesNotMatch(app.__d, /الوزارة/, 'لا هوية وزارة في الأزرار');
   const grades = fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8');
-  assert.equal((grades.match(/exportCrmStudentReport\(this\)/g) || []).length, 1);
-  assert.doesNotMatch(grades, /exportCrmStudentReport\(this, 'print'\)/);
+  assert.equal((grades.match(/openStudentReportChooser\('\$\{st\.id\}'\)/g) || []).length, 1, 'زر واحد يفتح نافذة اختيار النسخة (app-36)');
+  assert.doesNotMatch(grades, /exportCrmStudentReport\(this/, 'الزر القديم أُزيل');
 });
 
 test('شعار الوزارة: يظهر بترويسة كل التقارير حين يتوفر، وغيابه لا يمنع التقرير، وكل مسارات التصدير تمرّره', async () => {
@@ -586,14 +586,15 @@ test('الجهة الموجَّه إليها: السهم يفتح الخيارا
   await app.__p;
   assert.equal(app.__calls.length, 1);
   const h = app.__calls[0].out.html;
-  assert.match(h, /موجّه إلى: وكيل شؤون الطلاب/);
-  assert.equal((h.match(/وكيل شؤون الطلاب/g) || []).length, 2, 'سطر الجهة + خانة توقيع واحدة (بلا تكرار)');
+  assert.doesNotMatch(h, /موجّه إلى/, 'لا سطر «موجّه إلى» في الترويسة');
+  assert.equal((h.match(/وكيل شؤون الطلاب/g) || []).length, 1, 'اسم الجهة مرة واحدة: خانة توقيعها');
+  assert.match(h, /<div><small><\/small>وكيل شؤون الطلاب<\/div>/);
   const app2 = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a');
     window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
     window.__p = pickCrmGaReportTo('counselor', null);`);
   await app2.__p;
-  assert.match(app2.__calls[0].html, /موجّه إلى: الموجه الطلابي/);
-  assert.match(app2.__calls[0].html, /<div>الموجه الطلابي<b>/, 'خانة توقيع للجهة');
+  assert.doesNotMatch(app2.__calls[0].html, /موجّه إلى/);
+  assert.match(app2.__calls[0].html, /<div><small><\/small>الموجه الطلابي<\/div>/, 'خانة توقيع للجهة');
   assert.equal(app2.__repFor, undefined);
 });
 
@@ -609,6 +610,7 @@ test('الجهة «أخرى»: نص حرّ يُهرَّب ويُقصّ، وال�
   assert.doesNotMatch(h, /<img src=x/, 'النص مُهرَّب');
   assert.match(h, /&lt;img src=x onerror=1&gt;/);
   assert.doesNotMatch(h, /م{50}/, 'يُقصّ على 40 حرفًا');
+  assert.match(h, /<div><small><\/small>&lt;img src=x onerror=1&gt; مدير/, 'الجهة الحرّة مُهرَّبة تحت خانة التوقيع');
   const empty = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('a'); pickCrmGaReportTo('other', null);
     window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
     const orig = document.getElementById.bind(document); document.getElementById = id => id === 'crmGaToOther' ? { value: '   ', focus(){} } : orig(id);
@@ -619,7 +621,7 @@ test('الجهة «أخرى»: نص حرّ يُهرَّب ويُقصّ، وال�
     window.__calls = []; gradeReportRun = async (btn, build) => { window.__calls.push(await build()); };
     window.__p = pickCrmGaReportTo('guardian', null);`);
   await all.__p;
-  assert.equal((all.__calls[0].html.match(/موجّه إلى: ولي الأمر/g) || []).length, 5, 'كل تقرير يحمل الجهة');
+  assert.equal((all.__calls[0].html.match(/<div><small><\/small>ولي الأمر<\/div>/g) || []).length, 5, 'كل تقرير يحمل الجهة تحت التوقيع');
 });
 
 test('تقارير الطلاب (الزر العام): تختار الفئة ثم الجهة، والفئة تحدّد من يُنزَّل لهم', async () => {
@@ -640,7 +642,7 @@ test('تقارير الطلاب (الزر العام): تختار الفئة ث�
   assert.match(c.out.html, /بدر/);
   assert.match(c.out.html, /جاسر/);
   assert.doesNotMatch(c.out.html, /أحمد|دخيل|عادل/, 'لا طلاب من فئات أخرى');
-  assert.match(c.out.html, /موجّه إلى: وكيل شؤون الطلاب/);
+  assert.match(c.out.html, /<div><small><\/small>وكيل شؤون الطلاب<\/div>/);
   assert.match(c.filename, /^تقارير-المتوسطون-/);
   assert.match(c.out.mark.right, /المتوسطون/);
   const none = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(x => !['d', 'e'].includes(x.student_id)) }); crmGradeAnalysis.g = crmGrades;
@@ -761,7 +763,8 @@ test('أزرار التصدير: الطالب والتحليل يمرّان بـ
   assert.match(src, /if\(gradeReportBusy\) return;/);
   assert.match(src, /beginExportBusy\(btn/);
   assert.match(src, /endExportBusy\(btn\)/);
-  assert.match(fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8'), /exportCrmStudentReport\(this\)/);
+  assert.match(fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8'), /openStudentReportChooser\(/);
+  assert.match(fs.readFileSync(path.join(root, 'app/app-36-student-report.js'), 'utf8'), /gradeReportRun\(btn, \(\) => srBuildReport/, 'تقرير الطالب يمرّ بحارس gradeReportRun (busy + منع النقر المزدوج)');
 });
 
 test('الملف في index.html وAPP_SHELL، وشعار الوزارة في المشروع وAPP_SHELL، والإصدارات متطابقة', async () => {

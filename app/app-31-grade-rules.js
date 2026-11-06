@@ -6,12 +6,15 @@
    - تُحفظ في user_app_settings.features.analysisRules (مثل تقديرات الحروف) وتُطبَّق على كل
      شعب المعلم؛ غياب المفتاح = الافتراضي (50 · +10 · 90).
    - للتحليل فقط: لا تغيّر ألوان الكشف ولا تنبيهات المتابعة (حدّها 50 في app-16).
+   - حدّ رابع اختياري «severe» (التعثر التحصيلي الشديد، افتراضيه 30 ولا يزيد عن حدّ الضعف): يستعمله تقرير الطالب
+     التحليلي (app-36) لتوصية التواصل مع ولي الأمر. غيابه = 30، والافتراضي لا يُخزَّن (يبقى شكل الحدود كما كان).
    ============================================================ */
 
 const GRADE_RULES_DEFAULT = { pass: 50, edge: 10, top: 90, fallback: false };
-const GRADE_RULES_BOUNDS = { pass: [1, 99], edge: [1, 30], top: [50, 100] };
-const GRADE_RULES_LABELS = { pass: 'ضعاف: أقل من', edge: 'هامش بعد الضعاف: حتى', top: 'متفوقون: من' };
-const GRADE_RULES_UNITS = { pass: '%', edge: '% فوق ذلك', top: '%' };
+const GRADE_RULES_BOUNDS = { pass: [1, 99], edge: [1, 30], top: [50, 100], severe: [1, 99] };
+const GRADE_SEVERE_DEFAULT = 30;
+const GRADE_RULES_LABELS = { pass: 'ضعاف: أقل من', edge: 'هامش بعد الضعاف: حتى', top: 'متفوقون: من', severe: 'تعثر شديد: متوسط التحصيل دون' };
+const GRADE_RULES_UNITS = { pass: '%', edge: '% فوق ذلك', top: '%', severe: '%' };
 const GRADE_TOP_PRESETS = [80, 85, 90, 95];
 
 /* ============ دوال صرفة ============ */
@@ -24,6 +27,12 @@ function validateGradeRules(r){
     const [lo, hi] = GRADE_RULES_BOUNDS[k];
     if(r[k] === '' || r[k] === null || !Number.isInteger(v) || v < lo || v > hi) return `${GRADE_RULES_LABELS[k]} — رقم صحيح من ${lo} إلى ${hi}`;
   }
+  if(r.severe !== undefined && r.severe !== null){
+    const sv = Number(r.severe);
+    const [slo, shi] = GRADE_RULES_BOUNDS.severe;
+    if(r.severe === '' || !Number.isInteger(sv) || sv < slo || sv > shi) return `${GRADE_RULES_LABELS.severe} — رقم صحيح من ${slo} إلى ${shi}`;
+    if(sv > Number(r.pass)) return 'حدّ التعثر الشديد يجب ألا يزيد عن حدّ الضعاف (' + Number(r.pass) + '%)';
+  }
   if(Number(r.pass) + Number(r.edge) > Number(r.top)) return 'حدّ المتفوق يجب ألا يقلّ عن حدّ الضعاف بعشر نقاط تقريبًا (الهامش ' + Number(r.edge) + ')';
   return null;
 }
@@ -32,7 +41,14 @@ function validateGradeRules(r){
 function normalizeGradeRules(raw){
   if(!raw || typeof raw !== 'object') return null;
   const r = { pass: Number(raw.pass), edge: Number(raw.edge), top: Number(raw.top), fallback: raw.fallback === true };
+  if(raw.severe !== undefined && raw.severe !== null) r.severe = Number(raw.severe);
   return validateGradeRules(r) ? null : r;
+}
+
+/* حدّ التعثر الشديد الفعلي (الافتراضي 30) */
+function gradeSevereNow(){
+  const r = typeof gradeRulesNow === 'function' ? gradeRulesNow() : null;
+  return r && Number.isInteger(Number(r.severe)) && Number(r.severe) > 0 ? Number(r.severe) : GRADE_SEVERE_DEFAULT;
 }
 
 function gradeRulesNow(){
@@ -44,7 +60,7 @@ function openCrmGaRulesEditor(){
   const a = crmGradeAnalysis;
   if(!a) return;
   const r = gradeRulesNow();
-  a.rulesEdit = { draft: { pass: r.pass, edge: r.edge, top: r.top, fallback: !!r.fallback }, error: '', saving: false };
+  a.rulesEdit = { draft: { pass: r.pass, edge: r.edge, top: r.top, fallback: !!r.fallback, severe: gradeSevereNow() }, error: '', saving: false };
   paintCrmGradeAnalysis();
 }
 
@@ -57,7 +73,7 @@ function gaRulesEditorHtml(a){
     <button type="button" aria-label="إنقاص" onclick="crmGaRuleStep('${k}', -1)">−</button></span><span class="crm-ga-ru">${GRADE_RULES_UNITS[k]}</span></div>`;
   return `<div class="crm-ga-sec">حدود التحليل</div>
     <p class="crm-ga-fine" style="margin-top:0">تُطبَّق على كل شعبك، وللتحليل فقط — ألوان الكشف وتنبيهاته كما هي.<br>النسب محسوبة من الدرجة الكاملة (من ${escapeHtml(formatScore(gradeAnalysisView(a).displayMax))}): مثلًا ${d.pass}% = ${escapeHtml(formatScore(Math.round(Number(d.pass) * gradeAnalysisView(a).displayMax) / 100))} درجة.</p>
-    ${row('pass')}${row('top')}
+    ${row('pass')}${row('top')}${row('severe')}
     <div class="crm-ga-pre">${GRADE_TOP_PRESETS.map(p => `<button type="button" class="${Number(d.top) === p ? 'is-on' : ''}" onclick="crmGaRulePreset(${p})">${p}</button>`).join('')}</div>
     <label class="crm-ga-chk"><input type="checkbox"${d.fallback ? ' checked' : ''} onchange="crmGaRuleFallback(this.checked)"> إن لم يبلغ أحد حدّ المتفوق، اعرض أعلى 3 في الشعبة</label>
     <div class="crm-ga-err" id="crmGaRulesErr">${escapeHtml(e.error)}</div>
@@ -96,7 +112,7 @@ function crmGaRuleFallback(on){
 function crmGaRulesReset(){
   const a = crmGradeAnalysis;
   if(!a || !a.rulesEdit) return;
-  a.rulesEdit.draft = Object.assign({}, GRADE_RULES_DEFAULT);
+  a.rulesEdit.draft = Object.assign({}, GRADE_RULES_DEFAULT, { severe: GRADE_SEVERE_DEFAULT });
   a.rulesEdit.error = '';
   paintCrmGradeAnalysis();
 }
@@ -127,6 +143,7 @@ async function saveCrmGaRules(){
   const bad = validateGradeRules(e.draft);
   if(bad){ e.error = bad; paintCrmGradeAnalysis(); return; }
   const rules = { pass: Number(e.draft.pass), edge: Number(e.draft.edge), top: Number(e.draft.top), fallback: !!e.draft.fallback };
+  if(Number(e.draft.severe) !== GRADE_SEVERE_DEFAULT) rules.severe = Number(e.draft.severe); /* الافتراضي لا يُخزَّن */
   e.saving = true;
   const btn = document.getElementById('crmGaRulesSave');
   if(btn) btn.disabled = true;
