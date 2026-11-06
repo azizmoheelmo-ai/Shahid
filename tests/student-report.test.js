@@ -279,7 +279,9 @@ test('النسخة التحليلية: كل قسم يظهر فقط إن وُجد
   });
   for(const here of ['الحضور', 'المواقف السلوكية', 'الملاحظات الإيجابية', 'المتابعات المسجلة', 'حالات المتابعة الأكاديمية', 'المهام الأدائية', 'مستأذن']) assert.match(full, new RegExp(here), here);
   assert.equal((full.match(/>غائب</g) || []).length >= 1, true);
-  assert.equal((full.match(/<tr><td>2026-10-\d\d<\/td><td class="n"><bdi dir="ltr">1<\/bdi><\/td>/g) || []).length, 25, 'كل غياب بصفه، ليس آخر 20');
+  assert.equal((full.match(/<td>2026-10-\d\d<\/td><td class="n"><bdi dir="ltr">1<\/bdi><\/td>/g) || []).length, 25, 'كل غياب موجود، ليس آخر 20');
+  assert.match(full, /<table class="two"/, 'قائمة الحضور بعمودين متجاورين لتوفير المساحة');
+  assert.equal((full.match(/<table class="two"[\s\S]*?<\/table>/)[0].match(/<tr><td>/g) || []).length, 13, '25 سجلًا = 13 صفًّا (صف = سجلان)');
   assert.equal((full.match(/مخالفة \d+/g) || []).length, 15, 'كل المخالفات');
   assert.match(full, /صدر خطاب إحالة/);
   assert.match(full, /الخطوة التالية: اتصال/);

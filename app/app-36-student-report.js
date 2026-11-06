@@ -257,7 +257,7 @@ const SR_CSS = `
 .sr thead{display:table-header-group}.sr tr{break-inside:avoid}
 .sr th{background:#15445a;color:#fff;padding:3px 7px;text-align:right;font-weight:700}
 .sr td{padding:3px 7px;border-bottom:1px solid #e3e9ec;vertical-align:top}.sr tr:nth-child(even) td{background:#f3f6f8}
-.sr .n{text-align:center}.sr tr.sub td{font-weight:700;background:#eaf1f5}.sr tr.live td{color:#6b7c86}
+.sr .n{text-align:center}.sr table.two td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.two th:nth-child(3){border-left:2px solid #fff}.sr tr.sub td{font-weight:700;background:#eaf1f5}.sr tr.live td{color:#6b7c86}
 .sr .chip{display:inline-block;border-radius:9px;padding:0 9px;font-size:10px;color:#fff;font-weight:700;line-height:1.7}
 .sr .m{background:#07a869}.sr .j{background:#3d7eb9}.sr .w{background:#7258a4}
 .sr .bar{height:8px;background:#e8eef1;border-radius:4px;min-width:80px}.sr .bar i{display:block;height:100%;border-radius:4px}
@@ -401,8 +401,13 @@ function buildStudentReportHtml2(ctx){
       const c = at.counts;
       body += `<div class="sec long"><h2>الحضور</h2><table><thead><tr><th class="n">حاضر</th><th class="n">متأخر</th><th class="n">غائب</th><th class="n">مستأذن</th></tr></thead><tbody><tr><td class="n">${srNum(c.present)}</td><td class="n">${srNum(c.late)}</td><td class="n">${srNum(c.absent)}</td><td class="n">${srNum(c.permitted_exit)}</td></tr></tbody></table>`;
       if(at.list.length){
-        body += `<table style="margin-top:4px"><thead><tr><th>التاريخ</th><th class="n">الحصة</th><th class="n">الحالة</th></tr></thead><tbody>${at.list.map(a =>
-          `<tr><td>${e(a.date || '—')}</td><td class="n">${a.period ? srNum(a.period) : '—'}</td><td class="n">${e(ATTENDANCE_LABELS[a.status] || '')}${a.prevSection ? ' <span class="nd">(شعبة سابقة)</span>' : ''}</td></tr>`).join('')}</tbody></table>`;
+        /* قائمتان متجاورتان بجدول واحد (صف = سجلان): توفّر نصف المساحة، ويبقى الجدول قابلًا للانقسام بين الصفحات */
+        const half = Math.ceil(at.list.length / 2);
+        const cells = a => a ? `<td>${e(a.date || '—')}</td><td class="n">${a.period ? srNum(a.period) : '—'}</td><td class="n">${e(ATTENDANCE_LABELS[a.status] || '')}${a.prevSection ? ' <span class="nd">(شعبة سابقة)</span>' : ''}</td>` : '<td></td><td></td><td></td>';
+        const pair = [];
+        for(let i = 0; i < half; i++) pair.push(`<tr>${cells(at.list[i])}${cells(at.list[i + half])}</tr>`);
+        const th = '<th>التاريخ</th><th class="n">الحصة</th><th class="n">الحالة</th>';
+        body += `<table class="two" style="margin-top:4px"><thead><tr>${th}${th}</tr></thead><tbody>${pair.join('')}</tbody></table>`;
       }
       body += `<div class="fn">${at.recorded ? `وقائع من ${srNum(at.recorded)} حصة مرصودة لشعبته الحالية، دون حكم.` : 'وقائع من الرصد داخل الحصة، دون حكم.'}</div></div>`;
     }
