@@ -97,7 +97,7 @@ test('المحرّر: − و+ يتقيّدان بالحدود، والأرقام
   assert.equal(app.__max, 99);
   assert.equal(app.__top, 95);
   assert.equal(app.__edge, 12);
-  assert.equal(app.__reset, JSON.stringify(R(50, 10, 90, false)));
+  assert.equal(app.__reset, JSON.stringify(Object.assign(R(50, 10, 90, false), { severe: 30 })), 'الافتراضي يشمل التعثر الشديد 30');
   assert.match(app.__h, /حدود التحليل/);
   assert.match(app.__h, /id="crmGaRule_top"[^>]*value="90"/);
 });
@@ -137,4 +137,42 @@ test('الملف الجديد في index.html وAPP_SHELL، والإصدارات
   assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), /app-31-grade-rules\.js/);
   assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), new RegExp(`APP_VERSION_SW = '${v}'`));
   assert.match(fs.readFileSync(path.join(root, 'app/app-26-update-check.js'), 'utf8'), new RegExp(`APP_VERSION = '${v}'`));
+});
+
+/* ===== حدّ التعثر الشديد (يستعمله تقرير الطالب التحليلي app-36) ===== */
+test('severe: اختياري، رقم صحيح 1..99 ولا يزيد عن حدّ الضعاف، وغيابه = 30', async () => {
+  const app = loadApp();
+  const S = sv => Object.assign(R(50, 10, 90), { severe: sv });
+  assert.equal(app.validateGradeRules(R(50, 10, 90)), null, 'غياب severe سليم (بيانات قديمة)');
+  assert.equal(app.validateGradeRules(S(30)), null);
+  assert.equal(app.validateGradeRules(S(50)), null, 'يساوي حدّ الضعاف: مسموح');
+  assert.match(app.validateGradeRules(S(51)), /التعثر الشديد/);
+  assert.match(app.validateGradeRules(S(0)), /1 إلى 99/);
+  assert.match(app.validateGradeRules(S(12.5)), /رقم صحيح/);
+  assert.match(app.validateGradeRules(S('')), /رقم صحيح/);
+  assert.equal(app.gradeSevereNow(), 30, 'الافتراضي 30');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.normalizeGradeRules(S(20)))), S(20), 'القيمة السليمة تبقى');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.normalizeGradeRules(R(50, 10, 90)))), R(50, 10, 90), 'بلا severe يبقى الشكل القديم كما هو');
+  assert.equal(app.normalizeGradeRules(S(80)), null, 'تالفة من القاعدة: تُسقَط');
+});
+
+test('severe: محرّر الحدود يعرض الحقل بقيمة 30، ولا يُخزَّن الافتراضي، وتغييره يُحفظ ويقرؤه التقرير', async () => {
+  const app = opened(`window.__saves = []; persistGradeRules = async r => { window.__saves.push(JSON.stringify(r)); return null; }; showToast = () => {};
+    openCrmGaRulesEditor(); window.__h = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__p1 = saveCrmGaRules();`);
+  assert.match(app.__h, /id="crmGaRule_severe"[^>]*value="30"/);
+  assert.match(app.__h, /تعثر شديد/);
+  await app.__p1;
+  assert.equal(app.__saves[0], JSON.stringify(R(50, 10, 90, false)), 'الافتراضي 30 لا يدخل المخزَّن (الشكل القديم)');
+  runInAppContext(app, `openCrmGaRulesEditor(); crmGaRuleSet('severe', 20); window.__p2 = saveCrmGaRules();`);
+  await app.__p2;
+  assert.equal(app.__saves[1], JSON.stringify(Object.assign(R(50, 10, 90, false), { severe: 20 })));
+  runInAppContext(app, `openCrmGaRulesEditor(); crmGaRuleSet('severe', 70); window.__p3 = saveCrmGaRules(); window.__err = crmGradeAnalysis.rulesEdit.error;`);
+  await app.__p3;
+  assert.equal(app.__saves.length, 2, 'فوق حدّ الضعاف: لا يُحفظ');
+  assert.match(app.__err, /التعثر الشديد/);
+  const rep = opened(`appFeatures = { analysisRules: ${JSON.stringify(Object.assign(R(50, 10, 90, false), { severe: 25 }))} }; window.__r = srRulesNow();`);
+  assert.equal(rep.__r.severe, 25, 'تقرير الطالب يقرأ حدّ المعلم');
+  const def = opened(`window.__r = srRulesNow();`);
+  assert.equal(def.__r.severe, 30);
 });

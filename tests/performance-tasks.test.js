@@ -521,17 +521,3 @@ test('loadStudentTasks — مهامه في الفصل المعروض فقط وب
   const lines = app.studentTaskLines(tasks);
   assert.deepEqual([...lines].map(l => l.title + ' = ' + l.result), ['عرض = لم يُقيَّم', 'مجلة (جماعية · المجموعة 2) = 7 من 10']);
 });
-
-test('تقرير الطالب — قسم المهام الأدائية بنص محمي', async () => {
-  const app = loadApp();
-  const html = app.buildStudentReportHtml({
-    attendance: [], incidents: [], positives: [], followups: [], grades: { columns: [], scores: [] }, studentId: 'a',
-    tasks: [{ title: '<b>x</b>', max_score: 10, score: 8, group_no: null }],
-  }, { studentName: 'أ', sectionLabel: 'س', todayIso: '2026-10-08' });
-  assert.match(html, /المهام الأدائية/);
-  assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/);
-  assert.match(html, /8 من 10/);
-  const none = app.buildStudentReportHtml({ attendance: [], incidents: [], positives: [], followups: [], grades: { columns: [], scores: [] }, studentId: 'a', tasks: [] },
-    { studentName: 'أ', sectionLabel: 'س', todayIso: '2026-10-08' });
-  assert.ok(!/المهام الأدائية/.test(none), 'لا قسم إن لم يُكلَّف بمهام');
-});

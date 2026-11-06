@@ -1,0 +1,430 @@
+'use strict';
+/* ============================================================
+   تقرير الطالب الفردي (app-36): المستوى، تصنيف المكوّنات، صفوف الفترات، سلّم الأدلة والتوصيات،
+   الحضور، الصفحة (نسختان)، الأمان، والتسجيل بـindex.html وsw.js
+   ============================================================ */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { test } = require('node:test');
+const { loadApp, runInAppContext } = require('./load-app');
+
+const root = path.join(__dirname, '..');
+const read = f => fs.readFileSync(path.join(root, f), 'utf8');
+const R = { pass: 50, edge: 10, top: 90, severe: 30 };
+const J = v => JSON.parse(JSON.stringify(v));
+
+/* صف مكوّن: بند أو مجموعه */
+const row = (name, score, max, o) => Object.assign({
+  id: name, name, label: name, score, max, pct: 100 * score / max, row: 'item', kind: 'manual', domain: 'tahsili', category: 'tests', live: false, classPct: null
+}, o || {});
+
+test('srLevel: متقن · جيد · يحتاج تحسين بحدّي المعلم', () => {
+  const app = loadApp();
+  assert.equal(app.srLevel(49.9, R).label, 'يحتاج تحسين');
+  assert.equal(app.srLevel(50, R).label, 'جيد');
+  assert.equal(app.srLevel(89.9, R).label, 'جيد');
+  assert.equal(app.srLevel(90, R).label, 'متقن');
+  assert.equal(app.srLevel(null, R), null);
+  assert.equal(app.srLevel(70, { pass: 70, top: 95 }).label, 'جيد', 'حدود المعلم لا الافتراضية');
+  assert.equal(app.srLevel(69, { pass: 70, top: 95 }).label, 'يحتاج تحسين');
+});
+
+test('srSevereOf: الافتراضي 30، وإعداد المعلم، ولا يزيد عن حدّ الضعف', () => {
+  const app = loadApp();
+  assert.equal(app.srSevereOf({ pass: 50 }), 30);
+  assert.equal(app.srSevereOf({ pass: 50, severe: 20 }), 20);
+  assert.equal(app.srSevereOf({ pass: 50, severe: 80 }), 50);
+  assert.equal(app.srSevereOf({ pass: 50, severe: 'x' }), 30);
+});
+
+test('srDomainOf: التصنيف تلقائي بنوع المكوّن، وغير المصنَّف لا يُحكم عليه', () => {
+  const app = loadApp();
+  const tool = { t1: 'score', t2: 'status', t3: 'counter' };
+  const of = c => app.srDomainOf(c, id => tool[id] || null);
+  assert.equal(of({ category: 'tests' }), 'tahsili');
+  assert.equal(of({ category: 'performance', kind: 'task' }), 'tahsili');
+  assert.equal(of({ category: 'performance', kind: 'homework' }), 'taalumi');
+  assert.equal(of({ category: 'performance', kind: 'participation' }), 'taalumi');
+  assert.equal(of({ category: 'performance', tool_id: 't1' }), 'tahsili');
+  assert.equal(of({ category: 'performance', tool_id: 't2' }), 'taalumi');
+  assert.equal(of({ category: 'performance', tool_id: 't3' }), 'taalumi');
+  assert.equal(of({ category: 'performance', kind: 'manual' }), null, 'عمود يدوي غير مصنَّف');
+  assert.equal(of({ category: 'performance', tool_id: 'غير-معروف' }), null);
+});
+
+/* ============ صفوف الفترات ============ */
+function buildRows(items, cfgs, bd){
+  const app = loadApp();
+  return J(runInAppContext(app, `
+    const bd = new Map(Object.entries(${JSON.stringify(bd || {})}).map(([k, v]) => [k, new Map([['s', v]])]));
+    const cfgs = ${JSON.stringify(cfgs || {})};
+    srBuildRows(${JSON.stringify(items)}, 's', bd, x => cfgs[x.id] || { n: 1, starts: [] }, id => null, () => null)`));
+}
+const item = (id, name, max, score, o) => Object.assign({ id, name, max, score, kind: 'manual', tool_id: null, category: 'performance' }, o || {});
+
+test('صفوف الفترات: صف لكل فترة + «المحسوب في المجموع»، والجارية بلا حكم، وبفترة واحدة صف واحد', () => {
+  const out = buildRows([
+    item('m', 'المشاركة', 10, 9, { kind: 'participation' }),
+    item('h', 'الواجبات', 15, 6, { kind: 'homework' }),
+    item('t', 'الاختبار الأول', 10, 9, { category: 'tests' }),
+    item('x', 'مهمة', 15, 12, { kind: 'task' })
+  ], {
+    m: { n: 3, starts: ['2026-10-01', '2026-11-01'] },
+    h: { n: 2, starts: ['2026-10-01'], ended: false },
+    x: { n: 1, starts: [] }
+  }, { m: { p1: 8, p2: 10, p3: 2 }, h: { p1: 5, p2: 7, p3: null } });
+  const labels = out.rows.map(r => r.label);
+  assert.deepEqual(labels, [
+    'المشاركة — الفترة الأولى', 'المشاركة — الفترة الثانية', 'المشاركة — الفترة الثالثة', 'المشاركة — المحسوب في المجموع',
+    'الواجبات — الفترة الأولى', 'الواجبات — الفترة الثانية', 'الواجبات — المحسوب في المجموع',
+    'الاختبار الأول', 'مهمة'
+  ]);
+  const byLabel = Object.fromEntries(out.rows.map(r => [r.label, r]));
+  assert.equal(byLabel['المشاركة — الفترة الثالثة'].live, true, 'الجارية: دخلت فترتان فقط');
+  assert.equal(byLabel['المشاركة — الفترة الثانية'].live, false);
+  assert.equal(byLabel['المشاركة — المحسوب في المجموع'].row, 'sub');
+  assert.equal(byLabel['مهمة'].row, 'item', 'فترة واحدة: صف واحد بلا ذكر فترات');
+  assert.equal(byLabel['الاختبار الأول'].row, 'item', 'الاختبارات بلا فترات');
+});
+
+test('صفوف الفترات: البند غير المرصود للطالب لا يظهر، والفترة بلا درجة لا تظهر', () => {
+  const out = buildRows([item('a', 'أ', 10, null), item('m', 'المشاركة', 10, 8, { kind: 'participation' })],
+    { m: { n: 3, starts: ['2026-10-01'] } }, { m: { p1: 8, p2: null, p3: null } });
+  assert.deepEqual(out.rows.map(r => r.label), ['المشاركة — الفترة الأولى', 'المشاركة — المحسوب في المجموع']);
+  assert.deepEqual(out.missing, ['أ']);
+});
+
+/* ============ التقدّم ============ */
+test('srProgress: قياسان منتهيان فأكثر فقط، والجارية لا تدخل، والاختبارات أول وآخر', () => {
+  const app = loadApp();
+  const P = (id, n, k, score, live) => row(n + ' — ' + k, score, 10, { id, name: n, row: 'period', live: !!live, domain: 'taalumi' });
+  const one = J(app.srProgress([P('m', 'المشاركة', 'الأولى', 8), P('m', 'المشاركة', 'الثانية', 10), P('m', 'المشاركة', 'الثالثة', 2, true)]));
+  assert.equal(one.length, 1);
+  assert.equal(one[0].from, 80);
+  assert.equal(one[0].to, 100, 'الفترة الجارية لا تحسب');
+  assert.equal(one[0].trend, 'up');
+  assert.deepEqual(J(app.srProgress([P('m', 'المشاركة', 'الأولى', 8)])), [], 'قياس واحد لا يُحسب');
+  assert.equal(app.srProgress([P('m', 'م', 'أ', 8), P('m', 'م', 'ب', 7.5)])[0].trend, 'flat', 'فارق أقل من 10 نقاط');
+  assert.equal(app.srProgress([P('m', 'م', 'أ', 8), P('m', 'م', 'ب', 7)])[0].trend, 'down', '10 نقاط بالضبط = تراجع');
+  assert.equal(app.srProgress([P('m', 'م', 'أ', 9), P('m', 'م', 'ب', 5)])[0].trend, 'down');
+  const t = J(app.srProgress([row('الأول', 4, 10), row('الثاني', 9, 10)]));
+  assert.equal(t.length, 1);
+  assert.equal(t[0].basis, 'tests');
+  assert.equal(t[0].trend, 'up');
+  assert.deepEqual(J(app.srProgress([row('الأول', 4, 10)])), []);
+});
+
+/* ============ سلّم الأدلة والتوصيات ============ */
+const HW = { total: 6, submitted: 2, partial: 0, late: 0, missing: 4 };
+const dx = (rows, extra) => J(loadApp().srDiagnose(Object.assign({ rows, rules: R, homework: null, lessonsHeld: 10, overall: { pct: 70, incomplete: false } }, extra || {})));
+const hwRow = pct => row('الواجبات', pct * 15 / 100, 15, { kind: 'homework', domain: 'taalumi', category: 'performance' });
+const partRow = pct => row('المشاركة', pct / 10, 10, { kind: 'participation', domain: 'taalumi', category: 'performance' });
+
+test('نتيجة منخفضة واحدة = واقعة فقط: لا ضعف مثبت ولا توصية', () => {
+  const d = dx([row('أول', 9, 10), row('قصير', 4, 10), row('مهمة', 8, 10, { category: 'performance', kind: 'task' })]);
+  assert.equal(d.tahsili.enough, true);
+  assert.equal(d.tahsili.weak, null);
+  assert.equal(d.tahsili.facts.length, 1);
+  assert.match(d.tahsili.facts[0].text, /قصير 40%/);
+  assert.deepEqual(d.recommendations, []);
+  assert.equal(d.parentContact, false);
+});
+
+test('بندان تحصيليان أحدهما منخفض: واقعة فقط (الضعف المثبت يحتاج بندين منخفضين على الأقل)', () => {
+  const d = dx([row('أول', 9, 10), row('قصير', 4, 10)]);
+  assert.equal(d.tahsili.enough, true);
+  assert.equal(d.tahsili.weak, null);
+  assert.deepEqual(d.recommendations, []);
+});
+
+test('بيانات التحصيل غير الكافية (أقل من بندين): لا حكم ولا توصية', () => {
+  const d = dx([row('قصير', 2, 10)]);
+  assert.equal(d.tahsili.enough, false);
+  assert.deepEqual(d.tahsili.strengths, []);
+  assert.deepEqual(d.tahsili.facts, []);
+  assert.equal(d.tahsili.weak, null);
+  assert.deepEqual(d.recommendations, []);
+});
+
+test('ضعف تحصيلي مثبت: بندان دون حدّ الضعف بنصف المرصود فأكثر ← توصية بالدليل والتشخيص والإجراء', () => {
+  const d = dx([row('أول', 4, 10), row('ثاني', 3, 10), row('ثالث', 9, 10)]);
+  assert.ok(d.tahsili.weak);
+  assert.equal(d.recommendations.length, 1);
+  const r = d.recommendations[0];
+  assert.match(r.evidence, /أول 40%/);
+  assert.match(r.evidence, /ثاني 30%/);
+  assert.ok(r.diagnosis && r.action);
+  /* بندان منخفضان من خمسة (أقل من النصف): لا ضعف مثبت */
+  assert.equal(dx([row('أ', 4, 10), row('ب', 3, 10), row('ج', 9, 10), row('د', 9, 10), row('هـ', 9, 10)]).tahsili.weak, null);
+});
+
+test('ضعف الواجبات: توصية بسلسلة كاملة؛ وأقل من 3 واجبات = لا بيانات كافية ولا توصية', () => {
+  const ok = dx([hwRow(40)], { homework: HW });
+  assert.equal(ok.recommendations.length, 1);
+  assert.equal(ok.recommendations[0].evidence, 'لم يسلّم 4 من 6 واجبات (الواجبات 40%)');
+  assert.equal(ok.recommendations[0].diagnosis, 'ضعف في انتظام إنجاز الواجبات');
+  assert.match(ok.recommendations[0].action, /متابعة تسليم الواجبات/);
+  const few = dx([hwRow(40)], { homework: { total: 2, submitted: 0, partial: 0, late: 0, missing: 2 } });
+  assert.deepEqual(few.recommendations, []);
+  assert.equal(few.taalumi.indicators[0].status, 'nodata');
+  const none = dx([hwRow(40)], { homework: null });
+  assert.equal(none.taalumi.indicators[0].status, 'nodata');
+});
+
+test('المشاركة: لا حكم إلا بعد 3 حصص منعقدة؛ والقوة بالمتقن', () => {
+  assert.equal(dx([partRow(30)], { lessonsHeld: 2 }).taalumi.indicators[0].status, 'nodata');
+  assert.equal(dx([partRow(30)], { lessonsHeld: 3 }).taalumi.indicators[0].status, 'weak');
+  assert.equal(dx([partRow(95)], { lessonsHeld: 5 }).taalumi.indicators[0].status, 'strength');
+  assert.equal(dx([partRow(70)], { lessonsHeld: 5 }).taalumi.indicators[0].status, 'ok');
+  assert.deepEqual(dx([partRow(95)], { lessonsHeld: 5 }).recommendations, [], 'القوة بلا توصية');
+});
+
+test('التواصل مع ولي الأمر: ثلاثة شروط فقط، ولا يُولَّد لبند منخفض واحد', () => {
+  const weakT = [row('أول', 4, 10), row('ثاني', 3, 10), row('ثالث', 9, 10)];
+  /* (أ) ضعف مثبت تحصيلي وتعلّمي معًا */
+  const a = dx(weakT.concat([hwRow(40)]), { homework: HW, overall: { pct: 70, incomplete: false } });
+  assert.ok(a.recommendations.some(r => r.parent), 'ضعف المستويين');
+  /* ضعف تحصيلي وحده ومستوى عام جيد: لا تواصل */
+  const onlyT = dx(weakT, { overall: { pct: 70, incomplete: false } });
+  assert.equal(onlyT.parentContact, false);
+  /* (ب) المستوى العام يحتاج تحسين ببيانات كافية */
+  const b = dx([row('أ', 3, 10), row('ب', 9, 10), row('ج', 9, 10)], { overall: { pct: 45, incomplete: false } });
+  assert.ok(b.recommendations.some(r => r.parent && /المستوى العام 45%/.test(r.evidence)));
+  /* المستوى العام منخفض لكن الرصد غير مكتمل: لا حكم */
+  const inc = dx([row('أ', 3, 10), row('ب', 9, 10), row('ج', 9, 10)], { overall: { pct: 45, incomplete: true } });
+  assert.equal(inc.parentContact, false);
+  assert.equal(inc.overallJudged, false);
+  /* (ج) ضعف تحصيلي مستمر شديد: متوسط التحصيل دون 30% */
+  const c = dx([row('أ', 2, 10), row('ب', 2, 10), row('ج', 5, 10)], { overall: { pct: 70, incomplete: false } });
+  assert.equal(c.tahsili.persistent, true);
+  assert.equal(c.tahsili.avg, 30);
+  assert.equal(c.tahsili.severe, false, 'المتوسط 30% ليس دون العتبة 30%');
+  const sev = dx([row('أ', 1, 10), row('ب', 2, 10), row('ج', 5, 10)], { overall: { pct: 70, incomplete: false } });
+  assert.equal(sev.tahsili.severe, true, 'متوسط 27% دون 30%');
+  assert.ok(sev.recommendations.some(r => r.parent && /ضعف تحصيلي مستمر شديد/.test(r.evidence)));
+  /* العتبة قابلة للتغيير من المعلم */
+  const hi = J(loadApp().srDiagnose({ rows: [row('أ', 3, 10), row('ب', 3, 10), row('ج', 5, 10)], rules: Object.assign({}, R, { severe: 40 }), homework: null, lessonsHeld: 9, overall: { pct: 70, incomplete: false } }));
+  assert.equal(hi.tahsili.severe, true, 'متوسط 37% دون عتبة 40%');
+  const lo = J(loadApp().srDiagnose({ rows: [row('أ', 3, 10), row('ب', 3, 10), row('ج', 5, 10)], rules: Object.assign({}, R, { severe: 20 }), homework: null, lessonsHeld: 9, overall: { pct: 70, incomplete: false } }));
+  assert.equal(lo.tahsili.severe, false);
+});
+
+test('كل توصية لها دليل وتشخيص وإجراء، ولا توصية عامة أبدًا عند عدم وجود ضعف', () => {
+  const none = dx([row('أ', 9, 10), row('ب', 9.5, 10), partRow(95), hwRow(95)], { homework: { total: 6, submitted: 6, partial: 0, late: 0, missing: 0 } });
+  assert.deepEqual(none.recommendations, [], 'لا ضعف مثبت = تقرير مختصر بلا توصيات مخترَعة');
+  const many = dx([row('أول', 4, 10), row('ثاني', 3, 10), hwRow(40), partRow(20)], { homework: HW });
+  assert.ok(many.recommendations.length >= 3);
+  many.recommendations.forEach(r => { assert.ok(r.evidence && r.diagnosis && r.action); });
+});
+
+test('الفترة الجارية والمكوّن غير المصنَّف لا يدخلان التشخيص', () => {
+  const d = dx([row('أول', 4, 10), row('جارية', 1, 10, { live: true }), row('يدوي', 1, 10, { domain: null })]);
+  assert.equal(d.tahsili.recorded, 1, 'بند واحد فقط معتبر');
+  assert.equal(d.tahsili.enough, false);
+});
+
+/* ============ الحضور ============ */
+test('srAttendanceSummary: عدّاد لكل حالة وقائمة بتواريخ الغياب والتأخر والاستئذان كلها (بلا اقتطاع)', () => {
+  const app = loadApp();
+  const att = [];
+  for(let i = 1; i <= 30; i++) att.push({ status: 'absent', lesson: { lesson_date: '2026-10-' + String(i).padStart(2, '0'), period: 2, section_id: 'S' } });
+  att.push({ status: 'present', lesson: { lesson_date: '2026-09-01', section_id: 'S' } }, { status: 'late', lesson: { lesson_date: '2026-09-02', period: 1, section_id: 'S' } },
+    { status: 'permitted_exit', lesson: { lesson_date: '2026-09-03', section_id: 'OLD' } }, { status: 'junk', lesson: null });
+  const s = J(app.srAttendanceSummary(att, 'S'));
+  assert.deepEqual(s.counts, { present: 1, absent: 30, late: 1, permitted_exit: 1 });
+  assert.equal(s.list.length, 32, 'كل غياب وتأخر واستئذان، وليس آخر 20 فقط');
+  assert.equal(s.list[0].date, '2026-10-30', 'الأحدث أولًا');
+  assert.equal(s.list.find(x => x.status === 'permitted_exit').prevSection, true, 'شعبة سابقة');
+});
+
+/* ============ الصفحة ============ */
+const BASE = {
+  version: 'grades', student: { name: 'طالب تجريبي', label: 'ثاني متوسط — الشعبة 3' }, term: { year: '1448', semester: 1 }, date: '2026-11-06',
+  prefs: { school: 'مدرسة نموذجية', teacher: 'معلم', counselor: 'سعد', vice: 'ماجد', staff: 'فهد' }, logo: '', schoolLogo: '', to: null, rules: R,
+  rows: [], overall: { pts: 40, max: 60, pct: 66.7, incomplete: false, classPts: 33.5 }, missing: [],
+  attendance: null, incidents: [], positives: [], followups: [], tasks: [], cases: []
+};
+function html(version, over){
+  const app = loadApp();
+  const rows = [row('الاختبار الأول', 9, 10), row('الاختبار القصير', 4, 10)];
+  const d = app.srDiagnose({ rows, rules: R, homework: null, lessonsHeld: 0, overall: { pct: 66.7, incomplete: false } });
+  return runInAppContext(app, `buildStudentReportHtml2(Object.assign(${JSON.stringify(BASE)}, { version: ${JSON.stringify(version)}, rows: ${JSON.stringify(rows)}, dx: ${JSON.stringify(J(d))} }, ${JSON.stringify(over || {})}))`);
+}
+
+test('نسخة الدرجات: أرقام ومستويات فقط — بلا تشخيص ولا حضور ولا مخالفات ولا توصيات', () => {
+  const h = html('grades', { incidents: [{ incident_date: '2026-10-01', typeName: 'x', current_stage: 'warning_1' }], attendance: { counts: { present: 1, absent: 1, late: 0, permitted_exit: 0 }, list: [], recorded: 5 }, positives: [{ note_date: '2026-10-02', note_text: 'ممتاز' }] });
+  assert.match(h, /تقرير أداء الطالب</);
+  assert.match(h, /متقن/);
+  assert.match(h, /يحتاج تحسين/);
+  for(const gone of ['التشخيص', 'التوصيات', 'الحضور', 'المواقف السلوكية', 'الملاحظات الإيجابية', 'الخطوة التالية', 'متوسط الشعبة']) assert.doesNotMatch(h, new RegExp(gone), gone);
+  assert.match(h, /font-family:'Helvetica Neue W23 for SKY'/, 'خط الوزارة');
+  assert.doesNotMatch(h, /موجّه إلى/, 'لا سطر جهة بالترويسة');
+});
+
+test('النسخة التحليلية: كل قسم يظهر فقط إن وُجدت بياناته، بلا اختصار', () => {
+  const empty = html('analytical');
+  for(const gone of ['الحضور', 'المواقف السلوكية', 'الملاحظات الإيجابية', 'المتابعات المسجلة', 'حالات المتابعة الأكاديمية', 'المهام الأدائية']) assert.doesNotMatch(empty, new RegExp(gone), gone + ' بلا بيانات');
+  assert.match(empty, /التشخيص: ماذا يتقن الطالب/);
+  assert.match(empty, /الخطوة التالية المتفق عليها/);
+  assert.match(empty, /متوسط الشعبة/);
+  const list = []; for(let i = 1; i <= 25; i++) list.push({ status: 'absent', date: '2026-10-' + String(i).padStart(2, '0'), period: 1, prevSection: false });
+  const inc = []; for(let i = 1; i <= 15; i++) inc.push({ incident_date: '2026-10-' + String(i).padStart(2, '0'), typeName: 'مخالفة ' + i, current_stage: 'warning_1', occurrence_number: i, notes: 'ملاحظة ' + i, referral_letter_generated: i === 15 });
+  const full = html('analytical', {
+    attendance: { counts: { present: 20, absent: 25, late: 1, permitted_exit: 2 }, list, recorded: 48 },
+    incidents: inc, positives: [{ note_date: '2026-10-02', note_text: 'ساعد زميله' }],
+    followups: [{ created_at: '2026-10-21T10:00:00Z', reason_text: 'عدم تسليم الواجبات', status: 'open', review_date: '2026-11-20', next_step: 'اتصال' }],
+    tasks: [{ title: 'عرض', result: '12 من 15', due: '2026-10-20' }],
+    cases: [{ subject: 'إنجليزي', weakness_description: 'ضعف القراءة', plan_description: 'خطة', status: 'referred', plan_started_at: '2026-09-15', referral_letter_generated: true }]
+  });
+  for(const here of ['الحضور', 'المواقف السلوكية', 'الملاحظات الإيجابية', 'المتابعات المسجلة', 'حالات المتابعة الأكاديمية', 'المهام الأدائية', 'مستأذن']) assert.match(full, new RegExp(here), here);
+  assert.equal((full.match(/>غائب</g) || []).length >= 1, true);
+  assert.equal((full.match(/<tr><td>2026-10-\d\d<\/td><td class="n"><bdi dir="ltr">1<\/bdi><\/td>/g) || []).length, 25, 'كل غياب بصفه، ليس آخر 20');
+  assert.equal((full.match(/مخالفة \d+/g) || []).length, 15, 'كل المخالفات');
+  assert.match(full, /صدر خطاب إحالة/);
+  assert.match(full, /الخطوة التالية: اتصال/);
+  assert.match(full, /محال للموجه/);
+});
+
+test('الجهة الموجَّه إليها: اسمها تحت خانة توقيعها فقط، وتحليلي بتوقيعات المعلم والموجه والوكيل', () => {
+  const g = html('grades', { to: 'وكيل شؤون الطلاب' });
+  assert.match(g, /<div><small>ماجد<\/small>وكيل شؤون الطلاب<\/div>/);
+  assert.match(g, /<div><small>معلم<\/small>المعلم<\/div>/);
+  assert.match(html('grades', { to: null }), /<div><small><\/small>ولي الأمر<\/div>/);
+  assert.match(html('grades', { to: 'الموجه الطلابي' }), /<small>سعد<\/small>الموجه الطلابي/);
+  assert.match(html('grades', { to: 'وكيل شؤون المعلمين' }), /<small>فهد<\/small>وكيل شؤون المعلمين/);
+  const a = html('analytical');
+  assert.match(a, /<small>سعد<\/small>الموجه الطلابي/);
+  assert.match(a, /<small>ماجد<\/small>وكيل شؤون الطلاب/);
+});
+
+test('XSS: كل نص من المستخدم/القاعدة يُهرَّب (اسم، مخالفة، متابعة، حالة، مهمة، إيجابية، مدرسة)', () => {
+  const X = '<img src=x onerror=alert(1)>';
+  const h = html('analytical', {
+    student: { name: X, label: X }, prefs: Object.assign({}, BASE.prefs, { school: X, teacher: X, counselor: X }), to: null,
+    incidents: [{ incident_date: '2026-10-01', typeName: X, notes: X, current_stage: 'warning_1' }],
+    positives: [{ note_date: '2026-10-02', note_text: X }], tasks: [{ title: X, result: X, due: X }],
+    followups: [{ created_at: '2026-10-21', reason_text: X, status: 'open', review_date: X, next_step: X }],
+    cases: [{ subject: X, weakness_description: X, plan_description: X, status: 'plan_active', plan_started_at: X }]
+  });
+  assert.doesNotMatch(h, /<img src=x/);
+  assert.ok((h.match(/&lt;img src=x onerror=alert\(1\)&gt;/g) || []).length >= 10);
+});
+
+test('الأرقام تُعزل (bdi) فلا تنعكس «40 / 60» داخل النص العربي', () => {
+  const h = html('grades');
+  assert.match(h, /<bdi dir="ltr">9 \/ 10<\/bdi>/);
+  assert.match(h, /<bdi dir="ltr">40 \/ 60<\/bdi>/);
+});
+
+test('المستوى العام لا يُحكم به بلا أدلة كافية، وتُذكر العلة', () => {
+  const app = loadApp();
+  const rows = [row('قصير', 4, 10)];
+  const d = J(app.srDiagnose({ rows, rules: R, homework: null, lessonsHeld: 0, overall: { pct: 40, incomplete: false } }));
+  const h = runInAppContext(app, `buildStudentReportHtml2(Object.assign(${JSON.stringify(BASE)}, { rows: ${JSON.stringify(rows)}, overall: { pts: 4, max: 10, pct: 40, incomplete: false, classPts: null }, dx: ${JSON.stringify(d)} }))`);
+  assert.match(h, /لا أدلة كافية للحكم على المستوى العام/);
+});
+
+test('البنود غير المرصودة لا تظهر، وتُذكر في سطر «لم تُرصد بعد»', () => {
+  const h = html('grades', { missing: ['النهائي'] });
+  assert.match(h, /لم تُرصد بعد: النهائي/);
+});
+
+test('الفترة الجارية تُعرض بلا مستوى وعليها «جارية · لم تدخل»', () => {
+  const rows = [row('المشاركة — الفترة الثالثة', 2, 10, { row: 'period', live: true, domain: 'taalumi' }), row('المشاركة — المحسوب في المجموع', 9, 10, { row: 'sub', domain: 'taalumi' })];
+  const h = html('grades', { rows });
+  assert.match(h, /جارية · لم تدخل/);
+  assert.match(h, /الفترة الجارية تُعرض بدرجتها ولا تدخل في المجموع/);
+});
+
+/* ============ الدمج والأمان ============ */
+const SRC = read('app/app-36-student-report.js');
+
+test('الاستعلامات مفلترة بـteacher_id صراحةً، وملاحظات المعلم الخاصة لا تدخل التقرير', () => {
+  assert.match(SRC, /sb\.from\('academic_cases'\)[\s\S]{0,200}\.eq\('teacher_id', currentUser\.id\)\.eq\('student_id', studentId\)/);
+  assert.doesNotMatch(SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''), /classroom_private_notes|privateNotes\s*[,.)\]]/, 'لا استعمال لملاحظات المعلم الخاصة');
+  const app = loadApp();
+  const h = runInAppContext(app, `buildStudentReportHtml2(Object.assign(${JSON.stringify(BASE)}, { version: 'analytical', dx: srDiagnose({ rows: [], rules: ${JSON.stringify(R)}, homework: null, lessonsHeld: 0, overall: {} }), privateNotes: [{ body: 'سر المعلم' }] }))`);
+  assert.doesNotMatch(h, /سر المعلم/);
+});
+
+test('الملف مسجَّل بـindex.html وAPP_SHELL، والخط والشعار محليان، وخط الوزارة بـ@font-face', () => {
+  assert.match(read('index.html'), /app\/app-36-student-report\.js/);
+  const sw = read('sw.js');
+  assert.match(sw, /\.\/app\/app-36-student-report\.js/);
+  for(const f of ['HelveticaNeueW23forSKY-Regular.ttf', 'HelveticaNeueW23forSKY-Bold.ttf']){
+    assert.ok(fs.existsSync(path.join(root, 'fonts', f)), f);
+    assert.match(sw, new RegExp('\\./fonts/' + f.replace('.', '\\.')));
+    assert.match(read('style.css'), new RegExp("url\\('fonts/" + f.replace('.', '\\.') + "'\\)"));
+  }
+  assert.match(read('style.css'), /font-family:'Helvetica Neue W23 for SKY';font-weight:400/);
+  assert.match(read('style.css'), /font-family:'Helvetica Neue W23 for SKY';font-weight:700/);
+  assert.match(read('index.html'), /font-src 'self'/, 'CSP يسمح بالخط المحلي');
+});
+
+test('الأزرار: ملف الطالب والكشف يفتحان نافذة اختيار النسخة، وتقرير الاجتماع القديم أُزيل من ملف الطالب', () => {
+  assert.match(read('app/app-15-student-profile.js'), /openStudentReportChooser\('\$\{student\.id\}'\)/);
+  assert.doesNotMatch(read('app/app-15-student-profile.js'), /onclick="printCrmStudentReport/);
+  assert.match(read('app/app-17-grades.js'), /openStudentReportChooser\('\$\{st\.id\}'\)/);
+});
+
+test('نافذة الاختيار: نسختان، وتهريب اسم الطالب، والجهة لنسخة الدرجات', () => {
+  const app = loadApp();
+  runInAppContext(app, `
+    crmStudents = [{ id: 's1', full_name: '<b>x</b>', section_id: null }];
+    window.__m = []; showInfoModal = h => window.__m.push(h);
+    openStudentReportChooser('s1');`);
+  const m = app.__m[0];
+  assert.match(m, /srChooserGo\('s1','analytical'\)/);
+  assert.match(m, /srChooserGo\('s1','grades'\)/);
+  assert.doesNotMatch(m, /<b>x<\/b>/);
+  assert.match(m, /&lt;b&gt;x&lt;\/b&gt;/);
+  for(const t of ['ولي الأمر', 'الموجه الطلابي', 'وكيل شؤون الطلاب', 'وكيل شؤون المعلمين']) assert.match(m, new RegExp(t));
+});
+
+/* ============ مفاتيح التشغيل: الموقوف لا يظهر ولا يُقرأ ============ */
+function e2e(setup){
+  const app = loadApp({ currentUser: { id: 'u1', user_metadata: { full_name: 'م' } } });
+  runInAppContext(app, `
+    crmStudents = [{ id: 's', full_name: 'طالب', section_id: null }]; crmGradeLevels = []; crmSections = []; crmIncidentTypes = [{ id: 't' }];
+    studentClassLabel = () => ({ grade: 'غ', section: 'ش' });
+    window.__cases = 0; srLoadCases = async () => { window.__cases++; return [{ subject: 'مادة', weakness_description: 'ضعف', status: 'plan_active' }]; };
+    loadCrmStudentProfileData = async () => ({ studentId: 's', currentSectionId: null, recordedLessons: 5,
+      attendance: [{ status: 'absent', lesson: { lesson_date: '2026-10-01', period: 1, section_id: null } }],
+      incidents: [{ incident_date: '2026-10-02', typeName: 'مخالفة س', current_stage: 'warning_1' }],
+      positives: [{ note_date: '2026-10-03', note_text: 'إيجابي' }], tasks: [],
+      followups: [{ created_at: '2026-10-04', reason_text: 'متابعة س', status: 'open', review_date: '2026-11-01' }],
+      privateNotes: [{ body: 'سر المعلم' }] });
+    gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => '';
+    ${setup}
+    window.__p = srBuildReport('s', 'analytical', null, {});`);
+  return app;
+}
+
+test('الافتراضي (المتابعات والمتابعة الأكاديمية موقوفتان بالمنتج): لا تظهران ولا يُقرأ جدول الحالات', async () => {
+  const app = e2e('appToolOn = () => true;');
+  const out = await app.__p;
+  assert.match(out.html, /الحضور/);
+  assert.match(out.html, /المواقف السلوكية/);
+  assert.match(out.html, /الملاحظات الإيجابية/);
+  assert.doesNotMatch(out.html, /المتابعات المسجلة|متابعة س/, 'FOLLOWUPS_ON = false');
+  assert.doesNotMatch(out.html, /حالات المتابعة الأكاديمية/, 'ACADEMIC_ON = false');
+  assert.equal(app.__cases, 0, 'جدول academic_cases لا يُقرأ');
+  assert.doesNotMatch(out.html, /سر المعلم/);
+});
+
+test('عند تشغيلهما: المتابعات والحالات الأكاديمية تظهر', async () => {
+  const app = e2e('appToolOn = () => true; followupsOn = () => true; ACADEMIC_ON = true;');
+  const out = await app.__p;
+  assert.match(out.html, /المتابعات المسجلة/);
+  assert.match(out.html, /متابعة س/);
+  assert.match(out.html, /حالات المتابعة الأكاديمية/);
+  assert.equal(app.__cases, 1);
+});
+
+test('أداة الحضور أو السلوك موقوفة: قسمها لا يظهر في التقرير', async () => {
+  const off = await e2e("appToolOn = k => k !== 'attendance' && k !== 'behavior';").__p;
+  assert.doesNotMatch(off.html, /<h2>الحضور<\/h2>/);
+  assert.doesNotMatch(off.html, /المواقف السلوكية|مخالفة س/);
+  assert.match(off.html, /الملاحظات الإيجابية/);
+});
