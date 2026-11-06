@@ -17,7 +17,7 @@ const GRADE_REPORT_DEFAULT = {
 };
 const GRADE_REPORT_SHOW_LABELS = {
   levels: 'توزيع الطلاب على المستويات',
-  stats: 'المؤشرات الإحصائية (أدنى · أعلى · وسيط)',
+  stats: 'المؤشرات الإحصائية (أدنى · أعلى · وسيط — تقرير المجموعة)',
   items: 'درجات البنود',
   names: 'أسماء الطلاب (ضعاف · متوسطون · متفوقون)',
   compare: 'مقارنة بالفصل السابق (تقرير الشعبة)'
@@ -107,7 +107,7 @@ function gradeReportItems(g, students){
 
 /* مستويات ثلاثة (متفوق · متوسط · ضعيف) بحدود المعلم، لمن رُصد له فقط */
 function gradeReportLevels(rows, rules){
-  const rec = (rows || []).filter(r => r.pct !== null);
+  const rec = (rows || []).filter(r => r.pct !== null && !r.incomplete);
   return {
     top: rec.filter(r => r.pct >= rules.top).length,
     low: rec.filter(r => r.pct < rules.pass).length,
@@ -169,6 +169,10 @@ function gradeReportStudentNotes(c){
     reading.push('لم تُرصد درجات لهذا الطالب بعد.');
     return { reading, strengths, weaknesses, plans };
   }
+  if(c.incomplete){
+    reading.push(`لم تكتمل درجات الطالب${c.missing && c.missing.length ? ' (الناقص: ' + c.missing.map(escapeHtml).join('، ') + ')' : ''}؛ لا يُصنَّف مستواه حتى تُرصد.`);
+    return { reading, strengths, weaknesses, plans };
+  }
   const diff = c.classPts === null ? null : Math.round((c.pts - c.classPts) * 10) / 10;
   reading.push(`حقق الطالب ${grn(f(c.pts))} من ${grn(f(c.max))} (${grn(Math.round(c.pct) + '%')})${diff === null ? '' : diff >= 0 ? `، فوق متوسط الشعبة بـ ${grn(f(diff))} درجة` : `، دون متوسط الشعبة بـ ${grn(f(Math.abs(diff)))} درجة`}.`);
   reading.push(c.pct < r.pass ? `وهو أقل من ${grn(r.pass + '%')}، أي من الضعاف ويحتاج دعمًا.`
@@ -228,13 +232,13 @@ function gradeReportStudentData(g, studentId){
   if(!st) return null;
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
   const testsOn = appToolOn('tests');
-  const resOf = id => studentGradeResult(g.columns, g.scores, id, caps);
-  const r = resOf(studentId);
-  const t = studentGradeTotal(r, testsOn, caps);
-  const max = r.performance.max + (testsOn ? Number(caps.tests) : 0);
-  const has = t.points !== null && t.recordedMax > 0;
-  const totals = students.map(s => studentGradeTotal(resOf(s.id), testsOn, caps)).filter(x => x.points !== null && x.recordedMax > 0);
-  const mean = fn => totals.length ? totals.reduce((a, x) => a + fn(x), 0) / totals.length : null;
+  /* الأساس نفسه كتحليل الشعبة: مقارنته بمكتملي الرصد فقط، وغير المكتمل يُعرض بما رُصد له ولا يُصنَّف */
+  const res = gradeAnalysisRows(g, students, 'total', caps, testsOn);
+  const row = res.rows.find(x => x.id === studentId);
+  const comp = res.rows.filter(x => !x.incomplete && x.points !== null);
+  const r = studentGradeResult(g.columns, g.scores, studentId, caps);
+  const has = row.points !== null;
+  const mean = fn => comp.length ? comp.reduce((a, x) => a + fn(x), 0) / comp.length : null;
   const colAvgPct = (id, mx) => {
     const rows = (g.scores || []).filter(s => s.column_id === id);
     return rows.length ? 100 * rows.reduce((a, s) => a + Number(s.score), 0) / rows.length / mx : null;
@@ -245,8 +249,9 @@ function gradeReportStudentData(g, studentId){
   }));
   return {
     name: st.full_name, label: crmSectionLabel(g.sectionId), year: g.year, semester: g.semester,
-    pts: has ? t.points : null, max, pct: has ? 100 * t.points / t.recordedMax : null,
-    classPts: mean(x => x.points), classPct: mean(x => 100 * x.points / x.recordedMax),
+    pts: has ? row.points : null, max: row.incomplete && row.recordedMax > 0 ? row.recordedMax : res.displayMax, pct: has ? row.pct : null,
+    classPts: mean(x => x.points), classPct: mean(x => x.pct),
+    incomplete: !!row.incomplete, missing: row.missing || [],
     items, rules: gradeAnalysisRulesNow()
   };
 }
@@ -294,11 +299,22 @@ const GRADE_REPORT_CSS = `
 .gr .leg{font-size:10px;color:#5b6b74;display:flex;gap:14px;margin:5px 0}.gr .leg s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:4px;text-decoration:none}
 .gr .sig{margin-top:10px;margin-bottom:0;padding-top:6px;border-top:1px solid #d5dde1;display:flex;justify-content:space-around;font-size:11px;color:#5b6b74;text-align:center}
 .gr .sig>div{flex:1;padding:0 12px}.gr .sig b{display:block;color:#15445a;font-size:12.5px;margin-top:3px;min-height:18px}.gr .sig .ln{display:block;border-bottom:1px solid #8a979f;height:24px;margin:2px 0 3px}.gr .sig small{font-size:9px;color:#8a979f}
+/* ملخص + قائمة الطلاب + غير المكتملين (التصميم المعتمد) */
+.gr .sx{border:1.5px solid #dfe6ea;border-radius:11px;padding:3px 12px;margin-bottom:9px}
+.gr .sx .sl{display:flex;align-items:baseline;gap:10px;padding:3.5px 0;border-bottom:1px solid #eef2f4;font-size:12.5px;line-height:1.7}.gr .sx .sl:last-child{border-bottom:0}
+.gr .sx .lb2{flex:0 0 92px;font-weight:800;color:#351375}.gr .sx .lb2.q{color:#7258a4}.gr .sx .tx{flex:1}
+.gr tr.lowrow td{background:#f1eef7}
+.gr td.mk{width:12px;padding:0}.gr td.mk i{display:block;width:6px;height:16px;border-radius:2px;margin-right:3px}.gr td.mk i.hol{background:#fff;border:1.5px solid #7a8791;width:5px;height:13px}
+.gr .low-t{color:#7258a4;font-weight:800}
+.gr .c3 table{font-size:12px}.gr .c3 td:nth-child(2){white-space:normal}.gr .c3 th{font-size:11px;padding-left:3px;padding-right:4px}.gr .c3 td{padding-top:2.5px;padding-bottom:2.5px}.gr .c3 td.mk{white-space:normal}
+.gr .key{margin-right:auto;display:flex;gap:12px;font-size:11px;font-weight:600;color:#15445a}.gr .key span{display:flex;align-items:center;gap:5px}.gr .key i{display:inline-block;width:9px;height:12px;border-radius:2px}.gr .key i.hol{background:#fff;border:1.5px solid #7a8791;width:7px;height:10px}
+.gr .cp.h{background:#fff;color:#4a5a63;border:1.5px solid #7a8791;line-height:1.5}
+.gr .inc{margin-top:8px;border:1.5px dashed #9fb3bd;border-radius:9px;padding:3px 10px}.gr .inc table{font-size:12px}.gr .inc th{background:#eef2f4;color:#15445a}.gr .inc td{background:#fff !important}
 /* ضغط تلقائي (gradeReportFit) حين يزيد التقرير قليلًا عن صفحة: مستويان */
 .gr.cmp1 .hd{margin-bottom:8px}.gr.cmp1 .hd img{height:46px}.gr.cmp1 h2{margin:6px 0 4px;font-size:13px}
 .gr.cmp1 .kp{margin-bottom:6px}.gr.cmp1 .kp>div{padding:3px 4px}.gr.cmp1 .kp b{font-size:17px;line-height:1.35}
 .gr.cmp1 td{padding:1.5px 7px}.gr.cmp1 th{padding:2.5px 7px}.gr.cmp1 .gw{margin-bottom:5px}.gr.cmp1 .gh{padding:2px 9px}
-.gr.cmp1 .nb{padding:4px 12px;margin:3px 0}.gr.cmp1 .sig{margin-top:6px}.gr.cmp1 .sig .ln{height:20px}
+.gr.cmp1 .nb{padding:4px 12px;margin:3px 0}.gr.cmp1 .sx .sl{padding:2px 0}.gr.cmp1 .c3 td{padding-top:1.5px;padding-bottom:1.5px}.gr.cmp1 .inc{margin-top:5px}.gr.cmp1 .sig{margin-top:6px}.gr.cmp1 .sig .ln{height:20px}
 .gr.cmp2{font-size:11.5px}.gr.cmp2 table{font-size:10.5px}.gr.cmp2 td{padding:1px 6px}.gr.cmp2 .kp>div{padding:2px 4px}.gr.cmp2 .fn{margin:2px 0}
 @media print{.gr{padding:0}.gr .pdf-avoid-break{break-inside:avoid;page-break-inside:avoid}.gr h2{break-after:avoid;page-break-after:avoid}}
 `;
@@ -333,23 +349,22 @@ function grKpis(list){
   return `<div class="kp">${list.map(([v, l, s, c]) => `<div class="${c || ''}"><b>${val(v)}</b><span>${l}</span>${s ? `<small>${s}</small>` : ''}</div>`).join('')}</div>`;
 }
 
-/* مستويات الطلاب: جدول (الحد · العدد · النسبة) + شريط واحد — ضعاف · متوسطون · متفوقون */
+/* مستويات الطلاب: ضعاف · متوسطون · متفوقون لمكتملي الرصد، وصف «رصد غير مكتمل» (لا يُصنَّفون)، ثم المجموع */
 function grLevels(s){
-  const r = s.rules, t = s.recorded || 1;
-  const lowN = s.groups.low.length, midN = s.mid.length, topN = s.groups.top.length;
-  const pc = n => grn(Math.round(100 * n / t) + '%');
-  const row = (cls, label, limit, n) => `<tr><td><span class="cp ${cls}">${label}</span></td><td class="n">${limit}</td><td class="n"><b>${grn(n)}</b></td><td class="n">${pc(n)}</td></tr>`;
-  return `<table><tr><th>المستوى</th><th class="n">الحد</th><th class="n">العدد</th><th class="n">النسبة</th></tr>` +
-    row('w', 'ضعاف', `أقل من ${r.pass}%`, lowN) + row('m', 'متوسطون', `من ${r.pass}% إلى أقل من ${r.top}%`, midN) +
-    row('t', s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.topIsFallback ? 'أعلى 3 درجات' : `${r.top}% فأكثر`, topN) +
-    `</table><div class="lb"><i class="g" style="flex:${topN}"></i><i class="bl" style="flex:${midN}"></i><i class="tn" style="flex:${lowN}"></i></div>`;
+  const r = s.rules;
+  const incN = s.incomplete ? s.incomplete.length : 0;
+  const row = (cls, label, limit, n) => `<tr><td><span class="cp ${cls}">${label}</span></td><td>${limit}</td><td class="n"><b>${grn(n)}</b></td></tr>`;
+  return `<table><tr><th>المستوى</th><th>الحد</th><th class="n">العدد</th></tr>` +
+    row('w', 'ضعاف', `أقل من ${r.pass}%`, s.groups.low.length) + row('m', 'متوسطون', `من ${r.pass}% إلى أقل من ${r.top}%`, s.mid.length) +
+    row('t', s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.topIsFallback ? 'أعلى 3 درجات' : `${r.top}% فأكثر`, s.groups.top.length) +
+    (incN ? row('h', 'رصد غير مكتمل', 'لا يُصنَّفون', incN) : '') +
+    `<tr><td><b>المجموع</b></td><td></td><td class="n"><b>${grn(s.total)}</b></td></tr></table>`;
 }
 
-/* البنود: جدول بمتوسط كل بند وشريط صغير مقابل خط حدّ الضعاف */
+/* البنود: متوسط كل بند لمن رُصد له (وما دون حدّ الضعاف بلون الخط) */
 function grItemsTable(items, onId, rules){
-  const tone = p => p < rules.pass ? 'tn' : p >= rules.top ? 'g' : 'bl';
-  return `<table><tr><th>البند</th><th class="n">المتوسط</th><th class="n">النسبة</th><th>مقابل خط ${rules.pass}%</th></tr>` +
-    items.map(x => `<tr${onId === x.id ? ' class="on"' : ''}><td>${escapeHtml(x.name)}${onId === x.id ? ' <span class="cn">المحلَّل</span>' : ''}</td><td class="n">${grn(formatScore(x.avg) + ' / ' + formatScore(x.max))}</td><td class="n"><b>${grn(x.avgPct + '%')}</b></td><td style="width:30%"><div class="mb"><i class="${tone(x.avgPct)}" style="width:${Math.min(100, x.avgPct)}%"></i><u style="right:${rules.pass}%"></u></div></td></tr>`).join('') + '</table>';
+  return `<table><tr><th>البند</th><th class="n">المتوسط (لمن رُصد له)</th><th class="n">النسبة</th></tr>` +
+    items.map(x => `<tr${onId === x.id ? ' class="on"' : ''}><td>${escapeHtml(x.name)}${onId === x.id ? ' <span class="cn">المحلَّل</span>' : ''}</td><td class="n">${grn(formatScore(x.avg) + ' / ' + formatScore(x.max))}</td><td class="n"><b${x.avgPct < rules.pass ? ' class="low-t"' : ''}>${grn(x.avgPct + '%')}</b></td></tr>`).join('') + '</table>';
 }
 
 /* التعليق التربوي بحسب اختيار المعلم؛ فارغ = لا يُكتب */
@@ -369,16 +384,70 @@ function grSig(prefs, third, thirdName){
   return `<div class="sig pdf-avoid-break">${third ? cell(third, thirdName || '') : ''}${cell('معلم المادة', gradeReportTeacherName(prefs))}${cell('وكيل شؤون الطلاب', prefs.vice)}</div>`;
 }
 
-/* قوائم الأسماء بثلاثة أعمدة: الضعاف والمتفوقون في عمود، والمتوسطون في عمودين (عمود واحد إن قلّوا) */
-function grNamesCols(low, mid, top){
-  const rowOf = r => `<tr><td>${escapeHtml(r.name)}${r.partial ? ' <b style="color:#7258a4">*</b>' : ''}</td><td class="n">${grn(formatScore(r.points) + ' / ' + formatScore(r.recordedMax))}</td><td class="n">${grn(Math.round(r.pct) + '%')}</td></tr>`;
-  const head = '<tr><th>اسم الطالب</th><th class="n">الدرجة</th><th class="n">النسبة</th></tr>';
-  const tbl = (title, cls, list) => list.length ? `<div class="gw"><div class="gh ${cls}"><b>${title}</b><span>${grn(list.length)}</span></div><table>${head}${list.map(rowOf).join('')}</table></div>` : '';
-  if(!low.length && !mid.length && !top.length) return '';
-  const half = Math.ceil(mid.length / 2);
-  const midCols = mid.length > 10 ? [mid.slice(0, half), mid.slice(half)] : [mid];
-  const cols = [tbl('الضعاف', 'w', low) + tbl('المتفوقون', 't', top)].concat(midCols.map((l, i) => tbl(i ? 'المتوسطون (تابع)' : 'المتوسطون', 'm', l)));
-  return grBlock(grH2('قوائم الطلاب') + `<div class="c3">${cols.map(c => `<div>${c}</div>`).join('')}</div>`);
+/* قائمة الطلاب: واحدة مرتبة من الأدنى نسبةً في 3 أعمدة (أقل إن قلّوا)، وعلامة لون للمستوى، ومفتاح الألوان،
+   ثم جدول منفصل لغير المكتملين (لا يُصنَّفون) */
+function grRoster(s){
+  const topIds = new Set(s.groups.top.map(x => x.id)), lowIds = new Set(s.groups.low.map(x => x.id));
+  const comp = [].concat(s.groups.low, s.mid, s.groups.top).sort((x, y) => x.pct - y.pct || x.name.localeCompare(y.name, 'ar'));
+  const inc = s.incomplete || [];
+  if(!comp.length && !inc.length) return '';
+  const color = r => lowIds.has(r.id) ? '#7258a4' : topIds.has(r.id) ? '#07a869' : '#3d7eb9';
+  const rowOf = r => `<tr${lowIds.has(r.id) ? ' class="lowrow"' : ''}><td class="mk"><i style="background:${color(r)}"></i></td><td>${escapeHtml(r.name)}</td><td class="n">${grn(formatScore(r.points))}</td><td class="n">${grn(Math.round(r.pct) + '%')}</td></tr>`;
+  const head = '<tr><th class="mk"></th><th>اسم الطالب</th><th class="n">الدرجة</th><th class="n">النسبة</th></tr>';
+  const k = comp.length > 12 ? 3 : comp.length > 6 ? 2 : 1;
+  const base = Math.floor(comp.length / k), extra = comp.length % k;
+  const cols = []; let i = 0;
+  for(let c = 0; c < k; c++){ const n = base + (c < extra ? 1 : 0); cols.push(comp.slice(i, i + n)); i += n; }
+  const key = `<span class="key"><span><i style="background:#7258a4"></i>ضعاف</span><span><i style="background:#3d7eb9"></i>متوسطون</span><span><i style="background:#07a869"></i>${s.topIsFallback ? 'الأعلى درجات' : 'متفوقون'}</span>${inc.length ? '<span><i class="hol"></i>رصد غير مكتمل</span>' : ''}</span>`;
+  const list = comp.length ? `<h2>قائمة الطلاب (من الأدنى نسبةً)${key}</h2><div class="c3">${cols.map(c => `<div><table>${head}${c.map(rowOf).join('')}</table></div>`).join('')}</div>` : '';
+  const incRow = r => `<tr><td class="mk"><i class="hol"></i></td><td>${escapeHtml(r.name)}</td><td class="n">${r.points === null ? '—' : grn(formatScore(r.points) + ' / ' + formatScore(r.recordedMax))}</td><td class="n">${r.points === null ? '—' : grn(Math.round(r.pct) + '%')}</td><td>${escapeHtml((r.missing || []).join('، ')) || '—'} غير مرصود</td></tr>`;
+  const incHtml = inc.length ? `<div class="inc pdf-avoid-break"><table><tr><th class="mk"></th><th>رصد غير مكتمل</th><th class="n">الدرجة المرصودة</th><th class="n">النسبة</th><th>الناقص</th></tr>${inc.map(incRow).join('')}</table></div>` : '';
+  return grBlock(list + incHtml);
+}
+
+/* ===== خلاصة تحليلية: أسطر قصيرة تُولَّد من الأرقام فقط (بلا أسباب ولا نصائح عامة) ===== */
+function gradeReportSummary(a, v, items, withNames){
+  const s = v.stats, r = s.rules, isTotal = a.key === 'total';
+  const inc = s.incomplete || [];
+  if(!s.recorded && !inc.length) return '';
+  const lines = [];
+  const lv = [['ضعاف', s.groups.low.length], ['متوسطون', s.mid.length], [s.topIsFallback ? 'الأعلى درجات' : 'متفوقون', s.groups.top.length]];
+  if(s.recorded){
+    const big = lv.reduce((m, x) => x[1] > m[1] ? x : m);
+    const share = big[1] * 2 > s.recorded ? `أغلبهم ${big[0]} (<b>${grn(big[1])}</b>)` : `أكبر مستوى: ${big[0]} (<b>${grn(big[1])}</b>)`;
+    const basis = inc.length ? ` لـ${gradeReportCount(s.recorded)} مكتملي الرصد` : '';
+    lines.push(['الصورة العامة', `متوسط ${isTotal ? 'الشعبة' : escapeHtml(v.colLabel)} <b>${grn((s.avgPct === null ? '—' : s.avgPct) + '%')}</b> (${grn(formatScore(Math.round(s.avg * 10) / 10))} من ${grn(formatScore(v.displayMax))})${basis}. ${share}.`]);
+  }
+  if(isTotal && items.length > 1){
+    const lowest = items.reduce((m, x) => x.avgPct < m.avgPct ? x : m);
+    const below = items.filter(x => x.avgPct < r.pass);
+    const one = x => `<b>${escapeHtml(x.name)}</b>`;
+    const txt = below.length === 1 ? `${one(lowest)} أضعف البنود، ${grn(formatScore(lowest.avg) + ' / ' + formatScore(lowest.max))} (<b>${grn(lowest.avgPct + '%')}</b>)، والوحيد دون ${r.pass}%.`
+      : below.length > 1 ? `${one(lowest)} أضعف البنود (<b>${grn(lowest.avgPct + '%')}</b>)، ومعه دون ${r.pass}%: ${below.filter(x => x !== lowest).map(x => escapeHtml(x.name)).join('، ')}.`
+      : `لا بند دون ${r.pass}%؛ أضعفها ${one(lowest)} (<b>${grn(lowest.avgPct + '%')}</b>).`;
+    lines.push(['موضع الاهتمام', txt]);
+  }
+  const lowN = s.groups.low.length;
+  if(s.recorded) lines.push(['يحتاج متابعة', lowN ? `<b>${gradeReportCount(lowN)}</b> أقل من ${r.pass}%${withNames ? ' (في أول القائمة أدناه)' : ''}.` : `لا طالب أقل من ${r.pass}%.`]);
+  let what = '';
+  if(inc.length){
+    const n = inc.length;
+    const sigs = new Set(inc.map(x => x.points === null ? '*' : (x.missing || []).join('|')));
+    const single = sigs.size === 1 && !sigs.has('*') ? (inc[0].missing || []).join(' و') : '';
+    what = single ? `بلا درجة ${escapeHtml(single)}` : sigs.size === 1 && sigs.has('*') ? 'بلا أي درجة' : 'بدرجات ناقصة';
+    const suf = n === 1 ? 'ه' : n === 2 ? 'هما' : 'هم', vb = n === 1 ? '' : n === 2 ? 'ا' : 'وا';
+    lines.push(['رصد ناقص', `<b>${gradeReportCount(n)}</b> ${what}؛ تصنيف${suf} يتوقف عليها، فلم يُصنَّف${vb}.`, true]);
+  }
+  const act = [];
+  if(inc.length){
+    const n = inc.length;
+    const who = n === 1 ? 'للطالب' : n === 2 ? 'للطالبين' : 'للطلاب';
+    const single = what.indexOf('بلا درجة ') === 0 ? what.slice('بلا درجة '.length) : '';
+    act.push(`أكمل ${single ? 'رصد ' + single : 'الدرجات الناقصة'} ${who} (أدخل 0 إن كان صفرًا)`);
+  }
+  if(lowN) act.push(inc.length ? `ثم تابع الأقل من ${r.pass}% من الأدنى` : `تابع الطلاب الأقل من ${r.pass}% من الأدنى نسبةً`);
+  if(act.length) lines.push(['الإجراء', act.join('، ') + '.']);
+  return `<div class="sx">${lines.map(([l, t, q]) => `<div class="sl"><span class="lb2${q ? ' q' : ''}">${l}</span><span class="tx">${t}</span></div>`).join('')}</div>`;
 }
 
 /* مقارنة بالفصل السابق: ctx.prev = { sum, names: Map } */
@@ -397,12 +466,11 @@ function grCompare(prev, withNames){
   return grBlock(html + `<div class="fn">قورن ${grn(sum.compared)} طالبًا؛ التغيّر المعتبر ${grn(GRADE_COMPARE_RULES.changePct)} نقاط مئوية فأكثر، والنسبة مما رُصد في كل فصل.</div>`);
 }
 
-function grFootnote(s, withNames){
-  const r = s.rules;
+function grFootnote(s){
+  const r = s.rules, n = s.incomplete ? s.incomplete.length : 0;
   let t = `معيار المستويات: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما. `;
-  if(s.missing) t += `المحلَّل ${s.recorded} من ${s.total} طالبًا؛ من لم يُرصد له لا يدخل في الحساب (لا يُعدّ صفرًا). `;
-  if(s.partial) t += `${s.partial} طالبًا رُصد لهم جزء من الأعمدة فنسبة كل منهم مما رُصد له${withNames ? ' (يُشار إليهم بنجمة *)' : ''}. `;
-  return `<div class="fn">${t}تحليل للدرجات المرصودة فقط.</div>`;
+  if(n) t += `${n} طلاب لم تكتمل درجاتهم: لا يُصنَّفون ولا يدخلون في المتوسط. `;
+  return `<div class="fn">${t}</div>`;
 }
 
 /* تقرير الشعبة (المجموع) أو بند واحد: a = crmGradeAnalysis، v = gradeAnalysisView(a) */
@@ -412,17 +480,13 @@ function gradeReportSectionHtml(a, v, prefs, ctx){
   const items = gradeReportItems(a.g, a.students);
   const notes = gradeReportSectionNotes({ s, displayMax: v.displayMax, items, isTotal, colLabel: v.colLabel });
   const max = formatScore(v.displayMax);
-  const kp = [[(s.avgPct === null ? '—' : s.avgPct + '%'), 'متوسط التحصيل', `${formatScore(s.avg)} من ${max}`, 'b']];
-  if(prefs.show.stats) kp.push([formatScore(s.median), 'الوسيط', `من ${max}`, 'n'], [`${formatScore(s.min)} – ${formatScore(s.max)}`, 'أدنى وأعلى درجة', '', 'n']);
-  kp.push([s.recorded, 'عدد الطلاب', [s.missing ? `من ${s.total} (لم يُرصد ${s.missing})` : '', s.partial ? `${s.partial} رُصد لهم جزء` : ''].filter(Boolean).join(' · '), 'n']);
   const lvBlock = prefs.show.levels ? `<div><h2>مستويات الطلاب</h2>${grLevels(s)}</div>` : '';
-  const itBlock = prefs.show.items && items.length ? `<div><h2>${isTotal ? 'متوسط درجات البنود' : 'درجات البنود (متوسط الشعبة)'}</h2>${grItemsTable(items, isTotal ? null : a.key, r)}<div class="fn">الخط الأسود = ${r.pass}% من الدرجة.${isTotal ? ' المجموع بعد تطبيق أوزان الدرجات؛ لذلك لا يساوي مجموع الدرجات العظمى للبنود.' : ''}</div></div>` : '';
+  const itBlock = prefs.show.items && items.length ? `<div><h2>${isTotal ? 'متوسط البنود' : 'درجات البنود'}</h2>${grItemsTable(items, isTotal ? null : a.key, r)}</div>` : '';
   const mid = lvBlock || itBlock ? grBlock(`<div class="two">${lvBlock}${itBlock}</div>`) : '';
   const analysed = isTotal ? '' : `<h2>البند المحلَّل: ${escapeHtml(v.colLabel)} (من ${grn(max)})</h2>`;
-  const topList = s.topIsFallback ? [] : s.groups.top;
-  const names = ctx.withNames ? grNamesCols(s.groups.low, s.mid, topList) : '';
+  const names = ctx.withNames ? grRoster(s) : '';
   const sub = escapeHtml(a.label) + ' | ' + (isTotal ? `المجموع من ${grn(max)}` : 'تحليل بند واحد');
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج الدرجات — الشعبة', sub)}${analysed}${grKpis(kp)}${mid}${names}${prefs.show.compare ? grCompare(ctx.prev, ctx.withNames) : ''}${grNotes(notes, prefs)}${grFootnote(s, ctx.withNames)}${grSig(prefs)}</div>`;
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(ctx, prefs, 'تحليل نتائج الدرجات — الشعبة', sub)}${analysed}${gradeReportSummary(a, v, items, ctx.withNames)}${mid}${names}${prefs.show.compare ? grCompare(ctx.prev, ctx.withNames) : ''}${grNotes(notes, prefs)}${grSig(prefs)}</div>`;
 }
 
 /* تقرير مجموعة الشعب: d = { gradeName, key, colLabel, secs:[{ label, s, levels, items }], pooled, displayMax } */
@@ -458,12 +522,12 @@ function gradeReportGroupHtml(d, prefs, ctx){
 /* تقرير طالب: d من gradeReportStudentData */
 function gradeReportStudentHtml(d, prefs, ctx){
   const r = d.rules;
-  const diff = d.pts === null || d.classPts === null ? null : Math.round((d.pts - d.classPts) * 10) / 10;
-  const state = d.pct === null ? '—' : d.pct < r.pass ? 'ضعيف' : d.pct >= r.top ? 'متفوق' : 'متوسط';
+  const diff = d.pts === null || d.classPts === null || d.incomplete ? null : Math.round((d.pts - d.classPts) * 10) / 10;
+  const state = d.incomplete ? 'رصد غير مكتمل' : d.pct === null ? '—' : d.pct < r.pass ? 'ضعيف' : d.pct >= r.top ? 'متفوق' : 'متوسط';
   const kpis = grKpis([
-    [d.pts === null ? '—' : formatScore(d.pts), `مجموع الدرجات من ${formatScore(d.max)}`, '', 'n'],
+    [d.pts === null ? '—' : formatScore(d.pts), `${d.incomplete ? 'الدرجة المرصودة' : 'مجموع الدرجات'} من ${formatScore(d.max)}`, '', 'n'],
     [d.pct === null ? '—' : Math.round(d.pct) + '%', 'النسبة المئوية', '', ''],
-    [diff === null ? '—' : (diff > 0 ? '+' : '') + formatScore(diff), 'الفارق عن متوسط الشعبة', d.classPts === null ? '' : `(${formatScore(Math.round(d.classPts * 100) / 100)})`, diff !== null && diff < 0 ? 'r' : 'b'],
+    [diff === null ? '—' : (diff > 0 ? '+' : '') + formatScore(diff), 'الفارق عن متوسط الشعبة', d.classPts === null || d.incomplete ? '' : `(${formatScore(Math.round(d.classPts * 100) / 100)})`, diff !== null && diff < 0 ? 'r' : 'b'],
     [state, 'المستوى', '', 'n']]);
   const itemsHtml = prefs.show.items ? grBlock(grH2('درجات البنود مقارنةً بمتوسط الشعبة') +
     '<div class="leg"><span><s class="g"></s>متفوق</span><span><s class="bl"></s>متوسط</span><span><s class="tn"></s>ضعيف</span><span>▏ علامة متوسط الشعبة</span></div>' +
@@ -472,7 +536,7 @@ function gradeReportStudentHtml(d, prefs, ctx){
       const dl = x.classPct === null ? null : Math.round(x.pct - x.classPct);
       return `<div class="it"><div class="a">${escapeHtml(x.name)}</div><div class="tr"><i class="${gradeReportItemTone(x.pct, r)}" style="width:${Math.min(100, x.pct)}%"></i>${x.classPct === null ? '' : `<u style="right:${Math.min(100, x.classPct)}%"></u>`}</div><div class="v">${grn(formatScore(x.score) + ' / ' + formatScore(x.max))} ${dl === null ? '' : `<span style="font-weight:700;color:${dl >= 0 ? '#0a8f5b' : '#a85d3a'}">${dl >= 0 ? '▲' : '▼'} ${grn(Math.abs(dl) + '%')}</span>`}</div></div>`;
     }).join('') + '<div class="fn">ما لم يُرصد لا يُحسب على الطالب.</div>') : '';
-  const notes = gradeReportStudentNotes({ pts: d.pts, max: d.max, pct: d.pct, classPts: d.classPts, classPct: d.classPct, items: d.items, rules: r });
+  const notes = gradeReportStudentNotes({ incomplete: d.incomplete, missing: d.missing, pts: d.pts, max: d.max, pct: d.pct, classPts: d.classPts, classPct: d.classPct, items: d.items, rules: r });
   const meta = { logo: ctx.logo, date: ctx.date, year: d.year, semester: d.semester };
   const to = ctx.to ? String(ctx.to) : '';
   /* الجهة الموجَّه إليها: سطر تحت العنوان + خانة توقيعها (وكيل الشؤون له خانة ثابتة أصلًا) */

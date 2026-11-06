@@ -2190,7 +2190,7 @@ button.crm-gs-strip-btn:hover{background:#F1EEE6;}
 .crm-ga-grp{border:1px solid var(--line);border-radius:10px;margin-bottom:6px;overflow:hidden;}
 .crm-ga-ghead{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 12px;background:#fff;border:0;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;color:var(--navy);text-align:right;}
 .crm-ga-ghead span:first-child{flex:1;}.crm-ga-ghead:disabled{opacity:.55;cursor:default;}
-.crm-ga-grp.gs-grp-lo .crm-ga-ghead b{color:#5B4590;}.crm-ga-grp.gs-grp-mid .crm-ga-ghead b{color:#8A6D1F;}.crm-ga-grp.gs-grp-hi .crm-ga-ghead b{color:#2F6B3A;}
+.crm-ga-grp.gs-grp-lo .crm-ga-ghead b{color:#5B4590;}.crm-ga-grp.gs-grp-none .crm-ga-ghead b{color:#5b6b74;}.crm-ga-grp.gs-grp-none{border-style:dashed;}.crm-ga-grp.gs-grp-mid .crm-ga-ghead b{color:#8A6D1F;}.crm-ga-grp.gs-grp-hi .crm-ga-ghead b{color:#2F6B3A;}
 .crm-ga-grp.open .crm-am-chev{transform:rotate(180deg);}
 .crm-ga-names{border-top:1px solid #EEE9DF;max-height:220px;overflow-y:auto;}
 .crm-ga-name{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:42px;padding:6px 12px;background:#fff;border:0;border-bottom:1px solid #F3EFE6;font-family:inherit;font-size:13px;text-align:right;cursor:pointer;color:var(--ink);}
