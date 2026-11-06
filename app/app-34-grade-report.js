@@ -29,8 +29,11 @@ const GRADE_REPORT_NOTE_LABELS = {
   plans: 'الخطط العلاجية والتوصيات'
 };
 const GRADE_REPORT_NAME_MAX = 80;
-const GRADE_REPORT_LOGO_MAX = 60000; /* حدّ طول data URL لشعار المدرسة (≈45KB) */
-const GRADE_REPORT_LOGO_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+\/]+={0,2}$/;
+/* شعار المدرسة: لا يدخل features (قيد القاعدة < 4000 بايت)؛ يُرفع لحاوية الصور بمجلد المستخدم ويُحفظ مساره فقط:
+   <uid>/school-logo-<ts>.png. وللطباعة يُحمَّل ويُحوَّل data URL (GRADE_REPORT_DATA_RE) */
+const GRADE_REPORT_LOGO_MAX = 60000; /* حدّ حجم الصورة بعد التصغير */
+const GRADE_REPORT_LOGO_RE = /^[0-9a-f-]{36}\/school-logo-\d{10,16}\.png$/;
+const GRADE_REPORT_DATA_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+\/]+={0,2}$/;
 const GRADE_REPORT_BAND_LOWER = [0, 50, 60, 70, 80, 90];
 
 /* ============ دوال صرفة: الإعدادات ============ */
@@ -57,8 +60,8 @@ function normalizeReportPrefs(raw){
   ['school', 'teacher', 'vice', 'staff', 'counselor', 'subject'].forEach(k => {
     if(typeof raw[k] === 'string') out[k] = raw[k].replace(/\s+/g, ' ').trim().slice(0, GRADE_REPORT_NAME_MAX);
   });
-  /* شعار المدرسة: صورة data URL صغيرة فقط؛ غير ذلك يُهمَل (ما يُقرأ من القاعدة لا يُوثق به) */
-  if(typeof raw.logo === 'string' && raw.logo.length <= GRADE_REPORT_LOGO_MAX && GRADE_REPORT_LOGO_RE.test(raw.logo)) out.logo = raw.logo;
+  /* شعار المدرسة: مسار ملفه بمجلد المستخدم فقط؛ غير ذلك يُهمَل (ما يُقرأ من القاعدة لا يُوثق به) */
+  if(typeof raw.logo === 'string' && GRADE_REPORT_LOGO_RE.test(raw.logo)) out.logo = raw.logo;
   [['show', GRADE_REPORT_SHOW_LABELS], ['notes', GRADE_REPORT_NOTE_LABELS]].forEach(([grp, labels]) => {
     Object.keys(labels).forEach(k => {
       const v = raw[grp] && raw[grp][k];
@@ -335,6 +338,22 @@ async function gradeReportLogoData(){
   return gradeReportLogoCache;
 }
 
+/* شعار المدرسة للطباعة: يُحمَّل من حاوية الصور ويُخزَّن بالمسار (مسار جديد = شعار جديد)؛ الفشل = بلا شعار ولا يمنع التقرير */
+let gradeReportSchoolLogoCache = { path: '', data: '' };
+async function gradeReportSchoolLogoData(){
+  const path = gradeReportPrefsNow().logo;
+  if(!path || !GRADE_REPORT_LOGO_RE.test(path) || !currentUser || path.split('/')[0] !== currentUser.id) return '';
+  if(gradeReportSchoolLogoCache.path === path && gradeReportSchoolLogoCache.data) return gradeReportSchoolLogoCache.data;
+  try{
+    const { data, error } = await sb.storage.from('shawahid-photos').download(path);
+    if(error || !data) throw new Error('logo');
+    const url = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(data); });
+    if(!GRADE_REPORT_DATA_RE.test(url)) return '';
+    gradeReportSchoolLogoCache = { path, data: url };
+    return url;
+  } catch(e){ return ''; }
+}
+
 function grBlock(inner){ return inner ? `<div class="pdf-avoid-break">${inner}</div>` : ''; }
 const grH2 = t => `<h2>${t}</h2>`;
 
@@ -347,7 +366,7 @@ function grHead(ctx, prefs, title, sub, extra, titleHtml, titleLen){
   const subject = gradeReportSubject(prefs);
   const when = `<span class="nw">| الفصل ${semester} ${grn(escapeHtml(ctx.year || ''))} | ${grn(escapeHtml(ctx.date || ''))}</span>`;
   const size = titleLen ? ` style="font-size:${gradeReportTitleSize(titleLen)}px"` : '';
-  const schoolLogo = prefs && prefs.logo && GRADE_REPORT_LOGO_RE.test(prefs.logo) ? `<img src="${prefs.logo}" alt="">` : '';
+  const schoolLogo = ctx.schoolLogo && GRADE_REPORT_DATA_RE.test(ctx.schoolLogo) ? `<img src="${ctx.schoolLogo}" alt="">` : '';
   return `<div class="hd"><div class="lgb">${ctx.logo ? `<img src="${ctx.logo}" alt="">` : ''}</div>
     <div class="t"><small>${school}</small><h1${size}>${titleHtml || escapeHtml(title)}</h1><div class="m">${subject ? `<b>المادة: ${escapeHtml(subject)}</b> | ` : ''}${sub} ${when}${extra || ''}</div></div>
     <div class="lgb">${schoolLogo}</div></div>`;
@@ -546,7 +565,7 @@ function gradeReportStudentHtml(d, prefs, ctx){
       return `<div class="it"><div class="a">${escapeHtml(x.name)}</div><div class="tr"><i class="${gradeReportItemTone(x.pct, r)}" style="width:${Math.min(100, x.pct)}%"></i>${x.classPct === null ? '' : `<u style="right:${Math.min(100, x.classPct)}%"></u>`}</div><div class="v">${grn(formatScore(x.score) + ' / ' + formatScore(x.max))} ${dl === null ? '' : `<span style="font-weight:700;color:${dl >= 0 ? '#0a8f5b' : '#a85d3a'}">${dl >= 0 ? '▲' : '▼'} ${grn(Math.abs(dl) + '%')}</span>`}</div></div>`;
     }).join('') + '<div class="fn">ما لم يُرصد لا يُحسب على الطالب.</div>') : '';
   const notes = gradeReportStudentNotes({ incomplete: d.incomplete, missing: d.missing, pts: d.pts, max: d.max, pct: d.pct, classPts: d.classPts, classPct: d.classPct, items: d.items, rules: r });
-  const meta = { logo: ctx.logo, date: ctx.date, year: d.year, semester: d.semester };
+  const meta = { logo: ctx.logo, schoolLogo: ctx.schoolLogo, date: ctx.date, year: d.year, semester: d.semester };
   const to = ctx.to ? String(ctx.to) : '';
   /* الجهة الموجَّه إليها: سطر تحت العنوان + خانة توقيعها (وكيل الشؤون له خانة ثابتة أصلًا) */
   const toLine = to ? ` | <b>موجّه إلى: ${escapeHtml(to)}</b>` : '';
@@ -671,7 +690,7 @@ async function exportGradeReport(btn){
   const gradeName = level ? level.name : 'الصف';
   await gradeReportRun(btn, async () => {
     const logo = await gradeReportLogoData();
-    const base = { logo, date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames };
+    const base = { logo, schoolLogo: await gradeReportSchoolLogoData(), date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames };
     if(scope === 'section'){
       const v = gradeAnalysisView(a);
       if(!v.stats.recorded){ showToast('لا درجات مرصودة لتصديرها', 'error'); return ''; }
@@ -722,7 +741,7 @@ async function gradeReportStudentRun(g, id, btn, busyText, to){
   if(!d) return;
   const prefs = gradeReportPrefsNow();
   await gradeReportRun(btn, async () => {
-    return { html: gradeReportStudentHtml(d, prefs, { logo: await gradeReportLogoData(), date: new Date().toISOString().slice(0, 10), to }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
+    return { html: gradeReportStudentHtml(d, prefs, { logo: await gradeReportLogoData(), schoolLogo: await gradeReportSchoolLogoData(), date: new Date().toISOString().slice(0, 10), to }), mark: gradeReportMark(prefs, 'تقرير أداء طالب', d.name) };
   }, gradeReportFile('تقرير-طالب', d.name), busyText);
 }
 
@@ -740,7 +759,8 @@ async function exportCrmAllStudentReports(btn, to, ids, scopeLabel){
   if(skipped) showToast(`${skipped} من الطلاب بلا درجات مرصودة — لم تُضمَّن تقاريرهم`, 'ok');
   await gradeReportRun(btn, async () => {
     const logo = await gradeReportLogoData();
-    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { logo, date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
+    const schoolLogo = await gradeReportSchoolLogoData();
+    return { html: list.map(d => `<div class="gr-pg">${gradeReportStudentHtml(d, prefs, { logo, schoolLogo, date, to })}</div>`).join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
   }, gradeReportFile(scopeLabel ? 'تقارير-' + scopeLabel : 'تقارير-الطلاب', a.label), btn && to ? '…' : undefined);
 }
 
@@ -761,7 +781,7 @@ let gradeReportDraft = null; /* { host: 'ga' | 'cust', school, teacher, vice, sh
 
 function openGradeReportEditor(host){
   const p = gradeReportPrefsNow();
-  gradeReportDraft = { host, logo: p.logo, school: p.school, teacher: p.teacher, vice: p.vice, staff: p.staff, counselor: p.counselor, subject: p.subject, show: Object.assign({}, p.show), notes: Object.assign({}, p.notes), error: '', saving: false };
+  gradeReportDraft = { host, logo: p.logo, logoData: '',  school: p.school, teacher: p.teacher, vice: p.vice, staff: p.staff, counselor: p.counselor, subject: p.subject, show: Object.assign({}, p.show), notes: Object.assign({}, p.notes), error: '', saving: false };
   if(host === 'ga'){
     const a = crmGradeAnalysis;
     if(!a) return;
@@ -779,6 +799,7 @@ function paintGradeReportEditor(){
   if(d.host === 'ga') return paintCrmGradeAnalysis();
   const box = document.getElementById('grEditorBody');
   if(box) box.innerHTML = gradeReportEditorHtml();
+  gradeReportLogoPreviewLoad();
 }
 
 function gradeReportEditorHtml(){
@@ -811,12 +832,32 @@ function gradeReportEditorHtml(){
 /* شعار المدرسة: خيار اختياري لكل معلم (يُحفظ مع خياراته). يُقصّ بياضه ويُصغَّر قبل الحفظ */
 function gradeReportLogoField(d){
   return `<div class="gr-fld"><span>شعار المدرسة (اختياري — يظهر مقابل شعار الوزارة)</span>
-    <div class="gr-logo">${d.logo ? `<img src="${d.logo}" alt="">` : ''}
-    <label class="crm-ga-link" style="cursor:pointer">${d.logo ? 'تغيير' : 'رفع صورة'}<input type="file" accept="image/png,image/jpeg" style="display:none" onchange="gradeReportPickLogo(this)"></label>
-    ${d.logo ? '<button type="button" class="crm-ga-link" onclick="gradeReportDraftLogo(\'\')">حذف</button>' : ''}</div></div>`;
+    <div class="gr-logo">${gradeReportLogoPreview(d)}
+    <label class="crm-ga-link" style="cursor:pointer">${d.logo || d.logoData ? 'تغيير' : 'رفع صورة'}<input type="file" accept="image/png,image/jpeg" style="display:none" onchange="gradeReportPickLogo(this)"></label>
+    ${d.logo || d.logoData ? '<button type="button" class="crm-ga-link" onclick="gradeReportDraftLogo(\'\', true)">حذف</button>' : ''}</div></div>`;
 }
 
-function gradeReportDraftLogo(v){ if(gradeReportDraft){ gradeReportDraft.logo = v; gradeReportDraft.error = ''; paintGradeReportEditor(); } }
+/* معاينة: الصورة المختارة حديثًا، وإلا شعار محفوظ يُحمَّل بعد الرسم (لا رابط عام بالصفحة) */
+function gradeReportLogoPreview(d){
+  if(d.logoData) return `<img src="${d.logoData}" alt="">`;
+  return d.logo ? '<img id="grLogoPrev" alt="">' : '';
+}
+async function gradeReportLogoPreviewLoad(){
+  const d = gradeReportDraft, el = document.getElementById('grLogoPrev');
+  if(!d || !el || !d.logo) return;
+  const url = d.logo === gradeReportPrefsNow().logo ? await gradeReportSchoolLogoData() : '';
+  const again = document.getElementById('grLogoPrev');
+  if(gradeReportDraft === d && again && url) again.src = url;
+}
+
+/* clear=true: حذف الشعار (المحفوظ والمختار حديثًا)؛ وإلا v = data URL لصورة جديدة تُرفع عند «حفظ» */
+function gradeReportDraftLogo(v, clear){
+  const d = gradeReportDraft;
+  if(!d) return;
+  if(clear){ d.logo = ''; d.logoData = ''; } else d.logoData = v;
+  d.error = '';
+  paintGradeReportEditor();
+}
 
 /* يقصّ الهوامش البيضاء/الشفافة ويصغّر إلى عرض أقصاه w؛ يرجع data URL (PNG) أو '' */
 function gradeReportLogoShrink(img, w){
@@ -849,8 +890,8 @@ async function gradeReportPickLogo(input){
     let out = '';
     for(const w of [320, 220, 140]){ out = gradeReportLogoShrink(img, w); if(!out || out.length <= GRADE_REPORT_LOGO_MAX) break; }
     if(gradeReportDraft !== d) return;
-    if(!out || out.length > GRADE_REPORT_LOGO_MAX || !GRADE_REPORT_LOGO_RE.test(out)){ d.error = 'تعذّر استخدام هذه الصورة'; paintGradeReportEditor(); return; }
-    gradeReportDraftLogo(out);
+    if(!out || out.length > GRADE_REPORT_LOGO_MAX || !GRADE_REPORT_DATA_RE.test(out)){ d.error = 'تعذّر استخدام هذه الصورة'; paintGradeReportEditor(); return; }
+    gradeReportDraftLogo(out, false);
   } catch(e){ if(gradeReportDraft === d){ d.error = 'تعذّر قراءة الصورة'; paintGradeReportEditor(); } }
 }
 
@@ -860,7 +901,7 @@ function gradeReportDraftFlag(grp, k, on){ if(gradeReportDraft) gradeReportDraft
 function gradeReportEditorReset(){
   const d = gradeReportDraft;
   if(!d) return;
-  Object.assign(d, gradeReportDefaultCopy(), { host: d.host, error: '', saving: false });
+  Object.assign(d, gradeReportDefaultCopy(), { host: d.host, logoData: '', error: '', saving: false });
   paintGradeReportEditor();
 }
 
@@ -888,14 +929,36 @@ async function saveGradeReportPrefs(){
   const d = gradeReportDraft;
   if(!d || d.saving) return;
   const a = crmGradeAnalysis;
-  const p = { school: d.school, logo: d.logo, teacher: d.teacher, vice: d.vice, staff: d.staff, counselor: d.counselor, subject: d.subject, show: d.show, notes: d.notes };
+  const uid = currentUser.id;
+  const oldLogo = gradeReportPrefsNow().logo;
   d.saving = true;
   const btn = document.getElementById('grEditorSave');
   if(btn) btn.disabled = true;
+  /* شعار جديد: يُرفع أولًا بمسار فريد بمجلد المستخدم، ويُحذف إن فشل حفظ الخيارات (لا ملفات يتيمة) */
+  let newPath = '';
+  if(d.logoData){
+    try{
+      const blob = await (await fetch(d.logoData)).blob();
+      const path = `${uid}/school-logo-${Date.now()}.png`;
+      const { error: upErr } = await sb.storage.from('shawahid-photos').upload(path, blob, { contentType: 'image/png' });
+      if(upErr) throw upErr;
+      newPath = path;
+    } catch(e){
+      if(gradeReportDraft !== d) return;
+      d.saving = false; d.error = 'تعذّر رفع الشعار'; paintGradeReportEditor(); return;
+    }
+  }
+  const p = { school: d.school, logo: newPath || d.logo, teacher: d.teacher, vice: d.vice, staff: d.staff, counselor: d.counselor, subject: d.subject, show: d.show, notes: d.notes };
   const err = await persistGradeReportPrefs(p);
+  if(err){
+    if(newPath) sb.storage.from('shawahid-photos').remove([newPath]).catch(() => {});
+    if(gradeReportDraft !== d) return;
+    d.saving = false; d.error = err; paintGradeReportEditor(); return;
+  }
+  /* نجح الحفظ: الشعار القديم لم يعد مرتبطًا بشيء فيُحذف */
+  if(oldLogo && oldLogo !== p.logo && oldLogo.split('/')[0] === uid) sb.storage.from('shawahid-photos').remove([oldLogo]).catch(() => {});
   if(gradeReportDraft !== d) return;
   d.saving = false;
-  if(err){ d.error = err; paintGradeReportEditor(); return; }
   gradeReportDraft = null;
   if(d.host === 'ga'){
     if(crmGradeAnalysis === a && a){ a.reportEdit = null; a.withNames = gradeReportPrefsNow().show.names; a.withNotes = gradeReportNotesAny(gradeReportPrefsNow()); paintCrmGradeAnalysis(); }
