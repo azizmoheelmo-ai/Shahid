@@ -20,7 +20,8 @@ const ST = (id, name) => ({ id, full_name: name || id });
 
 /* 5 طلاب: درجاتهم من 40 (عمود الأداء) = 10 · 22 · 30 · 36 · 40 → 25% · 55% · 75% · 90% · 100% */
 const STUDENTS = ['a', 'b', 'c', 'd', 'e'].map(id => ST(id));
-const SCORES = [S('p', 'a', 10), S('p', 'b', 22), S('p', 'c', 30), S('p', 'd', 36), S('p', 'e', 40)];
+/* + الاختبار t1 لكل منهم بالنسبة نفسها (5 · 11 · 15 · 18 · 20 من 20) فيبقى المجموع من 60 بالنسب 25 · 55 · 75 · 90 · 100 وكلهم مكتملو الرصد */
+const SCORES = [S('p', 'a', 10), S('p', 'b', 22), S('p', 'c', 30), S('p', 'd', 36), S('p', 'e', 40), S('t1', 'a', 5), S('t1', 'b', 11), S('t1', 'c', 15), S('t1', 'd', 18), S('t1', 'e', 20)];
 const G = (scores, cols) => ({ sectionId: 'S', columns: cols || COLS, allColumns: cols || COLS, hiddenColumns: [], scores });
 
 test('gradeAnalysisRows — عمود: درجة ونسبة من القصوى، ومن لم يُرصد له points = null (لا صفر)', async () => {
@@ -30,16 +31,51 @@ test('gradeAnalysisRows — عمود: درجة ونسبة من القصوى، و
   assert.deepEqual([...rows].map(r => [r.id, r.points, r.pct]), [['a', 10, 25], ['b', 22, 55], ['c', null, null], ['d', null, null], ['e', null, null]]);
 });
 
-test('gradeAnalysisRows — المجموع يطابق الكشف: نقاط الطالب، ونسبته مما رُصد له فقط', async () => {
+test('gradeAnalysisRows — المجموع: البند الذي لم يُرصد لأحد خارج السلّم، ومن لم يُرصد له بندٌ رُصد لغيره «غير مكتمل» لا صفر', async () => {
   const app = loadApp();
   runInAppContext(app, 'appGradeCaps = () => ({ performance: 40, tests: 20 });');
-  /* أ: أداء 20/40 فقط → نقاطه 20 ونسبته 50% (من 40 مرصودة لا من 60) */
-  const { rows, displayMax } = app.gradeAnalysisRows(G([S('p', 'a', 20)]), [ST('a'), ST('b')], 'total', CAPS, true);
+  /* اختبار t1 لم يُرصد لأحد ← خارج التقرير: السلّم 40 (الأداء فقط)، وأ مكتمل بـ20/40 = 50% */
+  const one = app.gradeAnalysisRows(G([S('p', 'a', 20)]), [ST('a'), ST('b')], 'total', CAPS, true);
+  assert.equal(one.displayMax, 40, 't1 لم يُختبر بعد: لا يدخل المقام');
+  assert.equal(one.rows[0].points, 20);
+  assert.equal(one.rows[0].pct, 50);
+  assert.equal(one.rows[0].incomplete, false);
+  assert.equal(one.rows[1].points, null);
+  assert.equal(one.rows[1].incomplete, true, 'ب لا درجة له: غير مكتمل');
+  /* رُصد t1 لـ ب فقط: الأداء رُصد لـ أ فقط ← كلاهما ناقص بندًا رُصد لغيره */
+  const both = app.gradeAnalysisRows(G([S('p', 'a', 20), S('t1', 'b', 10)]), [ST('a'), ST('b')], 'total', CAPS, true);
+  assert.equal(both.displayMax, 60);
+  assert.equal(both.rows[0].incomplete, true);
+  assert.equal(both.rows[0].partial, true);
+  assert.deepEqual([...both.rows[0].missing], ['اختبار']);
+  assert.equal(both.rows[0].points, 20, 'يُحفظ ما رُصد ولا يُملأ الناقص');
+  assert.deepEqual([...both.rows[1].missing], ['أداء']);
+  /* الصفر المُدخَل صفر فعلًا: يُحسب ويُصنَّف */
+  const zero = app.gradeAnalysisRows(G([S('p', 'a', 20), S('p', 'b', 0), S('t1', 'a', 10), S('t1', 'b', 0)]), [ST('a'), ST('b')], 'total', CAPS, true);
+  assert.equal(zero.rows[1].incomplete, false);
+  assert.equal(zero.rows[1].points, 0);
+  assert.equal(zero.rows[1].pct, 0);
+});
+
+test('analyzeGradeRows — غير المكتمل خارج المتوسط والوسيط والمدى والمستويات، ويُعرض منفصلًا (لا يُعدّ صفرًا ولا يُصنَّف)', async () => {
+  const app = loadApp();
+  runInAppContext(app, 'appGradeCaps = () => ({ performance: 40, tests: 20 });');
+  /* أ، ب، ج مكتملون (t1 رُصد لهم)؛ د: رُصد أداؤه 11 فقط بلا t1؛ هـ: بلا أي درجة */
+  const sc = [S('p', 'a', 40), S('t1', 'a', 20), S('p', 'b', 20), S('t1', 'b', 10), S('p', 'c', 30), S('t1', 'c', 10), S('p', 'd', 11)];
+  const { rows, displayMax } = app.gradeAnalysisRows(G(sc), ['a', 'b', 'c', 'd', 'e'].map(id => ST(id)), 'total', CAPS, true);
+  const s = JSON.parse(JSON.stringify(app.analyzeGradeRows(rows, displayMax)));
   assert.equal(displayMax, 60);
-  assert.equal(rows[0].points, 20);
-  assert.equal(rows[0].pct, 50);
-  assert.equal(rows[0].partial, true, 'رُصد من 40 من 60');
-  assert.equal(rows[1].points, null);
+  assert.equal(s.total, 5);
+  assert.equal(s.recorded, 3, 'مكتملو الرصد فقط');
+  assert.deepEqual(s.incomplete.map(r => r.id), ['d', 'e'], 'د وهـ منفصلان');
+  assert.equal(s.partial, 1, 'د رُصد له جزء');
+  assert.equal(s.missing, 1, 'هـ بلا أي درجة');
+  assert.equal(s.avg, 43.33, 'متوسط 60 و30 و40 فقط، لا 11 ولا أصفار');
+  assert.equal(s.median, 40);
+  assert.equal(s.min, 30);
+  assert.equal(s.max, 60);
+  assert.equal(s.groups.low.length + s.mid.length + s.groups.top.length, 3, 'المستويات تغطي المكتملين فقط');
+  assert.equal(s.groups.low.length, 0, 'د (11 من 40 = 28%) لا يُصنَّف ضعيفًا');
 });
 
 test('analyzeGradeRows — الأرقام والفئات لمن رُصد له فقط', async () => {
@@ -133,7 +169,7 @@ test('تفاصيل إحصائية: الوسيط وأدنى/أعلى والتوز
   const app = openedApp(SCORES);
   runInAppContext(app, `openCrmGradeAnalysis(); toggleCrmGaDetails(); window.__body = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.match(app.__body, /<span>الوسيط<\/span>/);
-  assert.match(app.__body, /<b>10 إلى 40<\/b>/, 'أدنى وأعلى بالعربية لا "40–10" معكوسة');
+  assert.match(app.__body, /<b>15 إلى 60<\/b>/, 'أدنى وأعلى بالعربية لا "60–15" معكوسة');
   assert.match(app.__body, /توزيع الطلاب حسب النسبة المئوية/);
   assert.match(app.__body, /النسبة = درجة الطالب ÷ الدرجة الكاملة \(60\) × 100/);
   assert.doesNotMatch(app.__body, /\d\.\d/);
@@ -174,20 +210,35 @@ test('تغيير المستوى أو العمود يعيد «عرض الكل» �
   assert.deepEqual([...app.__t], ['students', 'top']);
 });
 
-test('النافذة تذكر من لم يُرصد له ولا تعدّه صفرًا، وتبدّل العمود دون إغلاق', async () => {
+test('النافذة تذكر من لم تكتمل درجاته ولا تصنّفه ولا تعدّه صفرًا، وتبدّل العمود دون إغلاق', async () => {
   const app = openedApp([S('p', 'a', 10), S('p', 'b', 22)]);
   runInAppContext(app, `openCrmGradeAnalysis(); onCrmGradeAnalysisKey('p');
     window.__body = crmGradeAnalysisHtml(crmGradeAnalysis);`);
-  assert.match(app.__body, /لم يُرصد لـ 3 من 5 طلاب شيء بعد — لا يدخلون في الحساب/);
-  assert.match(app.__body, /\(لا يُعدّون أصفارًا\)/);
+  assert.match(app.__body, /3 طلاب لم تكتمل درجاتهم — لا يُصنَّفون ولا يدخلون في المتوسط/);
+  assert.match(app.__body, /openCrmGaLevel\('inc'\)/, 'رابط لعرض أسمائهم');
+  assert.doesNotMatch(app.__body, /ناجح|نجاح|أصفار/);
 });
 
-test('من رُصد له جزء من الأعمدة يُحسب بنسبته مما رُصد، والتنبيه قصير', async () => {
+test('بطاقة المتوسط الداكنة تُغلق قبل التنبيه وبطاقات المستويات (لا تبتلعها)', async () => {
+  const app = openedApp(SCORES);
+  runInAppContext(app, `openCrmGradeAnalysis(); window.__b = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  const hero = app.__b.slice(app.__b.indexOf('<div class="crm-ga-hero">'), app.__b.indexOf('<button type="button" class="crm-ga-lv'));
+  const opens = (hero.match(/<div\b/g) || []).length, closes = (hero.match(/<\/div>/g) || []).length;
+  assert.equal(opens, closes, 'وسوم div متوازنة داخل البطاقة الداكنة وحدها');
+});
+
+test('من رُصد له جزء من الأعمدة لا يُحسب ولا يُصنَّف، ويظهر مجموعة «رصد غير مكتمل» بما رُصد له وما ينقصه', async () => {
   const app = openedApp([S('p', 'a', 10), S('p', 'b', 22), S('p', 'c', 30), S('t1', 'c', 5)]);
-  runInAppContext(app, `openCrmGradeAnalysis(); window.__s = gradeAnalysisView(crmGradeAnalysis).stats; window.__body = crmGradeAnalysisHtml(crmGradeAnalysis);`);
-  assert.equal(app.__s.recorded, 3, 'الثلاثة محسوبون');
-  assert.ok(app.__s.partial >= 2, 'من رُصد له عمود واحد فقط محسوب جزئيًا');
-  assert.match(app.__body, /لم تكتمل درجاتهم — حُسبت نتائجهم مما رُصد/);
+  runInAppContext(app, `openCrmGradeAnalysis(); window.__s = gradeAnalysisView(crmGradeAnalysis).stats; window.__body = crmGradeAnalysisHtml(crmGradeAnalysis);
+    setCrmGaTab('students'); toggleCrmGaGroup('inc'); window.__inc = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.equal(app.__s.recorded, 1, 'ج وحده مكتمل (أ وب بلا t1، ود وهـ بلا شيء)');
+  assert.equal(app.__s.incomplete.length, 4);
+  assert.equal(app.__s.partial, 2, 'أ وب رُصد لهما جزء');
+  assert.match(app.__body, /4 طلاب لم تكتمل درجاتهم — لا يُصنَّفون ولا يدخلون في المتوسط/);
+  assert.match(app.__inc, /رصد غير مكتمل<small>لا يُصنَّفون ولا يدخلون في المتوسط<\/small>/);
+  assert.match(app.__inc, /<small>ناقص: اختبار<\/small>/, 'ما ينقص كل طالب');
+  assert.match(app.__inc, /<b class="gs-tone-none"><bdi dir="ltr">10<\/bdi><\/b><small>من 40<\/small>/, 'درجته المرصودة ومقامها لا نسبة مصنِّفة');
+  assert.match(app.__inc, /<b class="gs-tone-none">—<\/b><small>بلا درجات<\/small>/, 'من لا درجة له');
 });
 
 test('عمود بلا رصد: رسالة بدل أرقام فارغة', async () => {
@@ -212,8 +263,9 @@ test('التصدير: بلا أسماء افتراضيًا، ومع الأسما
     window.__pdf = gradeReportSectionHtml(crmGradeAnalysis, __v, gradeReportPrefsNow(), { logo: '', date: '2026-01-01', withNames: false });`);
   const flat = rows => JSON.stringify(rows);
   assert.doesNotMatch(flat(app.__plain), /"الطالب"/);
-  assert.match(flat(app.__named), /\["الطالب","الدرجة","النسبة %","الفئة","التقدير"\]/);
-  assert.match(flat(app.__named), /\["a",10,25,"ضعيف","هـ"\]/);
+  assert.match(flat(app.__named), /\["الطالب","الدرجة","النسبة %","الفئة","التقدير","الناقص"\]/);
+  assert.match(flat(app.__named), /\["a",15,25,"ضعيف","هـ",""\]/);
+  assert.doesNotMatch(flat(app.__named), /ناجحون|نجاح/, 'لا لغة نجاح في Excel');
   assert.doesNotMatch(app.__pdf, /<td>a<\/td>/, 'PDF بلا أسماء الطلاب');
 });
 

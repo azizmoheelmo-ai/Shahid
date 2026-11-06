@@ -90,7 +90,7 @@ function gradePctMap(sheet, students, spec, caps, testsOn){
     key = col.id;
   }
   const { rows } = gradeAnalysisRows(sheet, students, key, caps, testsOn);
-  return new Map(rows.filter(r => r.pct !== null).map(r => [r.id, r.pct]));
+  return new Map(rows.filter(r => r.pct !== null && !r.incomplete).map(r => [r.id, r.pct]));
 }
 
 function gradeMeanPct(map){
