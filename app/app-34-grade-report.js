@@ -850,6 +850,14 @@ async function gradeReportLogoPreviewLoad(){
   if(gradeReportDraft === d && again && url) again.src = url;
 }
 
+function gradeReportDataToBlob(url){
+  const m = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+\/]+={0,2})$/.exec(String(url));
+  if(!m) throw new Error('logo');
+  const bin = atob(m[2]), bytes = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: m[1] });
+}
+
 /* clear=true: حذف الشعار (المحفوظ والمختار حديثًا)؛ وإلا v = data URL لصورة جديدة تُرفع عند «حفظ» */
 function gradeReportDraftLogo(v, clear){
   const d = gradeReportDraft;
@@ -938,7 +946,7 @@ async function saveGradeReportPrefs(){
   let newPath = '';
   if(d.logoData){
     try{
-      const blob = await (await fetch(d.logoData)).blob();
+      const blob = gradeReportDataToBlob(d.logoData); /* لا fetch لـdata: — سياسة CSP (connect-src) تمنعه */
       const path = `${uid}/school-logo-${Date.now()}.png`;
       const { error: upErr } = await sb.storage.from('shawahid-photos').upload(path, blob, { contentType: 'image/png' });
       if(upErr) throw upErr;

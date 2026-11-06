@@ -828,3 +828,17 @@ test('محرر الخيارات يعرض حقل شعار المدرسة، وال
   assert.match(app.__d1, /iVBORw0KGgo=/);
   assert.equal(app.__d2, '|');
 });
+
+test('رفع الشعار لا يستعمل fetch على data: (CSP connect-src يمنعه) بل يفكّ base64 مباشرة', () => {
+  const src = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.doesNotMatch(html.match(/connect-src[^;]*;/)[0], /data:/, 'الفرض: CSP لا يسمح بـdata: في connect-src');
+  assert.doesNotMatch(src, /fetch\(d\.logoData\)/);
+  const app = opened(`const K = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    globalThis.atob = v => { v = v.replace(/=+$/, ''); let o = '', b = 0, n = 0; for(const ch of v){ b = (b << 6) | K.indexOf(ch); n += 6; if(n >= 8){ n -= 8; o += String.fromCharCode((b >> n) & 255); } } return o; };
+    globalThis.Blob = class { constructor(parts, o){ this.size = parts[0].length; this.type = o.type; } };
+    window.__b = gradeReportDataToBlob('data:image/png;base64,iVBORw0KGgo='); window.__bad = (() => { try{ gradeReportDataToBlob('javascript:1'); return 'no'; } catch(e){ return 'throws'; } })();`, NOTES_ON);
+  assert.equal(app.__b.type, 'image/png');
+  assert.equal(app.__b.size, 8);
+  assert.equal(app.__bad, 'throws');
+});
