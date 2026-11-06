@@ -226,6 +226,7 @@ function toggleCrmGaExport(){
 function paintCrmGradeAnalysis(){
   const box = document.getElementById('crmGaBody');
   if(box && crmGradeAnalysis) box.innerHTML = crmGradeAnalysisHtml(crmGradeAnalysis);
+  if(crmGradeAnalysis && crmGradeAnalysis.reportEdit && typeof gradeReportLogoPreviewLoad === 'function') gradeReportLogoPreviewLoad(); /* app-34: معاينة شعار محفوظ */
 }
 
 /* درجة صحيحة (2.6 ← 3) — الكسور في Excel فقط */

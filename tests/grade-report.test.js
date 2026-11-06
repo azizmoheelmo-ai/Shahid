@@ -793,24 +793,38 @@ test('ترويسة تقرير الطالب: الاسم بالعنوان، وال
   assert.doesNotMatch(app.__h, /class="mt"/);
 });
 
-test('شعار المدرسة: يظهر مقابل شعار الوزارة إن رُفع، ولا يُقبل إلا صورة data URL صغيرة صحيحة', () => {
-  const ok = 'data:image/png;base64,iVBORw0KGgo=';
-  const app = opened(`window.__n1 = normalizeReportPrefs({ logo: '${ok}' }); window.__n2 = normalizeReportPrefs({ logo: 'javascript:alert(1)' });
-    window.__n3 = normalizeReportPrefs({ logo: 'data:image/svg+xml;base64,AAAA' }); window.__n4 = normalizeReportPrefs({ logo: 'data:image/png;base64,' + 'A'.repeat(70000) });
-    window.__n5 = normalizeReportPrefs({ logo: 'data:image/png;base64,AAAA" onerror="x' });
+test('شعار المدرسة: يظهر مقابل شعار الوزارة إن توفّر، ولا يُحفظ بالخيارات إلا مسار ملف بمجلد المستخدم', () => {
+  const uid = '123e4567-e89b-12d3-a456-426614174000';
+  const ok = uid + '/school-logo-1793961117103.png';
+  const data = 'data:image/png;base64,iVBORw0KGgo=';
+  const app = opened(`window.__n1 = normalizeReportPrefs({ logo: '${ok}' });
+    window.__bad = [ 'javascript:alert(1)', '${data}', '../x/school-logo-1793961117103.png', '${uid}/other.png', '${ok}" onerror="x', 'A'.repeat(5000) ].map(v => normalizeReportPrefs({ logo: v }));
     window.__d = gradeReportStudentData(crmGrades, 'a');
-    window.__with = gradeReportStudentHtml(__d, Object.assign(gradeReportPrefsNow(), { logo: '${ok}' }), { logo: 'data:image/png;base64,MOE', date: 'd' });
-    window.__without = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', date: 'd' });`, NOTES_ON);
+    window.__with = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', schoolLogo: '${data}', date: 'd' });
+    window.__without = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', date: 'd' });
+    window.__evil = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', schoolLogo: 'javascript:alert(1)', date: 'd' });
+    window.__size = JSON.stringify(normalizeReportPrefs({ logo: '${ok}', school: 'ثانوية بدر', teacher: 'x'.repeat(80), vice: 'x'.repeat(80), staff: 'x'.repeat(80), counselor: 'x'.repeat(80), subject: 'x'.repeat(80) })).length;`, NOTES_ON);
   assert.equal(app.__n1.logo, ok);
-  [app.__n2, app.__n3, app.__n4, app.__n5].forEach(n => assert.ok(n === null || n.logo === '', 'شعار غير صالح يُهمَل'));
+  app.__bad.forEach(n => assert.ok(n === null || n.logo === '', 'شعار غير صالح يُهمَل'));
   assert.match(app.__with, /<div class="lgb"><img src="data:image\/png;base64,MOE" alt=""><\/div>[\s\S]*<div class="lgb"><img src="data:image\/png;base64,iVBORw0KGgo=" alt=""><\/div>/);
   assert.match(app.__without, /<div class="lgb"><\/div><\/div>/, 'بلا شعار مدرسة: خانة فارغة تُبقي العنوان بالمنتصف');
+  assert.doesNotMatch(app.__evil, /javascript:/);
+  assert.ok(app.__size < 3000, 'الخيارات كلها تبقى تحت قيد القاعدة (4000 بايت): ' + app.__size);
 });
 
-test('محرر الخيارات يعرض حقل شعار المدرسة ويحفظه ضمن خيارات الحساب', () => {
-  const app = opened(`openGradeReportEditor('cust'); window.__h = gradeReportEditorHtml(); gradeReportDraftLogo('data:image/png;base64,iVBORw0KGgo=');
-    window.__saved = JSON.stringify(gradeReportDraft.logo);`, NOTES_ON);
+test('الشعار لا يدخل features كصورة (قيد user_app_settings < 4000 بايت): يُرفع لحاوية الصور ويُحفظ مساره', () => {
+  const src = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
+  assert.match(src, /storage\.from\('shawahid-photos'\)\.upload\(path, blob/);
+  assert.match(src, /school-logo-\$\{Date\.now\(\)\}\.png/);
+  assert.match(src, /if\(newPath\) sb\.storage\.from\('shawahid-photos'\)\.remove\(\[newPath\]\)/, 'فشل الحفظ يحذف الملف المرفوع');
+  assert.match(src, /oldLogo !== p\.logo[\s\S]*remove\(\[oldLogo\]\)/, 'استبدال/حذف الشعار يحذف القديم');
+});
+
+test('محرر الخيارات يعرض حقل شعار المدرسة، والصورة المختارة تبقى بالمسودة حتى «حفظ»', () => {
+  const app = opened(`openGradeReportEditor('cust'); window.__h = gradeReportEditorHtml(); gradeReportDraftLogo('data:image/png;base64,iVBORw0KGgo=', false);
+    window.__d1 = gradeReportDraft.logoData; gradeReportDraftLogo('', true); window.__d2 = gradeReportDraft.logoData + '|' + gradeReportDraft.logo;`, NOTES_ON);
   assert.match(app.__h, /شعار المدرسة/);
   assert.match(app.__h, /gradeReportPickLogo/);
-  assert.match(app.__saved, /iVBORw0KGgo=/);
+  assert.match(app.__d1, /iVBORw0KGgo=/);
+  assert.equal(app.__d2, '|');
 });
