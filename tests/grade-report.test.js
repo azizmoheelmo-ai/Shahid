@@ -182,7 +182,7 @@ test('تقرير الطالب: الدرجة والفارق عن متوسط ال�
   assert.equal(d.max, 60);
   assert.equal(d.items.length, 2);
   assert.ok(d.pts < d.classPts, 'الطالب a أدنى من متوسط الشعبة');
-  assert.match(app.__h, /تقرير أداء طالب/);
+  assert.match(app.__h, /تقرير أداء الطالب: <span class="sn">/);
   assert.match(app.__h, /ضعيف/);
   assert.match(app.__h, /التواصل مع ولي الأمر/);
   const e = JSON.parse(JSON.stringify(app.__top));
@@ -345,7 +345,7 @@ test('gradeReportPrint: عنوان الصفحة اسم الملف المقترح
 
 test('التقرير يطبع بنص حقيقي فقط: لا html2canvas ولا jsPDF ولا صور للصفحات', async () => {
   const src = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  for(const gone of ['html2canvas', 'jsPDF', 'jspdf', 'addPdfPagesMulti', 'ensurePdfLibs', 'toDataURL', 'gradeReportAddMarks'])
+  for(const gone of ['html2canvas', 'jsPDF', 'jspdf', 'addPdfPagesMulti', 'ensurePdfLibs', 'gradeReportAddMarks'])
     assert.doesNotMatch(src, new RegExp(gone), gone);
 });
 
@@ -392,12 +392,12 @@ test('شعار الوزارة: يظهر بترويسة كل التقارير ح�
   await app.__p;
   assert.match(app.__with, /<img src="data:image\/png;base64,AAAA" alt="">/);
   assert.doesNotMatch(app.__without, /<img/);
-  assert.match(app.__without, /<span class="lg"><\/span>/, 'بلا شعار: خانة فارغة ولا انهيار');
+  assert.match(app.__without, /<div class="lgb"><\/div>/, 'بلا شعار: خانة فارغة ولا انهيار');
   assert.match(app.__stu, /<img src="data:image\/png;base64,AAAA"/);
   assert.equal(app.__runs.length, 3);
   for(const h of app.__runs) assert.match(h, /<img src="data:image\/png;base64,LOGO"/, 'تقرير الشعبة والطالب والجماعي كلها بالشعار');
   const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  assert.match(css, /\.gr \.hd img\{height:54px\}/);
+  assert.match(css, /\.gr \.hd \.lgb img\{max-height:54px/);
 });
 
 test('تقرير الشعبة بالأسماء (33 طالبًا) لا يتجاوز صفحتين: تباعد مضغوط وهوامش الشعار (1.5 سم)', async () => {
@@ -775,4 +775,42 @@ test('الملف في index.html وAPP_SHELL، وشعار الوزارة في ا
   assert.match(sw, new RegExp(`APP_VERSION_SW = '${v.version}'`));
   assert.match(fs.readFileSync(path.join(root, 'app/app-26-update-check.js'), 'utf8'), new RegExp(`APP_VERSION = '${v.version}'`));
   assert.ok(v.notes.length >= 1);
+});
+
+/* ===== 2.82: اسم الطالب بعنوانه بسطر واحد، وشعار المدرسة، والتاريخ ضمن سطر المادة ===== */
+test('حجم عنوان تقرير الطالب ديناميكي: كبير للاسم القصير ويصغر للطويل بحدّ أدنى', () => {
+  const app = opened(`window.__a = gradeReportTitleSize(20); window.__b = gradeReportTitleSize(40); window.__c = gradeReportTitleSize(500);`, NOTES_ON);
+  assert.equal(app.__a, 22);
+  assert.ok(app.__b < 22 && app.__b > 13);
+  assert.equal(app.__c, 13);
+});
+
+test('ترويسة تقرير الطالب: الاسم بالعنوان، والتاريخ والفصل ضمن سطر المادة (بلا كتلة جانبية)', () => {
+  const app = opened(`window.__d = gradeReportStudentData(crmGrades, 'a'); window.__d.name = 'ع'.repeat(70);
+    window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { date: '2026-11-06' });`, NOTES_ON);
+  assert.match(app.__h, /<h1 style="font-size:13px">تقرير أداء الطالب: <span class="sn">ع{70}<\/span><\/h1>/);
+  assert.match(app.__h, /الفصل الأول[\s\S]*\|[\s\S]*2026-11-06/);
+  assert.doesNotMatch(app.__h, /class="mt"/);
+});
+
+test('شعار المدرسة: يظهر مقابل شعار الوزارة إن رُفع، ولا يُقبل إلا صورة data URL صغيرة صحيحة', () => {
+  const ok = 'data:image/png;base64,iVBORw0KGgo=';
+  const app = opened(`window.__n1 = normalizeReportPrefs({ logo: '${ok}' }); window.__n2 = normalizeReportPrefs({ logo: 'javascript:alert(1)' });
+    window.__n3 = normalizeReportPrefs({ logo: 'data:image/svg+xml;base64,AAAA' }); window.__n4 = normalizeReportPrefs({ logo: 'data:image/png;base64,' + 'A'.repeat(70000) });
+    window.__n5 = normalizeReportPrefs({ logo: 'data:image/png;base64,AAAA" onerror="x' });
+    window.__d = gradeReportStudentData(crmGrades, 'a');
+    window.__with = gradeReportStudentHtml(__d, Object.assign(gradeReportPrefsNow(), { logo: '${ok}' }), { logo: 'data:image/png;base64,MOE', date: 'd' });
+    window.__without = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', date: 'd' });`, NOTES_ON);
+  assert.equal(app.__n1.logo, ok);
+  [app.__n2, app.__n3, app.__n4, app.__n5].forEach(n => assert.ok(n === null || n.logo === '', 'شعار غير صالح يُهمَل'));
+  assert.match(app.__with, /<div class="lgb"><img src="data:image\/png;base64,MOE" alt=""><\/div>[\s\S]*<div class="lgb"><img src="data:image\/png;base64,iVBORw0KGgo=" alt=""><\/div>/);
+  assert.match(app.__without, /<div class="lgb"><\/div><\/div>/, 'بلا شعار مدرسة: خانة فارغة تُبقي العنوان بالمنتصف');
+});
+
+test('محرر الخيارات يعرض حقل شعار المدرسة ويحفظه ضمن خيارات الحساب', () => {
+  const app = opened(`openGradeReportEditor('cust'); window.__h = gradeReportEditorHtml(); gradeReportDraftLogo('data:image/png;base64,iVBORw0KGgo=');
+    window.__saved = JSON.stringify(gradeReportDraft.logo);`, NOTES_ON);
+  assert.match(app.__h, /شعار المدرسة/);
+  assert.match(app.__h, /gradeReportPickLogo/);
+  assert.match(app.__saved, /iVBORw0KGgo=/);
 });

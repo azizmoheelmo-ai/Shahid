@@ -11,7 +11,7 @@
    ============================================================ */
 
 const GRADE_REPORT_DEFAULT = {
-  school: '', teacher: '', vice: '', staff: '', counselor: '', subject: '', /* vice = وكيل شؤون الطلاب · staff = وكيل شؤون المعلمين · counselor = الموجه الطلابي */
+  school: '', logo: '', teacher: '', vice: '', staff: '', counselor: '', subject: '', /* vice = وكيل شؤون الطلاب · staff = وكيل شؤون المعلمين · counselor = الموجه الطلابي */
   show: { levels: true, stats: true, items: true, names: false, compare: false },
   notes: { reading: false, strengths: false, weaknesses: false, plans: false } /* الأصل: تقرير أرقام بلا تعليق تربوي */
 };
@@ -29,6 +29,8 @@ const GRADE_REPORT_NOTE_LABELS = {
   plans: 'الخطط العلاجية والتوصيات'
 };
 const GRADE_REPORT_NAME_MAX = 80;
+const GRADE_REPORT_LOGO_MAX = 60000; /* حدّ طول data URL لشعار المدرسة (≈45KB) */
+const GRADE_REPORT_LOGO_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+\/]+={0,2}$/;
 const GRADE_REPORT_BAND_LOWER = [0, 50, 60, 70, 80, 90];
 
 /* ============ دوال صرفة: الإعدادات ============ */
@@ -55,6 +57,8 @@ function normalizeReportPrefs(raw){
   ['school', 'teacher', 'vice', 'staff', 'counselor', 'subject'].forEach(k => {
     if(typeof raw[k] === 'string') out[k] = raw[k].replace(/\s+/g, ' ').trim().slice(0, GRADE_REPORT_NAME_MAX);
   });
+  /* شعار المدرسة: صورة data URL صغيرة فقط؛ غير ذلك يُهمَل (ما يُقرأ من القاعدة لا يُوثق به) */
+  if(typeof raw.logo === 'string' && raw.logo.length <= GRADE_REPORT_LOGO_MAX && GRADE_REPORT_LOGO_RE.test(raw.logo)) out.logo = raw.logo;
   [['show', GRADE_REPORT_SHOW_LABELS], ['notes', GRADE_REPORT_NOTE_LABELS]].forEach(([grp, labels]) => {
     Object.keys(labels).forEach(k => {
       const v = raw[grp] && raw[grp][k];
@@ -264,10 +268,9 @@ const GRADE_REPORT_CSS = `
 .gr *{box-sizing:border-box}
 .gr .hd{position:relative;display:flex;align-items:center;justify-content:space-between;padding-bottom:7px;margin-bottom:12px}
 .gr .hd:after{content:'';position:absolute;right:0;left:0;bottom:0;height:4px;border-radius:2px;background:linear-gradient(90deg,#3B83B7,#4CB176)}
-.gr .hd img{height:54px}.gr .hd .lg{width:150px}
-.gr .hd .t{text-align:center;flex:1}.gr .hd .t small{display:block;font-size:11px;color:#5b6b74}
-.gr .hd .t h1{margin:0;font-size:20px;color:#351375;font-weight:800}.gr .hd .t .m{font-size:11px;color:#5b6b74}
-.gr .hd .mt{width:150px;font-size:10.5px;color:#5b6b74;text-align:left;line-height:1.7}
+.gr .hd .lgb{width:120px;height:54px;display:flex;align-items:center;flex:none}.gr .hd .lgb img{max-height:54px;max-width:120px;height:auto;width:auto}
+.gr .hd .t{text-align:center;flex:1;min-width:0}.gr .hd .t small{display:block;font-size:11px;color:#5b6b74}
+.gr .nw{white-space:nowrap}.gr .hd .t h1 .sn{color:#15445a}.gr .hd .t h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5;margin:0;font-size:20px;color:#351375;font-weight:800}.gr .hd .t .m{font-size:11px;color:#5b6b74}
 .gr .kp{display:flex;gap:9px;margin-bottom:10px}.gr .kp>div{flex:1;border:1.5px solid #dfe6ea;border-radius:11px;padding:5px 4px;text-align:center;background:#fff}
 .gr .kp b{display:block;font-size:20px;line-height:1.5;color:#15445a;font-weight:800}.gr .kp span{font-size:10.5px;color:#5b6b74}.gr .kp small{display:block;font-size:9.5px;color:#8a97a0}
 .gr .kp .b b{color:#3d7eb9}.gr .kp .n b{color:#15445a}.gr .kp .r b{color:#7258a4}
@@ -311,7 +314,7 @@ const GRADE_REPORT_CSS = `
 .gr .cp.h{background:#fff;color:#4a5a63;border:1.5px solid #7a8791;line-height:1.5}
 .gr .inc{margin-top:8px;border:1.5px dashed #9fb3bd;border-radius:9px;padding:3px 10px}.gr .inc table{font-size:12px}.gr .inc th{background:#eef2f4;color:#15445a}.gr .inc td{background:#fff !important}
 /* ضغط تلقائي (gradeReportFit) حين يزيد التقرير قليلًا عن صفحة: مستويان */
-.gr.cmp1 .hd{margin-bottom:8px}.gr.cmp1 .hd img{height:46px}.gr.cmp1 h2{margin:6px 0 4px;font-size:13px}
+.gr.cmp1 .hd{margin-bottom:8px}.gr.cmp1 .hd .lgb img{max-height:46px}.gr.cmp1 h2{margin:6px 0 4px;font-size:13px}
 .gr.cmp1 .kp{margin-bottom:6px}.gr.cmp1 .kp>div{padding:3px 4px}.gr.cmp1 .kp b{font-size:17px;line-height:1.35}
 .gr.cmp1 td{padding:1.5px 7px}.gr.cmp1 th{padding:2.5px 7px}.gr.cmp1 .gw{margin-bottom:5px}.gr.cmp1 .gh{padding:2px 9px}
 .gr.cmp1 .nb{padding:4px 12px;margin:3px 0}.gr.cmp1 .sx .sl{padding:2px 0}.gr.cmp1 .c3 td{padding-top:1.5px;padding-bottom:1.5px}.gr.cmp1 .inc{margin-top:5px}.gr.cmp1 .sig{margin-top:6px}.gr.cmp1 .sig .ln{height:20px}
@@ -335,13 +338,19 @@ async function gradeReportLogoData(){
 function grBlock(inner){ return inner ? `<div class="pdf-avoid-break">${inner}</div>` : ''; }
 const grH2 = t => `<h2>${t}</h2>`;
 
-function grHead(ctx, prefs, title, sub){
+/* عنوان تقرير الطالب في سطر واحد: الخط يصغر بطول الاسم (22px ← 13px)، وما زاد يُقصّ بنقاط */
+function gradeReportTitleSize(len){ return Math.max(13, Math.min(22, Math.floor(700 / Math.max(1, len)))); }
+
+function grHead(ctx, prefs, title, sub, extra, titleHtml, titleLen){
   const semester = Number(ctx.semester) === 2 ? 'الثاني' : 'الأول';
   const school = gradeReportSchool(prefs) ? escapeHtml(gradeReportSchool(prefs)) : 'اسم المدرسة';
   const subject = gradeReportSubject(prefs);
-  return `<div class="hd">${ctx.logo ? `<img src="${ctx.logo}" alt="">` : '<span class="lg"></span>'}
-    <div class="t"><small>${school}</small><h1>${escapeHtml(title)}</h1><div class="m">${subject ? `<b>المادة: ${escapeHtml(subject)}</b> | ` : ''}${sub}</div></div>
-    <div class="mt">${grn(ctx.date)}<br>الفصل الدراسي ${semester}<br>العام ${grn(escapeHtml(ctx.year || ''))}</div></div>`;
+  const when = `<span class="nw">| الفصل ${semester} ${grn(escapeHtml(ctx.year || ''))} | ${grn(escapeHtml(ctx.date || ''))}</span>`;
+  const size = titleLen ? ` style="font-size:${gradeReportTitleSize(titleLen)}px"` : '';
+  const schoolLogo = prefs && prefs.logo && GRADE_REPORT_LOGO_RE.test(prefs.logo) ? `<img src="${prefs.logo}" alt="">` : '';
+  return `<div class="hd"><div class="lgb">${ctx.logo ? `<img src="${ctx.logo}" alt="">` : ''}</div>
+    <div class="t"><small>${school}</small><h1${size}>${titleHtml || escapeHtml(title)}</h1><div class="m">${subject ? `<b>المادة: ${escapeHtml(subject)}</b> | ` : ''}${sub} ${when}${extra || ''}</div></div>
+    <div class="lgb">${schoolLogo}</div></div>`;
 }
 
 function grKpis(list){
@@ -540,11 +549,11 @@ function gradeReportStudentHtml(d, prefs, ctx){
   const meta = { logo: ctx.logo, date: ctx.date, year: d.year, semester: d.semester };
   const to = ctx.to ? String(ctx.to) : '';
   /* الجهة الموجَّه إليها: سطر تحت العنوان + خانة توقيعها (وكيل الشؤون له خانة ثابتة أصلًا) */
-  const toLine = to ? `<br><b>موجّه إلى: ${escapeHtml(to)}</b>` : '';
+  const toLine = to ? ` | <b>موجّه إلى: ${escapeHtml(to)}</b>` : '';
   const sigTo = to === 'وكيل شؤون الطلاب' ? '' : (to || 'ولي الأمر');
   /* اسم الجهة في توقيعها إن كان المعلم أدخله مرة (الموجه الطلابي · وكيل شؤون المعلمين) */
   const sigName = to === 'الموجه الطلابي' ? prefs.counselor : to === 'وكيل شؤون المعلمين' ? prefs.staff : '';
-  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء طالب', `${escapeHtml(d.name)} | ${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}${toLine}`)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار المستويات: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما.</div>${grSig(prefs, sigTo, sigName)}</div>`;
+  return `<style>${GRADE_REPORT_CSS}</style><div class="gr">${grHead(meta, prefs, 'تقرير أداء الطالب', `${escapeHtml(d.label)} | المجموع من ${grn(formatScore(d.max))}`, toLine, `تقرير أداء الطالب: <span class="sn">${escapeHtml(d.name)}</span>`, 'تقرير أداء الطالب: '.length + String(d.name).length)}${kpis}${itemsHtml}${grNotes(notes, prefs)}<div class="fn">معيار المستويات: الضعاف أقل من ${r.pass}%، والمتفوقون ${r.top}% فأكثر، والمتوسطون ما بينهما.</div>${grSig(prefs, sigTo, sigName)}</div>`;
 }
 
 /* ============ التصدير ============ */
@@ -752,7 +761,7 @@ let gradeReportDraft = null; /* { host: 'ga' | 'cust', school, teacher, vice, sh
 
 function openGradeReportEditor(host){
   const p = gradeReportPrefsNow();
-  gradeReportDraft = { host, school: p.school, teacher: p.teacher, vice: p.vice, staff: p.staff, counselor: p.counselor, subject: p.subject, show: Object.assign({}, p.show), notes: Object.assign({}, p.notes), error: '', saving: false };
+  gradeReportDraft = { host, logo: p.logo, school: p.school, teacher: p.teacher, vice: p.vice, staff: p.staff, counselor: p.counselor, subject: p.subject, show: Object.assign({}, p.show), notes: Object.assign({}, p.notes), error: '', saving: false };
   if(host === 'ga'){
     const a = crmGradeAnalysis;
     if(!a) return;
@@ -781,6 +790,7 @@ function gradeReportEditorHtml(){
   return `<div class="crm-ga-sec">خيارات التقارير</div>
     <p class="crm-ga-fine" style="margin-top:0">تُطبَّق على كل تقاريرك: الشعبة والبند ومجموعة الشعب والطالب.</p>
     ${fld('school', 'اسم المدرسة', gradeReportSchool({ school: '' }) ? 'تلقائي: ' + gradeReportSchool({ school: '' }) : 'مثال: ثانوية بدر')}
+    ${gradeReportLogoField(d)}
     ${fld('teacher', 'اسم المعلم', auto ? 'تلقائي: ' + auto : 'اسم المعلم')}
     ${fld('vice', 'وكيل شؤون الطلاب', 'يظهر في التوقيع')}
     ${fld('staff', 'وكيل شؤون المعلمين', 'يظهر في توقيعه عند التوجيه إليه')}
@@ -796,6 +806,52 @@ function gradeReportEditorHtml(){
     <div class="crm-ga-err" id="grEditorErr">${escapeHtml(d.error)}</div>
     <button type="button" class="btn btn-primary" id="grEditorSave" style="width:100%" ${d.saving ? 'disabled' : ''} onclick="saveGradeReportPrefs()">حفظ</button>
     <div class="crm-ga-eacts"><button type="button" class="crm-ga-link" onclick="gradeReportEditorReset()">الافتراضي</button><button type="button" class="crm-ga-link" onclick="gradeReportEditorCancel()">إلغاء</button></div>`;
+}
+
+/* شعار المدرسة: خيار اختياري لكل معلم (يُحفظ مع خياراته). يُقصّ بياضه ويُصغَّر قبل الحفظ */
+function gradeReportLogoField(d){
+  return `<div class="gr-fld"><span>شعار المدرسة (اختياري — يظهر مقابل شعار الوزارة)</span>
+    <div class="gr-logo">${d.logo ? `<img src="${d.logo}" alt="">` : ''}
+    <label class="crm-ga-link" style="cursor:pointer">${d.logo ? 'تغيير' : 'رفع صورة'}<input type="file" accept="image/png,image/jpeg" style="display:none" onchange="gradeReportPickLogo(this)"></label>
+    ${d.logo ? '<button type="button" class="crm-ga-link" onclick="gradeReportDraftLogo(\'\')">حذف</button>' : ''}</div></div>`;
+}
+
+function gradeReportDraftLogo(v){ if(gradeReportDraft){ gradeReportDraft.logo = v; gradeReportDraft.error = ''; paintGradeReportEditor(); } }
+
+/* يقصّ الهوامش البيضاء/الشفافة ويصغّر إلى عرض أقصاه w؛ يرجع data URL (PNG) أو '' */
+function gradeReportLogoShrink(img, w){
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const px = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+  for(let y = 0; y < c.height; y++) for(let x = 0; x < c.width; x++){
+    const k = (y * c.width + x) * 4;
+    if(px[k + 3] > 20 && (px[k] < 245 || px[k + 1] < 245 || px[k + 2] < 245)){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; }
+  }
+  if(x1 < 0) return '';
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1, sc = Math.min(1, w / cw);
+  const o = document.createElement('canvas');
+  o.width = Math.max(1, Math.round(cw * sc)); o.height = Math.max(1, Math.round(ch * sc));
+  o.getContext('2d').drawImage(c, x0, y0, cw, ch, 0, 0, o.width, o.height);
+  return o.toDataURL('image/png');
+}
+
+async function gradeReportPickLogo(input){
+  const d = gradeReportDraft;
+  const f = input && input.files && input.files[0];
+  if(!d || !f) return;
+  if(f.size > 8 * 1024 * 1024){ d.error = 'الصورة كبيرة جدًا'; paintGradeReportEditor(); return; }
+  try{
+    const url = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(f); });
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
+    let out = '';
+    for(const w of [320, 220, 140]){ out = gradeReportLogoShrink(img, w); if(!out || out.length <= GRADE_REPORT_LOGO_MAX) break; }
+    if(gradeReportDraft !== d) return;
+    if(!out || out.length > GRADE_REPORT_LOGO_MAX || !GRADE_REPORT_LOGO_RE.test(out)){ d.error = 'تعذّر استخدام هذه الصورة'; paintGradeReportEditor(); return; }
+    gradeReportDraftLogo(out);
+  } catch(e){ if(gradeReportDraft === d){ d.error = 'تعذّر قراءة الصورة'; paintGradeReportEditor(); } }
 }
 
 function gradeReportDraftText(k, value){ if(gradeReportDraft) gradeReportDraft[k] = value; }
@@ -832,7 +888,7 @@ async function saveGradeReportPrefs(){
   const d = gradeReportDraft;
   if(!d || d.saving) return;
   const a = crmGradeAnalysis;
-  const p = { school: d.school, teacher: d.teacher, vice: d.vice, staff: d.staff, counselor: d.counselor, subject: d.subject, show: d.show, notes: d.notes };
+  const p = { school: d.school, logo: d.logo, teacher: d.teacher, vice: d.vice, staff: d.staff, counselor: d.counselor, subject: d.subject, show: d.show, notes: d.notes };
   d.saving = true;
   const btn = document.getElementById('grEditorSave');
   if(btn) btn.disabled = true;

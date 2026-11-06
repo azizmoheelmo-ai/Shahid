@@ -2648,3 +2648,5 @@ button.bt-cell{cursor:pointer;}
 
 .gr-fld{display:flex;flex-direction:column;gap:3px;margin:8px 0;font-size:12px;font-weight:700;color:var(--navy);}
 .gr-fld .goal-input{font-weight:400;}
+.gr-logo{display:flex;align-items:center;gap:12px;font-weight:400}
+.gr-logo img{max-height:48px;max-width:120px;border:1px solid var(--border,#dfe6ea);border-radius:6px;padding:3px;background:#fff}
