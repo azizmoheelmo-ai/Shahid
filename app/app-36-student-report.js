@@ -1,7 +1,7 @@
 /* ============================================================
    تقرير الطالب الفردي — نسختان بهوية وزارة التعليم (انظر REPORTS.md §4.0)
    ------------------------------------------------------------
-   - «الدرجات»: أرقام ومستويات (متقن · جيد · يحتاج تحسين) فقط.
+   - «الدرجات»: أرقام ومستويات (متفوق · جيد · يحتاج تحسين) فقط.
    - «التحليلي»: كل ما يخص الطالب (حضور، مخالفات، متابعات، حالات أكاديمية، مهام، إيجابيات) + تشخيص
      على مستويين (تحصيلي · تعلّمي) + توصيات. كل قسم يظهر فقط إن وُجدت بياناته، بلا اختصار ولا حدّ للصفحات.
    - لا حكم دون دليل، ولا توصية دون تشخيص، ولا يُنسب للمعلم إجراء غير مسجَّل. ما لم يُرصد لا يُحسب.
@@ -28,7 +28,7 @@ const SR_TO_LABELS = { guardian: 'ولي الأمر', counselor: 'الموجه �
 function srLevel(pct, rules){
   if(pct === null || pct === undefined || Number.isNaN(Number(pct))) return null;
   const r = rules || { pass: 50, top: 90 };
-  return pct < r.pass ? { key: 'w', label: 'يحتاج تحسين' } : pct >= r.top ? { key: 'm', label: 'متقن' } : { key: 'j', label: 'جيد' };
+  return pct < r.pass ? { key: 'w', label: 'يحتاج تحسين' } : pct >= r.top ? { key: 'm', label: 'متفوق' } : { key: 'j', label: 'جيد' };
 }
 
 function srPct(score, max){
@@ -163,7 +163,7 @@ function srDiagnose(m){
   if(tah.enough){
     tRows.forEach(r => {
       const l = lvl(r);
-      if(l.key === 'm') tah.strengths.push({ text: `${r.name} ${srRound(r.pct)}% (متقن)` });
+      if(l.key === 'm') tah.strengths.push({ text: `${r.name} ${srRound(r.pct)}% (متفوق)` });
       else if(nearClass(r) && r.pct - r.classPct >= SR_NEAR_CLASS && l.key !== 'w') tah.strengths.push({ text: `${r.name} ${srRound(r.pct)}% — أعلى من متوسط الشعبة (${srRound(r.classPct)}%)`, classOnly: true });
       if(l.key === 'w') tah.facts.push({ text: `${r.name} ${srRound(r.pct)}% — دون حدّ الضعف (${rules.pass}%)` });
       else if(nearClass(r) && r.classPct - r.pct >= SR_NEAR_CLASS) tah.facts.push({ text: `${r.name} ${srRound(r.pct)}% — دون متوسط الشعبة (${srRound(r.classPct)}%)`, classOnly: true });
@@ -199,7 +199,7 @@ function srDiagnose(m){
       ind.text = isHw ? `${r.name}: لا بيانات كافية للحكم (أقل من ${SR_MIN_HOMEWORK} واجبات محسوبة)` : `${r.name}: لا بيانات كافية للحكم (أقل من ${SR_MIN_LESSONS} حصص منعقدة)`;
     } else if(l.key === 'm'){
       ind.status = 'strength';
-      ind.text = isHw ? `${r.name} ${srRound(r.pct)}% — سلّم ${hw.submitted} من ${hw.total} واجبات` : `${r.name} ${srRound(r.pct)}% (متقن)`;
+      ind.text = isHw ? `${r.name} ${srRound(r.pct)}% — سلّم ${hw.submitted} من ${hw.total} واجبات` : `${r.name} ${srRound(r.pct)}% (متفوق)`;
     } else if(l.key === 'w'){
       ind.status = 'weak';
       if(isHw){
@@ -283,7 +283,7 @@ const SR_CSS = `
 .sr .hd h1{margin:2px 0 0;font-size:20px;font-weight:700;color:#15445a;line-height:1.4}
 .sr .hd .sl{width:17mm;height:17mm;flex:none;display:flex;align-items:center;justify-content:center}.sr .hd .sl img{max-width:17mm;max-height:17mm}
 .sr .mt{display:flex;flex-wrap:wrap;border:1px solid #c2c1c1;border-radius:6px;margin-bottom:8px}
-.sr .mt div{flex:1 1 33%;padding:3px 8px;border-left:1px solid #c2c1c1}.sr .mt small{display:block;color:#6b7c86;font-size:9px}
+.sr .mt div{flex:0 0 33.3333%;padding:3px 8px;border-left:1px solid #c2c1c1;border-bottom:1px solid #c2c1c1;min-height:35px}.sr .mt div:nth-child(3n){border-left:0}.sr .mt div:nth-last-child(-n+3){border-bottom:0}.sr .mt small{display:block;color:#6b7c86;font-size:9px}
 .sr .kp{display:flex;gap:7px;margin-bottom:8px}.sr .kp>div{flex:1;border:1.5px solid #dfe6ea;border-radius:9px;text-align:center;padding:3px}
 .sr .kp b{display:block;font-size:19px;line-height:1.4}.sr .kp span{font-size:10px;color:#51636d}.sr .kp .chip{color:#fff;font-size:13px;padding:1px 14px}
 .sr h2{display:flex;align-items:center;gap:7px;font-size:12.5px;margin:10px 0 4px;font-weight:700;break-after:avoid}
@@ -309,6 +309,8 @@ const SR_CSS = `
 .sr .strip{height:5px;background:linear-gradient(90deg,#3B83B7,#4CB176);margin-top:10px;border-radius:3px}
 `;
 
+/* صندوق البيانات: يُكمَّل بخلايا فارغة لمضاعف الثلاثة فتكتمل خطوطه (بلا فراغ بلا خطوط بآخر صف) */
+const srMetaBox = cells => { const n = (cells.match(/<div><small>/g) || []).length; return `<div class="mt">${cells}${'<div></div>'.repeat((3 - n % 3) % 3)}</div>`; };
 const srNum = v => `<bdi dir="ltr">${v}</bdi>`;
 const srScore = (s, max) => srNum(`${formatScore(s)} / ${formatScore(max)}`);
 const srChip = (lv, extra) => lv ? `<span class="chip ${lv.key}"${extra || ''}>${lv.label}</span>` : '';
@@ -450,7 +452,7 @@ function buildStudentReportHtml2(ctx){
     body += `<div class="sec long"><h2>${analytic ? 'درجات البنود مقارنةً بمتوسط الشعبة' : 'درجات البنود'}</h2>${srItemsTableHtml(ctx.rows, ctx.rules, analytic)}`;
     const notes = ['ما لم يُرصد لا يُحسب على الطالب.'];
     if(!ctx.noDx && dx && !dx.overallJudged) notes.push('لا أدلة كافية للحكم على المستوى العام' + (o.incomplete ? ' (الرصد غير مكتمل).' : '.'));
-    notes.push(`المستوى: متقن ${srNum(ctx.rules.top + '%')} فأكثر · يحتاج تحسين أقل من ${srNum(ctx.rules.pass + '%')} (حدّان يضبطهما المعلم).`);
+    notes.push(`المستوى: متفوق ${srNum(ctx.rules.top + '%')} فأكثر · يحتاج تحسين أقل من ${srNum(ctx.rules.pass + '%')} (حدّان يضبطهما المعلم).`);
     body += `<div class="fn">${notes.join(' ')}</div></div>`;
   } else {
     body += '<div class="box"><span class="nd">لا درجات مرصودة لهذا الطالب في الفصل الحالي.</span></div>';
@@ -505,7 +507,7 @@ function buildStudentReportHtml2(ctx){
     body += srSignHtml('grades', ctx.to, prefs, teacher);
   }
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>${title}</h1></div><div class="sl">${slogo}</div></div>`;
-  const metaHtml = `<div class="mt">${meta('الطالب', ctx.student.name)}${meta('الصف والشعبة', ctx.student.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term ? ctx.term.year : ''}`)}${meta('المعلم', teacher)}${meta('المادة', subject)}${meta('التاريخ', ctx.date)}</div>`;
+  const metaHtml = srMetaBox(`${meta('الطالب', ctx.student.name)}${meta('الصف والشعبة', ctx.student.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term ? ctx.term.year : ''}`)}${meta('المعلم', teacher)}${meta('المادة', subject)}${meta('التاريخ', ctx.date)}`);
   return `<style>${SR_CSS}</style><div class="sr">${head}${metaHtml}${kp.length ? `<div class="kp">${kp.join('')}</div>` : ''}${body}<div class="strip"></div></div>`;
 }
 

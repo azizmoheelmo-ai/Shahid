@@ -7,7 +7,7 @@
    - الجمهور داخلي (معلم، وكيل، إدارة، لجنة) — ليس لولي الأمر؛ ولا أسماء طلاب في هذا التقرير.
    - المعيار محكي (م10): كل طالب بالحدّين الثابتين، وتُقارَن الشعب بحصة طلابها في كل مستوى (لا بالأعداد).
    - بند يُحكم عليه في شعبة إذا رُصد لـSS_MIN_STUDENTS طلاب فأكثر؛ ويدخل المقارنة إن وُجد بالاسم في شعبتين فأكثر.
-   - ضعف شعبة في بند = SS_SHARE% فأكثر من طلابها دون حدّ الضعف؛ قوتها = SS_SHARE% فأكثر بمستوى «متقن» (ودون SS_SHARE% دون الحدّ).
+   - ضعف شعبة في بند = SS_SHARE% فأكثر من طلابها دون حدّ الضعف؛ قوتها = SS_SHARE% فأكثر بمستوى «متفوق» (ودون SS_SHARE% دون الحدّ).
    - الفترات كجدول الشعبة: صف لكل فترة منتهية، وصف «الداخل في المجموع» الذي يُلوَّن ويُبنى عليه التشخيص.
    - لا تفسير سببي: البيانات تبيّن الفرق ولا تحدّد سببه.
    - لا مؤشرات إحصائية مجمَّعة (أقل/أعلى/وسيط) ولا تعليق عام: تُخفي الفروق بين الشعب ولا يتبعها قرار (ق10).
@@ -78,9 +78,9 @@ function sgLevelsHtml(secs, max){
   const e = escapeHtml;
   const pc = (n, t) => t ? srNum(Math.round(100 * n / t) + '%') : '—';
   const stack = s => { const t = s.recorded || 1; return `<div class="sgstk"><i class="m" style="width:${100 * s.top / t}%"></i><i class="j" style="width:${100 * s.mid / t}%"></i><i class="w" style="width:${100 * s.low / t}%"></i></div>`; };
-  return `<table><thead><tr><th>الشعبة</th><th class="n">الطلاب</th><th class="n">متوسط الشعبة</th><th class="n">متقن</th><th class="n">جيد</th><th class="n">يحتاج تحسين</th><th style="width:26%">توزيع المستويات</th></tr></thead><tbody>${secs.map(s =>
+  return `<table><thead><tr><th>الشعبة</th><th class="n">الطلاب</th><th class="n">متوسط الشعبة</th><th class="n">متفوق</th><th class="n">جيد</th><th class="n">يحتاج تحسين</th><th style="width:26%">توزيع المستويات</th></tr></thead><tbody>${secs.map(s =>
     `<tr><td><b>${e(s.label)}</b></td><td class="n">${srNum(s.recorded)}</td><td class="n">${s.avg === null ? '—' : srScore(Math.round(s.avg * 10) / 10, s.max || max)} <span class="nd">(${s.avgPct === null ? '—' : srNum(s.avgPct + '%')})</span></td><td class="n">${pc(s.top, s.recorded)}</td><td class="n">${pc(s.mid, s.recorded)}</td><td class="n">${pc(s.low, s.recorded)}</td><td>${stack(s)}</td></tr>`).join('')}</tbody></table>
-    <div class="sgleg"><span><s class="m"></s>متقن</span><span><s class="j"></s>جيد</span><span><s class="w"></s>يحتاج تحسين</span></div>`;
+    <div class="sgleg"><span><s class="m"></s>متفوق</span><span><s class="j"></s>جيد</span><span><s class="w"></s>يحتاج تحسين</span></div>`;
 }
 
 /* جدول البنود بين الشعب: صف لكل فترة منتهية ثم «الداخل في المجموع» (وعليه التلوين)، وصف واحد لغير متعدد الفترات */
@@ -107,7 +107,7 @@ function sgMatrixHtml(cls, secs){
     return `<tbody class="grp"><tr><td class="gn"><b>${e(c.name)}</b>${meas}</td><td class="n">${c.per.some(p => p.it.lonePeriod) ? e(shortP(c.per.find(p => p.it.lonePeriod).it.lonePeriod)) : '—'}</td>${secs.map(sc => { const p = perOf(c, sc); return p ? cell(p.t, flagOf(p)) : '<td class="n">—</td>'; }).join('')}</tr></tbody>`;
   }).join('');
   return `<table class="itm"><thead><tr><th>البند</th><th class="n">الفترة</th>${secs.map(sc => `<th class="n">${e(sc.label)}</th>`).join('')}</tr></thead>${body}</table>
-    <div class="fn">اللون البنفسجي: ${srNum(SS_SHARE + '%')} فأكثر من طلاب الشعبة دون حدّ الضعف · الأخضر: ${srNum(SS_SHARE + '%')} فأكثر بمستوى «متقن» (على «الداخل في المجموع»). البنود تُطابَق بالاسم بين الشعب، ولا يظهر بند رُصد لأقل من ${srNum(SS_MIN_STUDENTS)} طلاب في شعبته.</div>`;
+    <div class="fn">اللون البنفسجي: ${srNum(SS_SHARE + '%')} فأكثر من طلاب الشعبة دون حدّ الضعف · الأخضر: ${srNum(SS_SHARE + '%')} فأكثر بمستوى «متفوق» (على «الداخل في المجموع»). البنود تُطابَق بالاسم بين الشعب، ولا يظهر بند رُصد لأقل من ${srNum(SS_MIN_STUDENTS)} طلاب في شعبته.</div>`;
 }
 
 function sgDiagHtml(cls, domain, title){
@@ -116,7 +116,7 @@ function sgDiagHtml(cls, domain, title){
   cls.filter(c => c.domain === domain && c.kind).forEach(c => {
     const nm = e(sgName(c));
     const wl = sgList(c.weak, p => `${e(p.label)} <span class="nd">(${srNum(Math.round(p.t.belowShare))}% دون الحدّ)</span>`);
-    const sl = sgList(c.strong, p => `${e(p.label)} <span class="nd">(${srNum(Math.round(p.t.topShare))}% متقنون)</span>`);
+    const sl = sgList(c.strong, p => `${e(p.label)} <span class="nd">(${srNum(Math.round(p.t.topShare))}% متفوقون)</span>`);
     if(c.kind === 'sharedWeak') lines.push(`<div class="box p"><b>ضعف مشترك:</b> ${nm} — في كل الشعب: ${wl}.</div>`);
     else if(c.kind === 'sharedStrong') lines.push(`<div class="box s"><b>قوة مشتركة:</b> ${nm} — في كل الشعب: ${sl}.</div>`);
     else if(c.kind === 'contrast') lines.push(`<div class="box f"><b>تباين بين الشعب:</b> ${nm} — قوة في ${sl}، وضعف في ${wl}.</div>`);
@@ -141,7 +141,7 @@ function buildGroupReportHtml(ctx){
   const total = secs.reduce((a, s) => a + s.recorded, 0);
   const meta = (k, v) => `<div><small>${k}</small><b>${e(v || '—')}</b></div>`;
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>تقرير مقارنة شعب الصف</h1></div><div class="sl">${slogo}</div></div>`;
-  const metaHtml = `<div class="mt">${meta('الصف', ctx.gradeName)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${meta('شعب المعلم من الصف نفسه', secs.map(s => s.label).join('، '))}${ctx.itemName ? meta('البند (تقرير بند واحد)', ctx.itemName) : ''}${meta('التاريخ', ctx.date)}</div>`;
+  const metaHtml = srMetaBox(`${meta('الصف', ctx.gradeName)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${meta('شعب المعلم من الصف نفسه', secs.map(s => s.label).join('، '))}${ctx.itemName ? meta('البند (تقرير بند واحد)', ctx.itemName) : ''}${meta('التاريخ', ctx.date)}`);
   const kp = `<div class="kp"><div><b>${srNum(secs.length)}</b><span>شعب</span></div><div><b>${srNum(total)}</b><span>طلاب مرصودة درجاتهم</span></div><div><b>${ctx.pooled.avgPct === null ? '—' : srNum(ctx.pooled.avgPct + '%')}</b><span>متوسط المجموعة</span></div><div><b>${total ? srNum(Math.round(100 * ctx.pooled.low / total) + '%') : '—'}</b><span>يحتاجون تحسين</span></div></div>`;
   const recs = sgRecommendations(ctx.cls);
   const recHtml = recs.length ? `<div class="sec"><h2>التوصيات لتحسين الممارسة</h2>${recs.map(r => `<div class="rc"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>` : '';

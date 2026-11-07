@@ -19,7 +19,7 @@ function sec(app, label, spec){
   return { label, items: Object.entries(spec).map(([name, o]) => Object.assign({ name, measures: null, domain: 'tahsili', category: 'tests', periods: [], lonePeriod: null, total: stat(app, o.pcts) }, o.extra || {})) };
 }
 const W = [30, 40, 45, 35, 70, 75, 80, 85, 60, 65, 70, 55];   /* 4 من 12 = 33% دون الحدّ */
-const S = [95, 92, 91, 90, 70, 75, 80, 65, 60, 85, 72, 68];   /* 4 من 12 = 33% متقنون */
+const S = [95, 92, 91, 90, 70, 75, 80, 65, 60, 85, 72, 68];   /* 4 من 12 = 33% متفوقون */
 const M = [70, 75, 80, 65, 60, 85, 72, 68, 78, 82, 55, 66];   /* لا هذا ولا ذاك */
 
 test('sgClassify: ضعف مشترك، قوة مشتركة، ضعف/قوة في بعض الشعب، وتباين', () => {
@@ -125,8 +125,8 @@ test('ترتيب المعلم يُتَّبع حتى لو اختلف (ج ثم أ 
 
 test('جدول المستويات: حصة كل مستوى بالتسميات المحكية، ولا تسميات قديمة', async () => {
   const h = await build(groupEnv());
-  assert.match(h, /<th class="n">متقن<\/th><th class="n">جيد<\/th><th class="n">يحتاج تحسين<\/th>/);
-  assert.doesNotMatch(h, /ضعاف|متفوقون|متوسطون/);
+  assert.match(h, /<th class="n">متفوق<\/th><th class="n">جيد<\/th><th class="n">يحتاج تحسين<\/th>/);
+  assert.doesNotMatch(h, /ضعاف|متوسطون/);
   assert.match(h, /class="sgstk"/);
 });
 

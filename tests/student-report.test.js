@@ -19,12 +19,12 @@ const row = (name, score, max, o) => Object.assign({
   id: name, name, label: name, score, max, pct: 100 * score / max, row: 'item', kind: 'manual', domain: 'tahsili', category: 'tests', live: false, classPct: null
 }, o || {});
 
-test('srLevel: متقن · جيد · يحتاج تحسين بحدّي المعلم', () => {
+test('srLevel: متفوق · جيد · يحتاج تحسين بحدّي المعلم', () => {
   const app = loadApp();
   assert.equal(app.srLevel(49.9, R).label, 'يحتاج تحسين');
   assert.equal(app.srLevel(50, R).label, 'جيد');
   assert.equal(app.srLevel(89.9, R).label, 'جيد');
-  assert.equal(app.srLevel(90, R).label, 'متقن');
+  assert.equal(app.srLevel(90, R).label, 'متفوق');
   assert.equal(app.srLevel(null, R), null);
   assert.equal(app.srLevel(70, { pass: 70, top: 95 }).label, 'جيد', 'حدود المعلم لا الافتراضية');
   assert.equal(app.srLevel(69, { pass: 70, top: 95 }).label, 'يحتاج تحسين');
@@ -195,7 +195,7 @@ test('ضعف الواجبات: توصية بسلسلة كاملة؛ وأقل م�
   assert.equal(none.taalumi.indicators[0].status, 'nodata');
 });
 
-test('المشاركة: لا حكم إلا بعد 3 حصص منعقدة؛ والقوة بالمتقن', () => {
+test('المشاركة: لا حكم إلا بعد 3 حصص منعقدة؛ والقوة بالمتفوق', () => {
   assert.equal(dx([partRow(30)], { lessonsHeld: 2 }).taalumi.indicators[0].status, 'nodata');
   assert.equal(dx([partRow(30)], { lessonsHeld: 3 }).taalumi.indicators[0].status, 'weak');
   assert.equal(dx([partRow(95)], { lessonsHeld: 5 }).taalumi.indicators[0].status, 'strength');
@@ -288,7 +288,7 @@ function html(version, over){
 test('نسخة الدرجات: أرقام ومستويات فقط — بلا تشخيص ولا حضور ولا مخالفات ولا توصيات', () => {
   const h = html('grades', { incidents: [{ incident_date: '2026-10-01', typeName: 'x', current_stage: 'warning_1' }], attendance: { counts: { present: 1, absent: 1, late: 0, permitted_exit: 0 }, list: [], recorded: 5 }, positives: [{ note_date: '2026-10-02', note_text: 'ممتاز' }] });
   assert.match(h, /تقرير أداء الطالب</);
-  assert.match(h, /متقن/);
+  assert.match(h, /متفوق/);
   assert.match(h, /يحتاج تحسين/);
   for(const gone of ['التشخيص', 'التوصيات', 'الحضور', 'المواقف السلوكية', 'الملاحظات الإيجابية', 'الخطوة التالية', 'متوسط الشعبة']) assert.doesNotMatch(h, new RegExp(gone), gone);
   assert.match(h, /font-family:'Helvetica Neue W23 for SKY'/, 'خط الوزارة');
