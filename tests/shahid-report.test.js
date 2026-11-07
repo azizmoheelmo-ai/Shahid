@@ -93,3 +93,14 @@ test('كل طباعة شاهد مفرد تمرّ بـprintShahidRecord (zoom + �
   assert.match(a8, /pages\.push\(await shahidFitPage\(/, 'ملف الإنجاز');
   assert.match(a9, /\(await shahidFitPage\(rec, photoDataUrls\)\)\.html/, 'الإرسال');
 });
+
+test('شريط «عنصر الأداء» كحليّ بنص أبيض (ق25) لا الأزرق الفاتح القديم', () => {
+  const app = loadApp();
+  const html = app.buildPdfHtml(rec, []);
+  const i = html.indexOf('عنصر الأداء');
+  const bar = html.slice(html.lastIndexOf('<div', i), html.indexOf('</div>', i));
+  assert.match(bar, /background:#15445a/);
+  assert.match(bar, /color:#fff/);
+  assert.doesNotMatch(bar, /#eaf2f8/);
+  assert.match(bar, /عنصر/, 'اسم العنصر ما زال في الشريط');
+});
