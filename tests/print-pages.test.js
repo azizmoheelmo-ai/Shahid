@@ -51,7 +51,7 @@ function printApp(extra){
     window.__area = area;
     const origGet = document.getElementById; window.__origGet = origGet;
     document.getElementById = id => id === 'printArea' ? area : origGet.call(document, id); document.title = 'شاهد';
-    printNow = () => { window.__printed++; window.__titleAtPrint = document.title; };
+    printNow = c => { window.__printed++; window.__titleAtPrint = document.title; window.__handlers.push(c); };
     window.addEventListener = (ev, fn) => window.__handlers.push(fn); window.removeEventListener = () => {};
     printMeasureHeight = async (html, w) => { window.__measured.push(html); return 2000; };
     ${extra || ''}`);

@@ -1287,9 +1287,6 @@ async function printRecord(id, evt){
     printNow();
   } finally { endExportBusy(btn); }
 }
-window.addEventListener('afterprint', () => {
-  document.body.classList.remove('printing-record');
-});
 
 /* ============ تحويل رابط صورة إلى Data URL (لتفادي مشاكل CORS داخل PDF) ============ */
 async function toDataUrl(url){
