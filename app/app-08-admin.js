@@ -328,8 +328,7 @@ async function adminPrintRecord(id, evt){
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     await shahidWarmLogos();
-    document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
-    printNow();
+    await printShahidRecord(rec, rec.photo_urls || []);
   } finally { endExportBusy(btn); }
 }
 
@@ -1427,7 +1426,7 @@ async function exportPortfolio(evt){
           const results = await Promise.all(rec.photo_urls.filter(isImageUrl).map(toDataUrl));
           photoDataUrls = results.filter(Boolean);
         }
-        await addHtmlPage(buildPdfHtml(rec, photoDataUrls));
+        pages.push(await shahidFitPage(rec, photoDataUrls));
       }
     }
 

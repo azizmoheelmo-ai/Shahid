@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadApp } = require('./load-app.js');
+const { loadApp, runInAppContext } = require('./load-app.js');
 const root = path.join(__dirname, '..');
 
 const rec = { school: 'مدرسة <b>س</b>', teacher_name: 'م', element_label: 'عنصر', steps: ['أ', 'ب'], description: '<img src=x>' };
@@ -62,4 +62,34 @@ test('الصور: أكثر من ٦ تُختصر بملاحظة، والمفرد 
   assert.equal((html.match(/<img /g) || []).length, 6);
   assert.match(html, /\+ 2 صور أخرى/);
   assert.match(app.buildPdfHtml(rec, [imgs[0]]), /width:100%;display:flex/);
+});
+
+/* ===== الشاهد صفحة واحدة ديناميكية (3.07) ===== */
+test('التاريخ بصيغة لاتينية واحدة (2026-10-05) سواء من lesson_date أو created_at، وبلا تاريخ يبقى فارغًا', () => {
+  const app = loadApp();
+  assert.equal(app.shahidDateDisplay({ lesson_date: '2026-10-05' }), '2026-10-05');
+  assert.match(app.shahidDateDisplay({ created_at: '2026-10-06T10:00:00Z' }), /^2026-10-0[56]$/);
+  assert.equal(app.shahidDateDisplay({}), '');
+  assert.doesNotMatch(app.buildPdfHtml({ created_at: '2026-10-06T10:00:00Z', element_label: 'ع' }, []), /[٠-٩]/, 'لا أرقام هندية');
+});
+
+test('شبكة الصور: 1 بعرض كامل · 2–4 بعمودين · 5–6 بثلاثة، ومعامل التصغير يُصغّر الإطارات', () => {
+  const app = loadApp();
+  assert.deepEqual(JSON.parse(runInAppContext(app, 'JSON.stringify([1, 2, 3, 4, 5, 6].map(shahidPhotoCols))')), [1, 2, 2, 2, 3, 3]);
+  const imgs = n => Array.from({ length: n }, (_, i) => 'data:image/png;base64,A' + i);
+  assert.match(app.buildPdfHtml(rec, imgs(5)), /width:calc\(33\.333% - 7px\)/);
+  assert.match(app.buildPdfHtml(rec, imgs(3)), /width:calc\(50% - 5px\)/);
+  const h = sc => +app.buildPdfHtml(rec, imgs(2), { frameScale: sc }).match(/height:(\d+)px;padding:5px/)[1];
+  assert.ok(h(0.5) < h(1), 'تصغير الإطار');
+});
+
+test('كل طباعة شاهد مفرد تمرّ بـprintShahidRecord (zoom + صفحة واحدة) لا بوضع HTML خام في printArea (سبب قصّ الحافة اليسرى وصفحة التوقيع)', () => {
+  const a9 = fs.readFileSync(path.join(root, 'app/app-09-shahid-form.js'), 'utf8');
+  const a8 = fs.readFileSync(path.join(root, 'app/app-08-admin.js'), 'utf8');
+  for(const src of [a9, a8]) assert.doesNotMatch(src, /printArea'\)\.innerHTML = buildPdfHtml/, 'لا HTML خام في printArea');
+  assert.equal((a9.match(/printShahidRecord\(/g) || []).length, 3, 'التعريف + المسودة + سجلي');
+  assert.match(a8, /await printShahidRecord\(rec/);
+  assert.match(a9, /pages\.push\(await shahidFitPage\(/, 'الكل');
+  assert.match(a8, /pages\.push\(await shahidFitPage\(/, 'ملف الإنجاز');
+  assert.match(a9, /\(await shahidFitPage\(rec, photoDataUrls\)\)\.html/, 'الإرسال');
 });
