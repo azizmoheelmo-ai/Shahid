@@ -16,11 +16,11 @@ function moeStripHtml(margin){
 }
 
 /* ترويسة: شعار الوزارة يمينًا، العنوان وسطًا (وسطر ثانوي)، شعار المدرسة يسارًا إن وُجد، وخط متدرج تحتها */
-function moeHeaderHtml(title, sub, side){
+function moeHeaderHtml(title, sub, side, margin){
   const moe = moeImgOk(shahidLogos.moe) ? `<img src="${escapeHtml(shahidLogos.moe)}" alt="" style="width:83px;display:block;">` : '';
   const sch = moeImgOk(shahidLogos.school) ? `<img src="${escapeHtml(shahidLogos.school)}" alt="" style="max-width:64px;max-height:64px;display:block;">` : '';
   const sideHtml = (side || []).filter(Boolean).map(t => `<div>${escapeHtml(t)}</div>`).join('');
-  return `<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 28px;padding-bottom:9px;">
+  return `<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;margin:${margin || '0 28px'};padding-bottom:9px;">
       <div style="width:83px;flex:none;">${moe}</div>
       <div style="flex:1;text-align:center;">
         ${sub ? `<div style="font-size:11px;color:${MOE_MUTED};">${escapeHtml(sub)}</div>` : ''}
@@ -61,7 +61,7 @@ function moeBarHtml(text){
 /* خانتا توقيع بخط علوي */
 function moeSignHtml(labels, margin){
   return `<div style="display:flex;gap:40px;margin:${margin || '24px 28px 0'};">${labels.map(l =>
-    `<div style="flex:1;border-top:1px solid ${MOE_NAVY};padding-top:6px;font-size:10px;color:${MOE_MUTED};">${escapeHtml(l)}</div>`).join('')}</div>`;
+    `<div style="flex:1;border-top:1px solid ${MOE_NAVY};padding-top:6px;font-size:11px;color:${MOE_MUTED};">${escapeHtml(l)}</div>`).join('')}</div>`;
 }
 
 /* صفحة خطاب (نص الخطاب كما في المعاينة) بترويسة الوزارة وخط الوزارة؛ بنية الخطاب ونصه لا يتغيران */
