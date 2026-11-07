@@ -219,20 +219,23 @@ function srDiagnose(m){
 }
 
 /* ============ دوال صرفة: الحضور ============
-   att: [{ status, lesson: { lesson_date, period, section_id } | null }] */
-function srAttendanceSummary(att, currentSectionId){
-  const counts = { present: 0, absent: 0, late: 0, permitted_exit: 0 };
+   att: [{ status, lesson: { lesson_date, period, section_id } | null }] — يُخزَّن الاستثناء فقط (غائب · متأخر · مستأذن)،
+   وغيابُ السجل = حاضر؛ فالحاضر = الحصص المرصودة لشعبته الحالية − استثناءاته فيها (كما في ملف الطالب).
+   استثناءات شعبة سابقة تُعرض بقائمتها وتُعدّ في prev ولا تُطرح من حصص شعبته الحالية. */
+function srAttendanceSummary(att, currentSectionId, recorded){
+  const counts = { present: null, absent: 0, late: 0, permitted_exit: 0 };
+  const prev = { absent: 0, late: 0, permitted_exit: 0 };
   const list = [];
   (att || []).forEach(a => {
-    if(counts[a.status] === undefined) return;
-    counts[a.status]++;
-    if(a.status !== 'present'){
-      const prev = !!(currentSectionId && a.lesson && a.lesson.section_id && a.lesson.section_id !== currentSectionId);
-      list.push({ status: a.status, date: a.lesson ? a.lesson.lesson_date : '', period: a.lesson ? a.lesson.period : null, prevSection: prev });
-    }
+    if(a.status !== 'absent' && a.status !== 'late' && a.status !== 'permitted_exit') return;
+    const isPrev = !!(currentSectionId && a.lesson && a.lesson.section_id && a.lesson.section_id !== currentSectionId);
+    (isPrev ? prev : counts)[a.status]++;
+    list.push({ status: a.status, date: a.lesson ? a.lesson.lesson_date : '', period: a.lesson ? a.lesson.period : null, prevSection: isPrev });
   });
-  list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  return { counts, list };
+  const n = Number(recorded) || 0;
+  if(n > 0) counts.present = Math.max(0, n - counts.absent - counts.late - counts.permitted_exit);
+  list.sort((x, y) => String(y.date).localeCompare(String(x.date)));
+  return { counts, prev, list };
 }
 
 /* ============ HTML ============ */
@@ -246,8 +249,8 @@ const SR_CSS = `
 .sr .hd .tt{flex:1;text-align:center;min-width:0}.sr .hd .sch{font-size:11px;color:#51636d}
 .sr .hd h1{margin:2px 0 0;font-size:20px;font-weight:700;color:#15445a;line-height:1.4}
 .sr .hd .sl{width:17mm;height:17mm;flex:none;display:flex;align-items:center;justify-content:center}.sr .hd .sl img{max-width:17mm;max-height:17mm}
-.sr .meta{display:flex;flex-wrap:wrap;border:1px solid #c2c1c1;border-radius:6px;margin-bottom:8px}
-.sr .meta div{flex:1 1 33%;padding:3px 8px;border-left:1px solid #c2c1c1}.sr .meta small{display:block;color:#6b7c86;font-size:9px}
+.sr .mt{display:flex;flex-wrap:wrap;border:1px solid #c2c1c1;border-radius:6px;margin-bottom:8px}
+.sr .mt div{flex:1 1 33%;padding:3px 8px;border-left:1px solid #c2c1c1}.sr .mt small{display:block;color:#6b7c86;font-size:9px}
 .sr .kp{display:flex;gap:7px;margin-bottom:8px}.sr .kp>div{flex:1;border:1.5px solid #dfe6ea;border-radius:9px;text-align:center;padding:3px}
 .sr .kp b{display:block;font-size:19px;line-height:1.4}.sr .kp span{font-size:10px;color:#51636d}.sr .kp .chip{color:#fff;font-size:13px;padding:1px 14px}
 .sr h2{display:flex;align-items:center;gap:7px;font-size:12.5px;margin:10px 0 4px;font-weight:700;break-after:avoid}
@@ -264,11 +267,11 @@ const SR_CSS = `
 .sr .box{border:1px solid #c2c1c1;border-radius:7px;padding:4px 9px;margin-bottom:4px;break-inside:avoid}
 .sr .box.s{border-right:4px solid #07a869}.sr .box.p{border-right:4px solid #7258a4}.sr .box.f{border-right:4px solid #3d7eb9}
 .sr .nd{color:#6b7c86}.sr .ev{font-size:9.5px;color:#51636d}
-.sr .rec{border:1px solid #c2c1c1;border-radius:7px;margin-bottom:5px;break-inside:avoid}
-.sr .rec div{padding:2px 9px;border-bottom:1px dashed #e3e9ec}.sr .rec div:last-child{border:0}.sr .rec b{color:#3d7eb9}
+.sr .rc{border:1px solid #c2c1c1;border-radius:7px;margin-bottom:5px;break-inside:avoid}
+.sr .rc div{padding:2px 9px;border-bottom:1px dashed #e3e9ec}.sr .rc div:last-child{border:0}.sr .rc b{color:#3d7eb9}
 .sr .lines div{border-bottom:1px solid #c2c1c1;height:20px}
-.sr .sign{display:flex;gap:16px;margin-top:12px;text-align:center;break-inside:avoid}.sr .sign div{flex:1;border-top:1px solid #15445a;padding-top:3px;font-size:10.5px}
-.sr .sign small{display:block;color:#51636d;min-height:14px;font-size:10px}
+.sr .sgn{display:flex;gap:16px;margin-top:12px;text-align:center;break-inside:avoid}.sr .sgn div{flex:1;border-top:1px solid #15445a;padding-top:3px;font-size:10.5px}
+.sr .sgn small{display:block;color:#51636d;min-height:14px;font-size:10px}
 .sr .fn{font-size:9px;color:#6b7c86;margin-top:4px}
 .sr .strip{height:5px;background:linear-gradient(90deg,#3B83B7,#4CB176);margin-top:10px;border-radius:3px}
 `;
@@ -334,7 +337,7 @@ function srRecommendationsHtml(dx){
   const e = escapeHtml;
   if(!dx.recommendations.length) return '';
   return `<div class="sec"><h2>التوصيات</h2>${dx.recommendations.map(r =>
-    `<div class="rec"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>`;
+    `<div class="rc"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>`;
 }
 
 /* الجهة الموجَّه إليها: اسمها تحت خانة توقيعها فقط (لا في الترويسة) */
@@ -342,11 +345,11 @@ function srSignHtml(version, to, prefs, teacher){
   const e = escapeHtml;
   const cell = (role, name) => `<div><small>${e(name || '')}</small>${e(role)}</div>`;
   if(version === 'analytical'){
-    return `<div class="sign">${cell('المعلم', teacher)}${cell('الموجه الطلابي', prefs.counselor)}${cell('وكيل شؤون الطلاب', prefs.vice)}</div>`;
+    return `<div class="sgn">${cell('المعلم', teacher)}${cell('الموجه الطلابي', prefs.counselor)}${cell('وكيل شؤون الطلاب', prefs.vice)}</div>`;
   }
   const t = to || 'ولي الأمر';
   const name = t === 'الموجه الطلابي' ? prefs.counselor : t === 'وكيل شؤون الطلاب' ? prefs.vice : t === 'وكيل شؤون المعلمين' ? prefs.staff : '';
-  return `<div class="sign">${cell('المعلم', teacher)}${cell(t, name)}</div>`;
+  return `<div class="sgn">${cell('المعلم', teacher)}${cell(t, name)}</div>`;
 }
 
 /* ctx: { version, student:{name,label}, term:{year,semester}, date, prefs, logo, schoolLogo, to,
@@ -399,7 +402,7 @@ function buildStudentReportHtml2(ctx){
     const at = ctx.attendance;
     if(at && (at.recorded || at.list.length)){
       const c = at.counts;
-      body += `<div class="sec long"><h2>الحضور</h2><table><thead><tr><th class="n">حاضر</th><th class="n">متأخر</th><th class="n">غائب</th><th class="n">مستأذن</th></tr></thead><tbody><tr><td class="n">${srNum(c.present)}</td><td class="n">${srNum(c.late)}</td><td class="n">${srNum(c.absent)}</td><td class="n">${srNum(c.permitted_exit)}</td></tr></tbody></table>`;
+      body += `<div class="sec long"><h2>الحضور</h2><table><thead><tr><th class="n">حاضر</th><th class="n">متأخر</th><th class="n">غائب</th><th class="n">مستأذن</th></tr></thead><tbody><tr><td class="n">${c.present === null || c.present === undefined ? '—' : srNum(c.present)}</td><td class="n">${srNum(c.late)}</td><td class="n">${srNum(c.absent)}</td><td class="n">${srNum(c.permitted_exit)}</td></tr></tbody></table>`;
       if(at.list.length){
         /* قائمتان متجاورتان بجدول واحد (صف = سجلان): توفّر نصف المساحة، ويبقى الجدول قابلًا للانقسام بين الصفحات */
         const half = Math.ceil(at.list.length / 2);
@@ -409,7 +412,8 @@ function buildStudentReportHtml2(ctx){
         const th = '<th>التاريخ</th><th class="n">الحصة</th><th class="n">الحالة</th>';
         body += `<table class="two" style="margin-top:4px"><thead><tr>${th}${th}</tr></thead><tbody>${pair.join('')}</tbody></table>`;
       }
-      body += `<div class="fn">${at.recorded ? `وقائع من ${srNum(at.recorded)} حصة مرصودة لشعبته الحالية، دون حكم.` : 'وقائع من الرصد داخل الحصة، دون حكم.'}</div></div>`;
+      const pv = at.prev ? [['absent', 'غاب'], ['late', 'تأخر'], ['permitted_exit', 'استأذن']].filter(([k]) => at.prev[k]).map(([k, w]) => `${w} ${srNum(at.prev[k])}`).join(' · ') : '';
+      body += `<div class="fn">${at.recorded ? `وقائع من ${srNum(at.recorded)} حصة مرصودة لشعبته الحالية، دون حكم (الحاضر = الحصص المرصودة − الغياب والتأخر والاستئذان).` : 'وقائع من الرصد داخل الحصة، دون حكم.'}${pv ? ` وفي شعبة سابقة: ${pv}.` : ''}</div></div>`;
     }
     if(ctx.incidents && ctx.incidents.length){
       body += `<div class="sec long"><h2>المواقف السلوكية</h2><table><thead><tr><th>التاريخ</th><th>الموقف</th><th class="n">المرحلة</th></tr></thead><tbody>${ctx.incidents.map(i =>
@@ -439,7 +443,7 @@ function buildStudentReportHtml2(ctx){
     body += srSignHtml('grades', ctx.to, prefs, teacher);
   }
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>${title}</h1></div><div class="sl">${slogo}</div></div>`;
-  const metaHtml = `<div class="meta">${meta('الطالب', ctx.student.name)}${meta('الصف والشعبة', ctx.student.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term ? ctx.term.year : ''}`)}${meta('المعلم', teacher)}${meta('المادة', subject)}${meta('التاريخ', ctx.date)}</div>`;
+  const metaHtml = `<div class="mt">${meta('الطالب', ctx.student.name)}${meta('الصف والشعبة', ctx.student.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term ? ctx.term.year : ''}`)}${meta('المعلم', teacher)}${meta('المادة', subject)}${meta('التاريخ', ctx.date)}</div>`;
   return `<style>${SR_CSS}</style><div class="sr">${head}${metaHtml}${kp.length ? `<div class="kp">${kp.join('')}</div>` : ''}${body}<div class="strip"></div></div>`;
 }
 
@@ -533,14 +537,14 @@ async function srBuildReport(studentId, version, to, opts){
     if(!crmIncidentTypes.length) await loadCrmIncidentTypes();
     const data = await loadCrmStudentProfileData(student); /* ملاحظات المعلم الخاصة (privateNotes) لا تُستعمل هنا أبدًا */
     lessonsHeld = data.recordedLessons || 0;
-    const sum = srAttendanceSummary(data.attendance, data.currentSectionId);
+    const sum = srAttendanceSummary(data.attendance, data.currentSectionId, data.recordedLessons);
     /* مفاتيح التشغيل كما في بقية التطبيق: أداة موقوفة (الحضور/السلوك) أو ميزة موقوفة (المتابعات/المتابعة الأكاديمية)
        لا يظهر شيء منها في التقرير، ولا يُقرأ جدول الموقوف */
     const toolOn = k => typeof appToolOn === 'function' ? appToolOn(k) : true;
     const follOn = typeof followupsOn === 'function' && followupsOn();
     const acadOn = typeof ACADEMIC_ON !== 'undefined' && ACADEMIC_ON === true;
     extra = {
-      attendance: toolOn('attendance') ? { counts: sum.counts, list: sum.list, recorded: data.recordedLessons || 0 } : null,
+      attendance: toolOn('attendance') ? { counts: sum.counts, prev: sum.prev, list: sum.list, recorded: data.recordedLessons || 0 } : null,
       incidents: toolOn('behavior') ? (data.incidents || []).slice().sort((a, b) => String(b.incident_date).localeCompare(String(a.incident_date))) : [],
       positives: (data.positives || []).slice().sort((a, b) => String(b.note_date).localeCompare(String(a.note_date))),
       followups: follOn ? (data.followups || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))) : [],

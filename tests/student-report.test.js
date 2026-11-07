@@ -225,17 +225,22 @@ test('الفترة الجارية والمكوّن غير المصنَّف لا 
 });
 
 /* ============ الحضور ============ */
-test('srAttendanceSummary: عدّاد لكل حالة وقائمة بتواريخ الغياب والتأخر والاستئذان كلها (بلا اقتطاع)', () => {
+test('srAttendanceSummary: يُخزَّن الاستثناء فقط، والحاضر = الحصص المرصودة − الاستثناءات (انحدار: كان يظهر «حاضر 0»)', () => {
   const app = loadApp();
   const att = [];
   for(let i = 1; i <= 30; i++) att.push({ status: 'absent', lesson: { lesson_date: '2026-10-' + String(i).padStart(2, '0'), period: 2, section_id: 'S' } });
-  att.push({ status: 'present', lesson: { lesson_date: '2026-09-01', section_id: 'S' } }, { status: 'late', lesson: { lesson_date: '2026-09-02', period: 1, section_id: 'S' } },
-    { status: 'permitted_exit', lesson: { lesson_date: '2026-09-03', section_id: 'OLD' } }, { status: 'junk', lesson: null });
-  const s = J(app.srAttendanceSummary(att, 'S'));
-  assert.deepEqual(s.counts, { present: 1, absent: 30, late: 1, permitted_exit: 1 });
-  assert.equal(s.list.length, 32, 'كل غياب وتأخر واستئذان، وليس آخر 20 فقط');
+  att.push({ status: 'late', lesson: { lesson_date: '2026-09-02', period: 1, section_id: 'S' } },
+    { status: 'permitted_exit', lesson: { lesson_date: '2026-09-03', section_id: 'S' } },
+    { status: 'absent', lesson: { lesson_date: '2026-08-01', section_id: 'OLD' } }, { status: 'junk', lesson: null }, { status: 'present', lesson: { lesson_date: '2026-09-01', section_id: 'S' } });
+  const s = J(app.srAttendanceSummary(att, 'S', 36));
+  assert.deepEqual(s.counts, { present: 4, absent: 30, late: 1, permitted_exit: 1 }, '36 − (30 + 1 + 1) = 4، وغياب الشعبة السابقة لا يُطرح');
+  assert.deepEqual(s.prev, { absent: 1, late: 0, permitted_exit: 0 });
+  assert.equal(s.list.length, 33, 'كل غياب وتأخر واستئذان (حتى السابقة)، وليس آخر 20 فقط');
   assert.equal(s.list[0].date, '2026-10-30', 'الأحدث أولًا');
-  assert.equal(s.list.find(x => x.status === 'permitted_exit').prevSection, true, 'شعبة سابقة');
+  assert.equal(s.list.find(x => x.date === '2026-08-01').prevSection, true, 'شعبة سابقة');
+  assert.equal(J(app.srAttendanceSummary([], 'S', 36)).counts.present, 36, 'بلا استثناءات = كل الحصص حضور');
+  assert.equal(J(app.srAttendanceSummary(att, 'S', 0)).counts.present, null, 'بلا حصص مرصودة: لا نعرف الحاضر');
+  assert.equal(J(app.srAttendanceSummary(att, 'S', 10)).counts.present, 0, 'لا يهبط تحت الصفر');
 });
 
 /* ============ الصفحة ============ */
@@ -407,6 +412,7 @@ test('الافتراضي (المتابعات والمتابعة الأكاديم
   const app = e2e('appToolOn = () => true;');
   const out = await app.__p;
   assert.match(out.html, /الحضور/);
+  assert.match(out.html, /<td class="n"><bdi dir="ltr">4<\/bdi><\/td><td class="n"><bdi dir="ltr">0<\/bdi><\/td><td class="n"><bdi dir="ltr">1<\/bdi>/, 'حاضر 4 = 5 حصص − غياب 1');
   assert.match(out.html, /المواقف السلوكية/);
   assert.match(out.html, /الملاحظات الإيجابية/);
   assert.doesNotMatch(out.html, /المتابعات المسجلة|متابعة س/, 'FOLLOWUPS_ON = false');
@@ -429,4 +435,24 @@ test('أداة الحضور أو السلوك موقوفة: قسمها لا يظ
   assert.doesNotMatch(off.html, /<h2>الحضور<\/h2>/);
   assert.doesNotMatch(off.html, /المواقف السلوكية|مخالفة س/);
   assert.match(off.html, /الملاحظات الإيجابية/);
+});
+
+/* ============ تعارض الأصناف مع style.css (انحدار: .sign و.rec و.meta العامة شوّهت التقرير على الجهاز) ============ */
+test('أصناف التقرير لا تتعارض مع أي قاعدة عامة في style.css (سرّبت .sign max-width و.rec padding سابقًا)', () => {
+  const block = SRC.slice(SRC.indexOf('const SR_CSS = `'), SRC.indexOf('`;', SRC.indexOf('const SR_CSS = `')));
+  const names = [...new Set([...block.matchAll(/\.([a-z][a-z0-9-]*)/g)].map(m => m[1]))].filter(n => n !== 'sr');
+  assert.ok(names.length > 20, 'استُخرجت أصناف التقرير');
+  const css = read('style.css').split('\n');
+  const clashes = [];
+  /* قاعدة عامة تبدأ بالصنف نفسه (أو بعد #printArea) تطال عناصر التقرير؛ أما «.sign .box» فلا تطال إلا ما بداخل .sign */
+  css.forEach((line, i) => {
+    if(!line.includes('{')) return;
+    line.split('{')[0].split(',').forEach(sel => {
+      names.forEach(n => {
+        if(new RegExp('^\\s*(?:#printArea\\s+)?\\.' + n + '(?![A-Za-z0-9_-])').test(sel)) clashes.push(`.${n} @ style.css:${i + 1}`);
+      });
+    });
+  });
+  assert.deepEqual(clashes, [], 'صنف التقرير يطابق قاعدة عامة: غيّر اسمه (استعمل أسماء فريدة)');
+  for(const old of ['meta', 'rec', 'sign']) assert.ok(!names.includes(old), '.' + old + ' أُعيدت تسميته');
 });
