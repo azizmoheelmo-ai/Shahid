@@ -1271,8 +1271,7 @@ async function printCurrentForm(evt){
     reflection: reflectionBox.value.trim()
   };
 
-  document.getElementById('printArea').innerHTML = buildPdfHtml(draft, photoSrcs);
-  printNow();
+  await printShahidRecord(draft, photoSrcs);
   } finally { endExportBusy(btn); }
 }
 
@@ -1283,8 +1282,7 @@ async function printRecord(id, evt){
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     await shahidWarmLogos();
-    document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
-    printNow();
+    await printShahidRecord(rec, rec.photo_urls || []);
   } finally { endExportBusy(btn); }
 }
 
@@ -1340,8 +1338,21 @@ function idMetaPdf(label, value, flex){
     <div style="font-size:11.5px;font-weight:700;color:#15445a;">${escapeHtml(value || '—')}</div>
   </div>`;
 }
-function buildPdfHtml(rec, photoDataUrls){
-  const dateDisplay = rec.lesson_date || (rec.created_at ? new Date(rec.created_at).toLocaleDateString('ar-SA') : '');
+/* التاريخ بصيغة واحدة لاتينية (2026-10-05) بكل مسارات الشاهد المطبوع؛ قبلها كان البديل toLocaleDateString('ar-SA') بأرقام هندية */
+function shahidDateDisplay(rec){
+  const v = rec && (rec.lesson_date || rec.created_at);
+  if(!v) return '';
+  if(typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const d = new Date(v);
+  return isNaN(d) ? '' : d.toLocaleDateString('en-CA');
+}
+/* أعمدة شبكة الصور: صورة بعرض كامل · 2–4 بعمودين · 5–6 بثلاثة (الحدّ الأقصى 6) */
+const shahidPhotoCols = n => n <= 1 ? 1 : (n <= 4 ? 2 : 3);
+const SHAHID_FRAME_SCALES = [1, 0.85, 0.7, 0.58, 0.48]; /* درجات تصغير إطارات الصور قبل تصغير الصفحة كلها */
+
+/* opts.frameScale: معامل تصغير ارتفاع إطارات الصور (يحدّده shahidFitPage بالقياس)؛ بدونه يُقدَّر من طول النص */
+function buildPdfHtml(rec, photoDataUrls, opts){
+  const dateDisplay = shahidDateDisplay(rec);
   const has = v => typeof v === 'string' && v.trim() !== '';
   const steps = (rec.steps || []).filter(has);
 
@@ -1351,11 +1362,13 @@ function buildPdfHtml(rec, photoDataUrls){
   const shown = imgItems.slice(0, 6);
   const textLen = [rec.description, rec.goal, rec.quant_impact, rec.qual_impact, rec.reflection].concat(steps)
     .reduce((n, v) => n + (v ? String(v).length : 0), 0);
-  const squeeze = textLen > 1100 ? 0.7 : (textLen > 600 ? 0.85 : 1);
-  const rows = Math.ceil(shown.length / 2);
-  const baseH = shown.length === 1 ? 240 : (rows === 1 ? 210 : (rows === 2 ? 128 : 92));
+  const squeeze = opts && opts.frameScale ? opts.frameScale : (textLen > 1100 ? 0.7 : (textLen > 600 ? 0.85 : 1));
+  const cols = shahidPhotoCols(shown.length);
+  const rows = Math.ceil(shown.length / cols);
+  const baseH = shown.length === 1 ? 240 : (rows === 1 ? 210 : (cols === 2 ? 128 : 100));
   const frameH = Math.round(baseH * squeeze);
-  const frame = inner => `<div style="box-sizing:border-box;border:1px solid #3d7eb9;border-radius:4px;background:${SH_TINT};height:${frameH}px;padding:5px;width:${shown.length === 1 ? '100%' : 'calc(50% - 5px)'};display:flex;align-items:center;justify-content:center;">${inner}</div>`;
+  const frameW = cols === 1 ? '100%' : (cols === 2 ? 'calc(50% - 5px)' : 'calc(33.333% - 7px)');
+  const frame = inner => `<div style="box-sizing:border-box;border:1px solid #3d7eb9;border-radius:4px;background:${SH_TINT};height:${frameH}px;padding:5px;width:${frameW};display:flex;align-items:center;justify-content:center;">${inner}</div>`;
   const framesHtml = shown.map(u => frame(`<img src="${escapeHtml(u)}" style="max-width:100%;max-height:100%;display:block;">`)).join('');
   const photosBody = shown.length
     ? `<div style="display:flex;flex-wrap:wrap;gap:10px;">${framesHtml}</div>`
@@ -1424,6 +1437,23 @@ function buildPdfHtml(rec, photoDataUrls){
   </div>`;
 }
 
+/* صفحة الشاهد الواحدة بالقياس لا بالتخمين: تُقاس بعرض التصميم، فإن زادت عن A4 صُغّرت إطارات الصور درجةً درجة
+   (حتى حدّ مقروء)، وما بقي زائدًا تُصغّره fit:'page' (printPages) كاملًا — فتبقى صفحة واحدة مهما زاد المحتوى */
+async function shahidFitPage(rec, photoDataUrls){
+  const maxH = (PRINT_PAGE_H - PRINT_PAGE_SLACK) / Math.min(1, PRINT_PAGE_W / PRINT_DESIGN_W);
+  let html = '';
+  for(const sc of SHAHID_FRAME_SCALES){
+    html = buildPdfHtml(rec, photoDataUrls, { frameScale: sc });
+    if(await printMeasureHeight(html, PRINT_DESIGN_W) <= maxH) break;
+  }
+  return { html, fit: 'page' };
+}
+/* طباعة شاهد واحد بنص حقيقي: صفحة واحدة مضبوطة (بلا قصّ الحافة ولا صفحة ثانية) */
+async function printShahidRecord(rec, photoDataUrls){
+  const page = await shahidFitPage(rec, photoDataUrls);
+  await printPages([page], printFileTitle('شاهد'));
+}
+
 /* ============ توليد PDF للشاهد (لاستخدامه في المشاركة) ============ */
 async function buildRecordPdfBlob(rec){
   await ensurePdfLibs();
@@ -1440,7 +1470,7 @@ async function buildRecordPdfBlob(rec){
   const pdf = new jsPDF('p', 'pt', 'a4');
   /* addPdfPage معرَّفة في app-08-admin.js (تُحمَّل قبل هذا الملف) — تضيف
      هامش صفحة حقيقي بدل لصق المحتوى بحافة الورقة تمامًا */
-  await addPdfPage(pdf, area, buildPdfHtml(rec, photoDataUrls), { firstPage: true });
+  await addPdfPage(pdf, area, (await shahidFitPage(rec, photoDataUrls)).html, { firstPage: true });
   return pdf.output('blob');
 }
 
@@ -1478,7 +1508,7 @@ async function exportAllShawahid(){
         photoDataUrls = results.filter(Boolean);
       }
       /* كل شاهد صفحة كاملة تُضبط على A4 (fit:'page') كما كان في التصدير القديم */
-      pages.push({ html: buildPdfHtml(rec, photoDataUrls), fit: 'page' });
+      pages.push(await shahidFitPage(rec, photoDataUrls));
     }
 
     await printPages(pages, printFileTitle('كل-الشواهد'));
