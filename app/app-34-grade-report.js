@@ -713,6 +713,11 @@ async function exportGradeReport(btn){
     /* مجموعة شعب الصف */
     const sibIds = gradeSiblingSectionIds(a.g);
     if(!sibIds.length){ showToast('لا شعب أخرى لهذا الصف', 'error'); return ''; }
+    /* تقرير المقارنة بين الشعب بهوية الوزارة (app-39، ق9) للمجموع؛ تقرير البند الواحد بحاله حتى يُناقش */
+    if(a.key === 'total'){
+      const html = await sgBuildFromAnalysis(a, prefs, base);
+      return html ? { html, mark: gradeReportMark(prefs, 'تقرير مقارنة شعب الصف', gradeName) } : '';
+    }
     const ids = [a.g.sectionId].concat(sibIds);
     const sheets = await loadGradeSheetsRaw(ids, a.g.year, a.g.semester);
     if(crmGradeAnalysis !== a) return '';
