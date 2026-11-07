@@ -36,15 +36,26 @@ function loadScriptOnce(src){
 }
 
 /* ============ طباعة موحّدة (تُستخدم لكل زر "طباعة" بالتطبيق) ============ */
-/* تضيف class="printing-record" على body (تُظهر #printArea فقط أثناء الطباعة
-   عبر CSS)، ثم تستدعي window.print(). التنظيف الطبيعي عبر حدث 'afterprint'
-   (مُسجَّل بملف app-03) لا يُطلَق دومًا على بعض متصفحات الجوال — مثلًا لو رجع
-   المستخدم من معاينة الطباعة بإيماءة/زر الرجوع بدل إلغائها صراحة — فيبقى
-   النموذج "عالقًا" خلف #printArea إلى أن تُعاد الصفحة يدويًا. كشبكة أمان،
-   نزيل الكلاس تلقائيًا بعد مهلة معقولة إن لم يُطلَق الحدث خلالها. */
-function printNow(){
+/* تضيف class="printing-record" على body (تُظهر #printArea فقط أثناء الطباعة عبر CSS داخل @media print)،
+   ثم تستدعي window.print(). التنظيف (إزالة الكلاس + تفريغ #printArea + إعادة عنوان الصفحة) يُؤجَّل عمدًا
+   PRINT_KEEP_MS ولا يُربط بحدث 'afterprint' ولا بمهلة قصيرة: معاينة الطباعة على الجوال (وعند تغيير ورق/مقياس
+   المعاينة) تُعيد توليد الصفحة من الوثيقة الحيّة بعد أن يُطلَق afterprint أحيانًا؛ فإن كانت #printArea فُرّغت
+   حينها خرجت شاشة التطبيق نفسها بدل التقرير (حادثة حقيقية: PDF بشريط التطبيق ورأس/ذيل المتصفح الافتراضيين).
+   الكلاس وحتى #printArea لا يؤثران على الشاشة (قواعدهما داخل @media print و#printArea مخفيّة)، فبقاؤهما آمن.
+   طباعة جديدة تنفّذ التنظيف المعلَّق فورًا قبل أن تضع محتواها. */
+const PRINT_KEEP_MS = 300000;
+let printKeepTimer = null, printKeepCleanup = null;
+function printCleanupNow(){
+  if(printKeepTimer !== null){ clearTimeout(printKeepTimer); printKeepTimer = null; }
+  const fn = printKeepCleanup; printKeepCleanup = null;
+  document.body.classList.remove('printing-record');
+  if(fn){ try{ fn(); } catch(e){ /* لا يمنع الطباعة التالية */ } }
+}
+function printNow(cleanup){
   document.body.classList.add('printing-record');
-  setTimeout(() => document.body.classList.remove('printing-record'), 15000);
+  if(printKeepTimer !== null) clearTimeout(printKeepTimer);
+  if(cleanup) printKeepCleanup = cleanup;
+  printKeepTimer = setTimeout(printCleanupNow, PRINT_KEEP_MS);
   window.print();
 }
 async function ensureZipLib(){

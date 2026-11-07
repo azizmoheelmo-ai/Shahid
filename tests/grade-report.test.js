@@ -90,31 +90,28 @@ test('CSS التقرير للطباعة: ألوان الأشرطة تُطبع، 
 });
 
 test('gradeReportPrint: يضع التقرير في #printArea ويطبع، ويُنظَّف بعد الطباعة', async () => {
-  const app = opened(`window.__printed = 0; window.__handlers = [];
+  const app = opened(`window.__printed = 0;
     const area = { innerHTML: '', querySelector: sel => area.innerHTML.includes('class="gr"') ? {} : null };
     document.getElementById = id => id === 'printArea' ? area : null; window.__area = area;
-    printNow = () => { window.__printed++; };
-    window.addEventListener = (ev, fn) => window.__handlers.push([ev, fn]); window.removeEventListener = () => {};
+    printNow = c => { window.__printed++; window.__cleanup = c; };
     gradeReportPrint('<div class="gr">تقرير</div>', { right: 'ي', left: 'ش' });
-    window.__during = area.innerHTML; window.__ev = window.__handlers[0] && window.__handlers[0][0]; window.__handlers[0][1]();`);
+    window.__during = area.innerHTML; window.__cleanup();`);
   assert.equal(app.__printed, 1);
   assert.match(app.__during, /^<style>@page\{/);
   assert.match(app.__during, /<div class="gr">تقرير<\/div>/);
-  assert.equal(app.__ev, 'afterprint');
   assert.equal(app.__area.innerHTML, '', 'بعد الطباعة يُفرَّغ فلا يبقى @page يؤثر في طباعات أخرى');
 });
 
 test('gradeReportPrint: عنوان الصفحة اسم الملف المقترح أثناء الطباعة ثم يُعاد', async () => {
-  const app = opened(`window.__printed = 0; window.__titles = []; window.__handlers = [];
+  const app = opened(`window.__printed = 0; window.__titles = [];
     const area = { innerHTML: '', querySelector: () => ({}) };
     document.getElementById = id => id === 'printArea' ? area : null; document.title = 'شاهد';
-    printNow = () => { window.__printed++; window.__titles.push(document.title); };
-    window.addEventListener = (ev, fn) => window.__handlers.push(fn); window.removeEventListener = () => {};
+    printNow = c => { window.__printed++; window.__titles.push(document.title); window.__cleanup = c; printKeepCleanup = c; };
     gradeReportPrint('<div class="gr">x</div>', null, 'تقرير-درجات-ثاني-6');
-    window.__during = document.title; window.__handlers[0]();
+    window.__during = document.title; window.__cleanup(); printKeepCleanup = null;
     window.__after = document.title;
     gradeReportPrint('<div class="gr">y</div>', null, 'ثانٍ'); gradeReportPrint('<div class="gr">z</div>', null, 'ثالث');
-    window.__handlers[window.__handlers.length - 1](); window.__final = document.title;`);
+    window.__cleanup(); window.__final = document.title;`);
   assert.equal(app.__during, 'تقرير-درجات-ثاني-6');
   assert.equal(app.__after, 'شاهد');
   assert.equal(app.__final, 'شاهد', 'طباعتان متتاليتان بلا afterprint بينهما لا تُضيعان العنوان الأصلي');

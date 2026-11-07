@@ -157,21 +157,20 @@ let gradeReportSavedTitle = null;
 function gradeReportPrint(html, mark, title){
   const area = document.getElementById('printArea');
   if(!area) return Promise.resolve();
+  printCleanupNow(); /* تنظيف طباعة سابقة معلَّق (app-01) قبل وضع المحتوى الجديد */
   area.innerHTML = `<style>${gradeReportPrintCss(mark)}</style>` + html;
   if(title){
     if(gradeReportSavedTitle === null) gradeReportSavedTitle = document.title;
     document.title = title;
   }
   const clear = () => {
-    window.removeEventListener('afterprint', clear);
     if(area.querySelector('.gr')) area.innerHTML = '';
     if(gradeReportSavedTitle !== null){ document.title = gradeReportSavedTitle; gradeReportSavedTitle = null; }
   };
-  window.addEventListener('afterprint', clear);
   const imgs = area.querySelectorAll ? Array.from(area.querySelectorAll('img')) : [];
-  if(!imgs.length){ printNow(); return Promise.resolve(); }
+  if(!imgs.length){ printNow(clear); return Promise.resolve(); }
   const decoded = Promise.all(imgs.map(im => (im.decode ? im.decode() : Promise.resolve()).catch(() => {})));
-  return Promise.race([decoded, new Promise(r => setTimeout(r, 3000))]).then(() => { printNow(); });
+  return Promise.race([decoded, new Promise(r => setTimeout(r, 3000))]).then(() => { printNow(clear); });
 }
 
 /* build() يُرجع { html, mark } أو '' (توقّف). التحميل غير المتزامن (شعب أخرى/فصل سابق) داخل build */

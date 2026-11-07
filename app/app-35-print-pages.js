@@ -78,16 +78,15 @@ async function printPages(pages, title){
   for(const p of pages){
     measured.push(Object.assign({}, p, { h: p.fit === 'page' ? await printMeasureHeight(p.html, p.designWidth || PRINT_DESIGN_W) : 0 }));
   }
+  printCleanupNow(); /* تنظيف طباعة سابقة معلَّق (app-01) قبل وضع المحتوى الجديد */
   area.innerHTML = `<style>${PRINT_PAGES_CSS}</style>` + printPagesHtml(measured);
   if(title){
     if(printPagesSavedTitle === null) printPagesSavedTitle = document.title;
     document.title = title;
   }
   const clear = () => {
-    window.removeEventListener('afterprint', clear);
     if(area.querySelector('.pp')) area.innerHTML = '';
     if(printPagesSavedTitle !== null){ document.title = printPagesSavedTitle; printPagesSavedTitle = null; }
   };
-  window.addEventListener('afterprint', clear);
-  printNow();
+  printNow(clear);
 }
