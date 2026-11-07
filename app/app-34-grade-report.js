@@ -223,8 +223,8 @@ async function exportGradeReport(btn){
         const prevMap = res && hasBaseGradeColumns(res.columns) ? gradePctMap(res, a.students, spec, caps, testsOn) : null;
         const nowMap = gradePctMap(a.g, a.students, spec, caps, testsOn);
         const sum = prevMap && prevMap.size && nowMap ? gradeChangeSummary(nowMap, prevMap) : null;
-        if(sum && sum.compared) prev = { sum, names: new Map(a.students.map(s => [s.id, s.full_name])) };
-        else showToast('لا كشف مقارن في الفصل السابق — حُذف قسم المقارنة', 'ok');
+        if(sum && sum.compared >= SS_PREV_MIN) prev = { sum, names: new Map(a.students.map(s => [s.id, s.full_name])) };
+        else showToast('لا طلاب كافون للمقارنة بالفصل السابق (أقلهم 5 لهم درجات في الفصلين) — حُذف قسم المقارنة', 'ok');
       }
       /* تقرير الشعبة (المجموع أو بند واحد) بهوية الوزارة وتشخيص الصف (app-38، ق8، ق11) */
       return { html: await ssBuildFromAnalysis(a, v, prefs, Object.assign(base, { prev })), mark: gradeReportMark(prefs, 'تقرير أداء الشعبة', a.label) };

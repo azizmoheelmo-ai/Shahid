@@ -248,17 +248,23 @@ test('خيارا المستويات والبنود في الإعدادات يُ�
 
 test('المقارنة بالفصل السابق بالهوية الجديدة، وأسماؤها بخيار الأسماء فقط، وتُهرَّب', async () => {
   const app = opened();
-  const prev = { sum: { compared: 6, up: [{ id: 's0', prev: 40, now: 70, delta: 30 }], down: [{ id: 's1', prev: 80, now: 50, delta: -30 }], avgDelta: 2 }, names: new Map([['s0', '<b>أحمد</b>'], ['s1', 'بدر']]) };
+  const prev = { sum: { compared: 6, up: [{ id: 's0', prev: 40, now: 70, delta: 30 }], down: [{ id: 's1', prev: 80, now: 50, delta: -30 }], avgDelta: 2, avgPrev: 61, avgNow: 63 }, names: new Map([['s0', '<b>أحمد</b>'], ['s1', 'بدر']]) };
   runInAppContext(app, `window.__prev = { sum: ${JSON.stringify(prev.sum)}, names: new Map([['s0', '<b>أحمد</b>'], ['s1', 'بدر']]) };`);
   const without = await runInAppContext(app, `ssBuildFromAnalysis(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', logo: '', schoolLogo: '', prev: window.__prev })`);
   assert.match(without, /<h2>مقارنة بالفصل السابق<\/h2>/);
   assert.match(without, /تحسّنوا/);
+  assert.match(without, /مقارنة بمجموع النسبة لكل فصل؛ المحتوى يختلف بين الفصلين/, 'تنبيه أن المحتوى يختلف');
+  assert.match(without, /<bdi dir="ltr">61% ← 63%<\/bdi>/, 'متوسط الشعبة السابق ← الحالي');
   assert.doesNotMatch(without, /الأكثر تراجعًا|أحمد/, 'بلا أسماء');
   const withN = await runInAppContext(app, `ssBuildFromAnalysis(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', logo: '', schoolLogo: '', withNames: true, prev: window.__prev })`);
   assert.match(withN, /الأكثر تراجعًا/);
   assert.match(withN, /&lt;b&gt;أحمد&lt;\/b&gt;/);
   assert.doesNotMatch(withN, /<b>أحمد<\/b>/);
   assert.equal((await build(app)).includes('مقارنة بالفصل السابق'), false);
+  /* أقل من 5 طلاب مقارَنين: لا قسم (ق13) */
+  runInAppContext(app, `window.__prev.sum.compared = 4;`);
+  const few = await runInAppContext(app, `ssBuildFromAnalysis(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', logo: '', schoolLogo: '', prev: window.__prev })`);
+  assert.equal(few.includes('مقارنة بالفصل السابق'), false);
 });
 
 test('XSS: اسم البند وما يقيسه والمدرسة والمعلم والوكيل وأسماء الطلاب كلها تُهرَّب', async () => {

@@ -180,19 +180,20 @@ function ssRosterHtml(rows, rules){
 }
 
 /* مقارنة بالفصل السابق: prev = { sum, names: Map } (من gradeChangeSummary). المقارنة بمجموع الفصلين (معياري زمنيًا) */
+const SS_PREV_MIN = 5; /* أقل عدد طلاب مقارَنين لعرض المقارنة بالفصل السابق (ق13) */
 function ssCompareHtml(prev, withNames){
-  if(!prev || !prev.sum) return '';
+  if(!prev || !prev.sum || prev.sum.compared < SS_PREV_MIN) return '';
   const e = escapeHtml, sum = prev.sum;
   const stable = sum.compared - sum.up.length - sum.down.length;
-  const kp = [[sum.up.length, 'تحسّنوا'], [stable, 'مستقرون'], [sum.down.length, 'تراجعوا'], [(sum.avgDelta > 0 ? '+' : '') + sum.avgDelta, 'متوسط التغيّر (نقطة مئوية)']]
-    .map(([v, l]) => `<div><b>${srNum(v)}</b><span>${l}</span></div>`).join('');
+  const kp = [[sum.up.length, 'تحسّنوا'], [stable, 'مستقرون'], [sum.down.length, 'تراجعوا'], [srNum(sum.avgPrev + '% ← ' + sum.avgNow + '%'), 'متوسط الشعبة: السابق ← الحالي']]
+    .map(([v, l]) => `<div><b>${typeof v === 'string' ? v : srNum(v)}</b><span>${l}</span></div>`).join('');
   let names = '';
   if(withNames){
     const tbl = (t, list) => list.length ? `<div><table><thead><tr><th>${t}</th><th class="n">من ← إلى</th><th class="n">التغيّر</th></tr></thead><tbody>${list.map(r =>
       `<tr><td>${e(prev.names.get(r.id) || '')}</td><td class="n">${srNum(Math.round(r.prev) + '% ← ' + Math.round(r.now) + '%')}</td><td class="n">${srNum((r.delta > 0 ? '+' : '') + r.delta)}</td></tr>`).join('')}</tbody></table></div>` : '';
     names = `<div class="cmpw">${tbl('الأكثر تراجعًا', sum.down.slice(0, 8))}${tbl('الأكثر تحسنًا', sum.up.slice(0, 8))}</div>`;
   }
-  return `<div class="sec"><h2>مقارنة بالفصل السابق</h2><div class="kp">${kp}</div>${names}<div class="fn">قورن ${srNum(sum.compared)} طالبًا بمجموع كل فصل؛ التغيّر المعتبر ${srNum(GRADE_COMPARE_RULES.changePct)} نقاط مئوية فأكثر.</div></div>`;
+  return `<div class="sec"><h2>مقارنة بالفصل السابق</h2><div class="fn">مقارنة بمجموع النسبة لكل فصل؛ المحتوى يختلف بين الفصلين.</div><div class="kp">${kp}</div>${names}<div class="fn">قورن ${srNum(sum.compared)} طالبًا ممن لهم درجات في الفصلين؛ التغيّر المعتبر ${srNum(GRADE_COMPARE_RULES.changePct)} نقاط مئوية فأكثر.</div></div>`;
 }
 
 /* الرصد غير المكتمل (البند 5): العدد، «ما ينقص» مجمَّعًا بالبند، وعند الأسماء جدول بالدرجة المرصودة والناقص.
