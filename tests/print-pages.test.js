@@ -13,23 +13,23 @@ const read = f => fs.readFileSync(path.join(root, f), 'utf8');
 
 test('printFitZoom — العرض دائمًا، والارتفاع للصفحة الكاملة (الأصغر منهما)', async () => {
   const app = loadApp();
-  const fw = 718 / 794;
+  const fw = 700 / 794;
   assert.ok(Math.abs(app.printFitZoom('width', 794, 5000) - fw) < 1e-9, 'تنساب: عرض فقط ولو طال المحتوى');
   assert.ok(Math.abs(app.printFitZoom('page', 794, 500) - fw) < 1e-9, 'صفحة قصيرة: العرض');
   const tall = app.printFitZoom('page', 794, 2000);
-  assert.ok(tall < fw && Math.abs(tall * 2000 - (1047 - 12)) < 1e-6, 'صفحة طويلة تُصغَّر لتتسع في ارتفاع A4');
+  assert.ok(tall < fw && Math.abs(tall * 2000 - (1010 - 12)) < 1e-6, 'صفحة طويلة تُصغَّر لتتسع في ارتفاع A4');
   assert.equal(app.printFitZoom('page', 794, 0), fw, 'ارتفاع غير معروف: العرض');
   assert.equal(app.printFitZoom('width', 600, 100), 1, 'لا تكبير فوق 1');
 });
 
 test('printPagesHtml — قسم لكل صفحة بعرض التصميم وzoom، وعرض مخصص يُحترم', async () => {
   const app = loadApp();
-  const html = app.printPagesHtml([{ html: '<b>1</b>', fit: 'width' }, { html: '<i>2</i>', fit: 'page', h: 2000 }, { html: 'x', fit: 'width', designWidth: 718 }]);
+  const html = app.printPagesHtml([{ html: '<b>1</b>', fit: 'width' }, { html: '<i>2</i>', fit: 'page', h: 2000 }, { html: 'x', fit: 'width', designWidth: 700 }]);
   assert.equal((html.match(/<section class="pp"/g) || []).length, 3);
-  assert.equal((html.match(/height:1043px;overflow:hidden/g) || []).length, 1, 'الصفحة الكاملة فقط بارتفاع ثابت وقصّ');
-  assert.match(html, /<div class="pp-in" style="width:794px;zoom:0\.9043"><b>1<\/b>/);
-  assert.match(html, /zoom:0\.5175/, 'الصفحة الطويلة 1035/2000');
-  assert.match(html, /width:718px;zoom:1"/);
+  assert.equal((html.match(/height:1006px;overflow:hidden/g) || []).length, 1, 'الصفحة الكاملة فقط بارتفاع ثابت وقصّ');
+  assert.match(html, /<div class="pp-in" style="width:794px;zoom:0\.8816"><b>1<\/b>/);
+  assert.match(html, /zoom:0\.499/, 'الصفحة الطويلة 998/2000');
+  assert.match(html, /width:700px;zoom:1"/);
 });
 
 test('CSS الطباعة: ألوان تُطبع، فاصل صفحة بين الأقسام، وحشوة .wrap تُصفَّر، وكتل لا تُقسَم', async () => {

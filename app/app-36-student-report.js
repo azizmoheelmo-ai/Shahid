@@ -449,14 +449,14 @@ function buildStudentReportHtml2(ctx){
   if(hasRows){
     body += `<div class="sec long"><h2>${analytic ? 'درجات البنود مقارنةً بمتوسط الشعبة' : 'درجات البنود'}</h2>${srItemsTableHtml(ctx.rows, ctx.rules, analytic)}`;
     const notes = ['ما لم يُرصد لا يُحسب على الطالب.'];
-    if(dx && !dx.overallJudged) notes.push('لا أدلة كافية للحكم على المستوى العام' + (o.incomplete ? ' (الرصد غير مكتمل).' : '.'));
+    if(!ctx.noDx && dx && !dx.overallJudged) notes.push('لا أدلة كافية للحكم على المستوى العام' + (o.incomplete ? ' (الرصد غير مكتمل).' : '.'));
     notes.push(`المستوى: متقن ${srNum(ctx.rules.top + '%')} فأكثر · يحتاج تحسين أقل من ${srNum(ctx.rules.pass + '%')} (حدّان يضبطهما المعلم).`);
     body += `<div class="fn">${notes.join(' ')}</div></div>`;
   } else {
     body += '<div class="box"><span class="nd">لا درجات مرصودة لهذا الطالب في الفصل الحالي.</span></div>';
   }
   if(analytic){
-    if(hasRows) body += srDiagnosisHtml(dx, true) + srRecommendationsHtml(dx);
+    if(hasRows && !ctx.noDx) body += srDiagnosisHtml(dx, true) + srRecommendationsHtml(dx);
     if(ctx.tasks && ctx.tasks.length){
       body += `<div class="sec long"><h2>المهام الأدائية</h2><table><thead><tr><th>المهمة</th><th class="n">الموعد</th><th class="n">النتيجة</th></tr></thead><tbody>${ctx.tasks.map(t =>
         `<tr><td>${e(t.title)}</td><td class="n">${e(t.due || '—')}</td><td class="n">${e(t.result)}</td></tr>`).join('')}</tbody></table></div>`;
@@ -621,7 +621,8 @@ async function srBuildReport(studentId, version, to, opts){
   const label = studentClassLabel(student, crmGradeLevels, crmSections);
   const html = buildStudentReportHtml2(Object.assign({
     version, student: { name: student.full_name, label: label.grade + ' — الشعبة ' + label.section }, term, date: localIsoDate(), prefs,
-    logo: await gradeReportLogoData(), schoolLogo: await gradeReportSchoolLogoData(), to, rows, rules, overall, dx
+    logo: await gradeReportLogoData(), schoolLogo: await gradeReportSchoolLogoData(), to, rows, rules, overall, dx,
+    noDx: opts.noDx !== undefined ? !!opts.noDx : !(typeof reportDxOn === 'function' ? reportDxOn() : true)
   }, extra));
   return { html, mark: gradeReportMark(prefs, analytic ? 'تقرير أداء الطالب التحليلي' : 'تقرير أداء الطالب', student.full_name) };
 }
@@ -645,6 +646,7 @@ function openStudentReportChooser(studentId){
     <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:6px;" onclick="srChooserGo('${escapeHtml(st.id)}','grades')">نسخة الدرجات — أرقام ومستويات</button>
     <label style="font-size:12px;color:var(--muted);">الموجّه إليها (لنسخة الدرجات؛ اسمها تحت خانة توقيعها)</label>
     <select id="srToSel" class="crm-input" style="width:100%;margin-top:4px;">${toOpts}</select>
+    <label class="crm-ga-chk"><input type="checkbox" id="srDxChk"${typeof reportDxOn === 'function' && !reportDxOn() ? '' : ' checked'} onchange="setReportDx(this.checked)"> مع التشخيص والتوصيات (في النسخة التحليلية)</label>
     ${srLinkHintHtml(st)}
   </div>`, '420px');
 }

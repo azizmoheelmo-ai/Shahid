@@ -150,8 +150,8 @@ function buildGroupReportHtml(ctx){
   return `<style>${SR_CSS}${SS_CSS}${SG_CSS}</style><div class="sr">${head}${metaHtml}${kp}
     ${show.levels === false ? '' : `<div class="sec"><h2>${ctx.itemName ? 'مقارنة مستويات الطلاب في هذا البند بين الشعب' : 'مقارنة مستويات الطلاب بين الشعب (حصة كل مستوى)'}</h2>${sgLevelsHtml(secs, ctx.max)}</div>`}
     ${show.items === false || !matrixCls.length ? '' : `<div class="sec long"><h2>مقارنة البنود بين الشعب (متوسط الشعبة)</h2>${sgMatrixHtml(matrixCls, secs)}</div>`}
-    ${sgDiagHtml(ctx.cls, 'tahsili', 'التشخيص: ماذا يتقن الطلاب (التحصيل)')}${sgDiagHtml(ctx.cls, 'taalumi', 'التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)')}
-    ${recHtml}<div class="fin">${sign}</div><div class="strip"></div></div>`;
+    ${ctx.noDx ? '' : sgDiagHtml(ctx.cls, 'tahsili', 'التشخيص: ماذا يتقن الطلاب (التحصيل)')}${ctx.noDx ? '' : sgDiagHtml(ctx.cls, 'taalumi', 'التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)')}
+    ${ctx.noDx ? '' : recHtml}<div class="fin">${sign}</div><div class="strip"></div></div>`;
 }
 
 /* من نافذة التحليل (تقرير المجموعة، البند «المجموع»): كشف كل شعبة من loadCrmGradeSheet (به الفترات)؛
@@ -194,6 +194,6 @@ async function sgBuildFromAnalysis(a, prefs, ctx){
   const lcp = ssLevelCounts(allRows, rules);
   const level = typeof crmGradeLevels !== 'undefined' && crmSectionById(g0.sectionId) ? crmGradeLevels.find(x => x.id === crmSectionById(g0.sectionId).grade_level_id) : null;
   await srEnsureFonts();
-  return buildGroupReportHtml({ gradeName: level ? level.name : 'الصف', itemName: itemCol ? itemCol.name : null, term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, secs, max: displayMax,
+  return buildGroupReportHtml({ noDx: !!ctx.noDx, gradeName: level ? level.name : 'الصف', itemName: itemCol ? itemCol.name : null, term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, secs, max: displayMax,
     pooled: { avgPct: pst.avgPct, low: lcp.low }, cls: sgClassify(secs) });
 }

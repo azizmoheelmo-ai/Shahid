@@ -144,11 +144,11 @@ test('gradeReportRun: يطبع الناتج، ويتوقف عند الفراغ،
 });
 
 test('زر واحد بدل زرين: PDF — طباعة / حفظ، في النافذة وصفحة الطالب', async () => {
-  const app = opened(`crmGradeAnalysis.exportOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
-  assert.equal((app.__d.match(/exportGradeReport\(this\)/g) || []).length, 1);
+  const app = opened(`crmGradeAnalysis.exportOpen = true; crmGradeAnalysis.dxAsk = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.equal((app.__d.match(/gaPdfGo\(this\)/g) || []).length, 1, 'زر الطباعة في لوحة التشخيص');
   assert.doesNotMatch(app.__d, /exportCrmGradeAnalysis\('pdf'/, 'زر الصورة القديم أُزيل');
   assert.doesNotMatch(app.__d, /تجريبي/);
-  assert.match(app.__d, /⤓ PDF للطباعة/);
+  assert.match(app.__d, /⤓ طباعة \/ حفظ PDF/);
   assert.doesNotMatch(app.__d, /الوزارة/, 'لا هوية وزارة في الأزرار');
   const grades = fs.readFileSync(path.join(root, 'app/app-17-grades.js'), 'utf8');
   assert.equal((grades.match(/openStudentReportChooser\('\$\{st\.id\}'\)/g) || []).length, 1, 'زر واحد يفتح نافذة اختيار النسخة (app-36)');
@@ -176,7 +176,7 @@ test('نافذة التحليل: نطاق التقرير، وزر PDF، ومفت
   const app = opened(`crmGradeAnalysis.exportOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.match(app.__d, /id="crmGaScope"/);
   assert.doesNotMatch(app.__d, /crmGaNotes|ملاحظات تربوية/, 'مفتاح التعليق التربوي أُلغي (ق12)');
-  assert.match(app.__d, /exportGradeReport\(this\)/);
+  assert.match(app.__d, /gaPdfAsk\(\)/);
   assert.match(app.__d, /openGradeReportEditor\('ga'\)/);
   assert.match(app.__d, /<option value="group"[^>]*>كل شعب الصف/);
   const solo = opened(`crmSections = [{ id: 'S', grade_level_id: 'G' }]; crmGradeAnalysis.exportOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
@@ -185,7 +185,7 @@ test('نافذة التحليل: نطاق التقرير، وزر PDF، ومفت
 
 test('التصدير بنقرتين: PDF وExcel ظاهران دون فتح الخيارات، والخيارات مطوية افتراضيًا', async () => {
   const app = opened(`window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
-  assert.match(app.__d, /onclick="exportGradeReport\(this\)"/, 'PDF ظاهر مباشرة');
+  assert.match(app.__d, /onclick="gaPdfAsk\(\)"/, 'PDF ظاهر مباشرة ويفتح لوحة التشخيص');
   assert.match(app.__d, /exportCrmGradeAnalysis\('xlsx', this\)/, 'Excel ظاهر مباشرة');
   assert.doesNotMatch(app.__d, /id="crmGaScope"/, 'النطاق والخانات مطوية حتى يفتح المعلم الخيارات');
   const css = fs.readFileSync(path.join(root, 'style.css'), 'utf8');
