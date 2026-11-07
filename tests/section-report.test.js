@@ -221,6 +221,9 @@ test('الرصد غير المكتمل (البند 5): العدد وما ينق�
   assert.doesNotMatch(plain, /قائمة الطلاب/);
   const named = await build(app, { withNames: true });
   assert.match(named, /<th>الطالب<\/th><th class="n">الدرجة المرصودة<\/th><th>الناقص<\/th>/);
+  /* تصور 2026-11-07: مع الأسماء يكفي الجدول (العدد بعنوانه) فلا ملاحظتان فوقه، وبعمودين متجاورين لصفحة واحدة */
+  assert.match(named, /<h2>الرصد غير المكتمل <span class="tag">طالب واحد<\/span><\/h2><table class="inc2">/);
+  assert.doesNotMatch(named, /لم تكتمل درجاته، فلا يُصنَّفون|ما ينقص:/, 'لا ملاحظات فوق الجدول عند الأسماء');
   assert.match(named, /<td>نواف<\/td><td class="n"><bdi dir="ltr">[\d.]+<\/bdi> من <bdi dir="ltr">[\d.]+<\/bdi><\/td><td>الاختبار القصير<\/td>/, 'كل رقم في bdi وحده و«من» خارجها: وإلا انعكس «55.8 من 60» في العربية');
   assert.match(named, /قائمة الطلاب \(من الأدنى نسبةً\)/);
   assert.match(named, /<table class="rs2">/);
@@ -232,10 +235,15 @@ test('غير المكتمل: «بلا أي درجة»، وجمع النقص با
   const app = opened(`crmStudents.push({ id: 'z1', full_name: 'بلا درجات', section_id: 'S' }, { id: 'z2', full_name: 'ثانٍ بلا درجات', section_id: 'S' });
     crmGrades.columns[3].name = ${JSON.stringify(X)}; crmGradeAnalysis = null; openCrmGradeAnalysis();`);
   const h = await build(app, { withNames: true });
-  assert.match(h, /<bdi dir="ltr">3<\/bdi> طلاب لم تكتمل درجاتهم/);
+  assert.match(h, /الرصد غير المكتمل <span class="tag"><bdi dir="ltr">3<\/bdi> طلاب<\/span>/, 'العدد بعنوان الجدول');
   assert.match(h, /<td>بلا درجات<\/td><td class="n">بلا أي درجة<\/td>/);
-  assert.match(h, /&lt;img src=x onerror=alert\(1\)&gt;: <bdi dir="ltr">3<\/bdi> طلاب/, 'الاختبار الناقص عند 3 طلاب مجمَّعًا ومُهرَّبًا');
-  assert.match(h, /المشاركة: طالبان/, 'صيغة المثنى');
+  assert.match(h, /<td>&lt;img src=x onerror=alert\(1\)&gt;<\/td>/, 'الناقص بعمود الجدول ومُهرَّب');
+  /* بلا أسماء لا جدول، فتبقى الملاحظة والناقص مجمَّعًا (صيغ العدد والتهريب) */
+  const plain = await build(app);
+  assert.match(plain, /<bdi dir="ltr">3<\/bdi> طلاب لم تكتمل درجاتهم/);
+  assert.match(plain, /&lt;img src=x onerror=alert\(1\)&gt;: <bdi dir="ltr">3<\/bdi> طلاب/, 'الاختبار الناقص عند 3 طلاب مجمَّعًا ومُهرَّبًا');
+  assert.match(plain, /المشاركة: طالبان/, 'صيغة المثنى');
+  assert.doesNotMatch(plain, /<img src=x/);
   assert.doesNotMatch(h, /<img src=x/);
 });
 
@@ -335,7 +343,8 @@ test('تقرير بند واحد: طالب بلا درجة في هذا البن�
   const named = opened(`crmGrades.scores = crmGrades.scores.filter(s => !(s.column_id === 't1' && s.student_id === 's0')); crmGradeAnalysis = null; openCrmGradeAnalysis(); crmGradeAnalysis.key = 't1'; crmGradeAnalysis.withNames = true;
     window.__out = []; gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);`);
   await named.__p;
-  assert.match(named.__out[0].html, /<th>الطالب<\/th><\/tr><\/thead><tbody><tr><td>أحمد<\/td><\/tr>/);
+  assert.match(named.__out[0].html, /<table class="inc2 one"><thead><tr><th>الطالب<\/th><th>الطالب<\/th><\/tr><\/thead><tbody><tr><td>أحمد<\/td><td><\/td><\/tr>/);
+  assert.doesNotMatch(named.__out[0].html, /طلاب? بلا درجة في هذا البند، فلا يُصنَّفون/, 'لا ملاحظة فوق الجدول');
 });
 
 /* ============ الأمان والتسجيل ============ */

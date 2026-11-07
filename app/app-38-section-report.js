@@ -113,6 +113,7 @@ const SS_CSS = `
 .sr table.rs2 td:nth-child(4){border-left:2px solid #c2c1c1}.sr table.rs2 th:nth-child(4){border-left:2px solid #fff}
 .sr .pair{display:flex;gap:12px;align-items:flex-start;break-inside:avoid}.sr .pair>.sec{flex:1 1 0;min-width:0}
 .sr table.rs2 td,.sr .fin table td{padding-top:1px;padding-bottom:1px}.sr table.rs2 .chip{line-height:1.5}
+.sr table.inc2 td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.inc2 th:nth-child(3){border-left:2px solid #fff}.sr table.inc2.one td:nth-child(3){border-left:0}.sr table.inc2.one th:nth-child(3){border-left:0}.sr table.inc2.one td:nth-child(1){border-left:2px solid #c2c1c1}.sr table.inc2.one th:nth-child(1){border-left:2px solid #fff}.sr .tag{display:inline-block;border:1px dashed #8a99a2;border-radius:9px;padding:0 8px;font-size:9.5px;font-weight:400;color:#51636d}
 .sr .fin{break-inside:avoid}.sr .cmpw{display:flex;gap:10px}.sr .cmpw>div{flex:1;min-width:0}
 `;
 
@@ -234,17 +235,24 @@ function ssIncompleteHtml(inc, withNames, itemMode){
   const byItem = new Map();
   inc.forEach(r => (r.missing || []).forEach(n => byItem.set(n, (byItem.get(n) || 0) + 1)));
   const lack = [...byItem.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${e(n)}: ${cnt(c)}`);
-  let html = itemMode
-    ? `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب بلا درجة في هذا البند' : 'طلاب بلا درجة في هذا البند'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`
-    : `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب لم تكتمل درجاته' : 'طلاب لم تكتمل درجاتهم'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`;
-  if(lack.length && !itemMode) html += `<div class="box"><b>ما ينقص:</b> ${lack.join(' · ')}.</div>`;
-  if(withNames){
-    const row = r => `<tr><td>${e(r.name)}</td><td class="n">${r.points === null || r.points === undefined ? 'بلا أي درجة' : `${srNum(formatScore(r.points))} من ${srNum(formatScore(r.recordedMax))}`}</td><td>${(r.missing || []).map(e).join('، ') || '—'}</td></tr>`;
-    html += itemMode
-      ? `<table><thead><tr><th>الطالب</th></tr></thead><tbody>${inc.map(r => `<tr><td>${e(r.name)}</td></tr>`).join('')}</tbody></table>`
-      : `<table><thead><tr><th>الطالب</th><th class="n">الدرجة المرصودة</th><th>الناقص</th></tr></thead><tbody>${inc.map(row).join('')}</tbody></table>`;
+  /* مع الأسماء: الجدول وحده يكفي (العدد بعنوانه، والناقص بعموده) فلا ملاحظتان فوقه، وبعمودين متجاورين ليبقى التقرير بصفحة واحدة.
+     بلا أسماء: لا جدول، فتبقى الملاحظة (والناقص مجمَّعًا) لأنها المعلومة الوحيدة هنا */
+  if(!withNames){
+    let html = itemMode
+      ? `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب بلا درجة في هذا البند' : 'طلاب بلا درجة في هذا البند'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`
+      : `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب لم تكتمل درجاته' : 'طلاب لم تكتمل درجاتهم'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`;
+    if(lack.length && !itemMode) html += `<div class="box"><b>ما ينقص:</b> ${lack.join(' · ')}.</div>`;
+    return `<div class="sec"><h2>الرصد غير المكتمل</h2>${html}</div>`;
   }
-  return `<div class="sec"><h2>الرصد غير المكتمل</h2>${html}</div>`;
+  const half = Math.ceil(inc.length / 2);
+  const cell = r => !r ? (itemMode ? '<td></td>' : '<td></td><td></td><td></td>')
+    : itemMode ? `<td>${e(r.name)}</td>`
+    : `<td>${e(r.name)}</td><td class="n">${r.points === null || r.points === undefined ? 'بلا أي درجة' : `${srNum(formatScore(r.points))} من ${srNum(formatScore(r.recordedMax))}`}</td><td>${(r.missing || []).map(e).join('، ') || '—'}</td>`;
+  const th = itemMode ? '<th>الطالب</th>' : '<th>الطالب</th><th class="n">الدرجة المرصودة</th><th>الناقص</th>';
+  const rowsHtml = [];
+  for(let i = 0; i < half; i++) rowsHtml.push(`<tr>${cell(inc[i])}${cell(inc[i + half])}</tr>`);
+  const title = `الرصد غير المكتمل <span class="tag">${cnt(inc.length)}</span>`;
+  return `<div class="sec"><h2>${title}</h2><table class="inc2${itemMode ? ' one' : ''}"><thead><tr>${th}${th}</tr></thead><tbody>${rowsHtml.join('')}</tbody></table></div>`;
 }
 
 /* ctx: { label, term, date, prefs, logo, schoolLogo, rules, rows, stats, max, items, dx, withNames, prev } */
