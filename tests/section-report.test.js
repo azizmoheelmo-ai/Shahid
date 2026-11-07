@@ -239,6 +239,22 @@ test('غير المكتمل: «بلا أي درجة»، وجمع النقص با
   assert.doesNotMatch(h, /<img src=x/);
 });
 
+test('المستويات والبنود متجاورتان بصفحة واحدة عند كون كل البنود بفترة واحدة، وبلا عمودَي «الفترة» و«الداخل في المجموع»', async () => {
+  const h = await build(opened(`appFeatures = {}; crmGradeAnalysis = null; openCrmGradeAnalysis();`));
+  assert.match(h, /<div class="pair"><div class="sec"><h2>مستويات الطلاب<\/h2>[\s\S]*?<\/div><div class="sec"><h2>متوسط الشعبة في البنود<\/h2>/);
+  const pair = h.slice(h.indexOf('<div class="pair">'), h.indexOf('class="fin"'));
+  assert.match(pair, /<th>البند<\/th><th class="n">المتوسط<\/th><th class="n">المستوى<\/th><th class="n">دون حدّ الضعف<\/th>/);
+  assert.doesNotMatch(pair, /<th class="n">الفترة<\/th>|الداخل في المجموع/);
+  assert.match(pair, /<td><b>الاختبار الأول<\/b><div class="ev">يقيس: القراءة<\/div><\/td>/, '«يقيس» محفوظ');
+  assert.match(pair, /<th>المستوى<\/th><th class="n">عدد الطلاب<\/th><th class="n">النسبة<\/th>/);
+});
+
+test('بند متعدد الفترات: يبقى التخطيط الكامل المتتابع (لا دمج يكسر rowspan)', async () => {
+  const h = await build(opened());
+  assert.doesNotMatch(h, /<div class="pair">/);
+  assert.match(h, /<th class="n">الداخل في المجموع<\/th>/);
+});
+
 test('خيارا المستويات والبنود في الإعدادات يُحترمان، والتشخيص دائم', async () => {
   const h = await build(opened(), {}, { show: { levels: false, items: false, stats: true, names: false, compare: false } });
   assert.doesNotMatch(h, /<h2>مستويات الطلاب<\/h2>/);

@@ -111,11 +111,23 @@ function ssLevelCounts(rows, rules){
 const SS_CSS = `
 .sr .lv .bw{width:34%}.sr .lv .bar{min-width:120px}
 .sr table.rs2 td:nth-child(4){border-left:2px solid #c2c1c1}.sr table.rs2 th:nth-child(4){border-left:2px solid #fff}
+.sr .pair{display:flex;gap:12px;align-items:flex-start;break-inside:avoid}.sr .pair>.sec{flex:1 1 0;min-width:0}
+.sr table.rs2 td,.sr .fin table td{padding-top:1px;padding-bottom:1px}.sr table.rs2 .chip{line-height:1.5}
 .sr .fin{break-inside:avoid}.sr .cmpw{display:flex;gap:10px}.sr .cmpw>div{flex:1;min-width:0}
 `;
 
-function ssLevelsHtml(counts, incompleteN, total, rules){
+function ssLevelsHtml(counts, incompleteN, total, rules, compact){
   const rec = counts.recorded;
+  if(compact){
+    /* نسخة مدمجة (نصف عرض الصفحة): الحد بجانب المستوى، بلا عمود شريط */
+    const crow = (lvKey, label, limit, n) => `<tr><td><span class="chip ${lvKey}">${label}</span> <span class="nd">${limit}</span></td><td class="n"><b>${srNum(n)}</b></td><td class="n">${rec ? srNum(Math.round(100 * n / rec) + '%') : '—'}</td></tr>`;
+    return `<table class="lv"><thead><tr><th>المستوى</th><th class="n">عدد الطلاب</th><th class="n">النسبة</th></tr></thead><tbody>`
+      + crow('m', 'متقن', `${rules.top}% فأكثر`, counts.top)
+      + crow('j', 'جيد', `${rules.pass}% – أقل من ${rules.top}%`, counts.mid)
+      + crow('w', 'يحتاج تحسين', `أقل من ${rules.pass}%`, counts.low)
+      + (incompleteN ? `<tr><td><span class="nd">رصد غير مكتمل · لا يُصنَّفون</span></td><td class="n"><b>${srNum(incompleteN)}</b></td><td></td></tr>` : '')
+      + `<tr class="sub"><td><b>المجموع</b></td><td class="n"><b>${srNum(total)}</b></td><td></td></tr></tbody></table>`;
+  }
   const row = (lvKey, label, limit, n) => `<tr><td><span class="chip ${lvKey}">${label}</span></td><td>${limit}</td><td class="n"><b>${srNum(n)}</b></td><td class="n">${rec ? srNum(Math.round(100 * n / rec) + '%') : '—'}</td><td class="bw"><div class="bar"><i class="${lvKey}" style="width:${rec ? Math.round(100 * n / rec) : 0}%"></i></div></td></tr>`;
   return `<table class="lv"><thead><tr><th>المستوى</th><th>الحد</th><th class="n">عدد الطلاب</th><th class="n">النسبة</th><th></th></tr></thead><tbody>`
     + row('m', 'متقن', `${rules.top}% فأكثر`, counts.top)
@@ -126,12 +138,17 @@ function ssLevelsHtml(counts, incompleteN, total, rules){
 }
 
 /* جدول البنود (الخيار ج بأرقام الشعبة): البند · الفترة · متوسط الشعبة · المستوى · دون حدّ الضعف · الداخل في المجموع */
-function ssItemsHtml(items, rules){
+function ssItemsHtml(items, rules, compact){
   const e = escapeHtml;
   const short = k => String(PERIOD_NAMES[k] || '').replace('الفترة ', '');
   const avgCell = st => `${srScore(Math.round(st.avg * 10) / 10, st.max)} <span class="nd">(${srNum(Math.round(st.avgPct) + '%')})</span>`;
   const lvCell = st => srChip(srLevel(st.avgPct, rules));
   const belowCell = st => `${srNum(st.below)} من ${srNum(st.n)}`;
+  if(compact){
+    /* نسخة مدمجة (كل البنود بفترة واحدة): «الفترة» فارغة و«الداخل في المجموع» يكرّر المتوسط فيُحذفان */
+    const crow = it => `<tr><td><b>${e(it.name)}</b>${it.measures ? `<div class="ev">يقيس: ${e(it.measures)}</div>` : ''}</td><td class="n">${avgCell(it.total)}</td><td class="n">${lvCell(it.total)}</td><td class="n">${belowCell(it.total)}</td></tr>`;
+    return `<table class="itm"><thead><tr><th>البند</th><th class="n">المتوسط</th><th class="n">المستوى</th><th class="n">دون حدّ الضعف</th></tr></thead><tbody>${items.map(crow).join('')}</tbody></table>`;
+  }
   const head = '<tr><th>البند</th><th class="n">الفترة</th><th class="n">متوسط الشعبة</th><th class="n">المستوى</th><th class="n">دون حدّ الضعف</th><th class="n">الداخل في المجموع</th></tr>';
   const body = items.map(it => {
     const meas = it.measures ? `<div class="ev">يقيس: ${e(it.measures)}</div>` : '';
@@ -144,6 +161,18 @@ function ssItemsHtml(items, rules){
     return `<tbody class="grp"><tr><td><b>${e(it.name)}</b>${meas}</td><td class="n">${it.lonePeriod ? e(short(it.lonePeriod)) : '—'}</td><td class="n">${avgCell(t)}</td><td class="n">${lvCell(t)}</td><td class="n">${belowCell(t)}</td><td class="n cnt"><b>${avgCell(t)}</b></td></tr></tbody>`;
   }).join('');
   return `<table class="itm"><thead>${head}</thead>${body}</table>`;
+}
+
+/* مستويات الطلاب + متوسط البنود: متجاورتان بنصف عرض إن ظهرتا معًا وكانت كل البنود بفترة واحدة (تتّسع الصفحة بصفحة واحدة)؛
+   وإلا (بند متعدد الفترات، أو أحدهما مخفي) تبقى كل منهما بعرض كامل كما كانت */
+function ssLevelsItemsHtml(ctx, show, counts, incN, total, rules){
+  const showL = show.levels !== false, showI = show.items !== false && ctx.items.length > 0;
+  const tL = ctx.itemName ? 'مستويات الطلاب في هذا البند' : 'مستويات الطلاب';
+  const tI = ctx.itemName ? 'متوسط الشعبة في البند' : 'متوسط الشعبة في البنود';
+  const compact = showL && showI && ctx.items.every(it => it.periods.length < 2);
+  if(compact) return `<div class="pair"><div class="sec"><h2>${tL}</h2>${ssLevelsHtml(counts, incN, total, rules, true)}</div><div class="sec"><h2>${tI}</h2>${ssItemsHtml(ctx.items, rules, true)}</div></div>`;
+  return (showL ? `<div class="sec"><h2>${tL}</h2>${ssLevelsHtml(counts, incN, total, rules)}</div>` : '')
+    + (showI ? `<div class="sec long"><h2>${tI}</h2>${ssItemsHtml(ctx.items, rules)}</div>` : '');
 }
 
 function ssDiagHtml(dx){
@@ -244,8 +273,7 @@ function buildSectionReportHtml(ctx){
   const incHtml = ssIncompleteHtml(inc, ctx.withNames, !!ctx.itemName);
   const sign = `<div class="sgn"><div><small>${e(teacher)}</small>معلم المادة</div><div><small>${e(prefs.vice || '')}</small>وكيل شؤون الطلاب</div></div>`;
   return `<style>${SR_CSS}${SS_CSS}</style><div class="sr">${head}${metaHtml}<div class="kp">${kp}</div>
-    ${show.levels === false ? '' : `<div class="sec"><h2>${ctx.itemName ? 'مستويات الطلاب في هذا البند' : 'مستويات الطلاب'}</h2>${ssLevelsHtml(counts, inc.length, s.total, rules)}</div>`}
-    ${show.items === false || !ctx.items.length ? '' : `<div class="sec long"><h2>${ctx.itemName ? 'متوسط الشعبة في البند' : 'متوسط الشعبة في البنود'}</h2>${ssItemsHtml(ctx.items, rules)}</div>`}
+    ${ssLevelsItemsHtml(ctx, show, counts, inc.length, s.total, rules)}
     ${ctx.noDx ? '' : ssDiagHtml(ctx.dx)}${ssCompareHtml(ctx.prev, ctx.withNames)}${ctx.withNames ? ssRosterHtml(ctx.rows, rules) : ''}<div class="fin">${incHtml}${sign}</div><div class="strip"></div></div>`;
 }
 
