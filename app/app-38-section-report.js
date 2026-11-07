@@ -2,9 +2,9 @@
    تقرير الشعبة (المجموع) — بهوية وزارة التعليم (REPORTS.md §4.2.1، ق8، م10)
    ------------------------------------------------------------
    - الجمهور غير محدد بجهة (معلم، وكيل، إدارة، لجنة، ولي أمر): لهجة تربوية.
-   - المرجعية محكية: «متقن · جيد · يحتاج تحسين» بحدّي المعلم؛ والمعياري مقارنة فقط (م10).
+   - المرجعية محكية: «متفوق · جيد · يحتاج تحسين» بحدّي المعلم؛ والمعياري مقارنة فقط (م10).
    - تشخيص على مستويين (تحصيلي · تعلّمي) كتقرير الطالب، بمعيار واحد للصف:
-     ضعف جماعي = SS_SHARE% فأكثر من الطلاب المرصود لهم دون حدّ الضعف؛ قوة جماعية = SS_SHARE% فأكثر منهم بمستوى «متقن».
+     ضعف جماعي = SS_SHARE% فأكثر من الطلاب المرصود لهم دون حدّ الضعف؛ قوة جماعية = SS_SHARE% فأكثر منهم بمستوى «متفوق».
    - لا حكم على بند رُصد لأقل من SS_MIN_STUDENTS طلاب. «يقيس» يدخل تسمية البند إن وُجد.
    - الفترات كجدول الطالب (ق7): فترات منتهية فقط، ومتوسط الشعبة لكل فترة، ثم «الداخل في المجموع».
    - يظهر الرصد غير المكتمل (استثناء من م9 لتقارير الصف)، والأسماء عند تشغيل خيار الأسماء فقط.
@@ -17,7 +17,7 @@ const SS_SHARE = 30;
 
 /* ============ دوال صرفة ============ */
 
-/* إحصاء قيم بند (درجات) لشعبة: n، المتوسط، النسبة، دون حدّ الضعف، بحدّ متقن */
+/* إحصاء قيم بند (درجات) لشعبة: n، المتوسط، النسبة، دون حدّ الضعف، بحدّ متفوق */
 function ssStat(values, max, rules){
   /* غير المرصود (null/فارغ) ليس صفرًا: لا يُحسب */
   const v = (values || []).filter(x => x !== null && x !== undefined && x !== '').map(Number).filter(Number.isFinite);
@@ -123,7 +123,7 @@ function ssLevelsHtml(counts, incompleteN, total, rules, compact){
     /* نسخة مدمجة (نصف عرض الصفحة): الحد بجانب المستوى، بلا عمود شريط */
     const crow = (lvKey, label, limit, n) => `<tr><td><span class="chip ${lvKey}">${label}</span> <span class="nd">${limit}</span></td><td class="n"><b>${srNum(n)}</b></td><td class="n">${rec ? srNum(Math.round(100 * n / rec) + '%') : '—'}</td></tr>`;
     return `<table class="lv"><thead><tr><th>المستوى</th><th class="n">عدد الطلاب</th><th class="n">النسبة</th></tr></thead><tbody>`
-      + crow('m', 'متقن', `${rules.top}% فأكثر`, counts.top)
+      + crow('m', 'متفوق', `${rules.top}% فأكثر`, counts.top)
       + crow('j', 'جيد', `${rules.pass}% – أقل من ${rules.top}%`, counts.mid)
       + crow('w', 'يحتاج تحسين', `أقل من ${rules.pass}%`, counts.low)
       + (incompleteN ? `<tr><td><span class="nd">رصد غير مكتمل · لا يُصنَّفون</span></td><td class="n"><b>${srNum(incompleteN)}</b></td><td></td></tr>` : '')
@@ -131,7 +131,7 @@ function ssLevelsHtml(counts, incompleteN, total, rules, compact){
   }
   const row = (lvKey, label, limit, n) => `<tr><td><span class="chip ${lvKey}">${label}</span></td><td>${limit}</td><td class="n"><b>${srNum(n)}</b></td><td class="n">${rec ? srNum(Math.round(100 * n / rec) + '%') : '—'}</td><td class="bw"><div class="bar"><i class="${lvKey}" style="width:${rec ? Math.round(100 * n / rec) : 0}%"></i></div></td></tr>`;
   return `<table class="lv"><thead><tr><th>المستوى</th><th>الحد</th><th class="n">عدد الطلاب</th><th class="n">النسبة</th><th></th></tr></thead><tbody>`
-    + row('m', 'متقن', `${rules.top}% فأكثر`, counts.top)
+    + row('m', 'متفوق', `${rules.top}% فأكثر`, counts.top)
     + row('j', 'جيد', `من ${rules.pass}% إلى أقل من ${rules.top}%`, counts.mid)
     + row('w', 'يحتاج تحسين', `أقل من ${rules.pass}%`, counts.low)
     + (incompleteN ? `<tr><td><span class="nd">رصد غير مكتمل</span></td><td class="nd">لا يُصنَّفون</td><td class="n"><b>${srNum(incompleteN)}</b></td><td></td><td></td></tr>` : '')
@@ -181,7 +181,7 @@ function ssDiagHtml(dx){
   const sec = (title, d, extra) => {
     if(!d.enough) return `<div class="sec"><h2>${title}</h2><div class="box"><span class="nd">لا بيانات كافية للحكم (لا بند رُصد لـ${SS_MIN_STUDENTS} طلاب فأكثر).</span></div>${extra || ''}</div>`;
     const lines = [];
-    d.strong.forEach(it => lines.push(`<div class="box s"><b>نقطة قوة:</b> ${e(ssLabel(it))} — ${srNum(it.total.top)} من ${srNum(it.total.n)} طالبًا (${srNum(Math.round(it.total.topShare) + '%')}) بمستوى «متقن».</div>`));
+    d.strong.forEach(it => lines.push(`<div class="box s"><b>نقطة قوة:</b> ${e(ssLabel(it))} — ${srNum(it.total.top)} من ${srNum(it.total.n)} طالبًا (${srNum(Math.round(it.total.topShare) + '%')}) بمستوى «متفوق».</div>`));
     d.weak.forEach(it => lines.push(`<div class="box p"><b>ضعف جماعي:</b> ${e(ssLabel(it))} — ${srNum(it.total.below)} من ${srNum(it.total.n)} طالبًا (${srNum(Math.round(it.total.belowShare) + '%')}) دون حدّ الضعف.</div>`));
     if(!lines.length) lines.push('<div class="box"><span class="nd">لا نقاط قوة ولا ضعف جماعية مثبتة.</span></div>');
     return `<div class="sec"><h2>${title}</h2>${lines.join('')}${extra || ''}</div>`;
@@ -272,11 +272,11 @@ function buildSectionReportHtml(ctx){
     `<div><b>${s.avg === null ? '—' : srScore(s.avg, ctx.max)}</b><span>متوسط الشعبة</span></div>`,
     `<div><b>${s.avgPct === null ? '—' : srNum(s.avgPct + '%')}</b><span>النسبة المئوية</span></div>`,
     `<div><b>${srNum(counts.low)}</b><span>يحتاجون تحسين${share(counts.low)}</span></div>`,
-    `<div><b>${srNum(counts.top)}</b><span>متقنون${share(counts.top)}</span></div>`
+    `<div><b>${srNum(counts.top)}</b><span>متفوقون${share(counts.top)}</span></div>`
   ].join('');
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>تقرير أداء الشعبة</h1></div><div class="sl">${slogo}</div></div>`;
   const itemMeta = ctx.itemName ? meta('البند (تقرير بند واحد)', `${ctx.itemName} — من ${formatScore(ctx.max)}`) : '';
-  const metaHtml = `<div class="mt">${meta('الصف والشعبة', ctx.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${itemMeta}${meta('عدد الطلاب', String(s.total))}${meta('التاريخ', ctx.date)}</div>`;
+  const metaHtml = srMetaBox(`${meta('الصف والشعبة', ctx.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${itemMeta}${meta('عدد الطلاب', String(s.total))}${meta('التاريخ', ctx.date)}`);
   const inc = s.incomplete || [];
   const incHtml = ssIncompleteHtml(inc, ctx.withNames, !!ctx.itemName);
   const sign = `<div class="sgn"><div><small>${e(teacher)}</small>معلم المادة</div><div><small>${e(prefs.vice || '')}</small>وكيل شؤون الطلاب</div></div>`;

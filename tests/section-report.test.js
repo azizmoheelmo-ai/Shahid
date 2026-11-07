@@ -14,7 +14,7 @@ const J = v => JSON.parse(JSON.stringify(v));
 const R = { pass: 50, edge: 10, top: 90, severe: 30 };
 
 /* ============ إحصاء بند ============ */
-test('ssStat: العدد والمتوسط والنسبة، ودون حدّ الضعف وبحدّ متقن بالحدّين', () => {
+test('ssStat: العدد والمتوسط والنسبة، ودون حدّ الضعف وبحدّ متفوق بالحدّين', () => {
   const app = loadApp();
   const st = J(app.ssStat([5, 9, 10, 4, 8], 10, R));
   assert.equal(st.n, 5);
@@ -87,8 +87,8 @@ test('ضعف جماعي: 30% فأكثر من الطلاب دون حدّ الضع
   assert.deepEqual(ok.recs, [], 'بلا ضعف مثبت: لا توصيات (م1)');
 });
 
-test('قوة جماعية: 30% فأكثر بمستوى «متقن» وبشرط ألا يبلغ الضعف 30%', () => {
-  assert.equal(dx([IT('أ', [95, 92, 91, 60, 70, 65, 62, 75, 80, 66])]).tahsili.strong.length, 1, '3 من 10 متقنون');
+test('قوة جماعية: 30% فأكثر بمستوى «متفوق» وبشرط ألا يبلغ الضعف 30%', () => {
+  assert.equal(dx([IT('أ', [95, 92, 91, 60, 70, 65, 62, 75, 80, 66])]).tahsili.strong.length, 1, '3 من 10 متفوقون');
   assert.equal(dx([IT('أ', [95, 92, 91, 30, 20, 25, 62, 75, 80, 66])]).tahsili.strong.length, 0, 'وفيه ضعف جماعي أيضًا: ليس قوة');
   assert.equal(dx([IT('أ', [95, 60, 70, 65, 62, 75, 80, 66, 70, 72])]).tahsili.strong.length, 0, '10% فقط');
 });
@@ -181,8 +181,8 @@ function build(app, ctxExtra, prefsOver){
 test('الصفحة: عنوان الشعبة، التسميات المحكية، ولا تسميات نسبية قديمة', async () => {
   const h = await build(opened());
   assert.match(h, /تقرير أداء الشعبة/);
-  for(const l of ['متقن', 'جيد', 'يحتاج تحسين']) assert.match(h, new RegExp(l));
-  assert.doesNotMatch(h, /ضعاف|متفوقون|متوسطون|الأعلى درجات/);
+  for(const l of ['متفوق', 'جيد', 'يحتاج تحسين']) assert.match(h, new RegExp(l));
+  assert.doesNotMatch(h, /ضعاف|متوسطون|الأعلى درجات/);
   assert.match(h, /font-family:'Helvetica Neue W23 for SKY'/);
   assert.match(h, /<div class="sgn"><div><small>معلم<\/small>معلم المادة<\/div><div><small>وكيل<\/small>وكيل شؤون الطلاب<\/div>/);
   assert.doesNotMatch(h, /class="gr"/, 'ليس تصميم تقارير الدرجات القديم');
@@ -330,7 +330,7 @@ test('التصدير: المجموع وبند واحد كلاهما بالتصم
   assert.match(item.html, /<td><b>الاختبار الأول<\/b><div class="ev">يقيس: القراءة<\/div>/);
   assert.doesNotMatch(item.html, /<td><b>الواجبات<\/b>|<td rowspan="2" class="gn"><b>المشاركة/, 'البند المختار وحده في الجدول');
   assert.match(item.html, /ضعف جماعي:<\/b> القراءة \(الاختبار الأول\)/, 'تشخيص البند بمعيار 30%');
-  assert.doesNotMatch(item.html, /ضعاف|متفوقون|متوسطون/);
+  assert.doesNotMatch(item.html, /ضعاف|متوسطون/);
 });
 
 test('تقرير بند واحد: طالب بلا درجة في هذا البند يظهر عدده (والأسماء بالخيار) بلا «ما ينقص»', async () => {
@@ -391,4 +391,17 @@ test('لوحة التشخيص: PDF يفتحها داخل الشريط، والا
   assert.equal(app.__saved, false);
   assert.match(app.__d, /gaPdfAsk\(\)/);
   assert.doesNotMatch(app.__d, /name="crmGaDx"/);
+});
+
+test('صندوق البيانات يُكمَّل بخلايا فارغة لمضاعف الثلاثة فتكتمل خطوطه (بند واحد = 7 خلايا، والمجموع 6 بلا حشو)', async () => {
+  const app = opened(`crmGradeAnalysis = null; openCrmGradeAnalysis(); crmGradeAnalysis.key = 't1';
+    window.__out = []; gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);`);
+  await app.__p;
+  const h = app.__out[0].html;
+  const mt = h.match(/<div class="mt">([\s\S]*?)<\/div><div class="kp">/)[1];
+  assert.equal((mt.match(/<div><small>/g) || []).length, 7);
+  assert.equal((mt.match(/<div><\/div>/g) || []).length, 2, 'حشو لمضاعف الثلاثة');
+  assert.match(h, /\.mt div:nth-last-child\(-n\+3\)\{border-bottom:0\}/);
+  const total = await build(opened());
+  assert.doesNotMatch(total.match(/<div class="mt">([\s\S]*?)<\/div><div class="kp">/)[1], /<div><\/div>/, '6 خلايا بلا حشو');
 });
