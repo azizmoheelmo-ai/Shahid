@@ -96,7 +96,7 @@ test('صفوف الفترات: البند غير المرصود للطالب ل�
 });
 
 /* ============ التقدّم ============ */
-test('srProgress: قياسان منتهيان فأكثر فقط، والجارية لا تدخل، والاختبارات أول وآخر', () => {
+test('srProgress: بين فترات المكوّن نفسه فقط (منتهيتان فأكثر)، والجارية لا تدخل، والاختبارات لا تُقارَن (ق3، م2)', () => {
   const app = loadApp();
   const P = (id, n, k, score, live) => row(n + ' — ' + k, score, 10, { id, name: n, row: 'period', live: !!live, domain: 'taalumi' });
   const one = J(app.srProgress([P('m', 'المشاركة', 'الأولى', 8), P('m', 'المشاركة', 'الثانية', 10), P('m', 'المشاركة', 'الثالثة', 2, true)]));
@@ -107,12 +107,13 @@ test('srProgress: قياسان منتهيان فأكثر فقط، والجاري
   assert.deepEqual(J(app.srProgress([P('m', 'المشاركة', 'الأولى', 8)])), [], 'قياس واحد لا يُحسب');
   assert.equal(app.srProgress([P('m', 'م', 'أ', 8), P('m', 'م', 'ب', 7.5)])[0].trend, 'flat', 'فارق أقل من 10 نقاط');
   assert.equal(app.srProgress([P('m', 'م', 'أ', 8), P('m', 'م', 'ب', 7)])[0].trend, 'down', '10 نقاط بالضبط = تراجع');
-  assert.equal(app.srProgress([P('m', 'م', 'أ', 9), P('m', 'م', 'ب', 5)])[0].trend, 'down');
-  const t = J(app.srProgress([row('الأول', 4, 10), row('الثاني', 9, 10)]));
-  assert.equal(t.length, 1);
-  assert.equal(t[0].basis, 'tests');
-  assert.equal(t[0].trend, 'up');
-  assert.deepEqual(J(app.srProgress([row('الأول', 4, 10)])), []);
+  /* انحدار من تقرير حقيقي: «الاختبار الأول» و«اختبار قراءة» اختباران مختلفان لا يُقارَنان */
+  assert.deepEqual(J(app.srProgress([row('الاختبار الأول', 4, 10), row('اختبار قراءة', 9, 10)])), [], 'لا تقدّم بين اختبارين');
+  assert.deepEqual(J(app.srProgress([row('الاختبار الأول', 12, 20), row('اختبار قراءة', 0, 5)])), [], 'لا «تراجع من 60% إلى 0%»');
+  /* مكوّنان مختلفان بفترات: كلٌّ يُقاس بنفسه ولا يُخلط بالآخر */
+  const two = J(app.srProgress([P('m', 'المشاركة', 'أ', 8), P('h', 'الواجبات', 'أ', 5), P('m', 'المشاركة', 'ب', 10), P('h', 'الواجبات', 'ب', 7)]));
+  assert.equal(two.length, 2);
+  assert.deepEqual(two.map(x => x.name).sort(), ['المشاركة', 'الواجبات']);
 });
 
 /* ============ سلّم الأدلة والتوصيات ============ */

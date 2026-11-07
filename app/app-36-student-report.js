@@ -97,7 +97,8 @@ function srBuildRows(items, studentId, breakdown, cfgOf, classPctOf, toolTypeOf)
 const srComponentRows = rows => (rows || []).filter(r => r.row === 'item' || r.row === 'sub');
 
 /* ============ دوال صرفة: التقدّم ============
-   قياسان مقارنان فأكثر: فترتان منتهيتان لمكوّن واحد، أو أول اختبار وآخر اختبار. غير ذلك لا يُحسب. */
+   م2 (قابلية المقارنة): التقدّم **بين فترات المكوّن نفسه فقط** (الفترات المنتهية، قياسان فأكثر).
+   الاختبارات لا فترات لها فلا تُقارَن ببعضها (قراءة ≠ اختبار أول) — ق3. (ربط الاختبارات أو تطابق «يقيس»: قرار لاحق ق4.) */
 function srProgress(rows){
   const out = [];
   const byComp = new Map();
@@ -110,11 +111,6 @@ function srProgress(rows){
     const a = list[0], b = list[list.length - 1];
     out.push({ name: a.name, from: srPct(a.score, a.max), to: srPct(b.score, b.max), basis: 'periods', domain: a.domain });
   });
-  const tests = srComponentRows(rows).filter(r => r.category === 'tests');
-  if(tests.length >= 2){
-    const a = tests[0], b = tests[tests.length - 1];
-    out.push({ name: 'الاختبارات', from: srPct(a.score, a.max), to: srPct(b.score, b.max), basis: 'tests', domain: 'tahsili', fromName: a.name, toName: b.name });
-  }
   return out.filter(p => p.from !== null && p.to !== null).map(p => {
     const d = p.to - p.from;
     return Object.assign(p, { delta: d, trend: d >= SR_PROGRESS_DELTA ? 'up' : d <= -SR_PROGRESS_DELTA ? 'down' : 'flat' });
@@ -325,7 +321,7 @@ function srDiagnosisHtml(dx, showClass){
   });
   dx.progress.forEach(p => {
     const t = p.trend === 'up' ? 'تحسّن' : p.trend === 'down' ? 'تراجع' : 'مستقر';
-    const basis = p.basis === 'tests' ? `بين ${e(p.fromName)} و${e(p.toName)}` : 'بين فترتين منتهيتين';
+    const basis = 'بين فترتين منتهيتين';
     lines.push(`<div class="box f"><b>التقدّم (${basis}):</b> ${e(p.name)} من ${srNum(srRound(p.from) + '%')} إلى ${srNum(srRound(p.to) + '%')} (${t})</div>`);
   });
   const tahSection = tahHtml ? `<div class="sec"><h2>التشخيص: ماذا يتقن الطالب (التحصيل)</h2>${tahHtml}</div>` : '';
