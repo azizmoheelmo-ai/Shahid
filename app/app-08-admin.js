@@ -321,12 +321,13 @@ function adminRenderRecCard(r){
     </div>`;
 }
 
-function adminPrintRecord(id, evt){
+async function adminPrintRecord(id, evt){
   const rec = adminAllRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
+    await shahidWarmLogos();
     document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
     printNow();
   } finally { endExportBusy(btn); }
@@ -1435,6 +1436,7 @@ async function exportPortfolio(evt){
     }
 
     /* صفحات الشواهد مصنّفة حسب العنصر */
+    await shahidWarmLogos();
     let recDone = 0;
     for(const el of elements){
       const recs = records.filter(r => r.element_key === el.key);
