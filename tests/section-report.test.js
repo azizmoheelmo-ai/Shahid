@@ -209,18 +209,34 @@ test('الخلاصة: ضعف جماعي بمعيار 30% وتوصية بدليل
   assert.match(h, /التقدّم \(بين فترتين منتهيتين\)/);
 });
 
-test('الرصد غير المكتمل يظهر عدده دائمًا، والأسماء بالخيار فقط (استثناء م9 لتقارير الصف)', async () => {
+test('الرصد غير المكتمل (البند 5): العدد وما ينقص بالبند، والأسماء والدرجة المرصودة والناقص بالخيار، ولا سطر «أكمل»', async () => {
   const app = opened();
   const plain = await build(app);
-  assert.match(plain, /الرصد غير المكتمل/);
-  assert.match(plain, /<bdi dir="ltr">1<\/bdi> طالب لم تكتمل درجاته/);
+  assert.match(plain, /<h2>الرصد غير المكتمل<\/h2>/);
+  assert.match(plain, /<bdi dir="ltr">1<\/bdi> طالب لم تكتمل درجاته، فلا يُصنَّفون ولا يدخلون في المتوسط/);
+  assert.match(plain, /<b>ما ينقص:<\/b> الاختبار القصير: طالب واحد\./);
   assert.doesNotMatch(plain, /نواف/, 'لا أسماء بلا الخيار');
+  assert.doesNotMatch(plain, /الدرجة المرصودة|<th>الناقص<\/th>/);
+  assert.doesNotMatch(plain, /أكمل|الإجراء:/, 'لا سطر «أكمل الدرجات» ولا «الإجراء»');
   assert.doesNotMatch(plain, /قائمة الطلاب/);
   const named = await build(app, { withNames: true });
-  assert.match(named, /لم تكتمل درجاتهم|لم تكتمل درجاته[^<]*: نواف|: نواف/);
+  assert.match(named, /<th>الطالب<\/th><th class="n">الدرجة المرصودة<\/th><th>الناقص<\/th>/);
+  assert.match(named, /<td>نواف<\/td><td class="n"><bdi dir="ltr">[\d.]+<\/bdi> من <bdi dir="ltr">[\d.]+<\/bdi><\/td><td>الاختبار القصير<\/td>/, 'كل رقم في bdi وحده و«من» خارجها: وإلا انعكس «55.8 من 60» في العربية');
   assert.match(named, /قائمة الطلاب \(من الأدنى نسبةً\)/);
   assert.match(named, /<table class="rs2">/);
   assert.match(named, /أحمد/);
+});
+
+test('غير المكتمل: «بلا أي درجة»، وجمع النقص بالبند بصيغ العدد، وتهريب أسماء البنود', async () => {
+  const X = '<img src=x onerror=alert(1)>';
+  const app = opened(`crmStudents.push({ id: 'z1', full_name: 'بلا درجات', section_id: 'S' }, { id: 'z2', full_name: 'ثانٍ بلا درجات', section_id: 'S' });
+    crmGrades.columns[3].name = ${JSON.stringify(X)}; crmGradeAnalysis = null; openCrmGradeAnalysis();`);
+  const h = await build(app, { withNames: true });
+  assert.match(h, /<bdi dir="ltr">3<\/bdi> طلاب لم تكتمل درجاتهم/);
+  assert.match(h, /<td>بلا درجات<\/td><td class="n">بلا أي درجة<\/td>/);
+  assert.match(h, /&lt;img src=x onerror=alert\(1\)&gt;: <bdi dir="ltr">3<\/bdi> طلاب/, 'الاختبار الناقص عند 3 طلاب مجمَّعًا ومُهرَّبًا');
+  assert.match(h, /المشاركة: طالبان/, 'صيغة المثنى');
+  assert.doesNotMatch(h, /<img src=x/);
 });
 
 test('خيارا المستويات والبنود في الإعدادات يُحترمان، والتشخيص دائم', async () => {

@@ -195,6 +195,24 @@ function ssCompareHtml(prev, withNames){
   return `<div class="sec"><h2>مقارنة بالفصل السابق</h2><div class="kp">${kp}</div>${names}<div class="fn">قورن ${srNum(sum.compared)} طالبًا بمجموع كل فصل؛ التغيّر المعتبر ${srNum(GRADE_COMPARE_RULES.changePct)} نقاط مئوية فأكثر.</div></div>`;
 }
 
+/* الرصد غير المكتمل (البند 5): العدد، «ما ينقص» مجمَّعًا بالبند، وعند الأسماء جدول بالدرجة المرصودة والناقص.
+   لا سطر «أكمل الدرجات»: موجَّه للمعلم لا للقارئ (قرار المستخدم) */
+function ssIncompleteHtml(inc, withNames){
+  if(!inc || !inc.length) return '';
+  const e = escapeHtml;
+  const cnt = c => c === 1 ? 'طالب واحد' : c === 2 ? 'طالبان' : c <= 10 ? `${srNum(c)} طلاب` : `${srNum(c)} طالبًا`;
+  const byItem = new Map();
+  inc.forEach(r => (r.missing || []).forEach(n => byItem.set(n, (byItem.get(n) || 0) + 1)));
+  const lack = [...byItem.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${e(n)}: ${cnt(c)}`);
+  let html = `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب لم تكتمل درجاته' : 'طلاب لم تكتمل درجاتهم'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`;
+  if(lack.length) html += `<div class="box"><b>ما ينقص:</b> ${lack.join(' · ')}.</div>`;
+  if(withNames){
+    const row = r => `<tr><td>${e(r.name)}</td><td class="n">${r.points === null || r.points === undefined ? 'بلا أي درجة' : `${srNum(formatScore(r.points))} من ${srNum(formatScore(r.recordedMax))}`}</td><td>${(r.missing || []).map(e).join('، ') || '—'}</td></tr>`;
+    html += `<table><thead><tr><th>الطالب</th><th class="n">الدرجة المرصودة</th><th>الناقص</th></tr></thead><tbody>${inc.map(row).join('')}</tbody></table>`;
+  }
+  return `<div class="sec"><h2>الرصد غير المكتمل</h2>${html}</div>`;
+}
+
 /* ctx: { label, term, date, prefs, logo, schoolLogo, rules, rows, stats, max, items, dx, withNames, prev } */
 function buildSectionReportHtml(ctx){
   const e = escapeHtml;
@@ -217,7 +235,7 @@ function buildSectionReportHtml(ctx){
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>تقرير أداء الشعبة</h1></div><div class="sl">${slogo}</div></div>`;
   const metaHtml = `<div class="mt">${meta('الصف والشعبة', ctx.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${meta('عدد الطلاب', String(s.total))}${meta('التاريخ', ctx.date)}</div>`;
   const inc = s.incomplete || [];
-  const incHtml = inc.length ? `<div class="sec"><h2>الرصد غير المكتمل</h2><div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب لم تكتمل درجاته' : 'طلاب لم تكتمل درجاتهم'}، فلا يُصنَّفون ولا يدخلون في المتوسط${ctx.withNames ? ': ' + inc.map(x => e(x.name)).join('، ') : ''}.</div></div>` : '';
+  const incHtml = ssIncompleteHtml(inc, ctx.withNames);
   const sign = `<div class="sgn"><div><small>${e(teacher)}</small>معلم المادة</div><div><small>${e(prefs.vice || '')}</small>وكيل شؤون الطلاب</div></div>`;
   return `<style>${SR_CSS}${SS_CSS}</style><div class="sr">${head}${metaHtml}<div class="kp">${kp}</div>
     ${show.levels === false ? '' : `<div class="sec"><h2>مستويات الطلاب</h2>${ssLevelsHtml(counts, inc.length, s.total, rules)}</div>`}
