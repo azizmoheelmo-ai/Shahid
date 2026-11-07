@@ -438,16 +438,16 @@ function renderAcLetterPreview(){
       <div style="margin-top:26px;">التوقيع: ................................</div>
     </div>
     <table style="width:100%;border-collapse:collapse;margin-top:36px;font-size:12px;">
-      <tr><td style="border:1px solid #999;padding:8px;font-weight:700;text-align:center;" colspan="3">إقرار التسليم والاستلام</td></tr>
+      <tr><td style="border:1px solid #b8c6cf;padding:8px;font-weight:700;text-align:center;" colspan="3">إقرار التسليم والاستلام</td></tr>
       <tr>
-        <td style="border:1px solid #999;padding:8px;text-align:center;">المستلم</td>
-        <td style="border:1px solid #999;padding:8px;text-align:center;">التوقيع</td>
-        <td style="border:1px solid #999;padding:8px;text-align:center;">التاريخ</td>
+        <td style="border:1px solid #b8c6cf;padding:8px;text-align:center;">المستلم</td>
+        <td style="border:1px solid #b8c6cf;padding:8px;text-align:center;">التوقيع</td>
+        <td style="border:1px solid #b8c6cf;padding:8px;text-align:center;">التاريخ</td>
       </tr>
       <tr>
-        <td style="border:1px solid #999;padding:18px;">&nbsp;</td>
-        <td style="border:1px solid #999;padding:18px;">&nbsp;</td>
-        <td style="border:1px solid #999;padding:18px;">&nbsp;</td>
+        <td style="border:1px solid #b8c6cf;padding:18px;">&nbsp;</td>
+        <td style="border:1px solid #b8c6cf;padding:18px;">&nbsp;</td>
+        <td style="border:1px solid #b8c6cf;padding:18px;">&nbsp;</td>
       </tr>
     </table>
   `;
@@ -477,16 +477,14 @@ async function buildLetterPdfBlob(previewElId, photoUrl){
 
   /* addPdfPage معرَّفة في app-08-admin.js — هامش صفحة حقيقي بدل الالتصاق
      بحافتها، لكل من صفحة نص الخطاب وصفحة صورة إثبات التسليم */
-  const letterPageHtml = '<div dir="rtl" style="font-family:Arial;font-size:14px;line-height:2;padding:30px;background:#fff;">' + letterHtml + '</div>';
+  await shahidWarmLogos();
+  const letterPageHtml = moeLetterPageHtml(letterHtml);
   await addPdfPage(pdf, area, letterPageHtml, pageState);
 
   if(photoUrl){
     const dataUrl = await toDataUrl(photoUrl);
     if(dataUrl){
-      const photoPageHtml = '<div dir="rtl" style="font-family:Arial;padding:30px;background:#fff;text-align:center;">' +
-        '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
-        '<img src="' + escapeHtml(dataUrl) + '" style="max-width:60%;border:1px solid #999;">' +
-        '</div>';
+      const photoPageHtml = moeProofPageHtml(dataUrl);
       await addPdfPage(pdf, area, photoPageHtml, pageState);
     }
   }
@@ -502,14 +500,12 @@ async function printLetterPages(previewElId, photoUrl, title, evt){
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     const letterHtml = document.getElementById(previewElId).innerHTML;
-    const pages = [{ html: '<div dir="rtl" style="font-family:Arial;font-size:14px;line-height:2;padding:30px;background:#fff;">' + letterHtml + '</div>', fit: 'page' }];
+    await shahidWarmLogos();
+    const pages = [{ html: moeLetterPageHtml(letterHtml), fit: 'page' }];
     if(photoUrl){
       const dataUrl = await toDataUrl(photoUrl);
       if(dataUrl){
-        pages.push({ html: '<div dir="rtl" style="font-family:Arial;padding:30px;background:#fff;text-align:center;">' +
-          '<h3 style="margin-bottom:16px;">صورة إثبات التسليم الموقّع</h3>' +
-          '<img src="' + escapeHtml(dataUrl) + '" style="max-width:60%;border:1px solid #999;">' +
-          '</div>', fit: 'page' });
+        pages.push({ html: moeProofPageHtml(dataUrl), fit: 'page' });
       }
     }
     await printPages(pages, printFileTitle(title));

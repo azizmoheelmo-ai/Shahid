@@ -52,7 +52,7 @@ test('كل مسارات الشاهد (طباعة/مشاركة/الكل/الإن�
   const a9 = fs.readFileSync(path.join(root, 'app/app-09-shahid-form.js'), 'utf8');
   const a8 = fs.readFileSync(path.join(root, 'app/app-08-admin.js'), 'utf8');
   assert.equal((a9.match(/await shahidWarmLogos\(\)/g) || []).length, 4, 'نموذج · سجل · PDF · الكل');
-  assert.equal((a8.match(/await shahidWarmLogos\(\)/g) || []).length, 2, 'المدير · ملف الإنجاز');
+  assert.equal((a8.match(/await shahidWarmLogos\(\)/g) || []).length, 4, 'المدير · ملف الإنجاز · الخطة · التقييم الذاتي');
 });
 
 test('الصور: أكثر من ٦ تُختصر بملاحظة، والمفرد بعرض كامل', () => {

@@ -873,15 +873,15 @@ async function deleteActivityProgramConfirmed(id){
 
 /* ============ تصدير ملخص البرنامج — تصميم أصلي خفيف واحترافي (ليس نسخة من النموذج الرسمي) ============ */
 function metaCellProgram(label, value){
-  return `<div style="flex:1 1 33%;padding:8px 12px;border-left:1px solid #D8D2C4;box-sizing:border-box;">
-    <div style="font-size:8.5px;color:#6B6659;margin-bottom:3px;">${escapeHtml(label)}</div>
-    <div style="font-size:11px;color:#232323;">${escapeHtml(value || '—')}</div>
+  return `<div style="flex:1 1 33%;padding:8px 12px;border-left:1px solid #d3dee6;box-sizing:border-box;">
+    <div style="font-size:8.5px;color:#51636d;margin-bottom:3px;">${escapeHtml(label)}</div>
+    <div style="font-size:11px;font-weight:700;color:#15445a;">${escapeHtml(value || '—')}</div>
   </div>`;
 }
 function sectionProgram(title, bodyHtml){
-  return `<div style="padding:9px 28px;border-bottom:1px solid #D8D2C4;">
-    <div style="font-size:11.5px;font-weight:700;color:#1B3245;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-      <span style="width:4px;height:12px;background:#A9852E;display:inline-block;"></span>${escapeHtml(title)}
+  return `<div style="margin:14px 28px 0;">
+    <div style="font-size:11.5px;font-weight:700;color:#15445a;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+      <span style="width:4px;height:12px;background:#3d7eb9;display:inline-block;"></span>${escapeHtml(title)}
     </div>
     ${bodyHtml}
   </div>`;
@@ -895,7 +895,7 @@ function buildProgramSummaryHtml(program){
   const rowsHtml = sectionIds.length
     ? (program.sessions || []).flatMap(s => programDetailSections.map(sec => {
         const st = (s.section_status && s.section_status[sec.id]) || {};
-        return `<tr style="border-bottom:1px solid #D8D2C4;">
+        return `<tr style="border-bottom:1px solid #d3dee6;">
           <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.session_no}</td>
           <td style="padding:8px 10px;font-size:10.5px;">${escapeHtml(s.week_label || '—')}</td>
           <td style="padding:8px 10px;font-size:10.5px;">${escapeHtml(sec.label)}</td>
@@ -904,7 +904,7 @@ function buildProgramSummaryHtml(program){
         </tr>`;
       })).join('')
     : (program.sessions || []).map(s => `
-      <tr style="border-bottom:1px solid #D8D2C4;">
+      <tr style="border-bottom:1px solid #d3dee6;">
         <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.session_no}</td>
         <td style="padding:8px 10px;font-size:10.5px;">${escapeHtml(s.week_label || '—')}</td>
         <td style="padding:8px 10px;font-size:10.5px;text-align:center;">${s.done ? '✓ وُثّقت' : '—'}</td>
@@ -912,12 +912,9 @@ function buildProgramSummaryHtml(program){
       </tr>`).join('');
 
   return `
-  <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;box-sizing:border-box;">
-    <div style="background:#1B3245;padding:18px 28px;border-bottom:4px solid #A9852E;display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-family:'Amiri',serif;font-size:21px;color:#fff;font-weight:700;">ملخص برنامج نشاط طلابي</div>
-      <div style="font-size:10.5px;color:#C9D2DA;">${isDone ? 'مكتمل ✓' : `${pct}% مكتمل`}</div>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;border-bottom:1px solid #D8D2C4;">
+  <div dir="rtl" style="width:794px;background:#fff;font-family:${MOE_FONT};color:#232323;box-sizing:border-box;">
+    <div style="padding-top:22px;">${moeHeaderHtml('ملخص برنامج نشاط طلابي', isDone ? 'مكتمل ✓' : pct + '% مكتمل')}</div>
+    <div style="display:flex;flex-wrap:wrap;margin:12px 28px 0;border:1px solid #d3dee6;border-radius:4px;overflow:hidden;">
       ${metaCellProgram('اسم البرنامج', program.name)}
       ${metaCellProgram('المعلم', teacherName)}
       ${metaCellProgram('عدد الحصص', String(program.total_sessions))}
@@ -927,22 +924,21 @@ function buildProgramSummaryHtml(program){
       ${metaCellProgram('الشُعب', programDetailSections.length ? programDetailSections.map(sec => sec.label).join('، ') : '—')}
     </div>
     ${sectionProgram('جدول الحصص وحالة التوثيق', `
-      <table style="width:100%;border-collapse:collapse;background:#F1EEE6;">
+      <table style="width:100%;border-collapse:collapse;background:#f4f8fb;">
         <thead>
-          <tr style="border-bottom:1px solid #D8D2C4;">
-            <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:center;">الحصة</th>
-            <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:right;">الأسبوع المخطَّط</th>
-            ${sectionIds.length ? '<th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:right;">الشعبة</th>' : ''}
-            <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:center;">الحالة</th>
-            <th style="padding:8px 10px;font-size:9.5px;color:#6B6659;text-align:center;">تاريخ التوثيق</th>
+          <tr style="border-bottom:1px solid #d3dee6;">
+            <th style="padding:8px 10px;font-size:9.5px;color:#51636d;text-align:center;">الحصة</th>
+            <th style="padding:8px 10px;font-size:9.5px;color:#51636d;text-align:right;">الأسبوع المخطَّط</th>
+            ${sectionIds.length ? '<th style="padding:8px 10px;font-size:9.5px;color:#51636d;text-align:right;">الشعبة</th>' : ''}
+            <th style="padding:8px 10px;font-size:9.5px;color:#51636d;text-align:center;">الحالة</th>
+            <th style="padding:8px 10px;font-size:9.5px;color:#51636d;text-align:center;">تاريخ التوثيق</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
       </table>`)}
     ${sectionProgram('التقدّم الإجمالي', `<div style="font-size:11px;">تم توثيق <b>${done}</b> من إجمالي <b>${total}</b> ${sectionIds.length ? 'فتحة توثيق' : 'حصص'} (${pct}%).</div>`)}
-    <div style="padding:16px 28px 18px;max-width:220px;">
-      <div style="border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">توقيع المعلم</div>
-    </div>
+    ${moeSignHtml(['توقيع المعلم'], '22px 28px 0')}
+    ${moeStripHtml('16px 28px 14px')}
   </div>`;
 }
 
@@ -953,6 +949,7 @@ async function printProgramSummary(programId, evt){
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
     /* نص حقيقي (app-35): الملخص صفحة واحدة تُضبط على A4 كما كان تصدير PDF */
+    await shahidWarmLogos();
     await printPages([{ html: buildProgramSummaryHtml(p), fit: 'page' }], printFileTitle('ملخص-البرنامج'));
   } catch(err){
     showToast('تعذّر تجهيز الطباعة: ' + err.message, 'error');
