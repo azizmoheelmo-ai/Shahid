@@ -1414,9 +1414,9 @@ function buildPdfHtml(rec, photoDataUrls, opts){
       <div style="width:83px;flex:none;display:flex;justify-content:flex-start;">${sch}</div>
       <div style="position:absolute;right:0;left:0;bottom:0;height:3px;border-radius:2px;background:linear-gradient(90deg,#3B83B7,#4CB176);"></div>
     </div>
-    <div style="background:#eaf2f8;margin:12px 30px 0;border-radius:4px;padding:9px 14px;display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#3d7eb9;font-weight:700;">عنصر الأداء</span>
-      <span style="font-size:13.5px;font-weight:700;color:#15445a;">${escapeHtml(rec.element_label || '—')}</span>
+    <div style="background:#15445a;margin:12px 30px 0;border-radius:4px;padding:9px 14px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:11px;color:#cfe3f1;font-weight:700;">عنصر الأداء</span>
+      <span style="font-size:14px;font-weight:700;color:#fff;">${escapeHtml(rec.element_label || '—')}</span>
     </div>
     <div style="margin:12px 30px 0;border:1px solid ${SH_LINE};border-radius:4px;overflow:hidden;">
       <div style="display:flex;border-bottom:1px solid ${SH_LINE};">
