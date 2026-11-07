@@ -110,6 +110,22 @@ test('srProgress: بين فترات المكوّن نفسه فقط (منتهيت
   /* انحدار من تقرير حقيقي: «الاختبار الأول» و«اختبار قراءة» اختباران مختلفان لا يُقارَنان */
   assert.deepEqual(J(app.srProgress([row('الاختبار الأول', 4, 10), row('اختبار قراءة', 9, 10)])), [], 'لا تقدّم بين اختبارين');
   assert.deepEqual(J(app.srProgress([row('الاختبار الأول', 12, 20), row('اختبار قراءة', 0, 5)])), [], 'لا «تراجع من 60% إلى 0%»');
+  /* ق4: اختبار ربطه المعلم، أو تطابق «يقيس» فيه، يُقارَن؛ وسبب المقارنة يُذكر */
+  const T = (n, sc, meas) => row(n, sc, 10, { measures: meas || null });
+  const linked = J(app.srProgress([T('الاختبار الأول', 4), T('اختبار قراءة', 9)], [['الاختبار الأول', 'اختبار قراءة']]));
+  assert.equal(linked.length, 1);
+  assert.equal(linked[0].kind, 'tests');
+  assert.equal(linked[0].label, 'ربطهما المعلم');
+  assert.equal(linked[0].from, 40);
+  assert.equal(linked[0].to, 90);
+  assert.equal(linked[0].trend, 'up');
+  const same = J(app.srProgress([T('قراءة 1', 4, 'القراءة'), T('نحو', 8, 'القواعد'), T('قراءة 2', 9, ' القراءة ')], []));
+  assert.equal(same.length, 1, 'تطابق «يقيس» بعد تنظيف الفراغات');
+  assert.equal(same[0].label, 'كلاهما يقيس: القراءة');
+  assert.equal(same[0].fromLabel, 'قراءة 1');
+  assert.equal(same[0].toLabel, 'قراءة 2');
+  assert.deepEqual(J(app.srProgress([T('أ', 4, 'القراءة'), T('ب', 9, 'الكتابة')], [])), [], 'مقيسان مختلفان: لا مقارنة');
+  assert.deepEqual(J(app.srProgress([T('أ', 4), T('ب', 9)], [])), [], '«يقيس» الفارغ لا يُطابق الفارغ');
   /* مكوّنان مختلفان بفترات: كلٌّ يُقاس بنفسه ولا يُخلط بالآخر */
   const two = J(app.srProgress([P('m', 'المشاركة', 'أ', 8), P('h', 'الواجبات', 'أ', 5), P('m', 'المشاركة', 'ب', 10), P('h', 'الواجبات', 'ب', 7)]));
   assert.equal(two.length, 2);
@@ -196,19 +212,24 @@ test('التواصل مع ولي الأمر: ثلاثة شروط فقط، ولا
   const inc = dx([row('أ', 3, 10), row('ب', 9, 10), row('ج', 9, 10)], { overall: { pct: 45, incomplete: true } });
   assert.equal(inc.parentContact, false);
   assert.equal(inc.overallJudged, false);
-  /* (ج) ضعف تحصيلي مستمر شديد: متوسط التحصيل دون 30% */
-  const c = dx([row('أ', 2, 10), row('ب', 2, 10), row('ج', 5, 10)], { overall: { pct: 70, incomplete: false } });
+  /* (ج) ضعف تحصيلي مستمر شديد: متوسط التحصيل دون 30% — والاستمرار داخل سلسلة قابلة للمقارنة فقط (م2، ق4) */
+  const G = { testGroups: [['أ', 'ب', 'ج']] };
+  const c = dx([row('أ', 2, 10), row('ب', 2, 10), row('ج', 5, 10)], Object.assign({ overall: { pct: 70, incomplete: false } }, G));
   assert.equal(c.tahsili.persistent, true);
   assert.equal(c.tahsili.avg, 30);
   assert.equal(c.tahsili.severe, false, 'المتوسط 30% ليس دون العتبة 30%');
-  const sev = dx([row('أ', 1, 10), row('ب', 2, 10), row('ج', 5, 10)], { overall: { pct: 70, incomplete: false } });
+  const sev = dx([row('أ', 1, 10), row('ب', 2, 10), row('ج', 5, 10)], Object.assign({ overall: { pct: 70, incomplete: false } }, G));
   assert.equal(sev.tahsili.severe, true, 'متوسط 27% دون 30%');
   assert.ok(sev.recommendations.some(r => r.parent && /ضعف تحصيلي مستمر شديد/.test(r.evidence)));
+  /* بلا ربط ولا «يقيس» متطابق: اختباران منخفضان متتاليان لا يُعدّان ضعفًا مستمرًا (انحدار ق4) */
+  const unlinked = dx([row('أ', 1, 10), row('ب', 2, 10), row('ج', 5, 10)], { overall: { pct: 70, incomplete: false } });
+  assert.equal(unlinked.tahsili.persistent, false, 'اختبارات بلا علاقة');
+  assert.equal(unlinked.tahsili.severe, false);
+  assert.ok(!unlinked.recommendations.some(r => r.parent && /مستمر/.test(r.evidence)));
   /* العتبة قابلة للتغيير من المعلم */
-  const hi = J(loadApp().srDiagnose({ rows: [row('أ', 3, 10), row('ب', 3, 10), row('ج', 5, 10)], rules: Object.assign({}, R, { severe: 40 }), homework: null, lessonsHeld: 9, overall: { pct: 70, incomplete: false } }));
-  assert.equal(hi.tahsili.severe, true, 'متوسط 37% دون عتبة 40%');
-  const lo = J(loadApp().srDiagnose({ rows: [row('أ', 3, 10), row('ب', 3, 10), row('ج', 5, 10)], rules: Object.assign({}, R, { severe: 20 }), homework: null, lessonsHeld: 9, overall: { pct: 70, incomplete: false } }));
-  assert.equal(lo.tahsili.severe, false);
+  const mk = sv => J(loadApp().srDiagnose({ rows: [row('أ', 3, 10), row('ب', 3, 10), row('ج', 5, 10)], rules: Object.assign({}, R, { severe: sv }), homework: null, lessonsHeld: 9, overall: { pct: 70, incomplete: false }, testGroups: [['أ', 'ب', 'ج']] }));
+  assert.equal(mk(40).tahsili.severe, true, 'متوسط 37% دون عتبة 40%');
+  assert.equal(mk(20).tahsili.severe, false);
 });
 
 test('كل توصية لها دليل وتشخيص وإجراء، ولا توصية عامة أبدًا عند عدم وجود ضعف', () => {

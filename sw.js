@@ -26,7 +26,7 @@
      HTTPS/localhost، وهذا سلوك طبيعي متوقّع.
 */
 
-const APP_VERSION_SW = '2.87';
+const APP_VERSION_SW = '2.88';
 const CACHE_NAME = 'shahid-shell-v' + APP_VERSION_SW;
 /* الخطوط (خارجية): نخدمها من الكاش فورًا ونحدّثها بالخلفية.
    كاش منفصل لا يُحذف بتغيّر الإصدار. */
@@ -81,6 +81,7 @@ const APP_SHELL = [
   './app/app-34-grade-report.js',
   './app/app-35-print-pages.js',
   './app/app-36-student-report.js',
+  './app/app-37-test-links.js',
   './moe-logo.png',
   './fonts/HelveticaNeueW23forSKY-Regular.ttf',
   './fonts/HelveticaNeueW23forSKY-Bold.ttf'

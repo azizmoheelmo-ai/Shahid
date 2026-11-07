@@ -68,7 +68,7 @@ function srBuildRows(items, studentId, breakdown, cfgOf, classPctOf, toolTypeOf)
   (items || []).forEach(x => {
     if(x.score === null || x.score === undefined){ missing.push(x.name); return; }
     const domain = srDomainOf(x, toolTypeOf);
-    const base = { id: x.id, name: x.name, max: Number(x.max), domain, category: x.category, kind: x.kind || 'manual', tool_id: x.tool_id || null };
+    const base = { id: x.id, name: x.name, max: Number(x.max), domain, category: x.category, kind: x.kind || 'manual', tool_id: x.tool_id || null, measures: x.measures || null };
     const cfg = x.category === 'performance' && cfgOf ? cfgOf(x) : null;
     const bd = cfg && cfg.n > 1 && breakdown && breakdown.get(x.id) ? breakdown.get(x.id).get(studentId) : null;
     const periodRows = [];
@@ -96,11 +96,13 @@ function srBuildRows(items, studentId, breakdown, cfgOf, classPctOf, toolTypeOf)
 /* صفوف المكوّن الواحد (بند أو مجموعه): نستعملها في التشخيص بدل صفوف الفترات */
 const srComponentRows = rows => (rows || []).filter(r => r.row === 'item' || r.row === 'sub');
 
-/* ============ دوال صرفة: التقدّم ============
-   م2 (قابلية المقارنة): التقدّم **بين فترات المكوّن نفسه فقط** (الفترات المنتهية، قياسان فأكثر).
-   الاختبارات لا فترات لها فلا تُقارَن ببعضها (قراءة ≠ اختبار أول) — ق3. (ربط الاختبارات أو تطابق «يقيس»: قرار لاحق ق4.) */
-function srProgress(rows){
-  const out = [];
+/* ============ دوال صرفة: السلاسل القابلة للمقارنة والتقدّم ============
+   م2 (قابلية المقارنة): لا يُقارَن إلا ما قاس الشيء نفسه:
+   - فترات المكوّن نفسه (المنتهية).
+   - اختبارات رُبطت أو تطابق «يقيس» فيها (app-37، ق4). الاختبارات بلا علاقة لا تُقارَن (ق3).
+   سلسلة = { name, kind: 'periods'|'tests', label (سبب المقارنة)، domain, points: [{ label, pct }] } بترتيب الكشف/الفترات */
+function srSeries(rows, groups){
+  const series = [];
   const byComp = new Map();
   (rows || []).filter(r => r.row === 'period' && !r.live).forEach(r => {
     if(!byComp.has(r.id)) byComp.set(r.id, []);
@@ -108,12 +110,25 @@ function srProgress(rows){
   });
   byComp.forEach(list => {
     if(list.length < 2) return;
-    const a = list[0], b = list[list.length - 1];
-    out.push({ name: a.name, from: srPct(a.score, a.max), to: srPct(b.score, b.max), basis: 'periods', domain: a.domain });
+    series.push({ name: list[0].name, kind: 'periods', label: list.length === 2 ? 'بين فترتين منتهيتين' : 'بين فترات منتهية', domain: list[0].domain,
+      points: list.map(r => ({ label: r.label, pct: srPct(r.score, r.max) })) });
   });
-  return out.filter(p => p.from !== null && p.to !== null).map(p => {
-    const d = p.to - p.from;
-    return Object.assign(p, { delta: d, trend: d >= SR_PROGRESS_DELTA ? 'up' : d <= -SR_PROGRESS_DELTA ? 'down' : 'flat' });
+  if(typeof tlComparableClasses === 'function'){
+    const tests = srComponentRows(rows).filter(r => r.category === 'tests').map(r => ({ name: r.name, measures: r.measures, row: r }));
+    tlComparableClasses(tests, groups).forEach(cl => {
+      series.push({ name: cl.members.map(m => m.name).join('، '), kind: 'tests', label: cl.label, domain: 'tahsili',
+        points: cl.members.map(m => ({ label: m.name, pct: srPct(m.row.score, m.row.max) })) });
+    });
+  }
+  return series.filter(x => x.points.every(p => p.pct !== null));
+}
+
+function srProgress(rows, groups){
+  return srSeries(rows, groups).filter(x => x.points.length >= 2).map(x => {
+    const a = x.points[0], b = x.points[x.points.length - 1];
+    const d = b.pct - a.pct;
+    return { name: x.name, kind: x.kind, label: x.label, domain: x.domain, from: a.pct, to: b.pct, fromLabel: a.label, toLabel: b.label, delta: d,
+      trend: d >= SR_PROGRESS_DELTA ? 'up' : d <= -SR_PROGRESS_DELTA ? 'down' : 'flat' };
   });
 }
 
@@ -142,9 +157,16 @@ function srDiagnose(m){
     if(lows.length >= 2 && lows.length * 2 >= tRows.length){
       tah.weak = { names: lows.map(r => `${r.name} ${srRound(r.pct)}%`) };
     }
-    for(let i = 0; i + 1 < tRows.length; i++){
-      if(lvl(tRows[i]).key === 'w' && lvl(tRows[i + 1]).key === 'w'){ tah.persistent = true; break; }
-    }
+    /* ضعف مستمر: قياسان متتاليان دون حدّ الضعف داخل سلسلة قابلة للمقارنة فقط (م2) */
+    srSeries(m.rows, m.testGroups).filter(x => x.domain === 'tahsili').forEach(sr => {
+      for(let i = 0; i + 1 < sr.points.length && !tah.persistent; i++){
+        const p = sr.points[i], q = sr.points[i + 1];
+        if(lvl({ pct: p.pct }).key === 'w' && lvl({ pct: q.pct }).key === 'w'){
+          tah.persistent = true;
+          tah.persistentInfo = { text: `«${p.label}» ${srRound(p.pct)}% ثم «${q.label}» ${srRound(q.pct)}%`, label: sr.label };
+        }
+      }
+    });
     tah.severe = tah.persistent && tah.avg !== null && tah.avg < srSevereOf(rules);
   }
 
@@ -190,7 +212,7 @@ function srDiagnose(m){
   const taal = { indicators, weak: indicators.filter(i => i.status === 'weak'), strengths: indicators.filter(i => i.status === 'strength') };
 
   /* ---- التقدّم ---- */
-  const progress = srProgress(m.rows);
+  const progress = srProgress(m.rows, m.testGroups);
 
   /* ---- التوصيات: الدليل ← التشخيص ← الإجراء؛ تُحذف إن تعذّر بناء أحدها ---- */
   const recs = [];
@@ -198,7 +220,7 @@ function srDiagnose(m){
     recs.push({ evidence: tah.weak.names.join('، '), diagnosis: 'ضعف تحصيلي في البنود المذكورة', action: 'مراجعة المهارات التي فقد فيها الدرجات وتكليفه بتدريبات قصيرة عليها، ثم إعادة تقييمها' });
   }
   if(tah.persistent && !tah.weak){
-    recs.push({ evidence: 'بندان تحصيليان متتاليان دون حدّ الضعف', diagnosis: 'ضعف تحصيلي مستمر', action: 'خطة علاجية قصيرة بمتابعة أسبوعية' });
+    recs.push({ evidence: `${tah.persistentInfo.text} — دون حدّ الضعف في قياسين متتاليين (${tah.persistentInfo.label})`, diagnosis: 'ضعف تحصيلي مستمر', action: 'خطة علاجية قصيرة بمتابعة أسبوعية' });
   }
   taal.weak.forEach(i => recs.push({ evidence: i.evidence, diagnosis: i.diagnosis, action: i.action }));
   /* التواصل مع ولي الأمر: أحد ثلاثة شروط */
@@ -286,7 +308,8 @@ function srItemsTableHtml(rows, rules, analytic){
     const cls = r.row === 'sub' ? ' class="sub"' : r.live ? ' class="live"' : '';
     const levelCell = r.live ? '<span class="nd">جارية · لم تدخل</span>' : srChip(lv);
     if(analytic){
-      return `<tr${cls}><td>${e(r.label)}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${levelCell}</td><td class="n">${r.classPct === null || r.classPct === undefined ? '—' : srNum(srRound(r.classPct) + '%')}</td><td class="n">${r.domain ? SR_DOMAIN_LABELS[r.domain] : '—'}</td></tr>`;
+      const meas = r.measures && r.row !== 'period' ? `<div class="ev">يقيس: ${e(r.measures)}</div>` : '';
+      return `<tr${cls}><td>${e(r.label)}${meas}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${levelCell}</td><td class="n">${r.classPct === null || r.classPct === undefined ? '—' : srNum(srRound(r.classPct) + '%')}</td><td class="n">${r.domain ? SR_DOMAIN_LABELS[r.domain] : '—'}</td></tr>`;
     }
     const bar = r.live || !lv ? '' : `<div class="bar"><i class="${lv.key}" style="width:${Math.max(0, Math.min(100, r.pct))}%"></i></div>`;
     return `<tr${cls}><td>${e(r.label)}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${r.live ? '' : srNum(srRound(r.pct) + '%')}</td><td class="n">${levelCell}</td><td>${bar}</td></tr>`;
@@ -307,7 +330,7 @@ function srDiagnosisHtml(dx, showClass){
     const parts = [];
     tah.strengths.filter(keep).forEach(x => parts.push(`<div class="box s"><b>نقطة قوة:</b> ${e(x.text)}</div>`));
     if(tah.weak) parts.push(`<div class="box p"><b>ضعف مثبت:</b> ${e(tah.weak.names.join('، '))}</div>`);
-    if(tah.persistent) parts.push('<div class="box p"><b>ضعف مستمر:</b> بندان تحصيليان متتاليان دون حدّ الضعف.</div>');
+    if(tah.persistent) parts.push(`<div class="box p"><b>ضعف مستمر (${e(tah.persistentInfo.label)}):</b> ${e(tah.persistentInfo.text)} — دون حدّ الضعف.</div>`);
     tah.facts.filter(keep).forEach(x => parts.push(`<div class="box f"><b>نتيجة منخفضة (واقعة لا حكم):</b> ${e(x.text)}</div>`));
     if(!parts.length) parts.push('<div class="box"><span class="nd">لا نقاط قوة ولا ضعف مثبتة في التحصيل.</span></div>');
     tahHtml = parts.join('');
@@ -321,8 +344,10 @@ function srDiagnosisHtml(dx, showClass){
   });
   dx.progress.forEach(p => {
     const t = p.trend === 'up' ? 'تحسّن' : p.trend === 'down' ? 'تراجع' : 'مستقر';
-    const basis = 'بين فترتين منتهيتين';
-    lines.push(`<div class="box f"><b>التقدّم (${basis}):</b> ${e(p.name)} من ${srNum(srRound(p.from) + '%')} إلى ${srNum(srRound(p.to) + '%')} (${t})</div>`);
+    const body = p.kind === 'tests'
+      ? `من «${e(p.fromLabel)}» ${srNum(srRound(p.from) + '%')} إلى «${e(p.toLabel)}» ${srNum(srRound(p.to) + '%')}`
+      : `${e(p.name)} من ${srNum(srRound(p.from) + '%')} إلى ${srNum(srRound(p.to) + '%')}`;
+    lines.push(`<div class="box f"><b>التقدّم (${e(p.label)}):</b> ${body} (${t})</div>`);
   });
   const tahSection = tahHtml ? `<div class="sec"><h2>التشخيص: ماذا يتقن الطالب (التحصيل)</h2>${tahHtml}</div>` : '';
   const taalSection = lines.length ? `<div class="sec"><h2>التشخيص: كيف يتعلّم الطالب (الإنجاز والمشاركة والالتزام والتقدّم)</h2>${lines.join('')}</div>` : '';
@@ -514,8 +539,10 @@ async function srBuildReport(studentId, version, to, opts){
     const testsOn = appToolOn('tests');
     const res = studentGradeResult(g.columns, g.scores, studentId, caps);
     const adm = new Set(gradeAdministeredColumns(g.columns, g.scores, testsOn).map(c => c.id));
+    const meas = new Map(g.columns.map(c => [c.id, c.measures || null]));
     const items = res.performance.parts.map(x => Object.assign({}, x, { category: 'performance' }))
       .concat(testsOn ? res.tests.list.map(x => Object.assign({}, x, { category: 'tests' })) : [])
+      .map(x => Object.assign({}, x, { measures: meas.get(x.id) || null }))
       .filter(x => x.score !== null || adm.has(x.id));
     const classPctOf = id => {
       const col = g.columns.find(c => c.id === id);
@@ -548,7 +575,8 @@ async function srBuildReport(studentId, version, to, opts){
       cases: acadOn ? await srLoadCases(studentId) : []
     };
   }
-  const dx = srDiagnose({ rows, rules, homework, lessonsHeld, overall });
+  const testGroups = typeof tlGroupsOf === 'function' ? tlGroupsOf(typeof appFeatures !== 'undefined' ? appFeatures : null, term) : [];
+  const dx = srDiagnose({ rows, rules, homework, lessonsHeld, overall, testGroups });
   await srEnsureFonts();
   const label = studentClassLabel(student, crmGradeLevels, crmSections);
   const html = buildStudentReportHtml2(Object.assign({
@@ -577,6 +605,7 @@ function openStudentReportChooser(studentId){
     <button type="button" class="btn btn-outline" style="width:100%;justify-content:center;margin-bottom:6px;" onclick="srChooserGo('${escapeHtml(st.id)}','grades')">نسخة الدرجات — أرقام ومستويات</button>
     <label style="font-size:12px;color:var(--muted);">الموجّه إليها (لنسخة الدرجات؛ اسمها تحت خانة توقيعها)</label>
     <select id="srToSel" class="crm-input" style="width:100%;margin-top:4px;">${toOpts}</select>
+    ${srLinkHintHtml(st)}
   </div>`, '420px');
 }
 
@@ -587,4 +616,17 @@ function srChooserGo(studentId, version){
   if(close && close.click) close.click();
   showToast('جارٍ تجهيز التقرير...', 'ok');
   return srRun(studentId, version, to, null, null);
+}
+
+/* تنبيه للمعلم على الشاشة فقط (لا في الـPDF الذي قد يصل لولي الأمر): اختبارات الطالب بلا مقارنة بينها */
+function srLinkHintHtml(st){
+  try{
+    if(typeof crmGrades === 'undefined' || !crmGrades || crmGrades.sectionId !== st.section_id || typeof tlComparableClasses !== 'function') return '';
+    const mine = new Set((crmGrades.scores || []).filter(x => x.student_id === st.id).map(x => x.column_id));
+    const tests = (crmGrades.columns || []).filter(c => c.category === 'tests' && mine.has(c.id)).map(c => ({ name: c.name, measures: c.measures }));
+    if(tests.length < 2) return '';
+    const groups = tlGroupsOf(appFeatures, { year: crmGrades.year, semester: crmGrades.semester });
+    if(tlComparableClasses(tests, groups).length) return '';
+    return '<div style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.7;">اختباراته غير مقارَنة ببعضها. لتظهر مقارنتها في التقرير: عدّل الاختبار واختر «قارنه مع»، أو اختر الشيء نفسه في «ماذا يقيس؟».</div>';
+  } catch(e){ return ''; }
 }
