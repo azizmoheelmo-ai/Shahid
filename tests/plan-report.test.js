@@ -12,14 +12,15 @@ const read = f => fs.readFileSync(path.join(root, f), 'utf8');
 const goal = (name, extra) => Object.assign({ template_name: name, target_level: 5, target_count: 2,
   target_performance: 'أداء ' + name, success_indicators: ['مؤشر ' + name], recommended_evidence: ['شاهد ' + name], action_steps: ['إجراء ' + name] }, extra || {});
 
-async function build(goalsByKey, asDraft, elements){
+async function build(goalsByKey, asDraft, elements, extraJs){
   const app = loadApp();
   runInAppContext(app, `gradeReportLogoData = async () => 'data:image/png;base64,MOE'; gradeReportSchoolLogoData = async () => ''; srEnsureFonts = async () => {};`);
   await runInAppContext(app, 'shahidWarmLogos()');
   return runInAppContext(app, `
     const G = ${JSON.stringify({ goalsByKey, elements: elements || [1, 2, 3].map(n => ({ key: 'e' + n, label: 'العنصر ' + n + ' (10%)' })) })};
     getElementsOrder = () => G.elements; getElementWeight = () => 10; getProfileSubject = () => 'اللغة'; getCycleYear = () => '2026/2027';
-    myPlanGoals = G.goalsByKey;
+    myPlanGoals = G.goalsByKey; planShahidCounts = {}; goalShahidCounts = {}; mySelfAssessment = {};
+    ${extraJs || ''}
     document.getElementById = id => ({ value: '' });
     buildPlanHtml(${asDraft === undefined ? '' : asDraft})`);
 }
@@ -116,4 +117,38 @@ test('من يطبع الخطة يمرّر designWidth: PLAN_DESIGN_W (وإلا �
   assert.match(src, /const PLAN_DESIGN_W = 700/);
   const w = Number(/const PRINT_PAGE_W = (\d+)/.exec(read('app/app-35-print-pages.js'))[1]);
   assert.equal(w, 700, 'عرض التصميم يساوي عرض الطباعة');
+});
+
+test('المنجز: «الموثّق / المستهدف» بالملخص وبشارة الهدف، ومن شواهد السنة المحمّلة', async () => {
+  const h = await build({ e1: [goal('أ', { id: 11, target_count: 6 })], e2: [goal('ب', { id: 12, target_count: 2 })] }, false, undefined,
+    `planShahidCounts = { e1: 3, e2: 1 }; goalShahidCounts = { 11: 3, 12: 1 };`);
+  assert.match(h, /4 \/ 8/, 'بطاقة المجموع الموثّق من المستهدف');
+  assert.match(h, />3 \/ 6</, 'عنصر 1 بالجدول');
+  assert.match(h, />1 \/ 2</, 'عنصر 2 بالجدول');
+  assert.match(h, /شواهد 3 \/ 6/, 'شارة الهدف');
+  assert.match(h, /شواهد موثّقة من المستهدف/);
+});
+
+test('لا «0 / ن» قبل أي توثيق (م9): المستهدف وحده', async () => {
+  const h = await build({ e1: [goal('أ', { id: 11, target_count: 6 })] });
+  assert.doesNotMatch(h, /0 \/ 6/);
+  assert.match(h, /شاهدًا مستهدفًا/);
+  assert.match(h, /شواهد 6</);
+});
+
+test('التقييم الذاتي: العمود وسلم التقدير يظهران فقط إن قيّم المعلم، والقيمة غير المعروفة تُهمَل', async () => {
+  const none = await build({ e1: [goal('أ')] });
+  assert.doesNotMatch(none, /التقييم الذاتي|سلم التقدير/);
+  const some = await build({ e1: [goal('أ')], e2: [goal('ب')] }, false, undefined, `mySelfAssessment = { e1: { self_level: 4 }, e2: { self_level: 99 } };`);
+  assert.match(some, /التقييم الذاتي/);
+  assert.match(some, /فاق التوقعات \(4\)/);
+  assert.match(some, /سلم التقدير/);
+  assert.doesNotMatch(some, /99|undefined/);
+});
+
+test('ملف الإنجاز بلا صفحة ملخص قديمة، وprintPlan يحمّل التقييم الذاتي', () => {
+  const src = read('app/app-08-admin.js');
+  assert.doesNotMatch(src, /ملخص الخطة والتقييم الذاتي/);
+  const a = src.indexOf('async function printPlan'), b = src.indexOf('\n}\n', a);
+  assert.match(src.slice(a, b), /await loadSelfAssessment\(\)/);
 });
