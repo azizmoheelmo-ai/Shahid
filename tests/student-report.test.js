@@ -63,7 +63,7 @@ function buildRows(items, cfgs, bd){
 }
 const item = (id, name, max, score, o) => Object.assign({ id, name, max, score, kind: 'manual', tool_id: null, category: 'performance' }, o || {});
 
-test('صفوف الفترات: صف لكل فترة + «المحسوب في المجموع»، والجارية بلا حكم، وبفترة واحدة صف واحد', () => {
+test('صفوف الفترات: صف لكل فترة منتهية فقط + «المحسوب في المجموع» عند اثنتين فأكثر؛ وما لم يبدأ أو لم ينتهِ لا يظهر (م9، ق5)', () => {
   const out = buildRows([
     item('m', 'المشاركة', 10, 9, { kind: 'participation' }),
     item('h', 'الواجبات', 15, 6, { kind: 'homework' }),
@@ -74,35 +74,41 @@ test('صفوف الفترات: صف لكل فترة + «المحسوب في ال
     h: { n: 2, starts: ['2026-10-01'], ended: false },
     x: { n: 1, starts: [] }
   }, { m: { p1: 8, p2: 10, p3: 2 }, h: { p1: 5, p2: 7, p3: null } });
-  const labels = out.rows.map(r => r.label);
-  assert.deepEqual(labels, [
-    'المشاركة — الفترة الأولى', 'المشاركة — الفترة الثانية', 'المشاركة — الفترة الثالثة', 'المشاركة — المحسوب في المجموع',
-    'الواجبات — الفترة الأولى', 'الواجبات — الفترة الثانية', 'الواجبات — المحسوب في المجموع',
+  assert.deepEqual(out.rows.map(r => r.label), [
+    'المشاركة — الفترة الأولى', 'المشاركة — الفترة الثانية', 'المشاركة — المحسوب في المجموع',
+    'الواجبات — الفترة الأولى',
     'الاختبار الأول', 'مهمة'
-  ]);
+  ], 'الثالثة جارية للمشاركة والثانية جارية للواجبات: لا تُعرضان');
   const byLabel = Object.fromEntries(out.rows.map(r => [r.label, r]));
-  assert.equal(byLabel['المشاركة — الفترة الثالثة'].live, true, 'الجارية: دخلت فترتان فقط');
-  assert.equal(byLabel['المشاركة — الفترة الثانية'].live, false);
   assert.equal(byLabel['المشاركة — المحسوب في المجموع'].row, 'sub');
+  assert.equal(byLabel['الواجبات — الفترة الأولى'].row, 'item', 'فترة واحدة معدودة: صف واحد بلا مجموع مكرَّر');
+  assert.equal(byLabel['الواجبات — الفترة الأولى'].score, 6, 'درجة المكوّن المحسوبة');
   assert.equal(byLabel['مهمة'].row, 'item', 'فترة واحدة: صف واحد بلا ذكر فترات');
   assert.equal(byLabel['الاختبار الأول'].row, 'item', 'الاختبارات بلا فترات');
+  assert.ok(!out.rows.some(r => 'live' in r && r.live), 'لا صفوف جارية');
+  /* الفترة الثانية لم تبدأ أصلًا: لا صف لها ولا إشارة */
+  const notStarted = buildRows([item('h', 'الواجبات', 15, 6, { kind: 'homework' })], { h: { n: 2, starts: [] } }, { h: { p1: 6, p2: null, p3: null } });
+  assert.deepEqual(notStarted.rows.map(r => r.label), ['الواجبات — الفترة الأولى']);
+  /* بعد «أنهِ الفترة الأخيرة» تُعرض كلها */
+  const ended = buildRows([item('m', 'المشاركة', 10, 6, { kind: 'participation' })], { m: { n: 3, starts: ['2026-10-01', '2026-11-01'], ended: true } }, { m: { p1: 8, p2: 10, p3: 2 } });
+  assert.deepEqual(ended.rows.map(r => r.label), ['المشاركة — الفترة الأولى', 'المشاركة — الفترة الثانية', 'المشاركة — الفترة الثالثة', 'المشاركة — المحسوب في المجموع']);
 });
 
 test('صفوف الفترات: البند غير المرصود للطالب لا يظهر، والفترة بلا درجة لا تظهر', () => {
   const out = buildRows([item('a', 'أ', 10, null), item('m', 'المشاركة', 10, 8, { kind: 'participation' })],
     { m: { n: 3, starts: ['2026-10-01'] } }, { m: { p1: 8, p2: null, p3: null } });
-  assert.deepEqual(out.rows.map(r => r.label), ['المشاركة — الفترة الأولى', 'المشاركة — المحسوب في المجموع']);
-  assert.deepEqual(out.missing, ['أ']);
+  assert.deepEqual(out.rows.map(r => r.label), ['المشاركة — الفترة الأولى']);
+  assert.deepEqual(out.missing, ['أ'], 'للفحص فقط ولا يُعرض (م9)');
 });
 
 /* ============ التقدّم ============ */
-test('srProgress: بين فترات المكوّن نفسه فقط (منتهيتان فأكثر)، والجارية لا تدخل، والاختبارات لا تُقارَن (ق3، م2)', () => {
+test('srProgress: بين فترات المكوّن المنتهية فقط (قياسان فأكثر)، والاختبارات لا تُقارَن إلا بربط أو «يقيس» (ق3، ق4، م2)', () => {
   const app = loadApp();
-  const P = (id, n, k, score, live) => row(n + ' — ' + k, score, 10, { id, name: n, row: 'period', live: !!live, domain: 'taalumi' });
-  const one = J(app.srProgress([P('m', 'المشاركة', 'الأولى', 8), P('m', 'المشاركة', 'الثانية', 10), P('m', 'المشاركة', 'الثالثة', 2, true)]));
+  const P = (id, n, k, score) => row(n + ' — ' + k, score, 10, { id, name: n, row: 'period', domain: 'taalumi' });
+  const one = J(app.srProgress([P('m', 'المشاركة', 'الأولى', 8), P('m', 'المشاركة', 'الثانية', 10)]));
   assert.equal(one.length, 1);
   assert.equal(one[0].from, 80);
-  assert.equal(one[0].to, 100, 'الفترة الجارية لا تحسب');
+  assert.equal(one[0].to, 100);
   assert.equal(one[0].trend, 'up');
   assert.deepEqual(J(app.srProgress([P('m', 'المشاركة', 'الأولى', 8)])), [], 'قياس واحد لا يُحسب');
   assert.equal(app.srProgress([P('m', 'م', 'أ', 8), P('m', 'م', 'ب', 7.5)])[0].trend, 'flat', 'فارق أقل من 10 نقاط');
@@ -240,8 +246,8 @@ test('كل توصية لها دليل وتشخيص وإجراء، ولا توص�
   many.recommendations.forEach(r => { assert.ok(r.evidence && r.diagnosis && r.action); });
 });
 
-test('الفترة الجارية والمكوّن غير المصنَّف لا يدخلان التشخيص', () => {
-  const d = dx([row('أول', 4, 10), row('جارية', 1, 10, { live: true }), row('يدوي', 1, 10, { domain: null })]);
+test('المكوّن غير المصنَّف لا يدخل التشخيص', () => {
+  const d = dx([row('أول', 4, 10), row('يدوي', 1, 10, { domain: null })]);
   assert.equal(d.tahsili.recorded, 1, 'بند واحد فقط معتبر');
   assert.equal(d.tahsili.enough, false);
 });
@@ -354,16 +360,22 @@ test('المستوى العام لا يُحكم به بلا أدلة كافية�
   assert.match(h, /لا أدلة كافية للحكم على المستوى العام/);
 });
 
-test('البنود غير المرصودة لا تظهر، وتُذكر في سطر «لم تُرصد بعد»', () => {
+test('ما لم يُرصد لا يظهر ولا يُسمّى: لا بند ولا سطر «لم تُرصد بعد» (م9، ق5)', () => {
   const h = html('grades', { missing: ['النهائي'] });
-  assert.match(h, /لم تُرصد بعد: النهائي/);
+  assert.doesNotMatch(h, /النهائي|لم تُرصد بعد/);
+  const a = html('analytical', { missing: ['النهائي'] });
+  assert.doesNotMatch(a, /النهائي|لم تُرصد بعد/);
 });
 
-test('الفترة الجارية تُعرض بلا مستوى وعليها «جارية · لم تدخل»', () => {
-  const rows = [row('المشاركة — الفترة الثالثة', 2, 10, { row: 'period', live: true, domain: 'taalumi' }), row('المشاركة — المحسوب في المجموع', 9, 10, { row: 'sub', domain: 'taalumi' })];
-  const h = html('grades', { rows });
-  assert.match(h, /جارية · لم تدخل/);
-  assert.match(h, /الفترة الجارية تُعرض بدرجتها ولا تدخل في المجموع/);
+test('الفترات التي لم تنتهِ لا تظهر في الصفحة ولا يُشار إليها (م9، ق5)', () => {
+  const built = buildRows([item('m', 'المشاركة', 10, 9, { kind: 'participation' }), item('h', 'الواجبات', 15, 6, { kind: 'homework' })],
+    { m: { n: 3, starts: ['2026-10-01', '2026-11-01'] }, h: { n: 2, starts: ['2026-10-01'] } }, { m: { p1: 8, p2: 10, p3: 2 }, h: { p1: 5, p2: 7, p3: null } });
+  for(const v of ['grades', 'analytical']){
+    const h = html(v, { rows: built.rows });
+    assert.doesNotMatch(h, /جارية|لم تدخل|الفترة الثالثة|الواجبات — الفترة الثانية/, v);
+    assert.match(h, /المشاركة — الفترة الثانية/);
+    assert.match(h, /الواجبات — الفترة الأولى/);
+  }
 });
 
 /* ============ الدمج والأمان ============ */

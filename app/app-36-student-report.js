@@ -62,7 +62,7 @@ function srDomainOf(c, toolTypeOf){
    items: [{ id, name, max, score, kind, tool_id, category }]
    breakdown: Map(columnId → Map(studentId → {p1,p2,p3})) أو null
    cfgOf(item) → إعداد الفترات { n, starts, ended? } ؛ classPctOf(id) → متوسط الشعبة % أو null
-   الناتج: { rows, missing } — البند غير المرصود للطالب لا يظهر (يُذكر اسمه في missing) */
+   الناتج: { rows, missing } — البند غير المرصود للطالب لا يظهر في الجدول، وmissing للفحص فقط: لا يُعرض ولا يُسمّى بالتقرير (م9) */
 function srBuildRows(items, studentId, breakdown, cfgOf, classPctOf, toolTypeOf){
   const rows = [], missing = [];
   (items || []).forEach(x => {
@@ -77,17 +77,19 @@ function srBuildRows(items, studentId, breakdown, cfgOf, classPctOf, toolTypeOf)
       for(let k = 1; k <= cfg.n; k++){
         const sc = bd['p' + k];
         if(sc === null || sc === undefined) continue;
-        periodRows.push(Object.assign({}, base, {
-          row: 'period', period: k, label: `${x.name} — ${PERIOD_NAMES[k]}`, score: Number(sc), pct: srPct(sc, x.max),
-          live: counted !== null && k > counted, classPct: null
-        }));
+        if(counted !== null && k > counted) continue; /* فترة لم تبدأ/لم تنتهِ: لا أثر لها فلا تُعرض ولا يُشار إليها (م9) */
+        periodRows.push(Object.assign({}, base, { row: 'period', period: k, label: `${x.name} — ${PERIOD_NAMES[k]}`, score: Number(sc), pct: srPct(sc, x.max), classPct: null }));
       }
     }
-    if(periodRows.length){
+    const classPct = classPctOf ? classPctOf(x.id) : null;
+    if(periodRows.length >= 2){
       periodRows.forEach(r => rows.push(r));
-      rows.push(Object.assign({}, base, { row: 'sub', label: `${x.name} — المحسوب في المجموع`, score: Number(x.score), pct: srPct(x.score, x.max), live: false, classPct: classPctOf ? classPctOf(x.id) : null }));
+      rows.push(Object.assign({}, base, { row: 'sub', label: `${x.name} — المحسوب في المجموع`, score: Number(x.score), pct: srPct(x.score, x.max), classPct }));
+    } else if(periodRows.length === 1){
+      /* فترة واحدة معدودة: صف واحد باسم الفترة، بلا صف مجموع مكرَّر */
+      rows.push(Object.assign({}, base, { row: 'item', label: periodRows[0].label, score: Number(x.score), pct: srPct(x.score, x.max), classPct }));
     } else {
-      rows.push(Object.assign({}, base, { row: 'item', label: x.name, score: Number(x.score), pct: srPct(x.score, x.max), live: false, classPct: classPctOf ? classPctOf(x.id) : null }));
+      rows.push(Object.assign({}, base, { row: 'item', label: x.name, score: Number(x.score), pct: srPct(x.score, x.max), classPct }));
     }
   });
   return { rows, missing };
@@ -104,7 +106,7 @@ const srComponentRows = rows => (rows || []).filter(r => r.row === 'item' || r.r
 function srSeries(rows, groups){
   const series = [];
   const byComp = new Map();
-  (rows || []).filter(r => r.row === 'period' && !r.live).forEach(r => {
+  (rows || []).filter(r => r.row === 'period').forEach(r => {
     if(!byComp.has(r.id)) byComp.set(r.id, []);
     byComp.get(r.id).push(r);
   });
@@ -137,7 +139,7 @@ function srProgress(rows, groups){
    الأحكام ثلاثة مختلفة: نتيجة منخفضة (واقعة) ← ضعف مثبت في مجال ← ضعف مستمر. التوصية لا تُبنى إلا على الأخيرين. */
 function srDiagnose(m){
   const rules = m.rules || { pass: 50, top: 90 };
-  const comps = srComponentRows(m.rows).filter(r => r.domain && !r.live);
+  const comps = srComponentRows(m.rows).filter(r => r.domain);
   const lvl = r => srLevel(r.pct, rules);
   const nearClass = r => r.classPct !== null && r.classPct !== undefined && r.pct !== null;
 
@@ -278,7 +280,7 @@ const SR_CSS = `
 .sr thead{display:table-header-group}.sr tr{break-inside:avoid}
 .sr th{background:#15445a;color:#fff;padding:3px 7px;text-align:right;font-weight:700}
 .sr td{padding:3px 7px;border-bottom:1px solid #e3e9ec;vertical-align:top}.sr tr:nth-child(even) td{background:#f3f6f8}
-.sr .n{text-align:center}.sr table.two td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.two th:nth-child(3){border-left:2px solid #fff}.sr tr.sub td{font-weight:700;background:#eaf1f5}.sr tr.live td{color:#6b7c86}
+.sr .n{text-align:center}.sr table.two td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.two th:nth-child(3){border-left:2px solid #fff}.sr tr.sub td{font-weight:700;background:#eaf1f5}
 .sr .chip{display:inline-block;border-radius:9px;padding:0 9px;font-size:10px;color:#fff;font-weight:700;line-height:1.7}
 .sr .m{background:#07a869}.sr .j{background:#3d7eb9}.sr .w{background:#7258a4}
 .sr .bar{height:8px;background:#e8eef1;border-radius:4px;min-width:80px}.sr .bar i{display:block;height:100%;border-radius:4px}
@@ -304,15 +306,15 @@ function srItemsTableHtml(rows, rules, analytic){
     ? '<tr><th>البند</th><th class="n">الدرجة</th><th class="n">المستوى</th><th class="n">متوسط الشعبة</th><th class="n">المجال</th></tr>'
     : '<tr><th>البند</th><th class="n">الدرجة</th><th class="n">النسبة</th><th class="n">المستوى</th><th style="width:28%"></th></tr>';
   const body = rows.map(r => {
-    const lv = r.live ? null : srLevel(r.pct, rules);
-    const cls = r.row === 'sub' ? ' class="sub"' : r.live ? ' class="live"' : '';
-    const levelCell = r.live ? '<span class="nd">جارية · لم تدخل</span>' : srChip(lv);
+    const lv = srLevel(r.pct, rules);
+    const cls = r.row === 'sub' ? ' class="sub"' : '';
+    const levelCell = srChip(lv);
     if(analytic){
       const meas = r.measures && r.row !== 'period' ? `<div class="ev">يقيس: ${e(r.measures)}</div>` : '';
       return `<tr${cls}><td>${e(r.label)}${meas}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${levelCell}</td><td class="n">${r.classPct === null || r.classPct === undefined ? '—' : srNum(srRound(r.classPct) + '%')}</td><td class="n">${r.domain ? SR_DOMAIN_LABELS[r.domain] : '—'}</td></tr>`;
     }
-    const bar = r.live || !lv ? '' : `<div class="bar"><i class="${lv.key}" style="width:${Math.max(0, Math.min(100, r.pct))}%"></i></div>`;
-    return `<tr${cls}><td>${e(r.label)}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${r.live ? '' : srNum(srRound(r.pct) + '%')}</td><td class="n">${levelCell}</td><td>${bar}</td></tr>`;
+    const bar = !lv ? '' : `<div class="bar"><i class="${lv.key}" style="width:${Math.max(0, Math.min(100, r.pct))}%"></i></div>`;
+    return `<tr${cls}><td>${e(r.label)}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${srNum(srRound(r.pct) + '%')}</td><td class="n">${levelCell}</td><td>${bar}</td></tr>`;
   }).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
@@ -374,7 +376,7 @@ function srSignHtml(version, to, prefs, teacher){
 }
 
 /* ctx: { version, student:{name,label}, term:{year,semester}, date, prefs, logo, schoolLogo, to,
-          rows, rules, overall:{pts,max,pct,incomplete,classPts}, missing, dx,
+          rows, rules, overall:{pts,max,pct,incomplete,classPts}, dx,
           attendance:{counts,list,recorded}, incidents, positives, followups, tasks, cases } */
 function buildStudentReportHtml2(ctx){
   const e = escapeHtml;
@@ -400,14 +402,10 @@ function buildStudentReportHtml2(ctx){
     kp.push(`<div><b>${lv ? srChip(lv) : '—'}</b><span>المستوى العام</span></div>`);
     if(analytic && diff !== null) kp.push(`<div><b>${srNum((diff > 0 ? '+' : '') + formatScore(diff))}</b><span>الفارق عن متوسط الشعبة (${srNum(formatScore(Math.round(o.classPts * 10) / 10))})</span></div>`);
   }
-  const anyLive = (ctx.rows || []).some(r => r.live);
-  const anyPeriod = (ctx.rows || []).some(r => r.row === 'period');
   let body = '';
   if(hasRows){
     body += `<div class="sec long"><h2>${analytic ? 'درجات البنود مقارنةً بمتوسط الشعبة' : 'درجات البنود'}</h2>${srItemsTableHtml(ctx.rows, ctx.rules, analytic)}`;
     const notes = ['ما لم يُرصد لا يُحسب على الطالب.'];
-    if(ctx.missing && ctx.missing.length) notes.push('لم تُرصد بعد: ' + e(ctx.missing.join('، ')) + '.');
-    if(anyPeriod || anyLive) notes.push('الفترة الجارية تُعرض بدرجتها ولا تدخل في المجموع حتى تنتهي.');
     if(dx && !dx.overallJudged) notes.push('لا أدلة كافية للحكم على المستوى العام' + (o.incomplete ? ' (الرصد غير مكتمل).' : '.'));
     notes.push(`المستوى: متقن ${srNum(ctx.rules.top + '%')} فأكثر · يحتاج تحسين أقل من ${srNum(ctx.rules.pass + '%')} (حدّان يضبطهما المعلم).`);
     body += `<div class="fn">${notes.join(' ')}</div></div>`;
@@ -533,7 +531,7 @@ async function srBuildReport(studentId, version, to, opts){
   }
   const term = g ? { year: g.year, semester: g.semester } : crmCurrentTerm();
   const d = g ? gradeReportStudentData(g, studentId) : null;
-  let rows = [], overall = {}, missing = [], homework = null;
+  let rows = [], overall = {}, homework = null;
   if(d && d.pts !== null){
     const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
     const testsOn = appToolOn('tests');
@@ -551,7 +549,6 @@ async function srBuildReport(studentId, version, to, opts){
     };
     rows = srBuildRows(items, studentId, g.breakdown || null, x => periodCfg(term, periodCompKeyOfColumn(x)), classPctOf, srToolTypeOf).rows;
     overall = { pts: d.pts, max: d.max, pct: d.pct, incomplete: d.incomplete, classPts: d.classPts };
-    missing = d.missing || [];
     if(analytic && rows.some(r => r.kind === 'homework')) homework = await srHomeworkCounts(g.sectionId, term, studentId);
   }
   let extra = { attendance: null, incidents: [], positives: [], followups: [], tasks: [], cases: [] };
@@ -581,7 +578,7 @@ async function srBuildReport(studentId, version, to, opts){
   const label = studentClassLabel(student, crmGradeLevels, crmSections);
   const html = buildStudentReportHtml2(Object.assign({
     version, student: { name: student.full_name, label: label.grade + ' — الشعبة ' + label.section }, term, date: localIsoDate(), prefs,
-    logo: await gradeReportLogoData(), schoolLogo: await gradeReportSchoolLogoData(), to, rows, rules, overall, missing, dx
+    logo: await gradeReportLogoData(), schoolLogo: await gradeReportSchoolLogoData(), to, rows, rules, overall, dx
   }, extra));
   return { html, mark: gradeReportMark(prefs, analytic ? 'تقرير أداء الطالب التحليلي' : 'تقرير أداء الطالب', student.full_name) };
 }
