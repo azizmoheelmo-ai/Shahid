@@ -10,6 +10,7 @@
    - ضعف شعبة في بند = SS_SHARE% فأكثر من طلابها دون حدّ الضعف؛ قوتها = SS_SHARE% فأكثر بمستوى «متقن» (ودون SS_SHARE% دون الحدّ).
    - الفترات كجدول الشعبة: صف لكل فترة منتهية، وصف «الداخل في المجموع» الذي يُلوَّن ويُبنى عليه التشخيص.
    - لا تفسير سببي: البيانات تبيّن الفرق ولا تحدّد سببه.
+   - لا مؤشرات إحصائية مجمَّعة (أقل/أعلى/وسيط) ولا تعليق عام: تُخفي الفروق بين الشعب ولا يتبعها قرار (ق10).
    - كل نص من المستخدم/القاعدة يمرّ عبر escapeHtml.
    ============================================================ */
 
@@ -127,17 +128,11 @@ function sgDiagHtml(cls, domain, title){
   return `<div class="sec"><h2>${title}</h2>${lines.join('')}</div>`;
 }
 
-function sgStatsHtml(p){
-  if(!p || p.min === null) return '';
-  const k = (v, l) => `<div><b>${srNum(v)}</b><span>${l}</span></div>`;
-  return `<div class="sec"><h2>المؤشرات الإحصائية للمجموعة</h2><div class="kp">${k(formatScore(p.min), 'أقل درجة')}${k(formatScore(p.max), 'أعلى درجة')}${k(formatScore(p.median), 'الوسيط')}${k(formatScore(p.avg), 'المتوسط')}</div></div>`;
-}
-
-/* ctx: { gradeName, term, date, prefs, logo, schoolLogo, rules, secs: [{ label, recorded, top, mid, low, avg, avgPct, items }], max, pooled: { avgPct, low, stats }, cls } */
+/* ctx: { gradeName, term, date, prefs, logo, schoolLogo, rules, secs: [{ label, recorded, top, mid, low, avg, avgPct, items }], max, pooled: { avgPct, low }, cls } */
 function buildGroupReportHtml(ctx){
   const e = escapeHtml;
   const prefs = ctx.prefs || {};
-  const show = prefs.show || { levels: true, items: true, stats: true };
+  const show = prefs.show || { levels: true, items: true };
   const school = gradeReportSchool(prefs), subject = gradeReportSubject(prefs), teacher = gradeReportTeacherName(prefs);
   const sem = Number(ctx.term.semester) === 2 ? 'الثاني' : 'الأول';
   const logo = ctx.logo && GRADE_REPORT_DATA_RE.test(ctx.logo) ? `<img src="${ctx.logo}" alt="">` : '';
@@ -156,7 +151,7 @@ function buildGroupReportHtml(ctx){
     ${show.levels === false ? '' : `<div class="sec"><h2>مقارنة مستويات الطلاب بين الشعب (حصة كل مستوى)</h2>${sgLevelsHtml(secs, ctx.max)}</div>`}
     ${show.items === false || !matrixCls.length ? '' : `<div class="sec long"><h2>مقارنة البنود بين الشعب (متوسط الشعبة)</h2>${sgMatrixHtml(matrixCls, secs)}</div>`}
     ${sgDiagHtml(ctx.cls, 'tahsili', 'التشخيص: ماذا يتقن الطلاب (التحصيل)')}${sgDiagHtml(ctx.cls, 'taalumi', 'التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)')}
-    ${recHtml}${show.stats === false ? '' : sgStatsHtml(ctx.pooled.stats)}<div class="fin">${sign}</div><div class="strip"></div></div>`;
+    ${recHtml}<div class="fin">${sign}</div><div class="strip"></div></div>`;
 }
 
 /* من نافذة التحليل (تقرير المجموعة، البند «المجموع»): كشف كل شعبة من loadCrmGradeSheet (به الفترات)؛
@@ -194,5 +189,5 @@ async function sgBuildFromAnalysis(a, prefs, ctx){
   const level = typeof crmGradeLevels !== 'undefined' && crmSectionById(g0.sectionId) ? crmGradeLevels.find(x => x.id === crmSectionById(g0.sectionId).grade_level_id) : null;
   await srEnsureFonts();
   return buildGroupReportHtml({ gradeName: level ? level.name : 'الصف', term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, secs, max: displayMax,
-    pooled: { avgPct: pst.avgPct, low: lcp.low, stats: pst }, cls: sgClassify(secs) });
+    pooled: { avgPct: pst.avgPct, low: lcp.low }, cls: sgClassify(secs) });
 }

@@ -153,13 +153,16 @@ test('التشخيص والتوصيات: مشترك، بعض الشعب، تبا
   assert.doesNotMatch(h, /غالبًا في الدرس|بسبب/);
 });
 
-test('المؤشرات الإحصائية اختيارية كما كانت، وخيارا المستويات والبنود يُحترمان، وخيار التعليق لا يؤثر (البند 3 مؤجَّل)', async () => {
+test('لا مؤشرات إحصائية مجمَّعة ولا تعليق عام (ق10)، وخيارا المستويات والبنود يُحترمان، وخيار التعليق لا يؤثر', async () => {
   const app = groupEnv();
-  const withStats = await build(app);
-  assert.match(withStats, /<h2>المؤشرات الإحصائية للمجموعة<\/h2>/);
+  const h = await build(app);
+  assert.doesNotMatch(h, /المؤشرات الإحصائية|أقل درجة|أعلى درجة|الوسيط/, 'حُذفت (لا تخدم تحسين الممارسة وتخفي الفروق بين الشعب)');
+  const forced = await build(app, { show: { levels: true, items: true, stats: true, names: false, compare: false } });
+  assert.doesNotMatch(forced, /المؤشرات الإحصائية|أقل درجة/, 'حتى لو شُغّل الخيار القديم');
   const none = await build(app, { show: { levels: false, items: false, stats: false, names: false, compare: false } });
-  assert.doesNotMatch(none, /<h2>المؤشرات الإحصائية للمجموعة<\/h2>|<h2>مقارنة مستويات الطلاب|<h2>مقارنة البنود بين الشعب/);
+  assert.doesNotMatch(none, /<h2>مقارنة مستويات الطلاب|<h2>مقارنة البنود بين الشعب/);
   assert.match(none, /التشخيص: ماذا يتقن الطلاب/);
+  assert.doesNotMatch(h, /أعلى الشعب تحصيلًا|يرجّح أن السبب/, 'لا تعليق عام ولا ترتيب ولا سبب');
   runInAppContext(app, 'crmGradeAnalysis.withNotes = true;');
   const on = await build(app);
   runInAppContext(app, 'crmGradeAnalysis.withNotes = false;');
