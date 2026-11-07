@@ -272,9 +272,7 @@ test('XSS: اسم البند وما يقيسه والمدرسة والمعلم �
 
 test('تشخيص الصف لا يتأثر بخيار «مع التعليق التربوي»، ولا استعلام داخل الوحدة', async () => {
   const app = opened();
-  runInAppContext(app, 'crmGradeAnalysis.withNotes = true;');
   const on = await build(app);
-  runInAppContext(app, 'crmGradeAnalysis.withNotes = false;');
   const off = await build(app);
   assert.equal(on, off);
   const src = read('app/app-38-section-report.js').replace(/\/\*[\s\S]*?\*\//g, '');

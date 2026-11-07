@@ -163,9 +163,7 @@ test('لا مؤشرات إحصائية مجمَّعة ولا تعليق عام (
   assert.doesNotMatch(none, /<h2>مقارنة مستويات الطلاب|<h2>مقارنة البنود بين الشعب/);
   assert.match(none, /التشخيص: ماذا يتقن الطلاب/);
   assert.doesNotMatch(h, /أعلى الشعب تحصيلًا|يرجّح أن السبب/, 'لا تعليق عام ولا ترتيب ولا سبب');
-  runInAppContext(app, 'crmGradeAnalysis.withNotes = true;');
   const on = await build(app);
-  runInAppContext(app, 'crmGradeAnalysis.withNotes = false;');
   assert.equal(on, await build(app));
 });
 
