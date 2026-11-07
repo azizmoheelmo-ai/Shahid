@@ -1017,94 +1017,126 @@ async function exportBackup(evt){
    تصدير خطة الأداء كملف رسمي
    وثيقة يحملها المعلم لجلسة التخطيط مع مديره المباشر
    ============================================ */
-/* يبني قالب خطة الأداء من البيانات المعروضة حاليًا على الشاشة.
-   asDraft (افتراضيًا true): يظهر عنوان "مسودة" وتنويه "مسودة نقاش" — مناسب
-   لما تُطبع/تُنزَّل الخطة بمفردها (تُستخدم فعليًا كمسودة نقاش بجلسة التخطيط
-   مع المدير). exportPortfolio يمرّر false لأن هذه الصفحة تُضمَّن داخل "ملف
-   الإنجاز" النهائي، ووجود "مسودة" هناك مربك ومناقض لكونه ملفًا نهائيًا. */
+/* عرض تصميم الخطة = عرض الطباعة الفعلي (PRINT_PAGE_W بـapp-35) فلا يُصغَّر الخط عند الطباعة؛
+   يُمرَّر designWidth: PLAN_DESIGN_W لـprintPages من كل من يطبع الخطة. */
+const PLAN_DESIGN_W = 700;
+
+/* هدف له نص يُعرض (لا مجرّد مستوى وعدد شواهد): أداء مستهدف أو مؤشر أو شاهد أو إجراء غير فارغ */
+function planGoalHasText(g){
+  if(!g) return false;
+  const filled = a => Array.isArray(a) && a.some(s => s && String(s).trim());
+  return !!(g.target_performance && String(g.target_performance).trim())
+    || filled(g.success_indicators) || filled(g.recommended_evidence) || filled(g.action_steps);
+}
+
+/* أرقام ملخص عنصر واحد من أهدافه كلها (حتى التي بلا نص: المستوى وعدد الشواهد من اختيار المعلم) */
+function planElementStats(goals){
+  goals = goals || [];
+  const levels = goals.map(g => g.target_level).filter(Boolean);
+  return {
+    goals: goals.length,
+    level: levels.length ? Math.max(...levels) : null,
+    evidence: goals.reduce((a, g) => a + (Number(g.target_count) || 0), 0)
+  };
+}
+
+/* يبني خطة الأداء: صفحة ملخص (بطاقات أرقام + جدول العناصر) ثم تفاصيل كل هدف بجدول بتسميات جانبية.
+   asDraft (افتراضيًا true): عنوان "مسودة" وتنويه "مسودة نقاش" — مناسب لما تُطبع الخطة بمفردها
+   في جلسة التخطيط. exportPortfolio يمرّر false لأنها تُضمَّن داخل "ملف الإنجاز" النهائي.
+   الأنماط مضمَّنة (لا أصناف جديدة، م5)؛ وكل نص يمرّ عبر escapeHtml. REPORTS.md ق23. */
 function buildPlanHtml(asDraft){
   if(asDraft === undefined) asDraft = true;
   const elements = getElementsOrder();
   const anyFilled = elements.some(el => (myPlanGoals[el.key] || []).length > 0);
   if(!anyFilled) return null;
 
-  const meta = (currentUser && currentUser.user_metadata) || {};
   const role = document.getElementById('phRole').value.trim() || (getProfileSubject() ? 'معلم ' + getProfileSubject() : 'معلم');
   const stage = document.getElementById('phStage').value.trim();
   const extra = document.getElementById('phExtra').value.trim() || 'لا يوجد مهام إضافية';
 
-  const allLevels = elements.flatMap(el => (myPlanGoals[el.key] || []).map(g => g.target_level)).filter(Boolean);
-  const topLevel = allLevels.length ? Math.max(...allLevels) : null;
+  const N = MOE_NAVY, B = MOE_BLUE, L = MOE_LINE, T = MOE_TINT, M = MOE_MUTED;
+  const GREEN = '#07a869', PURPLE = '#7258a4';
+  const stats = elements.map(el => planElementStats(myPlanGoals[el.key]));
+  const withGoals = stats.filter(s => s.goals > 0);
+  const totalGoals = withGoals.reduce((a, s) => a + s.goals, 0);
+  const totalEvidence = withGoals.reduce((a, s) => a + s.evidence, 0);
+  const levels = withGoals.map(s => s.level).filter(Boolean);
+  const topLevel = levels.length ? Math.max(...levels) : null;
+  const maxW = Math.max(1, ...elements.map(el => Number(getElementWeight(el.key)) || 0));
+  const goalsWord = n => n === 1 ? 'هدف' : 'أهداف';
+  const lvlText = l => LEVEL_NAMES[l] + ' (' + l + ')';
 
-  const bulletList = (arr) => (arr && arr.length)
-    ? '<ul style="margin:4px 0 0;padding-right:16px;font-size:10px;line-height:1.85;color:#2c4a58;">' +
-      arr.map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>'
-    : '<div style="font-size:10px;color:#7a8a94;margin-top:3px;">—</div>';
-
-  /* class="pdf-avoid-break" تُستخدم لاحقًا عند تصدير PDF متعدد الصفحات لمعرفة
-     أين تسمح نقاط القطع الآمنة بين الصفحات — حتى لا يُقطع هدف أو قسم عنصر
-     كامل في منتصفه بين صفحة وأخرى */
-  const goalBlock = (g, gi) => `
-    <div class="pdf-avoid-break" style="border-top:1px dashed #d3dee6;padding-top:8px;margin-top:8px;">
-      <div style="font-size:10px;font-weight:800;color:#3d7eb9;margin-bottom:5px;">
-        ${escapeHtml(goalDisplayName(g, gi))}${g.target_level ? ' — المستهدف: ' + g.target_level + ' ' + LEVEL_NAMES[g.target_level] : ''}${g.target_count ? ' — عدد الشواهد: ' + g.target_count : ''}
-      </div>
-      <div style="margin-bottom:6px;">
-        <span style="font-size:10.5px;font-weight:700;color:#15445a;">الأداء المستهدف:</span>
-        <span style="font-size:10px;color:#2c4a58;line-height:1.8;">${g.target_performance ? escapeHtml(g.target_performance) : '—'}</span>
-      </div>
-      <div style="margin-bottom:6px;">
-        <div style="font-size:10.5px;font-weight:700;color:#15445a;">مؤشرات النجاح:</div>
-        ${bulletList(g.success_indicators)}
-      </div>
-      <div style="margin-bottom:6px;">
-        <div style="font-size:10.5px;font-weight:700;color:#15445a;">شواهد يوصى بتوثيقها:</div>
-        ${bulletList(g.recommended_evidence)}
-      </div>
-      <div>
-        <div style="font-size:10.5px;font-weight:700;color:#15445a;">إجراء تنفيذي:</div>
-        ${bulletList(g.action_steps)}
-      </div>
+  /* ---- صفحة الملخص ---- */
+  const kpi = (bg, big, small) => `<div style="flex:1;background:${bg};color:#fff;border-radius:8px;padding:9px 12px;"><div style="font-size:22px;font-weight:700;line-height:1.3;">${escapeHtml(String(big))}</div><div style="font-size:11px;">${escapeHtml(small)}</div></div>`;
+  const kpis = `<div style="display:flex;gap:8px;margin-top:12px;">`
+    + kpi(N, withGoals.length + ' من ' + elements.length, 'عناصر لها أهداف')
+    + kpi(B, totalGoals, totalGoals === 1 ? 'هدف' : 'هدفًا')
+    + (topLevel ? kpi(GREEN, LEVEL_NAMES[topLevel] + ' ' + topLevel, 'أعلى مستوى مستهدف') : '')
+    + (totalEvidence ? kpi(PURPLE, totalEvidence, 'شاهدًا مستهدفًا') : '')
+    + `</div>`;
+  const th = t => `<th style="background:${N};color:#fff;padding:6px 8px;text-align:right;font-size:11.5px;font-weight:700;">${t}</th>`;
+  const td = (t, extraStyle) => `<td style="padding:5px 8px;border-top:1px solid ${L};font-size:12px;${extraStyle || ''}">${t}</td>`;
+  const summaryRows = elements.map((el, i) => {
+    const { name } = splitLabel(el.label);
+    const w = Number(getElementWeight(el.key)) || 0;
+    const s = stats[i];
+    const bar = `<span style="display:inline-block;vertical-align:middle;width:84px;height:8px;border-radius:4px;background:#e6eef4;"><span style="display:block;width:${Math.round(w / maxW * 100)}%;height:100%;border-radius:4px;background:${MOE_GRAD};"></span></span>`;
+    return `<tr>${td(i + 1)}${td(escapeHtml(name))}${td(bar + ' ' + w + '%', 'white-space:nowrap;')}`
+      + `${td(s.goals || '—')}${td(s.level ? lvlText(s.level) : '—', 'white-space:nowrap;')}${td(s.evidence || '—')}</tr>`;
+  }).join('');
+  const summaryTable = `<div style="margin-top:12px;border:1px solid ${L};border-radius:8px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${th('#')}${th('العنصر')}${th('الوزن')}${th('أهداف')}${th('المستوى')}${th('شواهد')}</tr></thead><tbody>${summaryRows}</tbody></table></div>`;
+  const summaryPage = `<div style="break-after:page;page-break-after:always;">
+      ${moeHeaderHtml((asDraft ? 'مسودة أهداف الأداء الوظيفي' : 'أهداف الأداء الوظيفي'), 'دورة الأداء ' + getCycleYear() + ' — ' + role + (stage ? ' — ' + stage : ''), [], '0')}
+      ${asDraft ? `<div style="background:#eaf2f8;border-right:3px solid ${B};padding:9px 12px;margin:12px 0 0;font-size:11px;color:${N};line-height:1.85;">هذه مسودة نقاش تُعرض على المدير المباشر في جلسة التخطيط، وليست نموذجًا رسميًا يُدخل في نظام فارس. الصياغة النهائية للأهداف تتم بالاتفاق المشترك بين المعلم والمدير وفق نموذج التقييم المعتمد في النظام التقني.</div>` : ''}
+      ${kpis}${summaryTable}
+      <div style="font-size:11px;color:${M};margin-top:10px;line-height:1.9;">${escapeHtml(extra)}<br>المصدر: عناصر التقييم الأحد عشر لنموذج (معلم) — الدليل الإرشادي لإدارة الأداء الوظيفي، الإصدار الثاني.</div>
     </div>`;
 
-  const sections = elements.map((el, i) => {
-    const { name } = splitLabel(el.label);
-    const w = getElementWeight(el.key);
-    const goals = myPlanGoals[el.key] || [];
-    if(!goals.length) return '';
+  /* ---- التفاصيل: كل هدف بجدول بتسميات جانبية؛ الصف الفارغ يُحذف ----
+     كتل مسطّحة [شريط عنصر، هدف، هدف، ...] ليُربط آخر هدف بالتوقيعين فلا ينفردان بصفحة */
+  const bullets = arr => '<ul style="margin:0;padding-right:16px;font-size:12px;line-height:1.8;">' + arr.filter(s => s && String(s).trim()).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
+  const hasList = a => Array.isArray(a) && a.some(s => s && String(s).trim());
+  const chip = (bg, fg, t) => `<span style="background:${bg};color:${fg};font-size:11px;border-radius:10px;padding:1px 10px;white-space:nowrap;">${escapeHtml(t)}</span>`;
+  const detailRow = (label, color, content) => `<div style="display:grid;grid-template-columns:104px 1fr;border-top:1px solid ${L};font-size:12px;line-height:1.8;"><div style="padding:7px 12px;font-size:11.5px;font-weight:700;color:${N};background:${T};border-left:1px solid ${L};border-right:3px solid ${color};">${label}</div><div style="padding:5px 10px;">${content}</div></div>`;
+  const goalBlock = (g, gi, elIndex) => `
+    <div class="pdf-avoid-break" style="break-inside:avoid;page-break-inside:avoid;margin-top:10px;border:1px solid ${L};border-radius:6px;overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:8px;background:#e6eef4;padding:7px 12px;">
+        <div style="flex:1;font-size:13px;font-weight:700;color:${N};">${escapeHtml(goalDisplayName(g, gi))}</div>
+        ${gi > 0 ? chip('#fff', M, 'تابع العنصر ' + (elIndex + 1)) : ''}
+        ${g.target_level ? chip('#e3f6ee', '#056c45', 'المستهدف ' + LEVEL_NAMES[g.target_level] + ' ' + g.target_level) : ''}
+        ${g.target_count ? chip('#eaf2f8', '#2a6397', 'شواهد ' + g.target_count) : ''}
+      </div>
+      ${g.target_performance && String(g.target_performance).trim() ? detailRow('الأداء المستهدف', B, escapeHtml(g.target_performance)) : ''}
+      ${hasList(g.success_indicators) ? detailRow('مؤشرات النجاح', B, bullets(g.success_indicators)) : ''}
+      ${hasList(g.recommended_evidence) ? detailRow('شواهد التوثيق', GREEN, bullets(g.recommended_evidence)) : ''}
+      ${hasList(g.action_steps) ? detailRow('الإجراء التنفيذي', PURPLE, bullets(g.action_steps)) : ''}
+    </div>`;
 
-    return `
-      <div class="pdf-avoid-break" style="margin-bottom:14px;page-break-inside:avoid;">
-        ${moeBarHtml(`${i+1}. ${escapeHtml(name)} (وزن ${w}%) — ${goals.length} ${goals.length === 1 ? 'هدف' : 'أهداف'}`)}
-        <div style="border:1px solid #d3dee6;border-top:none;padding:10px 12px;">
-          ${goals.map(goalBlock).join('')}
-        </div>
-      </div>`;
-  }).join('');
+  const blocks = [];
+  const undetailed = [];
+  elements.forEach((el, i) => {
+    const goals = myPlanGoals[el.key] || [];
+    if(!goals.length) return;
+    const shown = goals.map((g, gi) => ({ g, gi })).filter(x => planGoalHasText(x.g));
+    if(!shown.length){ undetailed.push({ n: i + 1, name: splitLabel(el.label).name }); return; }
+    const { name } = splitLabel(el.label);
+    blocks.push(`<div style="break-after:avoid;page-break-after:avoid;margin-top:14px;display:flex;align-items:center;gap:10px;background:${N};color:#fff;border-radius:6px;padding:7px 12px;font-size:14px;font-weight:700;">
+        <span style="width:22px;height:22px;border-radius:50%;background:#fff;color:${N};display:flex;align-items:center;justify-content:center;font-size:12px;">${i + 1}</span>
+        <span>${escapeHtml(name)}</span>
+        <span style="margin-right:auto;background:#2f6a86;color:#fff;font-size:11px;font-weight:400;border-radius:10px;padding:2px 10px;">وزن ${Number(getElementWeight(el.key)) || 0}% · ${goals.length} ${goalsWord(goals.length)}</span>
+      </div>`);
+    shown.forEach(x => blocks.push(goalBlock(x.g, x.gi, i)));
+  });
+  /* عناصر أهدافها بلا نصوص: سطر واحد بدل أقسام فارغة (م9)؛ عناصر بلا أهداف أصلًا لا تُذكر (مرئية بالملخص) */
+  const undetailedNote = undetailed.length
+    ? `<div style="margin-top:10px;border:1px dashed #b9c6cf;border-radius:6px;padding:9px 12px;font-size:12px;color:${M};background:#fafcfd;">عناصر لم تُكتب تفاصيل أهدافها بعد: ${undetailed.map(u => '<b>' + u.n + '</b> ' + escapeHtml(u.name)).join(' · ')}</div>`
+    : '';
+  const tail = (blocks.length ? blocks.pop() : '') + undetailedNote + moeSignHtml(['توقيع المعلم', 'اطّلاع المدير المباشر'], '22px 0 0');
 
   return `
-    <div dir="rtl" style="width:794px;background:#fff;font-family:${MOE_FONT};color:#232323;padding-bottom:16px;">
-      <div style="padding-top:20px;">${moeHeaderHtml((asDraft ? 'مسودة أهداف الأداء الوظيفي' : 'أهداف الأداء الوظيفي') + ' — دورة الأداء ' + getCycleYear(), '')}</div>
-      <div style="padding:10px 26px 0;">
-        <div style="font-size:11px;font-weight:700;color:#15445a;">
-          ${escapeHtml(role)}${stage ? ' — ' + escapeHtml(stage) : ''} | ${topLevel ? 'أعلى مستوى مستهدف: ' + LEVEL_NAMES[topLevel] + ' (' + topLevel + ')' : ''} | ${escapeHtml(extra)}
-        </div>
-
-        ${asDraft ? `<div style="background:#eaf2f8;border-right:3px solid #3d7eb9;padding:9px 12px;margin:10px 0;font-size:9.5px;color:#15445a;line-height:1.85;">
-          هذه مسودة نقاش تُعرض على المدير المباشر في جلسة التخطيط، وليست نموذجًا رسميًا يُدخل في نظام فارس. الصياغة النهائية للأهداف تتم بالاتفاق المشترك بين المعلم والمدير وفق نموذج التقييم المعتمد في النظام التقني.
-        </div>` : ''}
-
-        <div style="font-size:9.5px;color:#51636d;margin-bottom:14px;">
-          المصدر: عناصر التقييم الأحد عشر لنموذج (معلم) — الدليل الإرشادي لإدارة الأداء الوظيفي، الإصدار الثاني.
-        </div>
-
-        ${sections}
-
-        <div style="display:flex;gap:40px;margin-top:20px;">
-          <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#51636d;">توقيع المعلم</div>
-          <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#51636d;">اطّلاع المدير المباشر</div>
-        </div>
-      </div>
+    <div dir="rtl" style="width:${PLAN_DESIGN_W}px;background:#fff;font-family:${MOE_FONT};color:#232323;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+      ${summaryPage}
+      <div>${blocks.join('')}<div style="break-inside:avoid;page-break-inside:avoid;">${tail}</div></div>
     </div>`;
 }
 
@@ -1119,7 +1151,7 @@ async function printPlan(evt){
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
-    await printPages([{ html, fit: 'width' }], printFileTitle('خطة-الأداء'));
+    await printPages([{ html, fit: 'width', designWidth: PLAN_DESIGN_W }], printFileTitle('خطة-الأداء'));
   } catch(err){
     showToast('تعذّر تجهيز الطباعة: ' + err.message, 'error');
   } finally { endExportBusy(btn); }
@@ -1363,7 +1395,7 @@ async function exportPortfolio(evt){
     /* صفحات تُطبع بنص حقيقي (app-35): الغلاف والملخص والشواهد صفحة كاملة، وتفاصيل الخطة تنساب */
     const pages = [];
     const addHtmlPage = (html) => pages.push({ html, fit: 'page' });
-    const addHtmlPageMultiPage = (html) => pages.push({ html, fit: 'width' });
+    const addHtmlPageMultiPage = (html, designWidth) => pages.push(designWidth ? { html, fit: 'width', designWidth } : { html, fit: 'width' });
 
     /* صفحة الغلاف */
     addHtmlPage(moeCoverHtml('ملف الإنجاز الوظيفي', 'شواهد الأداء الوظيفي — دورة ' + getCycleYear(), [
@@ -1410,7 +1442,7 @@ async function exportPortfolio(evt){
        بما يشمل أكثر من هدف واحد للعنصر الواحد إن وُجد — لا مجرد سطر ملخّص واحد */
     const planDetailHtml = buildPlanHtml(false);
     if(planDetailHtml){
-      await addHtmlPageMultiPage(planDetailHtml);
+      await addHtmlPageMultiPage(planDetailHtml, PLAN_DESIGN_W);
     }
 
     /* صفحات الشواهد مصنّفة حسب العنصر */
