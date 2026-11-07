@@ -321,12 +321,13 @@ function adminRenderRecCard(r){
     </div>`;
 }
 
-function adminPrintRecord(id, evt){
+async function adminPrintRecord(id, evt){
   const rec = adminAllRecords.find(r => String(r.id) === String(id));
   if(!rec) return;
   const btn = evt ? evt.target.closest('button') : null;
   beginExportBusy(btn, 'جارٍ التجهيز...');
   try{
+    await shahidWarmLogos();
     document.getElementById('printArea').innerHTML = buildPdfHtml(rec, rec.photo_urls || []);
     printNow();
   } finally { endExportBusy(btn); }
@@ -1037,32 +1038,32 @@ function buildPlanHtml(asDraft){
   const topLevel = allLevels.length ? Math.max(...allLevels) : null;
 
   const bulletList = (arr) => (arr && arr.length)
-    ? '<ul style="margin:4px 0 0;padding-right:16px;font-size:10px;line-height:1.85;color:#3F3B31;">' +
+    ? '<ul style="margin:4px 0 0;padding-right:16px;font-size:10px;line-height:1.85;color:#2c4a58;">' +
       arr.map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>'
-    : '<div style="font-size:10px;color:#9A9484;margin-top:3px;">—</div>';
+    : '<div style="font-size:10px;color:#7a8a94;margin-top:3px;">—</div>';
 
   /* class="pdf-avoid-break" تُستخدم لاحقًا عند تصدير PDF متعدد الصفحات لمعرفة
      أين تسمح نقاط القطع الآمنة بين الصفحات — حتى لا يُقطع هدف أو قسم عنصر
      كامل في منتصفه بين صفحة وأخرى */
   const goalBlock = (g, gi) => `
-    <div class="pdf-avoid-break" style="border-top:1px dashed #D8D2C4;padding-top:8px;margin-top:8px;">
-      <div style="font-size:10px;font-weight:800;color:#A9852E;margin-bottom:5px;">
+    <div class="pdf-avoid-break" style="border-top:1px dashed #d3dee6;padding-top:8px;margin-top:8px;">
+      <div style="font-size:10px;font-weight:800;color:#3d7eb9;margin-bottom:5px;">
         ${escapeHtml(goalDisplayName(g, gi))}${g.target_level ? ' — المستهدف: ' + g.target_level + ' ' + LEVEL_NAMES[g.target_level] : ''}${g.target_count ? ' — عدد الشواهد: ' + g.target_count : ''}
       </div>
       <div style="margin-bottom:6px;">
-        <span style="font-size:10.5px;font-weight:700;color:#1B3245;">الأداء المستهدف:</span>
-        <span style="font-size:10px;color:#3F3B31;line-height:1.8;">${g.target_performance ? escapeHtml(g.target_performance) : '—'}</span>
+        <span style="font-size:10.5px;font-weight:700;color:#15445a;">الأداء المستهدف:</span>
+        <span style="font-size:10px;color:#2c4a58;line-height:1.8;">${g.target_performance ? escapeHtml(g.target_performance) : '—'}</span>
       </div>
       <div style="margin-bottom:6px;">
-        <div style="font-size:10.5px;font-weight:700;color:#1B3245;">مؤشرات النجاح:</div>
+        <div style="font-size:10.5px;font-weight:700;color:#15445a;">مؤشرات النجاح:</div>
         ${bulletList(g.success_indicators)}
       </div>
       <div style="margin-bottom:6px;">
-        <div style="font-size:10.5px;font-weight:700;color:#1B3245;">شواهد يوصى بتوثيقها:</div>
+        <div style="font-size:10.5px;font-weight:700;color:#15445a;">شواهد يوصى بتوثيقها:</div>
         ${bulletList(g.recommended_evidence)}
       </div>
       <div>
-        <div style="font-size:10.5px;font-weight:700;color:#1B3245;">إجراء تنفيذي:</div>
+        <div style="font-size:10.5px;font-weight:700;color:#15445a;">إجراء تنفيذي:</div>
         ${bulletList(g.action_steps)}
       </div>
     </div>`;
@@ -1075,37 +1076,34 @@ function buildPlanHtml(asDraft){
 
     return `
       <div class="pdf-avoid-break" style="margin-bottom:14px;page-break-inside:avoid;">
-        <div style="background:#1B3245;color:#fff;padding:7px 12px;font-size:11.5px;font-weight:700;">
-          ${i+1}. ${escapeHtml(name)} (وزن ${w}%) — ${goals.length} ${goals.length === 1 ? 'هدف' : 'أهداف'}
-        </div>
-        <div style="border:1px solid #D8D2C4;border-top:none;padding:10px 12px;">
+        ${moeBarHtml(`${i+1}. ${escapeHtml(name)} (وزن ${w}%) — ${goals.length} ${goals.length === 1 ? 'هدف' : 'أهداف'}`)}
+        <div style="border:1px solid #d3dee6;border-top:none;padding:10px 12px;">
           ${goals.map(goalBlock).join('')}
         </div>
       </div>`;
   }).join('');
 
   return `
-    <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;padding-bottom:16px;">
-      <div style="padding:20px 26px 0;">
-        <div style="font-family:'Amiri',serif;font-size:20px;font-weight:700;color:#1B3245;">${asDraft ? 'مسودة أهداف الأداء الوظيفي' : 'أهداف الأداء الوظيفي'} — دورة الأداء ${escapeHtml(getCycleYear())}</div>
-        <div style="height:2px;background:#1B3245;margin:8px 0 10px;"></div>
-        <div style="font-size:11px;font-weight:700;color:#1B3245;">
+    <div dir="rtl" style="width:794px;background:#fff;font-family:${MOE_FONT};color:#232323;padding-bottom:16px;">
+      <div style="padding-top:20px;">${moeHeaderHtml((asDraft ? 'مسودة أهداف الأداء الوظيفي' : 'أهداف الأداء الوظيفي') + ' — دورة الأداء ' + getCycleYear(), '')}</div>
+      <div style="padding:10px 26px 0;">
+        <div style="font-size:11px;font-weight:700;color:#15445a;">
           ${escapeHtml(role)}${stage ? ' — ' + escapeHtml(stage) : ''} | ${topLevel ? 'أعلى مستوى مستهدف: ' + LEVEL_NAMES[topLevel] + ' (' + topLevel + ')' : ''} | ${escapeHtml(extra)}
         </div>
 
-        ${asDraft ? `<div style="background:#FBF3E6;border-right:3px solid #A9852E;padding:9px 12px;margin:10px 0;font-size:9.5px;color:#6B5420;line-height:1.85;">
+        ${asDraft ? `<div style="background:#eaf2f8;border-right:3px solid #3d7eb9;padding:9px 12px;margin:10px 0;font-size:9.5px;color:#15445a;line-height:1.85;">
           هذه مسودة نقاش تُعرض على المدير المباشر في جلسة التخطيط، وليست نموذجًا رسميًا يُدخل في نظام فارس. الصياغة النهائية للأهداف تتم بالاتفاق المشترك بين المعلم والمدير وفق نموذج التقييم المعتمد في النظام التقني.
         </div>` : ''}
 
-        <div style="font-size:9.5px;color:#6B6659;margin-bottom:14px;">
+        <div style="font-size:9.5px;color:#51636d;margin-bottom:14px;">
           المصدر: عناصر التقييم الأحد عشر لنموذج (معلم) — الدليل الإرشادي لإدارة الأداء الوظيفي، الإصدار الثاني.
         </div>
 
         ${sections}
 
         <div style="display:flex;gap:40px;margin-top:20px;">
-          <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">توقيع المعلم</div>
-          <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">اطّلاع المدير المباشر</div>
+          <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#51636d;">توقيع المعلم</div>
+          <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#51636d;">اطّلاع المدير المباشر</div>
         </div>
       </div>
     </div>`;
@@ -1113,6 +1111,7 @@ function buildPlanHtml(asDraft){
 
 /* طباعة الخطة / حفظها PDF بنص حقيقي (app-35) */
 async function printPlan(evt){
+  await shahidWarmLogos();
   const html = buildPlanHtml();
   if(!html){
     showToast('لم تحدد أي مستهدف بعد — عبّئ خطتك أولًا.', 'error');
@@ -1149,8 +1148,8 @@ async function addPdfPage(pdf, area, html, state){
         document.fonts.load("400 12px 'Cairo'", sample),
         document.fonts.load("600 12px 'Cairo'", sample),
         document.fonts.load("700 12px 'Cairo'", sample),
-        document.fonts.load("800 12px 'Cairo'", sample),
-        document.fonts.load("700 12px 'Amiri'", sample)
+        document.fonts.load("400 12px 'Helvetica Neue W23 for SKY'", sample),
+        document.fonts.load("700 12px 'Helvetica Neue W23 for SKY'", sample)
       ]);
     } catch(e){ /* تجاهل — لا يمنع التصدير */ }
   }
@@ -1240,6 +1239,7 @@ async function addPdfPagesMulti(pdf, area, html, state){
 
 /* يبني قالب ورقة التقييم الذاتي — يُستخدم للتحميل والطباعة معًا */
 async function buildSelfAssessmentHtml(){
+  await shahidWarmLogos();
   await loadPlan();
   await loadSelfAssessment();
 
@@ -1259,21 +1259,21 @@ async function buildSelfAssessmentHtml(){
       const done = planShahidCounts[e.key] || 0;
 
       const noteHtml = s.self_note
-        ? `<div style="font-size:9.5px;color:#5A5648;margin-top:3px;line-height:1.65;">${escapeHtml(s.self_note)}</div>`
+        ? `<div style="font-size:9.5px;color:#51636d;margin-top:3px;line-height:1.65;">${escapeHtml(s.self_note)}</div>`
         : '';
 
       /* class="pdf-avoid-break" + page-break-inside:avoid: يمنعان قطع صف
          معلم واحد في منتصفه بين صفحتين — عند التصدير PDF (متعدد الصفحات
          الآن) وعند الطباعة المباشرة على السواء */
       return `<tr class="pdf-avoid-break" style="page-break-inside:avoid;">
-        <td style="padding:7px 9px;border:1px solid #D8D2C4;text-align:right;vertical-align:top;">
-          <div style="font-size:11px;font-weight:700;color:#1B3245;">${escapeHtml(name)}</div>
+        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:right;vertical-align:top;">
+          <div style="font-size:11px;font-weight:700;color:#15445a;">${escapeHtml(name)}</div>
           ${noteHtml}
         </td>
-        <td style="padding:7px 6px;border:1px solid #D8D2C4;text-align:center;font-size:10.5px;vertical-align:top;">${w}%</td>
-        <td style="padding:7px 6px;border:1px solid #D8D2C4;text-align:center;font-size:10.5px;vertical-align:top;">${p.target_level || '—'}</td>
-        <td style="padding:7px 6px;border:1px solid #D8D2C4;text-align:center;font-size:10.5px;vertical-align:top;">${done}${p.target_count ? '/' + p.target_count : ''}</td>
-        <td style="padding:7px 6px;border:1px solid #D8D2C4;text-align:center;font-size:11px;font-weight:800;color:#1B3245;vertical-align:top;">${s.self_level || '—'}</td>
+        <td style="padding:7px 6px;border:1px solid #d3dee6;text-align:center;font-size:10.5px;vertical-align:top;">${w}%</td>
+        <td style="padding:7px 6px;border:1px solid #d3dee6;text-align:center;font-size:10.5px;vertical-align:top;">${p.target_level || '—'}</td>
+        <td style="padding:7px 6px;border:1px solid #d3dee6;text-align:center;font-size:10.5px;vertical-align:top;">${done}${p.target_count ? '/' + p.target_count : ''}</td>
+        <td style="padding:7px 6px;border:1px solid #d3dee6;text-align:center;font-size:11px;font-weight:800;color:#15445a;vertical-align:top;">${s.self_level || '—'}</td>
       </tr>`;
     }).join('');
 
@@ -1282,53 +1282,44 @@ async function buildSelfAssessmentHtml(){
       : '—';
 
     const html = `
-      <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;">
-        <div style="background:#1B3245;padding:18px 26px;border-bottom:4px solid #A9852E;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-family:'Amiri',serif;font-size:20px;color:#fff;font-weight:700;">ورقة التقييم الذاتي</div>
-            <div style="font-size:10.5px;color:#C9D2DA;margin-top:3px;">دورة الأداء ${escapeHtml(getCycleYear())}</div>
-          </div>
-          <div style="font-size:10.5px;color:#C9D2DA;text-align:left;">
-            <div>${escapeHtml(meta.full_name || '')}</div>
-            <div>${escapeHtml(getProfileSchool())} — ${escapeHtml(getProfileSubject())}</div>
-          </div>
-        </div>
+      <div dir="rtl" style="width:794px;background:#fff;font-family:${MOE_FONT};color:#232323;">
+        <div style="padding-top:20px;">${moeHeaderHtml('ورقة التقييم الذاتي', 'دورة الأداء ' + getCycleYear(), [meta.full_name || '', [getProfileSchool(), getProfileSubject()].filter(Boolean).join(' — ')])}</div>
 
         <div style="padding:14px 26px 8px;">
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-            <div style="flex:1;min-width:150px;border:1px solid #D8D2C4;padding:9px 12px;background:#F7F5F0;">
-              <div style="font-size:9.5px;color:#6B6659;">متوسط التقييم الذاتي</div>
-              <div style="font-size:17px;font-weight:800;color:#1B3245;">${avgSelf} / 5</div>
+            <div style="flex:1;min-width:150px;border:1px solid #d3dee6;padding:9px 12px;background:#f4f8fb;">
+              <div style="font-size:9.5px;color:#51636d;">متوسط التقييم الذاتي</div>
+              <div style="font-size:17px;font-weight:800;color:#15445a;">${avgSelf} / 5</div>
             </div>
-            <div style="flex:1;min-width:150px;border:1px solid #D8D2C4;padding:9px 12px;background:#F7F5F0;">
-              <div style="font-size:9.5px;color:#6B6659;">الاكتمال الموزون للتوثيق</div>
-              <div style="font-size:17px;font-weight:800;color:#1B3245;">${wp.pct}%</div>
+            <div style="flex:1;min-width:150px;border:1px solid #d3dee6;padding:9px 12px;background:#f4f8fb;">
+              <div style="font-size:9.5px;color:#51636d;">الاكتمال الموزون للتوثيق</div>
+              <div style="font-size:17px;font-weight:800;color:#15445a;">${wp.pct}%</div>
             </div>
-            <div style="flex:1;min-width:150px;border:1px solid #D8D2C4;padding:9px 12px;background:#F7F5F0;">
-              <div style="font-size:9.5px;color:#6B6659;">عناصر مُقيَّمة</div>
-              <div style="font-size:17px;font-weight:800;color:#1B3245;">${filled.length} / ${elements.length}</div>
+            <div style="flex:1;min-width:150px;border:1px solid #d3dee6;padding:9px 12px;background:#f4f8fb;">
+              <div style="font-size:9.5px;color:#51636d;">عناصر مُقيَّمة</div>
+              <div style="font-size:17px;font-weight:800;color:#15445a;">${filled.length} / ${elements.length}</div>
             </div>
           </div>
 
           <table style="width:100%;border-collapse:collapse;">
-            <thead><tr style="background:#F1EEE6;">
-              <th style="padding:7px;border:1px solid #D8D2C4;font-size:10.5px;">عنصر الأداء ومبرراتي</th>
-              <th style="padding:7px;border:1px solid #D8D2C4;font-size:10.5px;">الوزن</th>
-              <th style="padding:7px;border:1px solid #D8D2C4;font-size:10.5px;">المستهدف</th>
-              <th style="padding:7px;border:1px solid #D8D2C4;font-size:10.5px;">الشواهد</th>
-              <th style="padding:7px;border:1px solid #D8D2C4;font-size:10.5px;">تقييمي</th>
+            <thead><tr style="background:#f4f8fb;">
+              <th style="padding:7px;border:1px solid #d3dee6;font-size:10.5px;">عنصر الأداء ومبرراتي</th>
+              <th style="padding:7px;border:1px solid #d3dee6;font-size:10.5px;">الوزن</th>
+              <th style="padding:7px;border:1px solid #d3dee6;font-size:10.5px;">المستهدف</th>
+              <th style="padding:7px;border:1px solid #d3dee6;font-size:10.5px;">الشواهد</th>
+              <th style="padding:7px;border:1px solid #d3dee6;font-size:10.5px;">تقييمي</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
 
-          <p style="font-size:9.5px;color:#6B6659;margin-top:10px;line-height:1.7;">
+          <p style="font-size:9.5px;color:#51636d;margin-top:10px;line-height:1.7;">
             سلم التقدير: 5 مثالي — 4 فاق التوقعات — 3 وافق التوقعات — 2 بحاجة إلى تطوير — 1 غير مرضٍ<br>
             وفقًا للدليل الإرشادي لإدارة الأداء الوظيفي: التقييم الذاتي لا يدخل في احتساب الدرجة النهائية، ويُستخدم أساسًا للمناقشة الموضوعية في جلسة التقييم.
           </p>
 
           <div style="display:flex;gap:40px;margin-top:22px;padding-bottom:14px;">
-            <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">توقيع المعلم</div>
-            <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#6B6659;">توقيع المدير المباشر</div>
+            <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#51636d;">توقيع المعلم</div>
+            <div style="flex:1;border-top:1px solid #232323;padding-top:6px;font-size:10px;color:#51636d;">توقيع المدير المباشر</div>
           </div>
         </div>
       </div>`;
@@ -1358,6 +1349,7 @@ async function exportPortfolio(evt){
   beginExportBusy(btn, 'جارٍ التجهيز...');
   showToast('جارٍ تجهيز ملف الإنجاز...', 'ok');
   try{
+    await shahidWarmLogos();
     await loadPlan();
     await loadSelfAssessment();
 
@@ -1375,20 +1367,10 @@ async function exportPortfolio(evt){
     const addHtmlPageMultiPage = (html) => pages.push({ html, fit: 'width' });
 
     /* صفحة الغلاف */
-    await addHtmlPage(`
-      <div dir="rtl" style="width:794px;height:1000px;background:#fff;font-family:'Cairo',sans-serif;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;">
-        <div style="width:100%;background:#1B3245;padding:40px 0;border-bottom:6px solid #A9852E;">
-          <div style="font-family:'Amiri',serif;font-size:34px;color:#fff;font-weight:700;">ملف الإنجاز الوظيفي</div>
-          <div style="font-size:15px;color:#C9D2DA;margin-top:8px;">شواهد الأداء الوظيفي — دورة ${escapeHtml(getCycleYear())}</div>
-        </div>
-        <div style="margin-top:70px;font-size:17px;line-height:2.6;color:#232323;">
-          <div><span style="color:#6B6659;">المعلم:</span> <b>${escapeHtml(meta.full_name || '')}</b></div>
-          <div><span style="color:#6B6659;">المدرسة:</span> <b>${escapeHtml(getProfileSchool() || '—')}</b></div>
-          <div><span style="color:#6B6659;">المادة:</span> <b>${escapeHtml(getProfileSubject() || '—')}</b></div>
-          <div style="margin-top:20px;font-size:14px;color:#6B6659;">إجمالي الشواهد الموثّقة: <b style="color:#1B3245;">${records.length}</b></div>
-          <div style="font-size:13px;color:#6B6659;">تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}</div>
-        </div>
-      </div>`);
+    addHtmlPage(moeCoverHtml('ملف الإنجاز الوظيفي', 'شواهد الأداء الوظيفي — دورة ' + getCycleYear(), [
+      ['المعلم', meta.full_name || ''], ['المدرسة', getProfileSchool() || '—'], ['المادة', getProfileSubject() || '—'],
+      ['إجمالي الشواهد الموثّقة', records.length]
+    ], 'تاريخ الإصدار: ' + new Date().toLocaleDateString('ar-SA')));
 
     /* صفحة الخطة والتقييم الذاتي */
     const summaryRows = elements.map(el => {
@@ -1397,31 +1379,29 @@ async function exportPortfolio(evt){
       const s = mySelfAssessment[el.key] || {};
       const done = records.filter(r => r.element_key === el.key).length;
       return `<tr>
-        <td style="padding:7px 9px;border:1px solid #D8D2C4;text-align:right;font-size:11px;">${escapeHtml(name)}</td>
-        <td style="padding:7px 9px;border:1px solid #D8D2C4;text-align:center;font-size:11px;">${weight}</td>
-        <td style="padding:7px 9px;border:1px solid #D8D2C4;text-align:center;font-size:11px;">${p.target_level || '—'}</td>
-        <td style="padding:7px 9px;border:1px solid #D8D2C4;text-align:center;font-size:11px;">${done}${p.target_count ? ' / ' + p.target_count : ''}</td>
-        <td style="padding:7px 9px;border:1px solid #D8D2C4;text-align:center;font-size:11px;">${s.self_level || '—'}</td>
+        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:right;font-size:11px;">${escapeHtml(name)}</td>
+        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${weight}</td>
+        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${p.target_level || '—'}</td>
+        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${done}${p.target_count ? ' / ' + p.target_count : ''}</td>
+        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${s.self_level || '—'}</td>
       </tr>`;
     }).join('');
 
     await addHtmlPage(`
-      <div dir="rtl" style="width:794px;background:#fff;font-family:'Cairo',sans-serif;color:#232323;">
-        <div style="background:#1B3245;padding:18px 28px;border-bottom:4px solid #A9852E;">
-          <div style="font-family:'Amiri',serif;font-size:20px;color:#fff;font-weight:700;">ملخص الخطة والتقييم الذاتي</div>
-        </div>
+      <div dir="rtl" style="width:794px;background:#fff;font-family:${MOE_FONT};color:#232323;">
+        <div style="padding-top:20px;">${moeHeaderHtml('ملخص الخطة والتقييم الذاتي', '')}</div>
         <div style="padding:20px 28px;">
           <table style="width:100%;border-collapse:collapse;">
-            <thead><tr style="background:#F1EEE6;">
-              <th style="padding:8px;border:1px solid #D8D2C4;font-size:11px;">عنصر الأداء</th>
-              <th style="padding:8px;border:1px solid #D8D2C4;font-size:11px;">الوزن</th>
-              <th style="padding:8px;border:1px solid #D8D2C4;font-size:11px;">المستهدف</th>
-              <th style="padding:8px;border:1px solid #D8D2C4;font-size:11px;">الشواهد</th>
-              <th style="padding:8px;border:1px solid #D8D2C4;font-size:11px;">التقييم الذاتي</th>
+            <thead><tr style="background:#f4f8fb;">
+              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">عنصر الأداء</th>
+              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">الوزن</th>
+              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">المستهدف</th>
+              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">الشواهد</th>
+              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">التقييم الذاتي</th>
             </tr></thead>
             <tbody>${summaryRows}</tbody>
           </table>
-          <p style="font-size:10.5px;color:#6B6659;margin-top:14px;line-height:1.8;">
+          <p style="font-size:10.5px;color:#51636d;margin-top:14px;line-height:1.8;">
             سلم التقدير: 5 مثالي — 4 فاق التوقعات — 3 وافق التوقعات — 2 بحاجة إلى تطوير — 1 غير مرضٍ
           </p>
         </div>

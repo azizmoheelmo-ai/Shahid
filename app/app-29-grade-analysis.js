@@ -142,7 +142,7 @@ function openCrmGradeAnalysis(){
   const g = crmGrades;
   if(!g || !hasBaseGradeColumns(g.allColumns || g.columns)) return;
   const prefs = gradeReportPrefsNow();
-  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, showAll: null, tab: 'overview', detOpen: false, exportOpen: false, withNames: prefs.show.names, withNotes: gradeReportNotesAny(prefs), scope: 'section', cmpAuto: false, cmpTouched: false, repFor: null, repStep: 'to', repScope: 'all', repOther: false, reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
+  crmGradeAnalysis = { g, students: crmStudentsOfSection(g.sectionId), key: 'total', open: null, showAll: null, tab: 'overview', detOpen: false, exportOpen: false, withNames: prefs.show.names, scope: 'section', cmpAuto: false, cmpTouched: false, repFor: null, repStep: 'to', repScope: 'all', repOther: false, reportEdit: null, mode: 'bands', rulesEdit: null, cmp: null, sib: null, prev: null, prevOpen: null, editing: null, label: crmSectionLabel(g.sectionId) };
   const a = crmGradeAnalysis;
   a.open = gradeAnalysisDefaultOpen(a);
   const opts = ['<option value="total">المجموع</option>'].concat(g.columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (من ${formatScore(c.max_score)})</option>`));
@@ -445,7 +445,6 @@ function gaExportHtml(a){
   const hasSib = gradeSiblingSectionIds(a.g).length > 0;
   const opts = a.exportOpen
     ? `<div class="crm-ga-exp"><label class="crm-ga-chk"><input type="checkbox" id="crmGaNames"${a.withNames ? ' checked' : ''} onchange="crmGradeAnalysis.withNames = this.checked"> مع أسماء الطلاب</label>
-        <label class="crm-ga-chk"><input type="checkbox" id="crmGaNotes"${a.withNotes ? ' checked' : ''} onchange="crmGradeAnalysis.withNotes = this.checked"> مع ملاحظات تربوية (في PDF فقط)</label>
         <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value">
           <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
           <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>

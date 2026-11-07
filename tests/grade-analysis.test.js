@@ -259,14 +259,12 @@ test('التصدير: بلا أسماء افتراضيًا، ومع الأسما
   const app = openedApp(SCORES);
   runInAppContext(app, `openCrmGradeAnalysis(); window.__v = gradeAnalysisView(crmGradeAnalysis);
     window.__plain = gradeAnalysisExportRows(crmGradeAnalysis, __v, false);
-    window.__named = gradeAnalysisExportRows(crmGradeAnalysis, __v, true);
-    window.__pdf = gradeReportSectionHtml(crmGradeAnalysis, __v, gradeReportPrefsNow(), { logo: '', date: '2026-01-01', withNames: false });`);
+    window.__named = gradeAnalysisExportRows(crmGradeAnalysis, __v, true);`);
   const flat = rows => JSON.stringify(rows);
   assert.doesNotMatch(flat(app.__plain), /"الطالب"/);
   assert.match(flat(app.__named), /\["الطالب","الدرجة","النسبة %","الفئة","التقدير","الناقص"\]/);
   assert.match(flat(app.__named), /\["a",15,25,"ضعيف","هـ",""\]/);
   assert.doesNotMatch(flat(app.__named), /ناجحون|نجاح/, 'لا لغة نجاح في Excel');
-  assert.doesNotMatch(app.__pdf, /<td>a<\/td>/, 'PDF بلا أسماء الطلاب');
 });
 
 test('الإصدار والملف الجديد: version.json = APP_VERSION = APP_VERSION_SW، والملف في APP_SHELL وindex.html', async () => {

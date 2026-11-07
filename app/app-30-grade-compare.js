@@ -109,7 +109,9 @@ function gradeChangeSummary(nowMap, prevMap){
     compared: rows.length,
     up: rows.filter(r => r.delta >= thr).sort((a, b) => b.delta - a.delta),
     down: rows.filter(r => r.delta <= -thr).sort((a, b) => a.delta - b.delta),
-    avgDelta: rows.length ? Math.round(rows.reduce((a, r) => a + r.delta, 0) / rows.length) : null
+    avgDelta: rows.length ? Math.round(rows.reduce((a, r) => a + r.delta, 0) / rows.length) : null,
+    avgPrev: rows.length ? Math.round(rows.reduce((a, r) => a + r.prev, 0) / rows.length) : null,
+    avgNow: rows.length ? Math.round(rows.reduce((a, r) => a + r.now, 0) / rows.length) : null
   };
 }
 

@@ -40,57 +40,23 @@ test('normalizeReportPrefs — الافتراضي = null، وتُنقَّى ال
   const app = loadApp();
   assert.equal(app.normalizeReportPrefs(null), null);
   assert.equal(app.normalizeReportPrefs({ school: '  ', show: { levels: true } }), null, 'مطابق للافتراضي');
-  const n = JSON.parse(JSON.stringify(app.normalizeReportPrefs({ school: '  ثانوية   بدر  ', vice: 5, teacher: 'س'.repeat(200), show: { names: true, levels: 'no', hack: true }, notes: { plans: false } })));
+  const n = JSON.parse(JSON.stringify(app.normalizeReportPrefs({ school: '  ثانوية   بدر  ', vice: 5, teacher: 'س'.repeat(200), show: { names: true, levels: 'no', hack: true }, notes: { plans: true }, stats: true })));
   assert.equal(n.school, 'ثانوية بدر');
   assert.equal(n.vice, '', 'غير النص يُهمَل');
   assert.equal(n.teacher.length, 80);
   assert.equal(n.show.names, true);
   assert.equal(n.show.levels, true, 'قيمة غير منطقية = الافتراضي');
   assert.equal(n.show.hack, undefined);
-  assert.equal(n.notes.plans, false);
-  assert.equal(n.notes.reading, false, 'التعليق التربوي مطفأ افتراضيًا');
-  const on = JSON.parse(JSON.stringify(app.normalizeReportPrefs({ notes: { plans: true } })));
-  assert.equal(on.notes.plans, true);
-  assert.equal(on.notes.reading, false);
-});
-
-test('الأصل في كل التقارير (شعبة · بند · مجموعة · طالب): بلا تعليق تربوي، وبلا شعار أو هوية جهة', async () => {
-  const app = opened(`crmGradeAnalysis.key = 'p';
-    window.__sec = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});
-    window.__stu = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), gradeReportPrefsNow(), { date: 'd' });
-    window.__def = gradeReportPrefsNow().notes;`);
-  assert.deepEqual(JSON.parse(JSON.stringify(app.__def)), { reading: false, strengths: false, weaknesses: false, plans: false });
-  for(const html of [app.__sec, app.__stu]){
-    for(const gone of ['قراءة تربوية', 'نقاط القوة', 'نقاط الضعف وفرص التحسين', 'الخطط العلاجية والتوصيات', 'التواصل مع ولي الأمر'])
-      assert.doesNotMatch(html, new RegExp(gone), gone);
-    assert.doesNotMatch(html, /<img/, 'لا شعار');
-    assert.doesNotMatch(html, /#07a869\}\.gr \.hd|border-bottom:3px solid #07a869/, 'لا لون هوية الوزارة بالترويسة');
-  }
-  const group = runInAppContext(app, `gradeReportGroupHtml({ gradeName: 'ثاني', key: 'total', colLabel: 'المجموع', displayMax: 60, pooled: analyzeGradeRows([], 60),
-    secs: [{ label: 'ش1', s: Object.assign(analyzeGradeRows([{ id: 'x', name: 'x', points: 30, pct: 50, recordedMax: 60, partial: false }], 60), {}), levels: { top: 0, mid: 0, low: 0 }, items: [] }, { label: 'ش2', s: analyzeGradeRows([{ id: 'y', name: 'y', points: 40, pct: 66, recordedMax: 60, partial: false }], 60), levels: { top: 0, mid: 1, low: 0 }, items: [] }] }, gradeReportPrefsNow(), { date: 'd' })`);
-  assert.doesNotMatch(group, /قراءة تربوية|نقاط القوة|الخطط العلاجية/);
-  assert.doesNotMatch(group, /<img/);
-});
-
-test('تصدير النافذة: «مع التعليق التربوي» مفتاح اختياري، وبدونه لا تعليق حتى لو ضبط المعلم خيارات سابقة', async () => {
-  const app = opened(`window.__off = gradeReportPrefsForRun(gradeReportPrefsNow(), false).notes;
-    window.__onDefault = gradeReportPrefsForRun(gradeReportPrefsNow(), true).notes;
-    window.__initial = crmGradeAnalysis.withNotes;`);
-  assert.deepEqual(JSON.parse(JSON.stringify(app.__off)), { reading: false, strengths: false, weaknesses: false, plans: false });
-  assert.deepEqual(JSON.parse(JSON.stringify(app.__onDefault)), { reading: true, strengths: true, weaknesses: true, plans: true }, 'لم يختر المعلم أقسامًا: كلها عند الطلب');
-  assert.equal(app.__initial, false);
-  const mine = opened(`window.__off = gradeReportPrefsForRun(gradeReportPrefsNow(), false).notes; window.__on = gradeReportPrefsForRun(gradeReportPrefsNow(), true).notes; window.__initial = crmGradeAnalysis.withNotes;`,
-    { reportPrefs: { notes: { plans: true } } });
-  assert.deepEqual(JSON.parse(JSON.stringify(mine.__off)), { reading: false, strengths: false, weaknesses: false, plans: false });
-  assert.deepEqual(JSON.parse(JSON.stringify(mine.__on)), { reading: false, strengths: false, weaknesses: false, plans: true }, 'ما اختاره المعلم فقط');
-  assert.equal(mine.__initial, true, 'من فعّل قسمًا يبدأ المفتاح عنده مفعّلًا');
+  assert.equal(n.notes, undefined, 'التعليق التربوي أُلغي (ق12): المفتاح القديم المخزَّن يُهمَل');
+  assert.equal(n.show.stats, undefined, 'خيار المؤشرات الإحصائية أُلغي (ق12)');
+  assert.equal(app.normalizeReportPrefs({ notes: { plans: true }, show: { stats: false } }), null, 'مفاتيح قديمة فقط = الافتراضي');
 });
 
 test('normalizeFeatures يحتفظ بخيارات التقارير، ويُسقط المفسود', async () => {
   const app = loadApp();
-  const keep = JSON.parse(JSON.stringify(app.normalizeFeatures({ reportPrefs: { school: 'م', notes: { reading: false } } })));
+  const keep = JSON.parse(JSON.stringify(app.normalizeFeatures({ reportPrefs: { school: 'م', notes: { reading: true } } })));
   assert.equal(keep.reportPrefs.school, 'م');
-  assert.equal(keep.reportPrefs.notes.reading, false);
+  assert.equal(keep.reportPrefs.notes, undefined, 'مفتاح قديم مخزَّن لا يُحمل');
   assert.equal(app.normalizeFeatures({ reportPrefs: 'x' }).reportPrefs, undefined);
 });
 
@@ -98,194 +64,6 @@ test('اسم المعلم تلقائي من الحساب، ويغلبه ما ك�
   const app = opened('');
   assert.equal(app.gradeReportTeacherName({ teacher: '' }), 'عبدالعزيز المطيري');
   assert.equal(app.gradeReportTeacherName({ teacher: 'أ. فلان' }), 'أ. فلان');
-});
-
-test('التعليق التربوي شرطي على الأرقام: ضعف · هامش قليل · تفوق → خطة علاجية وإثرائية', async () => {
-  const app = opened(`window.__v = gradeAnalysisView(crmGradeAnalysis);
-    window.__n = gradeReportSectionNotes({ s: __v.stats, displayMax: __v.displayMax, items: gradeReportItems(crmGradeAnalysis.g, crmGradeAnalysis.students), isTotal: true });`);
-  const n = app.__n;
-  const flat = k => [...n[k]].join(' ');
-  assert.match(flat('plans'), /مراجعة أوراق الطلاب/);
-  assert.doesNotMatch(flat('plans') + flat('weaknesses') + flat('reading') + flat('strengths'), /على الحافة|نجاح|نجحوا|ناجح|رسوب/, 'لا لغة نجاح ولا «على الحافة» في التعليق');
-  assert.match(flat('plans'), /إثرائية/);
-  assert.match(flat('plans'), /مقارنة نتائج التقييم التالي/);
-  assert.match(flat('weaknesses'), /أقل من <bdi dir="ltr">50%<\/bdi>/);
-  assert.match(flat('strengths'), /90%/);
-  assert.match(flat('reading'), /المتوسط/);
-});
-
-test('بلا ضعف: لا خطة علاجية ولا نقطة ضعف، والقراءة تقول لا طالب أقل من حدّ الضعاف', async () => {
-  const app = opened('');
-  const s = JSON.parse(JSON.stringify(runInAppContext(app, `analyzeGradeRows(gradeAnalysisRows(crmGradeAnalysis.g, crmGradeAnalysis.students.slice(2), 'p', { performance: 40, tests: 20 }, true).rows, 40)`)));
-  app.__s = runInAppContext(app, `gradeAnalysisRows(crmGradeAnalysis.g, crmGradeAnalysis.students.slice(2), 'p', { performance: 40, tests: 20 }, true)`);
-  runInAppContext(app, `window.__n = gradeReportSectionNotes({ s: analyzeGradeRows(__s.rows, 40), displayMax: 40, items: [], isTotal: false });`);
-  assert.equal(s.groups.low.length, 0);
-  assert.equal(app.__n.weaknesses.length, 0);
-  assert.doesNotMatch([...app.__n.plans].join(' '), /مراجعة أوراق الطلاب/);
-  assert.match([...app.__n.reading].join(' '), /لا طالب أقل من <bdi dir="ltr">50%<\/bdi>/);
-});
-
-test('تقرير الشعبة: العنوان عام (لا اسم عمود فيه)، وتفصيل البند في جسم التقرير', async () => {
-  const app = opened(`crmGradeAnalysis.key = 'p'; window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});
-    crmGradeAnalysis.key = 'total'; window.__t = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});`);
-  const h1 = html => /<h1>(.*?)<\/h1>/.exec(html)[1];
-  assert.equal(h1(app.__h), 'تحليل نتائج الدرجات — الشعبة');
-  assert.doesNotMatch(h1(app.__h), /المشاركة/);
-  assert.match(app.__h, /البند المحلَّل: المشاركة/);
-  assert.match(app.__h, /المحلَّل/, 'البند المحلَّل مظلَّل في قائمة البنود');
-  assert.doesNotMatch(app.__t, /البند المحلَّل:/);
-  assert.match(app.__t, /تحليل نتائج الدرجات — الشعبة/);
-  assert.match(app.__t, /متوسط البنود/);
-});
-
-test('ما يُطبع بيد المعلم: الأقسام والتعليق يُحذفان بإيقافهما، والأسماء بطلب فقط', async () => {
-  const off = { reportPrefs: { show: { levels: false, stats: false, items: false }, notes: { reading: false, strengths: false, weaknesses: false, plans: false } } };
-  const app = opened(`window.__x = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});`, off);
-  for(const gone of ['مستويات الطلاب', 'متوسط البنود', 'متوسط درجات البنود', 'قراءة تربوية', 'نقاط القوة', 'نقاط الضعف', 'الخطط العلاجية'])
-    assert.doesNotMatch(app.__x, new RegExp(gone), gone);
-  const on = opened(`window.__x = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});
-    window.__n = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`, NOTES_ON);
-  for(const here of ['مستويات الطلاب', 'الصورة العامة', 'قراءة تربوية', 'نقاط القوة', 'نقاط الضعف وفرص التحسين', 'الخطط العلاجية والتوصيات'])
-    assert.match(on.__x, new RegExp(here), here);
-  assert.doesNotMatch(on.__x, /<td>أحمد<\/td>/, 'بلا أسماء افتراضيًا');
-  assert.match(on.__n, /<td>أحمد<\/td>/);
-  assert.match(on.__n, /<div class="c3">/);
-  assert.match(on.__n, /class="key"/);
-});
-
-test('XSS: اسم المدرسة والمعلم والوكيل وأسماء الطلاب كلها بـ escapeHtml', async () => {
-  const bad = '<img src=x onerror=alert(1)>';
-  const prefs = { reportPrefs: { school: bad, teacher: bad, vice: bad, subject: bad } };
-  const app = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });
-    crmStudents[0].full_name = '${bad}'; crmGradeAnalysis.students = crmStudentsOfSection('S');
-    window.__h2 = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });
-    window.__sd = gradeReportStudentHtml(gradeReportStudentData(crmGrades, crmStudentsOfSection('S').find(x => x.full_name.startsWith('<')).id), gradeReportPrefsNow(), { date: 'd' });`, prefs);
-  for(const h of [app.__h, app.__h2, app.__sd]) assert.doesNotMatch(h, /<img src=x/);
-  assert.match(app.__h, /&lt;img src=x/);
-});
-
-test('التوقيع: المعلم (تلقائي) ووكيل شؤون الطلاب، وولي الأمر لتقرير الطالب فقط', async () => {
-  const app = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});
-    window.__s = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'e'), gradeReportPrefsNow(), { date: 'd' });`, { reportPrefs: { school: 'ثانوية بدر', vice: 'أ. سامي' } });
-  assert.match(app.__h, /ثانوية بدر/);
-  assert.match(app.__h, /عبدالعزيز المطيري/);
-  assert.match(app.__h, /وكيل شؤون الطلاب<b>أ\. سامي/);
-  assert.doesNotMatch(app.__h, /ولي الأمر/);
-  assert.match(app.__s, /ولي الأمر/);
-});
-
-test('تقرير الطالب: الدرجة والفارق عن متوسط الشعبة، ونقاط القوة/الضعف من الفروق', async () => {
-  const app = opened(`window.__d = gradeReportStudentData(crmGrades, 'a'); window.__top = gradeReportStudentData(crmGrades, 'e');
-    window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { date: 'd' });`, NOTES_ON);
-  const d = JSON.parse(JSON.stringify(app.__d));
-  assert.equal(d.name, 'أحمد');
-  assert.equal(d.max, 60);
-  assert.equal(d.items.length, 2);
-  assert.ok(d.pts < d.classPts, 'الطالب a أدنى من متوسط الشعبة');
-  assert.match(app.__h, /تقرير أداء الطالب: <span class="sn">/);
-  assert.match(app.__h, /ضعيف/);
-  assert.match(app.__h, /التواصل مع ولي الأمر/);
-  const e = JSON.parse(JSON.stringify(app.__top));
-  assert.ok(e.pts > e.classPts);
-  const notes = JSON.parse(JSON.stringify(runInAppContext(app, `gradeReportStudentNotes({ pts: __top.pts, max: __top.max, pct: __top.pct, classPts: __top.classPts, classPct: __top.classPct, items: __top.items, rules: __top.rules })`)));
-  assert.ok(notes.strengths.length >= 1);
-  assert.equal(notes.weaknesses.length, 0);
-});
-
-test('تقرير الطالب: الفارق السالب بلون التحذير، والموجب بالأزرق', async () => {
-  const app = opened(`window.__lo = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), gradeReportPrefsNow(), { date: 'd' });
-    window.__hi = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'e'), gradeReportPrefsNow(), { date: 'd' });`);
-  assert.match(app.__lo, /<div class="r"><b><bdi dir="ltr">-/);
-  assert.match(app.__hi, /<div class="b"><b><bdi dir="ltr">\+/);
-});
-
-test('مقارنة الفصل السابق: السهم من القديم إلى الجديد', async () => {
-  const src = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  assert.match(src, /Math\.round\(r\.prev\) \+ '% → ' \+ Math\.round\(r\.now\)/);
-});
-
-test('المادة: من حقل الملف الشخصي تلقائيًا، وما كتبه المعلم يغلبه، وتظهر في العنوان', async () => {
-  const app = opened(`getProfileSubject = () => 'الفيزياء'; getProfileSchool = () => 'مدرسة الملف';
-    window.__auto = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});
-    appFeatures = { reportPrefs: { subject: 'الكيمياء', school: 'مدرستي' } };
-    window.__own = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});`);
-  assert.match(app.__auto, /<b>المادة: الفيزياء<\/b>/);
-  assert.match(app.__auto, /<small>مدرسة الملف<\/small>/);
-  assert.match(app.__own, /<b>المادة: الكيمياء<\/b>/);
-  assert.doesNotMatch(app.__own, /الفيزياء/);
-  assert.match(app.__own, /<small>مدرستي<\/small>/);
-  const none = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});`);
-  assert.doesNotMatch(none.__h, /المادة:/, 'بلا مادة: لا سطر فارغ');
-});
-
-test('قائمة الطلاب: قائمة واحدة من الأدنى نسبةً بعلامة مستوى ومفتاح ألوان، وغير المكتمل في جدول منفصل بما ينقصه', async () => {
-  const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(s => !(s.student_id === 'a' && s.column_id === 't')) });
-    crmGradeAnalysis.g = crmGrades;
-    window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
-  const h = app.__h;
-  assert.match(h, /<th>اسم الطالب<\/th><th class="n">الدرجة<\/th><th class="n">النسبة<\/th>/);
-  const list = h.slice(h.indexOf('<div class="c3">'), h.indexOf('<div class="inc'));
-  assert.doesNotMatch(list, /أحمد/, 'غير المكتمل ليس في القائمة المصنَّفة');
-  const inc = h.slice(h.indexOf('<div class="inc'));
-  assert.match(inc, /رصد غير مكتمل/);
-  assert.match(inc, /<td>أحمد<\/td>/);
-  assert.match(inc, /<bdi dir="ltr">10 \/ 40<\/bdi>/, 'درجته المرصودة من مقامه المرصود لا نسبة مصنِّفة');
-  assert.match(inc, /الاختبار الأول غير مرصود/, 'ما ينقصه');
-  assert.match(h, /class="key"[\s\S]*?ضعاف[\s\S]*?متوسطون[\s\S]*?متفوقون[\s\S]*?رصد غير مكتمل/, 'مفتاح الألوان الثلاثة + غير المكتمل بلا حدود');
-  assert.doesNotMatch(h, /مرتّبة بالنسبة المئوية|الأسماء مرتبة|معيار المستويات/, 'لا حاشية سفلية ولا سطر ترتيب');
-  /* الأدنى أولًا */
-  const pcts = [...list.matchAll(/<td class="n"><bdi dir="ltr">(\d+)%<\/bdi><\/td><\/tr>/g)].map(m => Number(m[1]));
-  assert.deepEqual(pcts, [...pcts].sort((x, y) => x - y), 'الترتيب من الأدنى إلى الأعلى');
-  const full = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
-  assert.doesNotMatch(full.__h, /class="inc|رصد غير مكتمل/, 'بلا نقص: لا جدول ولا مفتاح لغير المكتمل');
-});
-
-test('الخلاصة: أسطر قصيرة من الأرقام فقط، «رصد ناقص» يفصل غير المكتملين، والإجراء مشروط بالبيانات، بلا أسباب ولا نجاح', async () => {
-  const noA = `crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(s => !(s.student_id === 'a' && s.column_id === 't')) }); crmGradeAnalysis.g = crmGrades;`;
-  const app = opened(`${noA} window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
-  const sx = app.__h.slice(app.__h.indexOf('<div class="sx">'), app.__h.indexOf('<div class="two">'));
-  for(const label of ['الصورة العامة', 'موضع الاهتمام', 'يحتاج متابعة', 'رصد ناقص', 'الإجراء']) assert.match(sx, new RegExp(`<span class="lb2[^"]*">${label}<`));
-  assert.match(sx, /لـ<bdi dir="ltr">4<\/bdi> طلاب مكتملي الرصد/, 'الأساس: المكتملون');
-  assert.match(sx, /<b>طالب واحد<\/b> بلا درجة الاختبار الأول؛ تصنيفه يتوقف عليها، فلم يُصنَّف\./);
-  assert.match(sx, /أكمل رصد الاختبار الأول للطالب \(أدخل 0 إن كان صفرًا\)\./, 'لا ضعاف: إجراء الإكمال وحده');
-  const noB = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(s => !(s.student_id === 'b' && s.column_id === 't')) }); crmGradeAnalysis.g = crmGrades;
-    window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
-  assert.match(noB.__h, /أكمل رصد الاختبار الأول للطالب \(أدخل 0 إن كان صفرًا\)، ثم تابع الأقل من 50% من الأدنى\./, 'ضعيف مكتمل + غير مكتمل: الإكمال ثم المتابعة');
-  assert.doesNotMatch(sx, /تثبته البيانات|يحتاج فحصًا|ناجح|نجاح|إهمال|تقصير|بسبب/, 'لا شارات ولا أسباب ولا نجاح');
-  assert.equal((sx.match(/class="sl"/g) || []).length, 5);
-  /* بلا غير مكتملين: لا سطر «رصد ناقص»، والإجراء متابعة الضعاف فقط (إن وُجدوا) */
-  const full = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: true });`);
-  const sx2 = full.__h.slice(full.__h.indexOf('<div class="sx">'), full.__h.indexOf('<div class="two">'));
-  assert.doesNotMatch(sx2, /رصد ناقص|أكمل رصد/);
-  assert.match(sx2, /تابع الطلاب الأقل من 50% من الأدنى نسبةً/);
-});
-
-test('جدولا المستويات والبنود: المستويات لمكتملي الرصد + صف «رصد غير مكتمل» + المجموع بلا عمود نسب، والبنود «لمن رُصد له» والضعيف بلون الخط', async () => {
-  const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(s => !(s.student_id === 'a' && s.column_id === 't')) }); crmGradeAnalysis.g = crmGrades;
-    window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), { date: 'd', withNames: false });`);
-  const h = app.__h;
-  assert.match(h, /<th>المستوى<\/th><th>الحد<\/th><th class="n">العدد<\/th>/);
-  assert.doesNotMatch(h, /<th class="n">النسبة<\/th><\/tr><tr><td><span class="cp w"/, 'لا عمود نسب بجدول المستويات');
-  assert.match(h, /<span class="cp h">رصد غير مكتمل<\/span><\/td><td>لا يُصنَّفون<\/td><td class="n"><b><bdi dir="ltr">1<\/bdi><\/b>/);
-  assert.match(h, /<b>المجموع<\/b><\/td><td><\/td><td class="n"><b><bdi dir="ltr">5<\/bdi><\/b>/);
-  assert.match(h, /<th class="n">المتوسط \(لمن رُصد له\)<\/th>/);
-  assert.doesNotMatch(h, /class="lb"|مقابل خط/, 'لا شريط مستويات ولا أشرطة بنود');
-  assert.doesNotMatch(h, /class="inc|<div class="c3">/, 'بلا أسماء: لا قوائم');
-});
-
-test('القوائم بعناصر يدوية (لا ul/ol) حتى لا ينقل html2canvas العلامات للجهة الخطأ', async () => {
-  const app = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});`, NOTES_ON);
-  assert.doesNotMatch(app.__h, /<(ul|ol|li)[ >]/);
-  assert.match(app.__h, /class="li"><span class="mk"><bdi dir="ltr">1\.<\/bdi><\/span>/);
-  assert.match(app.__h, /class="li"><span class="mk">•<\/span>/);
-});
-
-test('التوقيع: خط توقيع لكل خانة', async () => {
-  const app = opened(`window.__h = gradeReportSectionHtml(crmGradeAnalysis, gradeAnalysisView(crmGradeAnalysis), gradeReportPrefsNow(), ${CTX});
-    window.__s = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), gradeReportPrefsNow(), { date: 'd' });`);
-  assert.equal((app.__h.match(/class="ln"/g) || []).length, 2);
-  assert.equal((app.__s.match(/class="ln"/g) || []).length, 3, 'مع ولي الأمر');
-  assert.match(app.__h, /<small>التوقيع<\/small>/);
 });
 
 test('gradeReportMark: العنوان والشعبة والمادة يمين، والمدرسة يسار', async () => {
@@ -308,8 +86,7 @@ test('الطباعة بنص حقيقي: CSS الصفحة (ترويسة صفحا�
 
 test('CSS التقرير للطباعة: ألوان الأشرطة تُطبع، والكتل لا تُقسَم، والحشوة تُصفَّر', async () => {
   const src = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  assert.match(src, /print-color-adjust:exact/);
-  assert.match(src, /@media print\{\.gr\{padding:0\}\.gr \.pdf-avoid-break\{break-inside:avoid/);
+  assert.match(src, /\.gr-pg\{break-after:page/, 'فاصل صفحة بين تقارير الطلاب في التصدير الجماعي');
 });
 
 test('gradeReportPrint: يضع التقرير في #printArea ويطبع، ويُنظَّف بعد الطباعة', async () => {
@@ -381,60 +158,6 @@ test('زر واحد بدل زرين: PDF — طباعة / حفظ، في النا
   assert.doesNotMatch(grades, /exportCrmStudentReport\(this/, 'الزر القديم أُزيل');
 });
 
-test('شعار الوزارة: يظهر بترويسة كل التقارير حين يتوفر، وغيابه لا يمنع التقرير، وكل مسارات التصدير تمرّره', async () => {
-  const app = opened(`const v = gradeAnalysisView(crmGradeAnalysis);
-    window.__with = gradeReportSectionHtml(crmGradeAnalysis, v, gradeReportPrefsNow(), { logo: 'data:image/png;base64,AAAA', date: 'd' });
-    window.__without = gradeReportSectionHtml(crmGradeAnalysis, v, gradeReportPrefsNow(), { date: 'd' });
-    window.__stu = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), gradeReportPrefsNow(), { logo: 'data:image/png;base64,AAAA', date: 'd' });
-    gradeReportLogoData = async () => 'data:image/png;base64,LOGO'; window.__runs = [];
-    gradeReportRun = async (btn, build) => { window.__runs.push((await build()).html); };
-    window.__p = Promise.all([exportGradeReport(null), exportCrmStudentReportFor('a', null, 'ولي الأمر'), (toggleCrmGaReportTo('*'), exportCrmAllStudentReports(null, 'ولي الأمر'))]);`);
-  await app.__p;
-  assert.match(app.__with, /<img src="data:image\/png;base64,AAAA" alt="">/);
-  assert.doesNotMatch(app.__without, /<img/);
-  assert.match(app.__without, /<div class="lgb"><\/div>/, 'بلا شعار: خانة فارغة ولا انهيار');
-  assert.match(app.__stu, /<img src="data:image\/png;base64,AAAA"/);
-  assert.equal(app.__runs.length, 3);
-  for(const h of app.__runs) assert.match(h, /<img src="data:image\/png;base64,LOGO"/, 'تقرير الشعبة والطالب والجماعي كلها بالشعار');
-  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  assert.match(css, /\.gr \.hd \.lgb img\{max-height:54px/);
-});
-
-test('تقرير الشعبة بالأسماء (33 طالبًا) لا يتجاوز صفحتين: تباعد مضغوط وهوامش الشعار (1.5 سم)', async () => {
-  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  /* قيم القياس الفعلي (Chromium بخط Cairo، بتوزيع تقرير المعلم): 33 ← صفحتان، و45 ← صفحتان */
-  assert.match(css, /\.gr h2\{[^}]*margin:10px 0 6px/);
-  assert.match(css, /\.gr td\{padding:2\.5px 7px/);
-  assert.match(css, /\.gr \.sig\{margin-top:10px/);
-  assert.match(css, /\.gr \.kp>div\{[^}]*padding:5px 4px/);
-  assert.match(css, /@page\{size:A4;margin:15mm 15mm 14mm;/, 'مسافة آمنة 1.5 سم حول الشعار');
-});
-
-test('هوية الوزارة: ألوان اللوحة فقط، «ضعاف» بنفسجي #7258a4 بلا بني، والتدرج أزرق يسارًا وأخضر يمينًا', async () => {
-  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  const block = css.slice(css.indexOf('const GRADE_REPORT_CSS'), css.indexOf('@media print{.gr{padding:0}'));
-  assert.match(block, /\.gr \.tn\{background:#7258a4\}/, 'ضعاف بنفسجي');
-  assert.match(block, /linear-gradient\(90deg,#3B83B7,#4CB176\)/);
-  assert.match(block, /h1\{[^}]*color:#351375/);
-  assert.doesNotMatch(block, /#A9852E|#a85d3a|#c1b489|#9c6a45|#8a6d1d/i, 'لا ذهبي ولا بني ولا رملي');
-});
-
-test('لا لغة نجاح ورسوب في أي تقرير: الشعبة (بالأسماء وبلا) والمجموعة والطالب', async () => {
-  const app = opened(`const v = gradeAnalysisView(crmGradeAnalysis); const prefs = gradeReportPrefsNow();
-    window.__a = gradeReportSectionHtml(crmGradeAnalysis, v, prefs, { date: 'd', withNames: true });
-    window.__b = gradeReportSectionHtml(crmGradeAnalysis, v, prefs, { date: 'd', withNames: false });
-    window.__s = gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), prefs, { date: 'd' });
-    const st = crmStudentsOfSection('S'); const res = gradeAnalysisRows(crmGrades, st, 'total', { performance: 40, tests: 20 }, true);
-    const sec = { label: 'ش1', s: analyzeGradeRows(res.rows, res.displayMax), levels: gradeReportLevels(res.rows, v.stats.rules), items: gradeReportItems(crmGrades, st) };
-    window.__g = gradeReportGroupHtml({ gradeName: 'ثاني', key: 'total', colLabel: 'المجموع', secs: [sec, Object.assign({}, sec, { label: 'ش2' })], pooled: sec.s, displayMax: res.displayMax }, prefs, { date: 'd' });
-    window.__x = gradeAnalysisExportRows(crmGradeAnalysis, v, true);`, NOTES_ON);
-  for(const k of ['__a', '__b', '__s', '__g']) assert.doesNotMatch(app[k], /نجاح|ناجح|نجحوا|رسوب|الحافة|جيد/, k);
-  assert.doesNotMatch(JSON.stringify(app.__x), /ناجحون|نجاح/, 'Excel');
-  for(const k of ['__a', '__b', '__g']) assert.doesNotMatch(app[k], /nbox|>ملاحظات</, 'لا خانة ملاحظات بالأسفل');
-  assert.doesNotMatch(app.__a, /الأسماء مرتبة بالنسبة/, 'لا سطر ترتيب فوق القوائم');
-  assert.match(app.__a, /<span class="cp w">ضعاف<\/span>/);
-});
-
 test('الطباعة تنتظر فكّ صورة الشعار (وإلا خرجت الترويسة بلا شعار)، وفشل تحميل الشعار لا يُخزَّن', async () => {
   const app = opened(`window.__printed = 0; let release; const gate = new Promise(r => { release = r; });
     const area = { innerHTML: '', querySelector: () => ({}), querySelectorAll: sel => sel === 'img' ? [{ decode: () => gate }] : [] };
@@ -452,80 +175,10 @@ test('الطباعة تنتظر فكّ صورة الشعار (وإلا خرجت 
   assert.equal(runInAppContext(f, 'gradeReportLogoCache'), null, 'الفشل لا يُخزَّن فيُعاد المحاولة بالتصدير التالي');
 });
 
-test('gradeReportFit: يضغط التباعد تدريجيًا فقط حين يزيد التقرير قليلًا عن صفحة، ولا يلمس ما يناسب أو ما يطول كثيرًا', async () => {
-  const run = heights => {
-    const app = opened(`const H = ${JSON.stringify(heights)};
-      document.createElement = () => { const probe = { style: {}, remove() {}, set innerHTML(h) { this._h = h; }, get innerHTML() { return this._h; },
-        querySelector: () => ({ style: {}, get offsetHeight() { const m = /class="gr( (cmp\\d))?"/.exec(probe._h); return H[m && m[2] ? m[2] : 'base']; } }) }; return probe; };
-      window.__r = gradeReportFit('<style>x</style><div class="gr">تقرير</div>');`);
-    return (/class="gr( cmp\d)?"/.exec(app.__r) || [])[1] || '';
-  };
-  assert.equal(run({ base: 980, cmp1: 900, cmp2: 880 }), '', 'يناسب صفحة: لا ضغط');
-  assert.equal(run({ base: 1060, cmp1: 970, cmp2: 940 }).trim(), 'cmp1');
-  assert.equal(run({ base: 1100, cmp1: 1010, cmp2: 960 }).trim(), 'cmp2');
-  assert.equal(run({ base: 1100, cmp1: 1050, cmp2: 1020 }), '', 'لا ينفع الضغط: يبقى التصميم الأصلي');
-  assert.equal(run({ base: 1400, cmp1: 900, cmp2: 800 }), '', 'أطول من أن يُنقذه الضغط: صفحتان كما هو');
-  const css = fs.readFileSync(path.join(root, 'app/app-34-grade-report.js'), 'utf8');
-  assert.match(css, /\.gr\.cmp1 td\{padding:1\.5px 7px\}/);
-});
-
-test('تقرير الطالب: غير المكتمل يظهر «رصد غير مكتمل» بما رُصد له، ومتوسط الشعبة لمكتملي الرصد فقط، ولا لغة نجاح', async () => {
-  const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: crmGrades.scores.filter(s => !(s.student_id === 'a' && s.column_id === 't')) }); crmGradeAnalysis.g = crmGrades;
-    window.__d = gradeReportStudentData(crmGrades, 'a'); window.__e = gradeReportStudentData(crmGrades, 'e');
-    window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { date: 'd' }); window.__n = gradeReportStudentNotes({ incomplete: __d.incomplete, missing: __d.missing, pts: __d.pts, max: __d.max, pct: __d.pct, classPts: __d.classPts, classPct: __d.classPct, items: __d.items, rules: __d.rules });`);
-  const d = JSON.parse(JSON.stringify(app.__d));
-  assert.equal(d.incomplete, true);
-  assert.deepEqual(d.missing, ['الاختبار الأول']);
-  assert.equal(d.pts, 10);
-  assert.equal(d.max, 40, 'مقامه المرصود لا 60');
-  /* متوسط الشعبة: ب (33) ج (45) د (54) هـ (60) فقط = 48 */
-  assert.equal(d.classPts, 48);
-  assert.match(app.__h, /<b>رصد غير مكتمل<\/b>/);
-  assert.match(app.__h, /الدرجة المرصودة من 40/);
-  assert.doesNotMatch(app.__h, /الفارق عن متوسط الشعبة<\/span><small>/, 'لا مقارنة لغير المكتمل');
-  assert.match([...app.__n.reading].join(' '), /لم تكتمل درجات الطالب \(الناقص: الاختبار الأول\)؛ لا يُصنَّف مستواه حتى تُرصد/);
-  assert.doesNotMatch(app.__h, /ناجح|نجاح|رسوب/);
-  const e = JSON.parse(JSON.stringify(app.__e));
-  assert.equal(e.incomplete, false);
-  assert.equal(e.max, 60);
-});
-
-test('طالب بلا درجات: لا انهيار، ولا يُحسب صفرًا', async () => {
-  const app = opened(`crmGrades = Object.assign({}, crmGrades, { scores: [] });
-    window.__d = gradeReportStudentData(crmGrades, 'a'); window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { date: 'd' });`, NOTES_ON);
-  assert.equal(app.__d.pts, null);
-  assert.match(app.__h, /لم تُرصد درجات لهذا الطالب بعد/);
-});
-
-test('تقرير مجموعة الشعب: مقارنة الأعلى والأدنى وجملة السبب بحسب الفارق', async () => {
-  const mk = (label, avgPct, low, rec) => `{ label: '${label}', s: { avgPct: ${avgPct}, passRate: ${100 - Math.round(100 * low / rec)}, recorded: ${rec}, groups: { low: new Array(${low}).fill(0) } } }`;
-  const app = opened(`window.__big = gradeReportGroupNotes({ secs: [${mk('ش1', 70, 2, 30)}, ${mk('ش2', 50, 15, 30)}] });
-    window.__small = gradeReportGroupNotes({ secs: [${mk('ش1', 62, 2, 30)}, ${mk('ش2', 55, 5, 30)}] });`);
-  assert.match([...app.__big.reading].join(' '), /السبب في الشعبة/);
-  assert.match([...app.__big.plans].join(' '), /جلسة مراجعة/);
-  assert.match([...app.__small.reading].join(' '), /الفارق محدود/);
-  assert.doesNotMatch([...app.__small.plans].join(' '), /جلسة مراجعة/);
-});
-
-test('تقرير المجموعة: الجداول بأسماء الشعب، ومصفوفة البنود تحترم خيار «درجات البنود»', async () => {
-  const run = prefs => {
-    const app = opened(`const st = crmStudentsOfSection('S'); const res = gradeAnalysisRows(crmGrades, st, 'total', { performance: 40, tests: 20 }, true);
-      const s = analyzeGradeRows(res.rows, res.displayMax); const sec = { label: 'ش<1>', s, levels: gradeReportLevels(res.rows, s.rules), items: gradeReportItems(crmGrades, st) };
-      const d = { gradeName: 'ثاني ثانوي', key: 'total', colLabel: 'المجموع', secs: [sec, Object.assign({}, sec, { label: 'ش2' })], pooled: s, displayMax: res.displayMax };
-      window.__h = gradeReportGroupHtml(d, gradeReportPrefsNow(), ${CTX});`, prefs);
-    return app.__h;
-  };
-  const on = run({});
-  assert.match(on, /تحليل نتائج المجموعة — شعب الصف/);
-  assert.match(on, /مقارنة الشعب في كل بند/);
-  assert.match(on, /ش&lt;1&gt;/, 'اسم الشعبة مُهرَّب');
-  assert.doesNotMatch(run({ reportPrefs: { show: { items: false } } }), /مقارنة الشعب في كل بند/);
-});
-
 test('نافذة التحليل: نطاق التقرير، وزر PDF، ومفتاح التعليق التربوي، وخيارات التقرير', async () => {
   const app = opened(`crmGradeAnalysis.exportOpen = true; window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
   assert.match(app.__d, /id="crmGaScope"/);
-  assert.match(app.__d, /id="crmGaNotes" onchange/, 'مفتاح التعليق التربوي غير مفعّل افتراضيًا');
+  assert.doesNotMatch(app.__d, /crmGaNotes|ملاحظات تربوية/, 'مفتاح التعليق التربوي أُلغي (ق12)');
   assert.match(app.__d, /exportGradeReport\(this\)/);
   assert.match(app.__d, /openGradeReportEditor\('ga'\)/);
   assert.match(app.__d, /<option value="group"[^>]*>كل شعب الصف/);
@@ -689,20 +342,12 @@ test('محرّر الخيارات: المدرسة والمعلم والوكيل 
   assert.match(more, /ما يُطبع في التقرير/);
 });
 
-test('وكيل شؤون المعلمين والموجه الطلابي: حقلان يُحفظان، واسم كل منهما في توقيعه عند التوجيه إليه فقط', async () => {
-  const app = opened(`openGradeReportEditor('ga'); window.__e = gradeReportEditorHtml(); window.__n = normalizeReportPrefs({ staff: '  أ.  خالد ', counselor: 'م. سعد', vice: 'ف' });
-    const html = to => gradeReportStudentHtml(gradeReportStudentData(crmGrades, 'a'), gradeReportPrefsNow(), { date: 'd', to });
-    window.__c = html('الموجه الطلابي'); window.__s = html('وكيل شؤون المعلمين'); window.__g = html('ولي الأمر'); window.__v = html('وكيل شؤون الطلاب');`,
-    { reportPrefs: { staff: 'أ. خالد', counselor: 'م. سعد', vice: 'أ. فهد' } });
+test('وكيل شؤون المعلمين والموجه الطلابي: حقلان يُحفظان بعد التنقية', async () => {
+  const app = opened(`openGradeReportEditor('ga'); window.__e = gradeReportEditorHtml(); window.__n = normalizeReportPrefs({ staff: '  أ.  خالد ', counselor: 'م. سعد', vice: 'ف' });`);
   const head = app.__e.split('<details class="gr-more">')[0];
   for(const k of ['vice', 'staff', 'counselor']) assert.match(head, new RegExp(`id="grFld_${k}"`));
   assert.equal(app.__n.staff, 'أ. خالد', 'الحقل يُنقّى ويُحفظ');
   assert.equal(app.__n.counselor, 'م. سعد');
-  assert.match(app.__c, /<div>الموجه الطلابي<b>م\. سعد<\/b>/);
-  assert.match(app.__s, /<div>وكيل شؤون المعلمين<b>أ\. خالد<\/b>/);
-  assert.doesNotMatch(app.__g, /م\. سعد|أ\. خالد/, 'لا تظهر أسماؤهما إلا عند التوجيه إليهما');
-  assert.doesNotMatch(app.__v, /م\. سعد|أ\. خالد/);
-  assert.match(app.__v, /أ\. فهد/, 'وكيل الطلاب كما كان');
 });
 
 test('خيار «الأسماء» الافتراضي يتبع إعداد المعلم', async () => {
@@ -730,7 +375,7 @@ test('محرّر الخيارات: يُحفظ المخصَّص، والافتر�
 test('المحرّر من النافذة: يفتح، يحفظ، ويحدّث «مع أسماء الطلاب»، والإلغاء يعيد الشاشة', async () => {
   const app = opened(`saveAppFeatures = async () => { appFeaturesSaved = appFeatures; };
     openGradeReportEditor('ga'); window.__open = crmGradeAnalysis.reportEdit; window.__html = crmGradeAnalysisHtml(crmGradeAnalysis);
-    gradeReportDraftText('school', 'مدرستي'); gradeReportDraftFlag('show', 'names', true); gradeReportDraftFlag('notes', 'plans', false);
+    gradeReportDraftText('school', 'مدرستي'); gradeReportDraftFlag('show', 'names', true);
     window.__p = saveGradeReportPrefs();`);
   await app.__p;
   assert.equal(app.__open, true);
@@ -740,7 +385,7 @@ test('المحرّر من النافذة: يفتح، يحفظ، ويحدّث «�
   assert.equal(runInAppContext(app, 'crmGradeAnalysis.reportEdit'), null);
   assert.equal(runInAppContext(app, 'crmGradeAnalysis.withNames'), true);
   assert.equal(runInAppContext(app, 'gradeReportPrefsNow().school'), 'مدرستي');
-  assert.equal(runInAppContext(app, 'gradeReportPrefsNow().notes.plans'), false);
+  assert.equal(runInAppContext(app, 'gradeReportPrefsNow().notes'), undefined);
   runInAppContext(app, `openGradeReportEditor('ga'); gradeReportEditorCancel();`);
   assert.equal(runInAppContext(app, 'crmGradeAnalysis.reportEdit'), null);
 });
@@ -781,37 +426,15 @@ test('الملف في index.html وAPP_SHELL، وشعار الوزارة في ا
 });
 
 /* ===== 2.82: اسم الطالب بعنوانه بسطر واحد، وشعار المدرسة، والتاريخ ضمن سطر المادة ===== */
-test('حجم عنوان تقرير الطالب ديناميكي: كبير للاسم القصير ويصغر للطويل بحدّ أدنى', () => {
-  const app = opened(`window.__a = gradeReportTitleSize(20); window.__b = gradeReportTitleSize(40); window.__c = gradeReportTitleSize(500);`, NOTES_ON);
-  assert.equal(app.__a, 22);
-  assert.ok(app.__b < 22 && app.__b > 13);
-  assert.equal(app.__c, 13);
-});
-
-test('ترويسة تقرير الطالب: الاسم بالعنوان، والتاريخ والفصل ضمن سطر المادة (بلا كتلة جانبية)', () => {
-  const app = opened(`window.__d = gradeReportStudentData(crmGrades, 'a'); window.__d.name = 'ع'.repeat(70);
-    window.__h = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { date: '2026-11-06' });`, NOTES_ON);
-  assert.match(app.__h, /<h1 style="font-size:13px">تقرير أداء الطالب: <span class="sn">ع{70}<\/span><\/h1>/);
-  assert.match(app.__h, /الفصل الأول[\s\S]*\|[\s\S]*2026-11-06/);
-  assert.doesNotMatch(app.__h, /class="mt"/);
-});
-
-test('شعار المدرسة: يظهر مقابل شعار الوزارة إن توفّر، ولا يُحفظ بالخيارات إلا مسار ملف بمجلد المستخدم', () => {
+test('شعار المدرسة: لا يُحفظ بالخيارات إلا مسار ملف بمجلد المستخدم', () => {
   const uid = '123e4567-e89b-12d3-a456-426614174000';
   const ok = uid + '/school-logo-1793961117103.png';
   const data = 'data:image/png;base64,iVBORw0KGgo=';
   const app = opened(`window.__n1 = normalizeReportPrefs({ logo: '${ok}' });
     window.__bad = [ 'javascript:alert(1)', '${data}', '../x/school-logo-1793961117103.png', '${uid}/other.png', '${ok}" onerror="x', 'A'.repeat(5000) ].map(v => normalizeReportPrefs({ logo: v }));
-    window.__d = gradeReportStudentData(crmGrades, 'a');
-    window.__with = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', schoolLogo: '${data}', date: 'd' });
-    window.__without = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', date: 'd' });
-    window.__evil = gradeReportStudentHtml(__d, gradeReportPrefsNow(), { logo: 'data:image/png;base64,MOE', schoolLogo: 'javascript:alert(1)', date: 'd' });
     window.__size = JSON.stringify(normalizeReportPrefs({ logo: '${ok}', school: 'ثانوية بدر', teacher: 'x'.repeat(80), vice: 'x'.repeat(80), staff: 'x'.repeat(80), counselor: 'x'.repeat(80), subject: 'x'.repeat(80) })).length;`, NOTES_ON);
   assert.equal(app.__n1.logo, ok);
   app.__bad.forEach(n => assert.ok(n === null || n.logo === '', 'شعار غير صالح يُهمَل'));
-  assert.match(app.__with, /<div class="lgb"><img src="data:image\/png;base64,MOE" alt=""><\/div>[\s\S]*<div class="lgb"><img src="data:image\/png;base64,iVBORw0KGgo=" alt=""><\/div>/);
-  assert.match(app.__without, /<div class="lgb"><\/div><\/div>/, 'بلا شعار مدرسة: خانة فارغة تُبقي العنوان بالمنتصف');
-  assert.doesNotMatch(app.__evil, /javascript:/);
   assert.ok(app.__size < 3000, 'الخيارات كلها تبقى تحت قيد القاعدة (4000 بايت): ' + app.__size);
 });
 

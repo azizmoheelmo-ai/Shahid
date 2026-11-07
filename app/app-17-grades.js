@@ -984,6 +984,7 @@ function crmGradeColumnFormHtml(category, c){
       ${isTest && !c ? '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="crmGradeColAll" checked> أضفه لكل شعبي (لها كشف هذا الفصل)</label>' : ''}
       <label class="crm-field-label">ماذا يقيس؟ (اختياري)</label>
       <input class="goal-input" id="crmGradeColMeasures" maxlength="120" value="${c && c.measures ? escapeHtml(c.measures) : ''}" placeholder="مثال: زمن الماضي البسيط" style="margin-bottom:10px;">
+      ${isTest ? tlMeasureChipsHtml() + tlLinkFieldHtml(allCols, c, tlGroupsOf(appFeatures, { year: crmGrades.year, semester: crmGrades.semester })) : ''}
       <div id="crmGradeColError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:8px;line-height:1.7;"></div>
       <button class="btn btn-primary" id="crmGradeColSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmGradeColumn()">${c ? 'حفظ' : 'إضافة'}</button>`;
 }
@@ -1006,6 +1007,8 @@ function crmNewTestFormHtml(defMax){
           <label class="crm-switch"><input type="checkbox" id="crmGradeColAll"><span class="crm-sw" aria-hidden="true"></span><span>أضفه لكل شعبي (لها كشف هذا الفصل)</span></label>
           <label class="crm-field-label" for="crmGradeColMeasures">ماذا يقيس؟ (اختياري)</label>
           <input class="goal-input" id="crmGradeColMeasures" maxlength="120" placeholder="مثال: زمن الماضي البسيط">
+          ${tlMeasureChipsHtml()}
+          ${tlLinkFieldHtml(crmGrades.allColumns || crmGrades.columns, null, tlGroupsOf(appFeatures, { year: crmGrades.year, semester: crmGrades.semester }))}
         </div>
       </div>`;
 }
@@ -1086,6 +1089,8 @@ async function saveCrmGradeColumn(){
     if(btn) btn.disabled = false;
     return;
   }
+  /* ربط الاختبار للمقارنة وإعادة التسمية (app-37): قبل إغلاق النموذج لقراءة اختياره؛ الفشل تنبيه فقط */
+  if(d.category === 'tests') await tlApplyFromForm({ year: g.year, semester: g.semester }, before ? before.name : null, draft.name);
   closeCrmModal();
   crmGradeColumnDraft = null;
   afterCrmGradesChanged();
