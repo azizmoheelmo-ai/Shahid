@@ -340,3 +340,30 @@ test('الملف مسجَّل بـindex.html وAPP_SHELL', () => {
   assert.match(read('index.html'), /app\/app-38-section-report\.js/);
   assert.match(read('sw.js'), /\.\/app\/app-38-section-report\.js/);
 });
+
+test('«بدون تشخيص» (ق18): تقرير الشعبة يحذف قسمي التشخيص ويُبقي البيانات، و«مع» هو الأصل', async () => {
+  const run = off => {
+    const app = opened(`window.__out = []; ${off ? 'setReportDx(false);' : ''} gradeReportRun = async (btn, build) => { window.__out.push(await build()); };
+      gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);`);
+    return app.__p.then(() => app.__out[0].html);
+  };
+  const withDx = await run(false), raw = await run(true);
+  assert.match(withDx, /التشخيص: ماذا يتقن الطلاب/);
+  assert.doesNotMatch(raw, /التشخيص|التوصيات|ضعف جماعي|نقطة قوة/);
+  assert.match(raw, /<h2>مستويات الطلاب<\/h2>/);
+  assert.match(raw, /<h2>متوسط الشعبة في البنود<\/h2>/);
+});
+
+test('لوحة التشخيص: PDF يفتحها داخل الشريط، والاختيار يُحفظ، وإلغاؤها يعيد الزرين', async () => {
+  const app = opened(`window.__a = crmGradeAnalysisHtml(crmGradeAnalysis); gaPdfAsk(); window.__b = crmGradeAnalysisHtml(crmGradeAnalysis); gaSetDx(false); window.__c = crmGradeAnalysisHtml(crmGradeAnalysis); window.__saved = reportDxOn(); gaPdfCancel(); window.__d = crmGradeAnalysisHtml(crmGradeAnalysis);`);
+  assert.match(app.__a, /gaPdfAsk\(\)/);
+  assert.doesNotMatch(app.__a, /name="crmGaDx"/);
+  assert.match(app.__b, /مع التشخيص/);
+  assert.match(app.__b, /بدون تشخيص/);
+  assert.match(app.__b, /gaPdfGo\(this\)/);
+  assert.match(app.__b, /value="with" checked/);
+  assert.match(app.__c, /value="without" checked/);
+  assert.equal(app.__saved, false);
+  assert.match(app.__d, /gaPdfAsk\(\)/);
+  assert.doesNotMatch(app.__d, /name="crmGaDx"/);
+});

@@ -246,7 +246,7 @@ function buildSectionReportHtml(ctx){
   return `<style>${SR_CSS}${SS_CSS}</style><div class="sr">${head}${metaHtml}<div class="kp">${kp}</div>
     ${show.levels === false ? '' : `<div class="sec"><h2>${ctx.itemName ? 'مستويات الطلاب في هذا البند' : 'مستويات الطلاب'}</h2>${ssLevelsHtml(counts, inc.length, s.total, rules)}</div>`}
     ${show.items === false || !ctx.items.length ? '' : `<div class="sec long"><h2>${ctx.itemName ? 'متوسط الشعبة في البند' : 'متوسط الشعبة في البنود'}</h2>${ssItemsHtml(ctx.items, rules)}</div>`}
-    ${ssDiagHtml(ctx.dx)}${ssCompareHtml(ctx.prev, ctx.withNames)}${ctx.withNames ? ssRosterHtml(ctx.rows, rules) : ''}<div class="fin">${incHtml}${sign}</div><div class="strip"></div></div>`;
+    ${ctx.noDx ? '' : ssDiagHtml(ctx.dx)}${ssCompareHtml(ctx.prev, ctx.withNames)}${ctx.withNames ? ssRosterHtml(ctx.rows, rules) : ''}<div class="fin">${incHtml}${sign}</div><div class="strip"></div></div>`;
 }
 
 /* من نافذة التحليل (تقرير المجموع): كل البيانات من كشف الشعبة المحمَّل a.g، بلا استعلام جديد */
@@ -259,5 +259,5 @@ async function ssBuildFromAnalysis(a, v, prefs, ctx){
   const groups = typeof tlGroupsOf === 'function' ? tlGroupsOf(typeof appFeatures !== 'undefined' ? appFeatures : null, term) : [];
   const dx = ssDiagnose(items, rules, groups);
   await srEnsureFonts();
-  return buildSectionReportHtml({ label: a.label, term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, rows: v.rows, stats: v.stats, max: v.displayMax, items, dx, withNames: !!ctx.withNames, prev: ctx.prev, itemName: col ? col.name : null });
+  return buildSectionReportHtml({ label: a.label, term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, rows: v.rows, stats: v.stats, max: v.displayMax, items, dx, withNames: !!ctx.withNames, prev: ctx.prev, noDx: !!ctx.noDx, itemName: col ? col.name : null });
 }

@@ -2275,6 +2275,11 @@ button.crm-gs-strip-btn:hover{background:#F1EEE6;}
 .crm-ga-pane{min-height:120px;}
 .crm-ga-bot{position:sticky;bottom:-24px;z-index:2;background:#fff;padding:10px 0 26px;margin-top:10px;border-top:1px solid var(--line);box-shadow:0 -10px 10px -10px rgba(16,30,43,.25);}
 .crm-ga-acts{display:flex;gap:8px;}
+.crm-ga-dx{margin-bottom:2px;}
+.gdx{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer;}
+.gdx.on{border-color:#3d7eb9;background:#eaf2f8;}
+.gdx b{display:block;font-size:14px;color:var(--ink);}.gdx small{display:block;font-size:12px;color:var(--muted);}
+.gdx input{margin-top:3px;}
 .crm-ga-acts .btn{flex:1;min-height:46px;font-size:14px;font-weight:800;}
 .crm-ga-acts .btn:first-child{flex:1.4;}
 .crm-ga-optlink{display:block;margin:6px auto 0;min-height:36px;}

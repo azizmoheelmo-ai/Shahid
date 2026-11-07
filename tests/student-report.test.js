@@ -559,3 +559,26 @@ test('أصناف التقرير لا تتعارض مع أي قاعدة عامة 
   assert.deepEqual(clashes, [], 'صنف التقرير يطابق قاعدة عامة: غيّر اسمه (استعمل أسماء فريدة)');
   for(const old of ['meta', 'rec', 'sign']) assert.ok(!names.includes(old), '.' + old + ' أُعيدت تسميته');
 });
+
+test('«بدون تشخيص» (ق18): النسخة التحليلية تُبقي البيانات وتحذف التشخيص والتوصيات', () => {
+  const withDx = html('analytical');
+  assert.match(withDx, /<h2>التشخيص/);
+  const raw = html('analytical', { noDx: true, attendance: { counts: { present: 3, absent: 1, late: 0, permitted_exit: 0 }, list: [], recorded: 4 } });
+  assert.doesNotMatch(raw, /<h2>التشخيص|<h2>التوصيات<\/h2>/);
+  assert.match(raw, /<h2>درجات البنود مقارنةً بمتوسط الشعبة<\/h2>/, 'جدول الدرجات باقٍ');
+  assert.match(raw, /<h2>الحضور<\/h2>/, 'الحضور باقٍ (وقائع)');
+  assert.doesNotMatch(raw, /لا أدلة كافية للحكم/);
+});
+
+test('خيار التشخيص: التفضيل يُحفظ بالجهاز، والأصل «مع»، وsrBuildReport يقرؤه', () => {
+  const app = loadApp();
+  assert.equal(runInAppContext(app, 'reportDxOn()'), true);
+  runInAppContext(app, 'setReportDx(false)');
+  assert.equal(runInAppContext(app, 'reportDxOn()'), false);
+  assert.equal(app.localStorage.getItem('shahid_report_dx'), 'without');
+  runInAppContext(app, 'setReportDx(true)');
+  assert.equal(runInAppContext(app, 'reportDxOn()'), true);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app/app-36-student-report.js'), 'utf8');
+  assert.match(src, /noDx: opts\.noDx !== undefined \? !!opts\.noDx : !\(typeof reportDxOn === 'function' \? reportDxOn\(\) : true\)/);
+  assert.match(src, /id="srDxChk"/, 'خانة في نافذة اختيار النسخة');
+});

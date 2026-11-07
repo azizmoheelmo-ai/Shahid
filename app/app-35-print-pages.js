@@ -5,19 +5,22 @@
    المتصفح نفسه يرسم العربية (تشكيل واتجاه صحيحان)، ويختار المعلم «حفظ كـPDF» من
    نافذة الطباعة، فيخرج نص قابل للتحديد والبحث بملف أصغر.
    - المنشئات القائمة (buildPlanHtml، buildPdfHtml...) مصمَّمة بعرض 794px ثابت للصورة؛
-     نغلّف كل صفحة بـ zoom يضبطها على عرض A4 المطبوع (190مم ≈ 718px) فلا يُقص طرفها.
+     نغلّف كل صفحة بـ zoom يضبطها على عرض A4 المطبوع (≈ 700px بعد هامش أمان) فلا يُقص طرفها.
    - fit:'page' = صفحة واحدة كاملة (تُقاس وتُصغَّر لتتسع كما كان يفعل addPdfPage)؛
      fit:'width' = تنساب على عدة صفحات (تُصغَّر للعرض فقط).
    - بعد الطباعة تُفرَّغ #printArea ويُعاد عنوان الصفحة (اسم الملف المقترح عند الحفظ).
    ============================================================ */
 
-const PRINT_PAGE_W = 718;     /* عرض محتوى A4 بهامش 10مم (190مم) */
-const PRINT_PAGE_H = 1047;    /* ارتفاع محتوى A4 بهامش 10مم (277مم) */
+/* A4 بهامش 10مم = 718×1047px، لكن Safari (macOS/iOS) قد يتجاهل @page ويطبّق هوامشه الأوسع؛ فنُصغّر الحدّين قليلًا
+   (≈ 3%) كي لا يُقصّ طرف الصفحة ولا يسيل سطر لصفحة فارغة زائدة. الكلفة في Chrome: هامش أبيض إضافي لا يُرى. */
+const PRINT_PAGE_W = 700;
+const PRINT_PAGE_H = 1010;
 const PRINT_DESIGN_W = 794;   /* عرض تصميم المنشئات القائمة */
 const PRINT_PAGE_SLACK = 12;  /* هامش احتياطي: بدونه يسيل سطر من حدّ المحتوى لصفحة زائدة */
 
 const PRINT_PAGES_CSS = '@page{size:A4;margin:10mm}'
   + '@media print{'
+  + 'html{-webkit-text-size-adjust:none;text-size-adjust:none}'
   + '#printArea.wrap{max-width:none;padding-bottom:0}'
   + '#printArea,#printArea *{-webkit-print-color-adjust:exact;print-color-adjust:exact}'
   + '#printArea .pp{break-after:page;page-break-after:always}'

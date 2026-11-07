@@ -448,6 +448,17 @@ function gaEffectiveScope(a){
   return a.tab === 'compare' && a.cmp === 'sib' && hasSib ? 'group' : 'section';
 }
 
+/* خيار التشخيص (ق18): الضغط على PDF يفتح لوحة «مع التشخيص / بدون تشخيص» داخل الشريط ذاته (لا نافذة فوق نافذة التحليل) */
+function gaSetDx(on){ if(typeof setReportDx === 'function') setReportDx(!!on); const a = crmGradeAnalysis; if(a) paintCrmGradeAnalysis(); }
+function gaPdfAsk(){ const a = crmGradeAnalysis; if(!a) return; a.dxAsk = true; paintCrmGradeAnalysis(); }
+function gaPdfCancel(){ const a = crmGradeAnalysis; if(!a) return; a.dxAsk = false; paintCrmGradeAnalysis(); }
+async function gaPdfGo(btn){
+  const a = crmGradeAnalysis;
+  if(!a) return;
+  await exportGradeReport(btn);
+  if(crmGradeAnalysis === a && a.dxAsk){ a.dxAsk = false; paintCrmGradeAnalysis(); }
+}
+
 /* شريط التصدير: PDF وExcel زرّان ظاهران دائمًا (نقرتان من فتح التحليل)، والخيارات مطوية */
 function gaExportHtml(a){
   const hasSib = gradeSiblingSectionIds(a.g).length > 0;
@@ -458,7 +469,12 @@ function gaExportHtml(a){
           <option value="group"${gaEffectiveScope(a) === 'group' ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
         <button type="button" class="crm-ga-link" onclick="openGradeReportEditor('ga')">ترويسة التقرير: المدرسة والمعلم</button></div>`
     : '';
-  return `<div class="crm-ga-bot">${opts}<div class="crm-ga-acts"><button type="button" class="btn btn-primary" onclick="exportGradeReport(this)">⤓ PDF للطباعة</button><button type="button" class="btn btn-outline" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button></div>
+  const on = typeof reportDxOn === 'function' ? reportDxOn() : true;
+  const radio = (v, label, note) => `<label class="gdx${(v === 'with') === on ? ' on' : ''}"><input type="radio" name="crmGaDx" value="${v}"${(v === 'with') === on ? ' checked' : ''} onchange="gaSetDx(this.value === 'with')"><span><b>${label}</b><small>${note}</small></span></label>`;
+  const acts = a.dxAsk
+    ? `<div class="crm-ga-dx">${radio('with', 'مع التشخيص', 'القوة والضعف والتوصيات مع البيانات')}${radio('without', 'بدون تشخيص', 'بيانات فقط، بلا أي كلام تحليلي')}<div class="crm-ga-acts"><button type="button" class="btn btn-primary" onclick="gaPdfGo(this)">⤓ طباعة / حفظ PDF</button><button type="button" class="btn btn-outline" onclick="gaPdfCancel()">إلغاء</button></div></div>`
+    : `<div class="crm-ga-acts"><button type="button" class="btn btn-primary" onclick="gaPdfAsk()">⤓ PDF للطباعة</button><button type="button" class="btn btn-outline" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button></div>`;
+  return `<div class="crm-ga-bot">${opts}${acts}
     <button type="button" class="crm-ga-link crm-ga-optlink" aria-expanded="${!!a.exportOpen}" onclick="toggleCrmGaExport()">${a.exportOpen ? 'إخفاء خيارات التقرير ⌃' : 'خيارات التقرير ⌄'}</button></div>`;
 }
 

@@ -47,6 +47,11 @@ function normalizeReportPrefs(raw){
   return JSON.stringify(out) === JSON.stringify(GRADE_REPORT_DEFAULT) ? null : out;
 }
 
+/* خيار «مع التشخيص / بدون تشخيص» (ق18): تفضيل الجهاز، الأصل مع التشخيص؛ يحدّد إن كانت التقارير تتضمن الأقسام التحليلية */
+const REPORT_DX_KEY = 'shahid_report_dx';
+function reportDxOn(){ try{ return localStorage.getItem(REPORT_DX_KEY) !== 'without'; } catch(e){ return true; } }
+function setReportDx(on){ try{ localStorage.setItem(REPORT_DX_KEY, on ? 'with' : 'without'); } catch(e){ /* بلا حفظ */ } }
+
 function gradeReportPrefsNow(){
   return normalizeReportPrefs(typeof appFeatures !== 'undefined' && appFeatures && appFeatures.reportPrefs) || gradeReportDefaultCopy();
 }
@@ -143,7 +148,7 @@ function gradeReportPrintCss(mark){
     ? `@top-right{content:"${q(mark.right)}";${box}}@top-left{content:"${q(mark.left)}";${box}}` : '';
   return `@page{size:A4;margin:15mm 15mm 14mm;${top}@bottom-center{content:"صفحة " counter(page) " / " counter(pages);${box}}}`
     + '@page :first{@top-right{content:none}@top-left{content:none}}'
-    + '@media print{#printArea.wrap{max-width:none;padding-bottom:0}.gr-pg{break-after:page;page-break-after:always}.gr-pg:last-child{break-after:auto;page-break-after:auto}}';
+    + '@media print{html{-webkit-text-size-adjust:none;text-size-adjust:none}#printArea.wrap{max-width:none;padding-bottom:0}.gr-pg{break-after:page;page-break-after:always}.gr-pg:last-child{break-after:auto;page-break-after:auto}}';
 }
 
 function gradeReportMark(prefs, title, label){
@@ -209,7 +214,7 @@ async function exportGradeReport(btn){
   const gradeName = level ? level.name : 'الصف';
   await gradeReportRun(btn, async () => {
     const logo = await gradeReportLogoData();
-    const base = { logo, schoolLogo: await gradeReportSchoolLogoData(), date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames };
+    const base = { logo, schoolLogo: await gradeReportSchoolLogoData(), date: new Date().toISOString().slice(0, 10), year: a.g.year, semester: a.g.semester, withNames, noDx: !reportDxOn() };
     if(scope === 'section'){
       const v = gradeAnalysisView(a);
       if(!v.stats.recorded){ showToast('لا درجات مرصودة لتصديرها', 'error'); return ''; }

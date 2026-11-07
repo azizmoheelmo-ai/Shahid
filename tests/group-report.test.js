@@ -267,3 +267,17 @@ test('زر PDF يتبع الشاشة: «مقارنة الشعب» ينزّل ت�
   await app.__p;
   assert.match(app.__out[1].mark.right, /تقرير أداء الشعبة/);
 });
+
+test('«بدون تشخيص» (ق18): تقرير مقارنة الشعب يحذف التشخيص والتوصيات ويُبقي المستويات والمصفوفة', async () => {
+  const run = async off => {
+    const app = groupEnv({ setup: `crmGradeAnalysis.scope = 'group'; crmGradeAnalysis.scopeTouched = true; window.__out = []; ${off ? 'setReportDx(false);' : ''}
+      gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);` });
+    await app.__p; return app.__out[0].html;
+  };
+  const withDx = await run(false), raw = await run(true);
+  assert.match(withDx, /التشخيص: ماذا يتقن الطلاب/);
+  assert.match(withDx, /التوصيات لتحسين الممارسة/);
+  assert.doesNotMatch(raw, /التشخيص|التوصيات|ضعف مشترك|ضعف في بعض الشعب/);
+  assert.match(raw, /<h2>مقارنة مستويات الطلاب بين الشعب/);
+  assert.match(raw, /<h2>مقارنة البنود بين الشعب/);
+});
