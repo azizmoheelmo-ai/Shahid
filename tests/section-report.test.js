@@ -282,7 +282,7 @@ test('تشخيص الصف لا يتأثر بخيار «مع التعليق ال�
 });
 
 /* ============ الدمج ============ */
-test('التصدير: المجموع بالتصميم الجديد، والبند الواحد بالقديم حتى يُناقش', async () => {
+test('التصدير: المجموع وبند واحد كلاهما بالتصميم الجديد (ق11)، وتقرير البند بعنوانه وحدّه ومستوياته', async () => {
   const run = key => {
     const app = opened(`crmGradeAnalysis.key = ${JSON.stringify(key)}; window.__out = []; gradeReportRun = async (btn, build) => { window.__out.push(await build()); };
       gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);`);
@@ -292,9 +292,30 @@ test('التصدير: المجموع بالتصميم الجديد، والبن�
   assert.match(total.html, /تقرير أداء الشعبة/);
   assert.match(total.mark.right, /تقرير أداء الشعبة/);
   assert.doesNotMatch(total.html, /class="gr"/);
+  assert.doesNotMatch(total.html, /البند \(تقرير بند واحد\)/, 'المجموع بلا حقل بند');
   const item = await run('t1');
-  assert.match(item.html, /class="gr"/, 'تقرير البند الواحد بالتصميم القديم');
-  assert.match(item.html, /تحليل نتائج الدرجات/);
+  assert.match(item.html, /تقرير أداء الشعبة/);
+  assert.doesNotMatch(item.html, /class="gr"/, 'لا تصميم تقارير الدرجات القديم');
+  assert.match(item.html, /<small>البند \(تقرير بند واحد\)<\/small><b>الاختبار الأول — من 20<\/b>/);
+  assert.match(item.html, /<h2>مستويات الطلاب في هذا البند<\/h2>/);
+  assert.match(item.html, /<h2>متوسط الشعبة في البند<\/h2>/);
+  assert.match(item.html, /<td><b>الاختبار الأول<\/b><div class="ev">يقيس: القراءة<\/div>/);
+  assert.doesNotMatch(item.html, /<td><b>الواجبات<\/b>|<td rowspan="2" class="gn"><b>المشاركة/, 'البند المختار وحده في الجدول');
+  assert.match(item.html, /ضعف جماعي:<\/b> القراءة \(الاختبار الأول\)/, 'تشخيص البند بمعيار 30%');
+  assert.doesNotMatch(item.html, /ضعاف|متفوقون|متوسطون/);
+});
+
+test('تقرير بند واحد: طالب بلا درجة في هذا البند يظهر عدده (والأسماء بالخيار) بلا «ما ينقص»', async () => {
+  const app = opened(`crmGrades.scores = crmGrades.scores.filter(s => !(s.column_id === 't1' && ['s0', 's1'].includes(s.student_id))); crmGradeAnalysis = null; openCrmGradeAnalysis(); crmGradeAnalysis.key = 't1';
+    window.__out = []; gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);`);
+  await app.__p;
+  const h = app.__out[0].html;
+  assert.match(h, /<bdi dir="ltr">2<\/bdi> طلاب بلا درجة في هذا البند، فلا يُصنَّفون ولا يدخلون في المتوسط/);
+  assert.doesNotMatch(h, /ما ينقص|الدرجة المرصودة|أحمد|بدر/, 'لا «ما ينقص» ولا أسماء بلا الخيار');
+  const named = opened(`crmGrades.scores = crmGrades.scores.filter(s => !(s.column_id === 't1' && s.student_id === 's0')); crmGradeAnalysis = null; openCrmGradeAnalysis(); crmGradeAnalysis.key = 't1'; crmGradeAnalysis.withNames = true;
+    window.__out = []; gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);`);
+  await named.__p;
+  assert.match(named.__out[0].html, /<th>الطالب<\/th><\/tr><\/thead><tbody><tr><td>أحمد<\/td><\/tr>/);
 });
 
 /* ============ الأمان والتسجيل ============ */

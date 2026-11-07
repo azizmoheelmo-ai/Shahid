@@ -197,18 +197,22 @@ function ssCompareHtml(prev, withNames){
 
 /* الرصد غير المكتمل (البند 5): العدد، «ما ينقص» مجمَّعًا بالبند، وعند الأسماء جدول بالدرجة المرصودة والناقص.
    لا سطر «أكمل الدرجات»: موجَّه للمعلم لا للقارئ (قرار المستخدم) */
-function ssIncompleteHtml(inc, withNames){
+function ssIncompleteHtml(inc, withNames, itemMode){
   if(!inc || !inc.length) return '';
   const e = escapeHtml;
   const cnt = c => c === 1 ? 'طالب واحد' : c === 2 ? 'طالبان' : c <= 10 ? `${srNum(c)} طلاب` : `${srNum(c)} طالبًا`;
   const byItem = new Map();
   inc.forEach(r => (r.missing || []).forEach(n => byItem.set(n, (byItem.get(n) || 0) + 1)));
   const lack = [...byItem.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${e(n)}: ${cnt(c)}`);
-  let html = `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب لم تكتمل درجاته' : 'طلاب لم تكتمل درجاتهم'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`;
-  if(lack.length) html += `<div class="box"><b>ما ينقص:</b> ${lack.join(' · ')}.</div>`;
+  let html = itemMode
+    ? `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب بلا درجة في هذا البند' : 'طلاب بلا درجة في هذا البند'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`
+    : `<div class="box f">${srNum(inc.length)} ${inc.length === 1 ? 'طالب لم تكتمل درجاته' : 'طلاب لم تكتمل درجاتهم'}، فلا يُصنَّفون ولا يدخلون في المتوسط.</div>`;
+  if(lack.length && !itemMode) html += `<div class="box"><b>ما ينقص:</b> ${lack.join(' · ')}.</div>`;
   if(withNames){
     const row = r => `<tr><td>${e(r.name)}</td><td class="n">${r.points === null || r.points === undefined ? 'بلا أي درجة' : `${srNum(formatScore(r.points))} من ${srNum(formatScore(r.recordedMax))}`}</td><td>${(r.missing || []).map(e).join('، ') || '—'}</td></tr>`;
-    html += `<table><thead><tr><th>الطالب</th><th class="n">الدرجة المرصودة</th><th>الناقص</th></tr></thead><tbody>${inc.map(row).join('')}</tbody></table>`;
+    html += itemMode
+      ? `<table><thead><tr><th>الطالب</th></tr></thead><tbody>${inc.map(r => `<tr><td>${e(r.name)}</td></tr>`).join('')}</tbody></table>`
+      : `<table><thead><tr><th>الطالب</th><th class="n">الدرجة المرصودة</th><th>الناقص</th></tr></thead><tbody>${inc.map(row).join('')}</tbody></table>`;
   }
   return `<div class="sec"><h2>الرصد غير المكتمل</h2>${html}</div>`;
 }
@@ -233,13 +237,14 @@ function buildSectionReportHtml(ctx){
     `<div><b>${srNum(counts.top)}</b><span>متقنون${share(counts.top)}</span></div>`
   ].join('');
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>تقرير أداء الشعبة</h1></div><div class="sl">${slogo}</div></div>`;
-  const metaHtml = `<div class="mt">${meta('الصف والشعبة', ctx.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${meta('عدد الطلاب', String(s.total))}${meta('التاريخ', ctx.date)}</div>`;
+  const itemMeta = ctx.itemName ? meta('البند (تقرير بند واحد)', `${ctx.itemName} — من ${formatScore(ctx.max)}`) : '';
+  const metaHtml = `<div class="mt">${meta('الصف والشعبة', ctx.label)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${itemMeta}${meta('عدد الطلاب', String(s.total))}${meta('التاريخ', ctx.date)}</div>`;
   const inc = s.incomplete || [];
-  const incHtml = ssIncompleteHtml(inc, ctx.withNames);
+  const incHtml = ssIncompleteHtml(inc, ctx.withNames, !!ctx.itemName);
   const sign = `<div class="sgn"><div><small>${e(teacher)}</small>معلم المادة</div><div><small>${e(prefs.vice || '')}</small>وكيل شؤون الطلاب</div></div>`;
   return `<style>${SR_CSS}${SS_CSS}</style><div class="sr">${head}${metaHtml}<div class="kp">${kp}</div>
-    ${show.levels === false ? '' : `<div class="sec"><h2>مستويات الطلاب</h2>${ssLevelsHtml(counts, inc.length, s.total, rules)}</div>`}
-    ${show.items === false || !ctx.items.length ? '' : `<div class="sec long"><h2>متوسط الشعبة في البنود</h2>${ssItemsHtml(ctx.items, rules)}</div>`}
+    ${show.levels === false ? '' : `<div class="sec"><h2>${ctx.itemName ? 'مستويات الطلاب في هذا البند' : 'مستويات الطلاب'}</h2>${ssLevelsHtml(counts, inc.length, s.total, rules)}</div>`}
+    ${show.items === false || !ctx.items.length ? '' : `<div class="sec long"><h2>${ctx.itemName ? 'متوسط الشعبة في البند' : 'متوسط الشعبة في البنود'}</h2>${ssItemsHtml(ctx.items, rules)}</div>`}
     ${ssDiagHtml(ctx.dx)}${ssCompareHtml(ctx.prev, ctx.withNames)}${ctx.withNames ? ssRosterHtml(ctx.rows, rules) : ''}<div class="fin">${incHtml}${sign}</div><div class="strip"></div></div>`;
 }
 
@@ -247,9 +252,11 @@ function buildSectionReportHtml(ctx){
 async function ssBuildFromAnalysis(a, v, prefs, ctx){
   const g = a.g, term = { year: g.year, semester: g.semester };
   const rules = srRulesNow();
-  const items = ssBuildItems(g.columns, g.scores, a.students.map(s => s.id), g.breakdown || null, c => periodCfg(term, periodCompKeyOfColumn(c)), rules, srToolTypeOf);
+  const col = a.key === 'total' ? null : g.columns.find(c => c.id === a.key);
+  let items = ssBuildItems(g.columns, g.scores, a.students.map(s => s.id), g.breakdown || null, c => periodCfg(term, periodCompKeyOfColumn(c)), rules, srToolTypeOf);
+  if(col) items = items.filter(it => it.id === col.id); /* تقرير بند واحد (ق11) */
   const groups = typeof tlGroupsOf === 'function' ? tlGroupsOf(typeof appFeatures !== 'undefined' ? appFeatures : null, term) : [];
   const dx = ssDiagnose(items, rules, groups);
   await srEnsureFonts();
-  return buildSectionReportHtml({ label: a.label, term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, rows: v.rows, stats: v.stats, max: v.displayMax, items, dx, withNames: !!ctx.withNames, prev: ctx.prev });
+  return buildSectionReportHtml({ label: a.label, term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, rows: v.rows, stats: v.stats, max: v.displayMax, items, dx, withNames: !!ctx.withNames, prev: ctx.prev, itemName: col ? col.name : null });
 }

@@ -706,15 +706,15 @@ async function exportGradeReport(btn){
         if(sum && sum.compared) prev = { sum, names: new Map(a.students.map(s => [s.id, s.full_name])) };
         else showToast('لا كشف مقارن في الفصل السابق — حُذف قسم المقارنة', 'ok');
       }
-      /* تقرير المجموع بهوية الوزارة وتشخيص الصف (app-38، ق8)؛ تقرير البند الواحد بحاله حتى يُناقش */
-      if(a.key === 'total') return { html: await ssBuildFromAnalysis(a, v, prefs, Object.assign(base, { prev })), mark: gradeReportMark(prefs, 'تقرير أداء الشعبة', a.label) };
+      /* تقرير الشعبة (المجموع أو بند واحد) بهوية الوزارة وتشخيص الصف (app-38، ق8، ق11) */
+      return { html: await ssBuildFromAnalysis(a, v, prefs, Object.assign(base, { prev })), mark: gradeReportMark(prefs, 'تقرير أداء الشعبة', a.label) };
       return { html: gradeReportSectionHtml(a, v, prefs, Object.assign(base, { prev })), mark: gradeReportMark(prefs, 'تحليل نتائج الدرجات', a.label) };
     }
     /* مجموعة شعب الصف */
     const sibIds = gradeSiblingSectionIds(a.g);
     if(!sibIds.length){ showToast('لا شعب أخرى لهذا الصف', 'error'); return ''; }
-    /* تقرير المقارنة بين الشعب بهوية الوزارة (app-39، ق9) للمجموع؛ تقرير البند الواحد بحاله حتى يُناقش */
-    if(a.key === 'total'){
+    /* تقرير المقارنة بين الشعب (المجموع أو بند واحد) بهوية الوزارة (app-39، ق9، ق11) */
+    {
       const html = await sgBuildFromAnalysis(a, prefs, base);
       return html ? { html, mark: gradeReportMark(prefs, 'تقرير مقارنة شعب الصف', gradeName) } : '';
     }

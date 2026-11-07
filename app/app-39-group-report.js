@@ -79,7 +79,7 @@ function sgLevelsHtml(secs, max){
   const pc = (n, t) => t ? srNum(Math.round(100 * n / t) + '%') : '—';
   const stack = s => { const t = s.recorded || 1; return `<div class="sgstk"><i class="m" style="width:${100 * s.top / t}%"></i><i class="j" style="width:${100 * s.mid / t}%"></i><i class="w" style="width:${100 * s.low / t}%"></i></div>`; };
   return `<table><thead><tr><th>الشعبة</th><th class="n">الطلاب</th><th class="n">متوسط الشعبة</th><th class="n">متقن</th><th class="n">جيد</th><th class="n">يحتاج تحسين</th><th style="width:26%">توزيع المستويات</th></tr></thead><tbody>${secs.map(s =>
-    `<tr><td><b>${e(s.label)}</b></td><td class="n">${srNum(s.recorded)}</td><td class="n">${s.avg === null ? '—' : srScore(Math.round(s.avg * 10) / 10, max)} <span class="nd">(${s.avgPct === null ? '—' : srNum(s.avgPct + '%')})</span></td><td class="n">${pc(s.top, s.recorded)}</td><td class="n">${pc(s.mid, s.recorded)}</td><td class="n">${pc(s.low, s.recorded)}</td><td>${stack(s)}</td></tr>`).join('')}</tbody></table>
+    `<tr><td><b>${e(s.label)}</b></td><td class="n">${srNum(s.recorded)}</td><td class="n">${s.avg === null ? '—' : srScore(Math.round(s.avg * 10) / 10, s.max || max)} <span class="nd">(${s.avgPct === null ? '—' : srNum(s.avgPct + '%')})</span></td><td class="n">${pc(s.top, s.recorded)}</td><td class="n">${pc(s.mid, s.recorded)}</td><td class="n">${pc(s.low, s.recorded)}</td><td>${stack(s)}</td></tr>`).join('')}</tbody></table>
     <div class="sgleg"><span><s class="m"></s>متقن</span><span><s class="j"></s>جيد</span><span><s class="w"></s>يحتاج تحسين</span></div>`;
 }
 
@@ -141,14 +141,14 @@ function buildGroupReportHtml(ctx){
   const total = secs.reduce((a, s) => a + s.recorded, 0);
   const meta = (k, v) => `<div><small>${k}</small><b>${e(v || '—')}</b></div>`;
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>تقرير مقارنة شعب الصف</h1></div><div class="sl">${slogo}</div></div>`;
-  const metaHtml = `<div class="mt">${meta('الصف', ctx.gradeName)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${meta('شعب المعلم من الصف نفسه', secs.map(s => s.label).join('، '))}${meta('التاريخ', ctx.date)}</div>`;
+  const metaHtml = `<div class="mt">${meta('الصف', ctx.gradeName)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${meta('شعب المعلم من الصف نفسه', secs.map(s => s.label).join('، '))}${ctx.itemName ? meta('البند (تقرير بند واحد)', ctx.itemName) : ''}${meta('التاريخ', ctx.date)}</div>`;
   const kp = `<div class="kp"><div><b>${srNum(secs.length)}</b><span>شعب</span></div><div><b>${srNum(total)}</b><span>طلاب مرصودة درجاتهم</span></div><div><b>${ctx.pooled.avgPct === null ? '—' : srNum(ctx.pooled.avgPct + '%')}</b><span>متوسط المجموعة</span></div><div><b>${total ? srNum(Math.round(100 * ctx.pooled.low / total) + '%') : '—'}</b><span>يحتاجون تحسين</span></div></div>`;
   const recs = sgRecommendations(ctx.cls);
   const recHtml = recs.length ? `<div class="sec"><h2>التوصيات لتحسين الممارسة</h2>${recs.map(r => `<div class="rc"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>` : '';
   const sign = `<div class="sgn"><div><small>${e(teacher)}</small>معلم المادة</div><div><small>${e(prefs.vice || '')}</small>وكيل شؤون الطلاب</div></div>`;
   const matrixCls = ctx.cls;
   return `<style>${SR_CSS}${SS_CSS}${SG_CSS}</style><div class="sr">${head}${metaHtml}${kp}
-    ${show.levels === false ? '' : `<div class="sec"><h2>مقارنة مستويات الطلاب بين الشعب (حصة كل مستوى)</h2>${sgLevelsHtml(secs, ctx.max)}</div>`}
+    ${show.levels === false ? '' : `<div class="sec"><h2>${ctx.itemName ? 'مقارنة مستويات الطلاب في هذا البند بين الشعب' : 'مقارنة مستويات الطلاب بين الشعب (حصة كل مستوى)'}</h2>${sgLevelsHtml(secs, ctx.max)}</div>`}
     ${show.items === false || !matrixCls.length ? '' : `<div class="sec long"><h2>مقارنة البنود بين الشعب (متوسط الشعبة)</h2>${sgMatrixHtml(matrixCls, secs)}</div>`}
     ${sgDiagHtml(ctx.cls, 'tahsili', 'التشخيص: ماذا يتقن الطلاب (التحصيل)')}${sgDiagHtml(ctx.cls, 'taalumi', 'التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)')}
     ${recHtml}<div class="fin">${sign}</div><div class="strip"></div></div>`;
@@ -159,6 +159,8 @@ function buildGroupReportHtml(ctx){
 async function sgBuildFromAnalysis(a, prefs, ctx){
   const g0 = a.g;
   const sibIds = gradeSiblingSectionIds(g0);
+  const spec = typeof gradeSpecOf === 'function' ? gradeSpecOf(a) : { total: true };
+  const itemCol = spec.total ? null : g0.columns.find(c => c.id === a.key);
   const ids = crmSections.map(s => s.id).filter(id => id === g0.sectionId || sibIds.includes(id)); /* ترتيب المعلم لشعبه */
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
   const testsOn = appToolOn('tests');
@@ -173,21 +175,25 @@ async function sgBuildFromAnalysis(a, prefs, ctx){
     if(g.year !== g0.year || Number(g.semester) !== Number(g0.semester)) throw new Error('تغيّر الفصل أثناء التحميل');
     if(!hasBaseGradeColumns(g.columns)) continue;
     const students = crmStudentsOfSection(id);
-    const res = gradeAnalysisRows(g, students, 'total', caps, testsOn);
+    /* بند واحد (ق11): العمود بالاسم المطبَّع في كل شعبة؛ شعبة بلا هذا العمود لا تدخل */
+    const col = spec.total ? null : g.columns.find(c => normalizeGradeColumnName(c.name) === spec.name);
+    if(!spec.total && !col) continue;
+    const res = gradeAnalysisRows(g, students, spec.total ? 'total' : col.id, caps, testsOn);
     if(!res.rows.length) continue;
     const st = analyzeGradeRows(res.rows, res.displayMax);
     if(!st.recorded) continue;
     if(displayMax === null) displayMax = res.displayMax;
     allRows = allRows.concat(res.rows);
     const lc = ssLevelCounts(res.rows, rules);
-    const items = ssBuildItems(g.columns, g.scores, students.map(s => s.id), g.breakdown || null, c => periodCfg(term, periodCompKeyOfColumn(c)), rules, srToolTypeOf);
-    secs.push({ id, label: crmSectionLabel(id), recorded: lc.recorded, top: lc.top, mid: lc.mid, low: lc.low, avg: st.avg, avgPct: st.avgPct, items });
+    let items = ssBuildItems(g.columns, g.scores, students.map(s => s.id), g.breakdown || null, c => periodCfg(term, periodCompKeyOfColumn(c)), rules, srToolTypeOf);
+    if(col) items = items.filter(it => it.id === col.id);
+    secs.push({ id, max: res.displayMax, label: crmSectionLabel(id), recorded: lc.recorded, top: lc.top, mid: lc.mid, low: lc.low, avg: st.avg, avgPct: st.avgPct, items });
   }
   if(secs.length < 2){ showToast('لا بيانات مرصودة كافية في شعب الصف للمقارنة', 'error'); return ''; }
   const pst = analyzeGradeRows(allRows, displayMax);
   const lcp = ssLevelCounts(allRows, rules);
   const level = typeof crmGradeLevels !== 'undefined' && crmSectionById(g0.sectionId) ? crmGradeLevels.find(x => x.id === crmSectionById(g0.sectionId).grade_level_id) : null;
   await srEnsureFonts();
-  return buildGroupReportHtml({ gradeName: level ? level.name : 'الصف', term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, secs, max: displayMax,
+  return buildGroupReportHtml({ gradeName: level ? level.name : 'الصف', itemName: itemCol ? itemCol.name : null, term, date: ctx.date, prefs, logo: ctx.logo, schoolLogo: ctx.schoolLogo, rules, secs, max: displayMax,
     pooled: { avgPct: pst.avgPct, low: lcp.low }, cls: sgClassify(secs) });
 }

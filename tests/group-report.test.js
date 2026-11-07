@@ -187,10 +187,10 @@ test('شعبة واحدة بدرجات أو شعبتان بلا درجات: تن
 });
 
 /* ============ الدمج ============ */
-test('التصدير: المجموع بالتصميم الجديد، والبند الواحد بالقديم، وشعبة واحدة تنبيه كما كان', async () => {
+test('التصدير: المجموع وبند واحد كلاهما بالتصميم الجديد (ق11)، وشعبة واحدة تنبيه كما كان', async () => {
   const run = (key, extra) => {
     const app = groupEnv({ ids: extra && extra.ids, setup: `crmGradeAnalysis.key = ${JSON.stringify(key)}; crmGradeAnalysis.scope = 'group'; window.__out = []; window.__t = []; window.__raw = 0; showToast = (m, k) => window.__t.push(m);
-      loadGradeSheetsRaw = async ids => { window.__raw++; return ids.map(id => { const s = SH.find(x => x.sectionId === id); return { id, columns: s.columns, scores: s.scores }; }); };
+      loadGradeSheetsRaw = async ids => { window.__raw++; return []; };
       gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);` });
     return app.__p.then(() => app);
   };
@@ -198,15 +198,37 @@ test('التصدير: المجموع بالتصميم الجديد، والبن�
   assert.match(total.__out[0].html, /تقرير مقارنة شعب الصف/);
   assert.match(total.__out[0].mark.right, /تقرير مقارنة شعب الصف/);
   assert.doesNotMatch(total.__out[0].html, /class="gr"/);
-  assert.equal(total.__raw, 0, 'المجموع لا يمرّ بمسار الكشوف الخام القديم');
+  assert.doesNotMatch(total.__out[0].html, /البند \(تقرير بند واحد\)/);
+  assert.equal(total.__raw, 0, 'لا مسار الكشوف الخام القديم');
   const item = await run('At1');
-  assert.equal(item.__raw, 1, 'البند الواحد بالمسار القديم (loadGradeSheetsRaw)');
-  assert.match(item.__out[0].html, /تحليل نتائج المجموعة/);
-  assert.doesNotMatch(item.__out[0].html, /تقرير مقارنة شعب الصف/, 'البند الواحد لا يستعمل التصميم الجديد');
+  assert.equal(item.__raw, 0, 'البند الواحد أيضًا بالمسار الجديد');
+  const h = item.__out[0].html;
+  assert.match(h, /تقرير مقارنة شعب الصف/);
+  assert.doesNotMatch(h, /class="gr"|تحليل نتائج المجموعة/, 'لا التصميم القديم');
+  assert.match(h, /<small>البند \(تقرير بند واحد\)<\/small><b>الاختبار الأول<\/b>/);
+  assert.match(h, /<h2>مقارنة مستويات الطلاب في هذا البند بين الشعب<\/h2>/);
+  assert.match(h, /<td class="gn"><b>الاختبار الأول<\/b><div class="ev">يقيس: القراءة<\/div><\/td>/);
+  assert.doesNotMatch(h, /<b>الواجبات<\/b>|<b>المشاركة<\/b>/, 'البند المختار وحده');
+  assert.match(h, /ضعف في بعض الشعب:<\/b> القراءة \(الاختبار الأول\) — ثانية سابع/);
+  assert.doesNotMatch(h, /<tr class="sgtot">/, 'بند بلا فترات: لا صف مجموع');
   const single = groupEnv({ sections: [{ id: 'A', grade_level_id: 'G' }, { id: 'B', grade_level_id: 'H' }, { id: 'C', grade_level_id: 'H' }], setup: `crmGradeAnalysis.scope = 'group'; window.__out = []; window.__t = []; showToast = (m, k) => window.__t.push(m);
     gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; window.__p = exportGradeReport(null);` });
   await single.__p;
   assert.match(single.__t.join(' '), /لا شعب أخرى لهذا الصف/);
+});
+
+test('تقرير بند واحد لمجموعة الشعب: شعبة بلا هذا العمود لا تدخل، وبشعبة واحدة تنبيه ولا تقرير', async () => {
+  const app = groupEnv({ setup: `SH[2].columns = SH[2].columns.filter(c => c.id !== 'Ct1'); SH[2].scores = SH[2].scores.filter(s => s.column_id !== 'Ct1');
+    crmGradeAnalysis.key = 'At1'; window.__t = []; showToast = (m, k) => window.__t.push(m);` });
+  const h = await build(app);
+  assert.match(h, /ثانية أول/);
+  assert.match(h, /ثانية سادس/);
+  assert.doesNotMatch(h, /ثانية سابع/, 'شعبة بلا الاختبار الأول لا تدخل');
+  const one = groupEnv({ setup: `SH[1].columns = SH[1].columns.filter(c => c.id !== 'Bt1'); SH[1].scores = SH[1].scores.filter(s => s.column_id !== 'Bt1');
+    SH[2].columns = SH[2].columns.filter(c => c.id !== 'Ct1'); SH[2].scores = SH[2].scores.filter(s => s.column_id !== 'Ct1');
+    crmGradeAnalysis.key = 'At1'; window.__t = []; showToast = (m, k) => window.__t.push(m);` });
+  assert.equal(await build(one), '');
+  assert.match(one.__t.join(' '), /لا بيانات مرصودة كافية في شعب الصف للمقارنة/);
 });
 
 /* ============ الأمان والتسجيل ============ */
