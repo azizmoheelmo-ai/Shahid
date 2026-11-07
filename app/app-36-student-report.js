@@ -58,6 +58,19 @@ function srDomainOf(c, toolTypeOf){
   return null;
 }
 
+/* متوسط الشعبة لفترة مكوّن (نسبة من درجته الكاملة): من breakdown الكشف المحمَّل (Map مكوّن ← Map طالب ← {p1,p2,p3})،
+   ومن لم تُرصد له الفترة لا يُحسب. null إن لم يوجد أحد */
+function srPeriodClassPct(breakdown, compId, k, max){
+  const m = breakdown && breakdown.get(compId);
+  if(!m || !(Number(max) > 0)) return null;
+  const vals = [];
+  m.forEach(v => {
+    const x = v ? v['p' + k] : null;
+    if(x !== null && x !== undefined && Number.isFinite(Number(x))) vals.push(Number(x));
+  });
+  return vals.length ? 100 * vals.reduce((a, b) => a + b, 0) / vals.length / Number(max) : null;
+}
+
 /* ============ دوال صرفة: صفوف البنود (والفترات) ============
    items: [{ id, name, max, score, kind, tool_id, category }]
    breakdown: Map(columnId → Map(studentId → {p1,p2,p3})) أو null
@@ -78,7 +91,7 @@ function srBuildRows(items, studentId, breakdown, cfgOf, classPctOf, toolTypeOf)
         const sc = bd['p' + k];
         if(sc === null || sc === undefined) continue;
         if(counted !== null && k > counted) continue; /* فترة لم تبدأ/لم تنتهِ: لا أثر لها فلا تُعرض ولا يُشار إليها (م9) */
-        periodRows.push(Object.assign({}, base, { row: 'period', period: k, label: `${x.name} — ${PERIOD_NAMES[k]}`, score: Number(sc), pct: srPct(sc, x.max), classPct: null }));
+        periodRows.push(Object.assign({}, base, { row: 'period', period: k, label: `${x.name} — ${PERIOD_NAMES[k]}`, score: Number(sc), pct: srPct(sc, x.max), classPct: srPeriodClassPct(breakdown, x.id, k, x.max) }));
       }
     }
     const classPct = classPctOf ? classPctOf(x.id) : null;
@@ -87,7 +100,7 @@ function srBuildRows(items, studentId, breakdown, cfgOf, classPctOf, toolTypeOf)
       rows.push(Object.assign({}, base, { row: 'sub', label: `${x.name} — المحسوب في المجموع`, score: Number(x.score), pct: srPct(x.score, x.max), classPct }));
     } else if(periodRows.length === 1){
       /* فترة واحدة معدودة: صف واحد باسم الفترة، بلا صف مجموع مكرَّر */
-      rows.push(Object.assign({}, base, { row: 'item', label: periodRows[0].label, score: Number(x.score), pct: srPct(x.score, x.max), classPct }));
+      rows.push(Object.assign({}, base, { row: 'item', period: periodRows[0].period, label: periodRows[0].label, score: Number(x.score), pct: srPct(x.score, x.max), classPct }));
     } else {
       rows.push(Object.assign({}, base, { row: 'item', label: x.name, score: Number(x.score), pct: srPct(x.score, x.max), classPct }));
     }
@@ -280,7 +293,7 @@ const SR_CSS = `
 .sr thead{display:table-header-group}.sr tr{break-inside:avoid}
 .sr th{background:#15445a;color:#fff;padding:3px 7px;text-align:right;font-weight:700}
 .sr td{padding:3px 7px;border-bottom:1px solid #e3e9ec;vertical-align:top}.sr tr:nth-child(even) td{background:#f3f6f8}
-.sr .n{text-align:center}.sr table.two td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.two th:nth-child(3){border-left:2px solid #fff}.sr tr.sub td{font-weight:700;background:#eaf1f5}
+.sr .n{text-align:center}.sr table.itm tbody.grp{break-inside:avoid}.sr table.itm tbody.grp td{background:#fff}.sr table.itm tbody.grp:nth-of-type(even) td{background:#f3f6f8}.sr table.itm td.gn{border-left:1px solid #e3e9ec}.sr table.itm tbody.grp td.cnt{background:#eaf1f5;border-right:1px solid #e3e9ec}.sr table.two td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.two th:nth-child(3){border-left:2px solid #fff}.sr tr.sub td{font-weight:700;background:#eaf1f5}
 .sr .chip{display:inline-block;border-radius:9px;padding:0 9px;font-size:10px;color:#fff;font-weight:700;line-height:1.7}
 .sr .m{background:#07a869}.sr .j{background:#3d7eb9}.sr .w{background:#7258a4}
 .sr .bar{height:8px;background:#e8eef1;border-radius:4px;min-width:80px}.sr .bar i{display:block;height:100%;border-radius:4px}
@@ -301,23 +314,52 @@ const srScore = (s, max) => srNum(`${formatScore(s)} / ${formatScore(max)}`);
 const srChip = (lv, extra) => lv ? `<span class="chip ${lv.key}"${extra || ''}>${lv.label}</span>` : '';
 
 function srItemsTableHtml(rows, rules, analytic){
+  if(analytic) return srItemsGroupedHtml(rows, rules);
   const e = escapeHtml;
-  const head = analytic
-    ? '<tr><th>البند</th><th class="n">الدرجة</th><th class="n">المستوى</th><th class="n">متوسط الشعبة</th><th class="n">المجال</th></tr>'
-    : '<tr><th>البند</th><th class="n">الدرجة</th><th class="n">النسبة</th><th class="n">المستوى</th><th style="width:28%"></th></tr>';
-  /* صف المكوّن الكلي (row: 'sub') بيانات داخلية للتشخيص ولا يُرسم (ق6) */
+  const head = '<tr><th>البند</th><th class="n">الدرجة</th><th class="n">النسبة</th><th class="n">المستوى</th><th style="width:28%"></th></tr>';
+  /* صف المكوّن الكلي (row: 'sub') بيانات داخلية للتشخيص ولا يُرسم في نسخة الدرجات (ق6) */
   const body = rows.filter(r => r.row !== 'sub').map(r => {
     const lv = srLevel(r.pct, rules);
-    const cls = r.row === 'sub' ? ' class="sub"' : '';
-    const levelCell = srChip(lv);
-    if(analytic){
-      const meas = r.measures && r.row !== 'period' ? `<div class="ev">يقيس: ${e(r.measures)}</div>` : '';
-      return `<tr${cls}><td>${e(r.label)}${meas}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${levelCell}</td><td class="n">${r.classPct === null || r.classPct === undefined ? '—' : srNum(srRound(r.classPct) + '%')}</td><td class="n">${r.domain ? SR_DOMAIN_LABELS[r.domain] : '—'}</td></tr>`;
-    }
     const bar = !lv ? '' : `<div class="bar"><i class="${lv.key}" style="width:${Math.max(0, Math.min(100, r.pct))}%"></i></div>`;
-    return `<tr${cls}><td>${e(r.label)}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${srNum(srRound(r.pct) + '%')}</td><td class="n">${levelCell}</td><td>${bar}</td></tr>`;
+    return `<tr><td>${e(r.label)}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${srNum(srRound(r.pct) + '%')}</td><td class="n">${srChip(lv)}</td><td>${bar}</td></tr>`;
   }).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+/* الجدول التحليلي (ق7، الخيار ج): البند · الفترة · الدرجة · المستوى · متوسط الشعبة · الداخل في المجموع.
+   المكوّن ذو الفترات المنتهية (اثنتين فأكثر) خلية مدمجة باسمه وتحته صف لكل فترة، وعمود «الداخل في المجموع» مدمج بدرجة المكوّن
+   ومستواه ومتوسط الشعبة له؛ وغيره صف واحد تتكرر درجته بالعمود الأخير */
+function srItemsGroupedHtml(rows, rules){
+  const e = escapeHtml;
+  const avg = v => v === null || v === undefined ? '—' : srNum(srRound(v) + '%');
+  const short = k => String(PERIOD_NAMES[k] || '').replace('الفترة ', '');
+  const head = '<tr><th>البند</th><th class="n">الفترة</th><th class="n">الدرجة</th><th class="n">المستوى</th><th class="n">متوسط الشعبة</th><th class="n">الداخل في المجموع</th></tr>';
+  const groups = [];
+  for(let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    if(r.row === 'period'){
+      let j = i; const periods = [];
+      while(j < rows.length && rows[j].row === 'period' && rows[j].id === r.id){ periods.push(rows[j]); j++; }
+      const total = rows[j] && rows[j].row === 'sub' && rows[j].id === r.id ? rows[j] : null;
+      groups.push({ name: r.name, periods, total });
+      i = total ? j : j - 1;
+    } else if(r.row === 'item'){
+      groups.push({ name: r.name, measures: r.measures, single: r });
+    }
+  }
+  const body = groups.map(g => {
+    if(g.single){
+      const r = g.single;
+      const meas = r.measures ? `<div class="ev">يقيس: ${e(r.measures)}</div>` : '';
+      return `<tbody class="grp"><tr><td><b>${e(g.name)}</b>${meas}</td><td class="n">${r.period ? e(short(r.period)) : '—'}</td><td class="n">${srScore(r.score, r.max)}</td><td class="n">${srChip(srLevel(r.pct, rules))}</td><td class="n">${avg(r.classPct)}</td><td class="n cnt"><b>${srScore(r.score, r.max)}</b></td></tr></tbody>`;
+    }
+    const n = g.periods.length;
+    const t = g.total;
+    const cnt = t ? `<td rowspan="${n}" class="n cnt"><b>${srScore(t.score, t.max)}</b><div class="ev">${srChip(srLevel(t.pct, rules))}</div>${t.classPct === null || t.classPct === undefined ? '' : `<div class="ev">الشعبة ${srNum(srRound(t.classPct) + '%')}</div>`}</td>` : `<td rowspan="${n}" class="n cnt">—</td>`;
+    return `<tbody class="grp">${g.periods.map((p, k) =>
+      `<tr>${k === 0 ? `<td rowspan="${n}" class="gn"><b>${e(g.name)}</b></td>` : ''}<td class="n">${e(short(p.period))}</td><td class="n">${srScore(p.score, p.max)}</td><td class="n">${srChip(srLevel(p.pct, rules))}</td><td class="n">${avg(p.classPct)}</td>${k === 0 ? cnt : ''}</tr>`).join('')}</tbody>`;
+  }).join('');
+  return `<table class="itm">${`<thead>${head}</thead>`}${body}</table>`;
 }
 
 function srBoxes(items, cls){ return items.map(t => `<div class="box ${cls}">${t}</div>`).join(''); }

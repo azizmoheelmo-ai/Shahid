@@ -360,15 +360,13 @@ test('المستوى العام لا يُحكم به بلا أدلة كافية�
   assert.match(h, /لا أدلة كافية للحكم على المستوى العام/);
 });
 
-test('فترات المكوّن: صف لكل فترة بلا صف مجموع ولا بديل عنه، والتشخيص يبقى معتمدًا على المكوّن الكلي (ق6)', () => {
+test('فترات المكوّن: نسخة الدرجات صف لكل فترة بلا صف مجموع (ق6)، والتشخيص يبقى معتمدًا على المكوّن الكلي', () => {
   const built = buildRows([item('h', 'الواجبات', 15, 6, { kind: 'homework' })], { h: { n: 2, starts: ['2026-10-01'], ended: true } }, { h: { p1: 5, p2: 7, p3: null } });
   assert.deepEqual(built.rows.map(r => r.row), ['period', 'period', 'sub'], 'الصف الكلي موجود كبيانات');
-  for(const v of ['grades', 'analytical']){
-    const h = html(v, { rows: built.rows });
-    assert.match(h, /الواجبات — الفترة الأولى/);
-    assert.match(h, /الواجبات — الفترة الثانية/);
-    assert.doesNotMatch(h, /المحسوب في المجموع/, v + ': لا صف مجموع ولا نص بديل');
-  }
+  const g = html('grades', { rows: built.rows });
+  assert.match(g, /الواجبات — الفترة الأولى/);
+  assert.match(g, /الواجبات — الفترة الثانية/);
+  assert.doesNotMatch(g, /المحسوب في المجموع|الداخل في المجموع/, 'نسخة الدرجات: لا صف مجموع ولا نص بديل');
   /* التشخيص يستعمل صف المكوّن الكلي (6 من 15 = 40%) فيُنتج توصية الواجبات */
   const d = dx(built.rows.map(r => Object.assign({}, r, { kind: 'homework', domain: 'taalumi' })), { homework: { total: 6, submitted: 2, partial: 0, late: 0, missing: 4 } });
   assert.equal(d.recommendations.length, 1);
@@ -387,10 +385,66 @@ test('الفترات التي لم تنتهِ لا تظهر في الصفحة و
     { m: { n: 3, starts: ['2026-10-01', '2026-11-01'] }, h: { n: 2, starts: ['2026-10-01'] } }, { m: { p1: 8, p2: 10, p3: 2 }, h: { p1: 5, p2: 7, p3: null } });
   for(const v of ['grades', 'analytical']){
     const h = html(v, { rows: built.rows });
-    assert.doesNotMatch(h, /جارية|لم تدخل|الفترة الثالثة|الواجبات — الفترة الثانية/, v);
-    assert.match(h, /المشاركة — الفترة الثانية/);
-    assert.match(h, /الواجبات — الفترة الأولى/);
+    assert.doesNotMatch(h, /جارية|لم تدخل|الفترة الثالثة|الثالثة/, v);
   }
+  const g = html('grades', { rows: built.rows });
+  assert.match(g, /المشاركة — الفترة الثانية/);
+  assert.match(g, /الواجبات — الفترة الأولى/);
+  assert.doesNotMatch(g, /الواجبات — الفترة الثانية/);
+  const a = html('analytical', { rows: built.rows });
+  assert.match(a, /<td rowspan="2" class="gn"><b>المشاركة<\/b><\/td>/, 'فترتان منتهيتان: خلية مدمجة');
+  assert.match(a, /<td class="n">الثانية<\/td>/);
+  assert.doesNotMatch(a, /<td rowspan="\d" class="gn"><b>الواجبات/, 'فترة واحدة معدودة: صف واحد لا مجموعة');
+});
+
+/* ============ الجدول التحليلي: الخيار ج (ق7) ============ */
+test('srPeriodClassPct: متوسط الشعبة لفترة المكوّن من درجات كل الطلاب، وغير المرصود لا يُحسب', () => {
+  const app = loadApp();
+  const bd = new Map([['m', new Map([['a', { p1: 8, p2: 10 }], ['b', { p1: 6, p2: null }], ['c', { p1: null, p2: 5 }], ['d', null]])]]);
+  const f = (id, k, max) => runInAppContext(app, `srPeriodClassPct(new Map([['m', new Map(${JSON.stringify([...bd.get('m')])})]]), ${JSON.stringify(id)}, ${k}, ${max})`);
+  assert.equal(f('m', 1, 10), 70, '(8 + 6) / 2 / 10');
+  assert.equal(f('m', 2, 10), 75, '(10 + 5) / 2 / 10');
+  assert.equal(f('m', 3, 10), null, 'لا أحد');
+  assert.equal(f('x', 1, 10), null, 'مكوّن غير موجود');
+  assert.equal(f('m', 1, 0), null, 'درجة كاملة صفر');
+  assert.equal(runInAppContext(app, 'srPeriodClassPct(null, "m", 1, 10)'), null);
+});
+
+test('صفوف الفترات تحمل متوسط شعبتها من breakdown، ومن لا فترات له لا يتأثر', () => {
+  const app = loadApp();
+  const out = J(runInAppContext(app, `
+    const bd = new Map([['m', new Map([['s', { p1: 8, p2: 10, p3: null }], ['t', { p1: 6, p2: 5, p3: null }]])]]);
+    srBuildRows(${JSON.stringify([item('m', 'المشاركة', 10, 9, { kind: 'participation' })])}, 's', bd, () => ({ n: 3, starts: ['2026-10-01', '2026-11-01'], ended: true }), () => 73, () => null)`));
+  const by = Object.fromEntries(out.rows.map(r => [r.label, r]));
+  assert.equal(by['المشاركة — الفترة الأولى'].classPct, 70);
+  assert.equal(by['المشاركة — الفترة الثانية'].classPct, 75);
+  assert.equal(by['المشاركة — المحسوب في المجموع'].classPct, 73, 'متوسط المكوّن الكلي من كشف الدرجات');
+});
+
+test('الجدول التحليلي (ج): خلية مدمجة للمكوّن، متوسط شعبة لكل فترة، وعمود «الداخل في المجموع» مدمج بدرجة المكوّن ومستواه ومتوسطه', () => {
+  const app = loadApp();
+  const built = J(runInAppContext(app, `
+    const bd = new Map([['m', new Map([['s', { p1: 8, p2: 10, p3: null }], ['t', { p1: 6, p2: 5, p3: null }]])]]);
+    srBuildRows(${JSON.stringify([
+      item('m', 'المشاركة', 10, 9, { kind: 'participation' }),
+      item('t1', 'الاختبار الأول', 10, 9, { category: 'tests', measures: 'القراءة' })
+    ])}, 's', bd, x => x.id === 'm' ? { n: 2, starts: ['2026-10-01'], ended: true } : null, id => id === 'm' ? 73 : 68, () => null)`));
+  const a = html('analytical', { rows: built.rows });
+  assert.match(a, /<th class="n">الفترة<\/th><th class="n">الدرجة<\/th><th class="n">المستوى<\/th><th class="n">متوسط الشعبة<\/th><th class="n">الداخل في المجموع<\/th>/);
+  assert.doesNotMatch(a, /<th class="n">المجال<\/th>/, 'عمود المجال حُذف كما في الصورة المعتمدة');
+  assert.match(a, /<td rowspan="2" class="gn"><b>المشاركة<\/b><\/td><td class="n">الأولى<\/td>/);
+  assert.match(a, /<td class="n"><bdi dir="ltr">70%<\/bdi><\/td><td rowspan="2" class="n cnt"><b><bdi dir="ltr">9 \/ 10<\/bdi><\/b>/, 'متوسط الفترة الأولى 70% ثم الخلية المدمجة 9 / 10');
+  assert.match(a, /<td class="n">الثانية<\/td>/);
+  assert.match(a, /<bdi dir="ltr">75%<\/bdi>/, 'متوسط الفترة الثانية');
+  assert.match(a, /الشعبة <bdi dir="ltr">73%<\/bdi>/, 'متوسط شعبة المكوّن الكلي بالخلية المدمجة');
+  assert.equal((a.match(/rowspan="2"/g) || []).length, 2, 'خليتان مدمجتان فقط: اسم المكوّن، والداخل في المجموع');
+  assert.match(a, /<tbody class="grp">/, 'كل مكوّن في tbody لا ينقسم بين صفحتين');
+  /* الاختبار: صف واحد، الفترة «—»، ودرجته تتكرر بالعمود الأخير، و«يقيس» تحت اسمه */
+  assert.match(a, /<td><b>الاختبار الأول<\/b><div class="ev">يقيس: القراءة<\/div><\/td><td class="n">—<\/td>/);
+  assert.match(a, /<td class="n cnt"><b><bdi dir="ltr">9 \/ 10<\/bdi><\/b><\/td><\/tr><\/tbody>/);
+  /* نسخة الدرجات بلا تغيير: لا أعمدة شعبة ولا «الداخل في المجموع» */
+  const g = html('grades', { rows: built.rows });
+  assert.doesNotMatch(g, /الداخل في المجموع|متوسط الشعبة|rowspan/);
 });
 
 /* ============ الدمج والأمان ============ */
