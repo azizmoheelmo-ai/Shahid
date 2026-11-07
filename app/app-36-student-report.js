@@ -305,7 +305,8 @@ function srItemsTableHtml(rows, rules, analytic){
   const head = analytic
     ? '<tr><th>البند</th><th class="n">الدرجة</th><th class="n">المستوى</th><th class="n">متوسط الشعبة</th><th class="n">المجال</th></tr>'
     : '<tr><th>البند</th><th class="n">الدرجة</th><th class="n">النسبة</th><th class="n">المستوى</th><th style="width:28%"></th></tr>';
-  const body = rows.map(r => {
+  /* صف المكوّن الكلي (row: 'sub') بيانات داخلية للتشخيص ولا يُرسم (ق6) */
+  const body = rows.filter(r => r.row !== 'sub').map(r => {
     const lv = srLevel(r.pct, rules);
     const cls = r.row === 'sub' ? ' class="sub"' : '';
     const levelCell = srChip(lv);

@@ -360,6 +360,21 @@ test('المستوى العام لا يُحكم به بلا أدلة كافية�
   assert.match(h, /لا أدلة كافية للحكم على المستوى العام/);
 });
 
+test('فترات المكوّن: صف لكل فترة بلا صف مجموع ولا بديل عنه، والتشخيص يبقى معتمدًا على المكوّن الكلي (ق6)', () => {
+  const built = buildRows([item('h', 'الواجبات', 15, 6, { kind: 'homework' })], { h: { n: 2, starts: ['2026-10-01'], ended: true } }, { h: { p1: 5, p2: 7, p3: null } });
+  assert.deepEqual(built.rows.map(r => r.row), ['period', 'period', 'sub'], 'الصف الكلي موجود كبيانات');
+  for(const v of ['grades', 'analytical']){
+    const h = html(v, { rows: built.rows });
+    assert.match(h, /الواجبات — الفترة الأولى/);
+    assert.match(h, /الواجبات — الفترة الثانية/);
+    assert.doesNotMatch(h, /المحسوب في المجموع/, v + ': لا صف مجموع ولا نص بديل');
+  }
+  /* التشخيص يستعمل صف المكوّن الكلي (6 من 15 = 40%) فيُنتج توصية الواجبات */
+  const d = dx(built.rows.map(r => Object.assign({}, r, { kind: 'homework', domain: 'taalumi' })), { homework: { total: 6, submitted: 2, partial: 0, late: 0, missing: 4 } });
+  assert.equal(d.recommendations.length, 1);
+  assert.match(d.recommendations[0].evidence, /لم يسلّم 4 من 6/);
+});
+
 test('ما لم يُرصد لا يظهر ولا يُسمّى: لا بند ولا سطر «لم تُرصد بعد» (م9، ق5)', () => {
   const h = html('grades', { missing: ['النهائي'] });
   assert.doesNotMatch(h, /النهائي|لم تُرصد بعد/);
