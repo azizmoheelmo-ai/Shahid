@@ -1063,6 +1063,13 @@ function buildPlanHtml(asDraft){
   const levels = withGoals.map(s => s.level).filter(Boolean);
   const topLevel = levels.length ? Math.max(...levels) : null;
   const maxW = Math.max(1, ...elements.map(el => Number(getElementWeight(el.key)) || 0));
+  /* المنجز: شواهد سنة الدورة فقط (planShahidCounts لكل عنصر، goalShahidCounts لكل هدف). لا يُعرض «0 / ن» قبل أي توثيق (م9) */
+  const doneOf = el => Number(planShahidCounts[el.key]) || 0;
+  const totalDone = elements.reduce((a, el) => a + doneOf(el), 0);
+  const anyDone = totalDone > 0;
+  /* التقييم الذاتي: يظهر عموده فقط إن قيّم المعلم عنصرًا واحدًا على الأقل */
+  const selfOf = el => { const l = Number(((mySelfAssessment || {})[el.key] || {}).self_level); return LEVEL_NAMES[l] ? l : null; };
+  const anySelf = elements.some(el => selfOf(el));
   const goalsWord = n => n === 1 ? 'هدف' : 'أهداف';
   const lvlText = l => LEVEL_NAMES[l] + ' (' + l + ')';
 
@@ -1072,7 +1079,7 @@ function buildPlanHtml(asDraft){
     + kpi(N, withGoals.length + ' من ' + elements.length, 'عناصر لها أهداف')
     + kpi(B, totalGoals, totalGoals === 1 ? 'هدف' : 'هدفًا')
     + (topLevel ? kpi(GREEN, LEVEL_NAMES[topLevel] + ' ' + topLevel, 'أعلى مستوى مستهدف') : '')
-    + (totalEvidence ? kpi(PURPLE, totalEvidence, 'شاهدًا مستهدفًا') : '')
+    + (anyDone ? kpi(PURPLE, totalDone + ' / ' + totalEvidence, 'شواهد موثّقة من المستهدف') : (totalEvidence ? kpi(PURPLE, totalEvidence, 'شاهدًا مستهدفًا') : ''))
     + `</div>`;
   const th = t => `<th style="background:${N};color:#fff;padding:6px 8px;text-align:right;font-size:11.5px;font-weight:700;">${t}</th>`;
   const td = (t, extraStyle) => `<td style="padding:5px 8px;border-top:1px solid ${L};font-size:12px;${extraStyle || ''}">${t}</td>`;
@@ -1082,14 +1089,15 @@ function buildPlanHtml(asDraft){
     const s = stats[i];
     const bar = `<span style="display:inline-block;vertical-align:middle;width:84px;height:8px;border-radius:4px;background:#e6eef4;"><span style="display:block;width:${Math.round(w / maxW * 100)}%;height:100%;border-radius:4px;background:${MOE_GRAD};"></span></span>`;
     return `<tr>${td(i + 1)}${td(escapeHtml(name))}${td(bar + ' ' + w + '%', 'white-space:nowrap;')}`
-      + `${td(s.goals || '—')}${td(s.level ? lvlText(s.level) : '—', 'white-space:nowrap;')}${td(s.evidence || '—')}</tr>`;
+      + `${td(s.goals || '—')}${td(s.level ? lvlText(s.level) : '—', 'white-space:nowrap;')}${td(anyDone ? doneOf(el) + (s.evidence ? ' / ' + s.evidence : '') : (s.evidence || '—'), 'white-space:nowrap;')}`
+      + `${anySelf ? td(selfOf(el) ? lvlText(selfOf(el)) : '—', 'white-space:nowrap;') : ''}</tr>`;
   }).join('');
-  const summaryTable = `<div style="margin-top:12px;border:1px solid ${L};border-radius:8px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${th('#')}${th('العنصر')}${th('الوزن')}${th('أهداف')}${th('المستوى')}${th('شواهد')}</tr></thead><tbody>${summaryRows}</tbody></table></div>`;
+  const summaryTable = `<div style="margin-top:12px;border:1px solid ${L};border-radius:8px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${th('#')}${th('العنصر')}${th('الوزن')}${th('أهداف')}${th('المستوى')}${th('شواهد')}${anySelf ? th('التقييم الذاتي') : ''}</tr></thead><tbody>${summaryRows}</tbody></table></div>`;
   const summaryPage = `<div style="break-after:page;page-break-after:always;">
       ${moeHeaderHtml((asDraft ? 'مسودة أهداف الأداء الوظيفي' : 'أهداف الأداء الوظيفي'), 'دورة الأداء ' + getCycleYear() + ' — ' + role + (stage ? ' — ' + stage : ''), [], '0')}
       ${asDraft ? `<div style="background:#eaf2f8;border-right:3px solid ${B};padding:9px 12px;margin:12px 0 0;font-size:11px;color:${N};line-height:1.85;">هذه مسودة نقاش تُعرض على المدير المباشر في جلسة التخطيط، وليست نموذجًا رسميًا يُدخل في نظام فارس. الصياغة النهائية للأهداف تتم بالاتفاق المشترك بين المعلم والمدير وفق نموذج التقييم المعتمد في النظام التقني.</div>` : ''}
       ${kpis}${summaryTable}
-      <div style="font-size:11px;color:${M};margin-top:10px;line-height:1.9;">${escapeHtml(extra)}<br>المصدر: عناصر التقييم الأحد عشر لنموذج (معلم) — الدليل الإرشادي لإدارة الأداء الوظيفي، الإصدار الثاني.</div>
+      <div style="font-size:11px;color:${M};margin-top:10px;line-height:1.9;">${escapeHtml(extra)}<br>${anySelf ? 'سلم التقدير: 5 مثالي — 4 فاق التوقعات — 3 وافق التوقعات — 2 بحاجة إلى تطوير — 1 غير مرضٍ<br>' : ''}المصدر: عناصر التقييم الأحد عشر لنموذج (معلم) — الدليل الإرشادي لإدارة الأداء الوظيفي، الإصدار الثاني.</div>
     </div>`;
 
   /* ---- التفاصيل: كل هدف بجدول بتسميات جانبية؛ الصف الفارغ يُحذف ----
@@ -1098,13 +1106,14 @@ function buildPlanHtml(asDraft){
   const hasList = a => Array.isArray(a) && a.some(s => s && String(s).trim());
   const chip = (bg, fg, t) => `<span style="background:${bg};color:${fg};font-size:11px;border-radius:10px;padding:1px 10px;white-space:nowrap;">${escapeHtml(t)}</span>`;
   const detailRow = (label, color, content) => `<div style="display:grid;grid-template-columns:104px 1fr;border-top:1px solid ${L};font-size:12px;line-height:1.8;"><div style="padding:7px 12px;font-size:11.5px;font-weight:700;color:${N};background:${T};border-left:1px solid ${L};border-right:3px solid ${color};">${label}</div><div style="padding:5px 10px;">${content}</div></div>`;
+  const goalEvidenceChip = g => !g.target_count ? '' : chip('#eaf2f8', '#2a6397', 'شواهد ' + (anyDone && g.id ? (Number(goalShahidCounts[g.id]) || 0) + ' / ' : '') + g.target_count);
   const goalBlock = (g, gi, elIndex) => `
     <div class="pdf-avoid-break" style="break-inside:avoid;page-break-inside:avoid;margin-top:10px;border:1px solid ${L};border-radius:6px;overflow:hidden;">
       <div style="display:flex;align-items:center;gap:8px;background:#e6eef4;padding:7px 12px;">
         <div style="flex:1;font-size:13px;font-weight:700;color:${N};">${escapeHtml(goalDisplayName(g, gi))}</div>
         ${gi > 0 ? chip('#fff', M, 'تابع العنصر ' + (elIndex + 1)) : ''}
         ${g.target_level ? chip('#e3f6ee', '#056c45', 'المستهدف ' + LEVEL_NAMES[g.target_level] + ' ' + g.target_level) : ''}
-        ${g.target_count ? chip('#eaf2f8', '#2a6397', 'شواهد ' + g.target_count) : ''}
+        ${goalEvidenceChip(g)}
       </div>
       ${g.target_performance && String(g.target_performance).trim() ? detailRow('الأداء المستهدف', B, escapeHtml(g.target_performance)) : ''}
       ${hasList(g.success_indicators) ? detailRow('مؤشرات النجاح', B, bullets(g.success_indicators)) : ''}
@@ -1143,6 +1152,7 @@ function buildPlanHtml(asDraft){
 /* طباعة الخطة / حفظها PDF بنص حقيقي (app-35) */
 async function printPlan(evt){
   await shahidWarmLogos();
+  try{ await loadSelfAssessment(); } catch(e){ /* عمود التقييم الذاتي اختياري: لا يمنع الطباعة */ }
   const html = buildPlanHtml();
   if(!html){
     showToast('لم تحدد أي مستهدف بعد — عبّئ خطتك أولًا.', 'error');
@@ -1403,41 +1413,7 @@ async function exportPortfolio(evt){
       ['إجمالي الشواهد الموثّقة', records.length]
     ], 'تاريخ الإصدار: ' + new Date().toLocaleDateString('ar-SA')));
 
-    /* صفحة الخطة والتقييم الذاتي */
-    const summaryRows = elements.map(el => {
-      const { name, weight } = splitLabel(el.label);
-      const p = myPlan[el.key] || {};
-      const s = mySelfAssessment[el.key] || {};
-      const done = records.filter(r => r.element_key === el.key).length;
-      return `<tr>
-        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:right;font-size:11px;">${escapeHtml(name)}</td>
-        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${weight}</td>
-        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${p.target_level || '—'}</td>
-        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${done}${p.target_count ? ' / ' + p.target_count : ''}</td>
-        <td style="padding:7px 9px;border:1px solid #d3dee6;text-align:center;font-size:11px;">${s.self_level || '—'}</td>
-      </tr>`;
-    }).join('');
-
-    await addHtmlPage(`
-      <div dir="rtl" style="width:794px;background:#fff;font-family:${MOE_FONT};color:#232323;">
-        <div style="padding-top:20px;">${moeHeaderHtml('ملخص الخطة والتقييم الذاتي', '')}</div>
-        <div style="padding:20px 28px;">
-          <table style="width:100%;border-collapse:collapse;">
-            <thead><tr style="background:#f4f8fb;">
-              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">عنصر الأداء</th>
-              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">الوزن</th>
-              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">المستهدف</th>
-              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">الشواهد</th>
-              <th style="padding:8px;border:1px solid #d3dee6;font-size:11px;">التقييم الذاتي</th>
-            </tr></thead>
-            <tbody>${summaryRows}</tbody>
-          </table>
-          <p style="font-size:10.5px;color:#51636d;margin-top:14px;line-height:1.8;">
-            سلم التقدير: 5 مثالي — 4 فاق التوقعات — 3 وافق التوقعات — 2 بحاجة إلى تطوير — 1 غير مرضٍ
-          </p>
-        </div>
-      </div>`);
-
+    /* لا صفحة ملخص منفصلة: ملخص الخطة (بالمنجز والتقييم الذاتي) أول صفحات تقرير الخطة التالي (ق24) */
     /* صفحات تفاصيل الخطة الكاملة — كل هدف بكل تفاصيله (الأداء المستهدف، المؤشرات، الشواهد الموصى بها، الإجراء)،
        بما يشمل أكثر من هدف واحد للعنصر الواحد إن وُجد — لا مجرد سطر ملخّص واحد */
     const planDetailHtml = buildPlanHtml(false);

@@ -120,7 +120,7 @@ test('كل الشواهد: بلا شواهد لا طباعة', async () => {
   assert.equal(app.__n, 0);
 });
 
-test('ملف الإنجاز: غلاف ثم ملخص ثم تفاصيل الخطة ثم الشواهد، والغلاف والشواهد صفحات كاملة والخطة تنساب', async () => {
+test('ملف الإنجاز: غلاف ثم تقرير الخطة (ملخصه أولًا) ثم الشواهد، والغلاف والشواهد صفحات كاملة والخطة تنساب', async () => {
   const app = printApp(`window.__calls = []; printPages = async (pages, title) => { window.__calls.push({ pages, title }); };
     loadPlan = async () => {}; loadSelfAssessment = async () => {};
     getElementsOrder = () => [{ key: 'A', label: 'عنصر (10%)' }];
@@ -132,12 +132,13 @@ test('ملف الإنجاز: غلاف ثم ملخص ثم تفاصيل الخطة
   await app.__r;
   const c = app.__calls[0];
   const pages = [...c.pages];
-  assert.equal(pages.length, 5);
-  assert.deepEqual(pages.map(p => p.fit), ['page', 'page', 'width', 'page', 'page']);
+  assert.equal(pages.length, 4);
+  assert.deepEqual(pages.map(p => p.fit), ['page', 'width', 'page', 'page']);
+  assert.equal(pages[1].designWidth, 700, 'الخطة بعرض الطباعة الفعلي');
   assert.match(pages[0].html, /ملف الإنجاز الوظيفي/);
-  assert.match(pages[1].html, /ملخص الخطة والتقييم الذاتي/);
-  assert.match(pages[2].html, /plan-detail/);
-  assert.match(pages[3].html, /شاهد 1/);
+  assert.match(pages[1].html, /plan-detail/);
+  assert.doesNotMatch(pages.map(p => p.html).join(''), /ملخص الخطة والتقييم الذاتي/, 'لا صفحة ملخص قديمة منفصلة');
+  assert.match(pages[2].html, /شاهد 1/);
   assert.match(c.title, /^ملف-الإنجاز-/);
 });
 
