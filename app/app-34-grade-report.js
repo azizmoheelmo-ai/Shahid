@@ -200,7 +200,7 @@ async function exportGradeReport(btn){
   const a = crmGradeAnalysis;
   if(!a || gradeReportBusy) return;
   const prefs = gradeReportPrefsNow();
-  const scope = a.scope === 'group' ? 'group' : 'section';
+  const scope = gaEffectiveScope(a);
   const withNames = !!a.withNames;
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
   const testsOn = appToolOn('tests');
@@ -214,7 +214,7 @@ async function exportGradeReport(btn){
       const v = gradeAnalysisView(a);
       if(!v.stats.recorded){ showToast('لا درجات مرصودة لتصديرها', 'error'); return ''; }
       let prev = null;
-      if(prefs.show.compare){
+      if(prefs.show.compare || (a.tab === 'compare' && a.cmp === 'prev')){ /* داخل «الفصل السابق» يُضمَّن القسم ولو أُطفئ في الخيارات */
         const term = previousGradeTerm(a.g.year, a.g.semester);
         const res = term ? (await loadGradeSheetsRaw([a.g.sectionId], term.year, term.semester))[0] : null;
         if(crmGradeAnalysis !== a) return '';

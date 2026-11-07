@@ -440,14 +440,22 @@ function gaStudentsHtml(a, v){
   return html + '<p class="crm-ga-fine">الأسماء من الأدنى إلى الأعلى نسبةً في «ضعاف» و«متوسطون»، ومن الأعلى في «متفوقون»، وغير المكتملين بالاسم. اضغط اسمًا لفتح صفحة الطالب، أو السهم ⤓ بجانبه لتنزيل تقريره.</p>';
 }
 
+/* نطاق زر PDF: ما اختاره المعلم صراحةً في «نطاق التقرير» يغلب؛ وإلا يتبع الشاشة المفتوحة — داخل «مقارنة الشعب» يُنزَّل
+   تقرير مقارنة شعب الصف (لا تقرير الشعبة)، وما عداها تقرير الشعبة. شكوى حقيقية: زر PDF في المقارنة كان يُنزّل تقرير الشعبة. */
+function gaEffectiveScope(a){
+  const hasSib = gradeSiblingSectionIds(a.g).length > 0;
+  if(a.scopeTouched) return a.scope === 'group' ? 'group' : 'section'; /* بلا شعب أخرى يظهر تنبيه التصدير */
+  return a.tab === 'compare' && a.cmp === 'sib' && hasSib ? 'group' : 'section';
+}
+
 /* شريط التصدير: PDF وExcel زرّان ظاهران دائمًا (نقرتان من فتح التحليل)، والخيارات مطوية */
 function gaExportHtml(a){
   const hasSib = gradeSiblingSectionIds(a.g).length > 0;
   const opts = a.exportOpen
     ? `<div class="crm-ga-exp"><label class="crm-ga-chk"><input type="checkbox" id="crmGaNames"${a.withNames ? ' checked' : ''} onchange="crmGradeAnalysis.withNames = this.checked"> مع أسماء الطلاب</label>
-        <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value">
-          <option value="section"${a.scope !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
-          <option value="group"${a.scope === 'group' && hasSib ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
+        <label class="gr-fld"><span>نطاق التقرير</span><select class="goal-input" id="crmGaScope" onchange="crmGradeAnalysis.scope = this.value; crmGradeAnalysis.scopeTouched = true">
+          <option value="section"${gaEffectiveScope(a) !== 'group' ? ' selected' : ''}>الشعبة الحالية</option>
+          <option value="group"${gaEffectiveScope(a) === 'group' ? ' selected' : ''}${hasSib ? '' : ' disabled'}>كل شعب الصف${hasSib ? '' : ' (لا شعب أخرى)'}</option></select></label>
         <button type="button" class="crm-ga-link" onclick="openGradeReportEditor('ga')">ترويسة التقرير: المدرسة والمعلم</button></div>`
     : '';
   return `<div class="crm-ga-bot">${opts}<div class="crm-ga-acts"><button type="button" class="btn btn-primary" onclick="exportGradeReport(this)">⤓ PDF للطباعة</button><button type="button" class="btn btn-outline" onclick="exportCrmGradeAnalysis('xlsx', this)">Excel</button></div>

@@ -187,7 +187,7 @@ test('شعبة واحدة بدرجات أو شعبتان بلا درجات: تن
 /* ============ الدمج ============ */
 test('التصدير: المجموع وبند واحد كلاهما بالتصميم الجديد (ق11)، وشعبة واحدة تنبيه كما كان', async () => {
   const run = (key, extra) => {
-    const app = groupEnv({ ids: extra && extra.ids, setup: `crmGradeAnalysis.key = ${JSON.stringify(key)}; crmGradeAnalysis.scope = 'group'; window.__out = []; window.__t = []; window.__raw = 0; showToast = (m, k) => window.__t.push(m);
+    const app = groupEnv({ ids: extra && extra.ids, setup: `crmGradeAnalysis.key = ${JSON.stringify(key)}; crmGradeAnalysis.scope = 'group'; crmGradeAnalysis.scopeTouched = true; window.__out = []; window.__t = []; window.__raw = 0; showToast = (m, k) => window.__t.push(m);
       loadGradeSheetsRaw = async ids => { window.__raw++; return []; };
       gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; window.__p = exportGradeReport(null);` });
     return app.__p.then(() => app);
@@ -209,7 +209,7 @@ test('التصدير: المجموع وبند واحد كلاهما بالتصم
   assert.doesNotMatch(h, /<b>الواجبات<\/b>|<b>المشاركة<\/b>/, 'البند المختار وحده');
   assert.match(h, /ضعف في بعض الشعب:<\/b> القراءة \(الاختبار الأول\) — ثانية سابع/);
   assert.doesNotMatch(h, /<tr class="sgtot">/, 'بند بلا فترات: لا صف مجموع');
-  const single = groupEnv({ sections: [{ id: 'A', grade_level_id: 'G' }, { id: 'B', grade_level_id: 'H' }, { id: 'C', grade_level_id: 'H' }], setup: `crmGradeAnalysis.scope = 'group'; window.__out = []; window.__t = []; showToast = (m, k) => window.__t.push(m);
+  const single = groupEnv({ sections: [{ id: 'A', grade_level_id: 'G' }, { id: 'B', grade_level_id: 'H' }, { id: 'C', grade_level_id: 'H' }], setup: `crmGradeAnalysis.scope = 'group'; crmGradeAnalysis.scopeTouched = true; window.__out = []; window.__t = []; showToast = (m, k) => window.__t.push(m);
     gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; window.__p = exportGradeReport(null);` });
   await single.__p;
   assert.match(single.__t.join(' '), /لا شعب أخرى لهذا الصف/);
@@ -247,4 +247,23 @@ test('أصناف الوحدة لا تتعارض مع style.css، ولا استع
 test('الملف مسجَّل بـindex.html وAPP_SHELL', () => {
   assert.match(read('index.html'), /app\/app-39-group-report\.js/);
   assert.match(read('sw.js'), /\.\/app\/app-39-group-report\.js/);
+});
+
+test('زر PDF يتبع الشاشة: «مقارنة الشعب» ينزّل تقرير مقارنة الشعب، والبقية تقرير الشعبة، وما اختاره المعلم يغلب', async () => {
+  const app = groupEnv();
+  const scopeAt = (tab, cmp, extra) => runInAppContext(app, `Object.assign(crmGradeAnalysis, { tab: ${JSON.stringify(tab)}, cmp: ${JSON.stringify(cmp)}, scope: 'section', scopeTouched: false }, ${JSON.stringify(extra || {})}); gaEffectiveScope(crmGradeAnalysis)`);
+  assert.equal(scopeAt('overview', null), 'section');
+  assert.equal(scopeAt('students', null), 'section');
+  assert.equal(scopeAt('compare', 'prev'), 'section', 'الفصل السابق: تقرير الشعبة');
+  assert.equal(scopeAt('compare', 'sib'), 'group');
+  assert.equal(scopeAt('compare', 'sib', { scope: 'section', scopeTouched: true }), 'section', 'اختيار صريح يغلب');
+  assert.equal(scopeAt('overview', null, { scope: 'group', scopeTouched: true }), 'group');
+  /* من الزر فعليًا: عنوان الصفحة/الترويسة يختلف بين النوعين */
+  runInAppContext(app, `window.__out = []; gradeReportPrint = async (html, mark) => { __out.push({ html, mark }); };`);
+  runInAppContext(app, `Object.assign(crmGradeAnalysis, { tab: 'compare', cmp: 'sib', scopeTouched: false }); window.__p = exportGradeReport(null);`);
+  await app.__p;
+  assert.match(app.__out[0].mark.right, /تقرير مقارنة شعب الصف/);
+  runInAppContext(app, `Object.assign(crmGradeAnalysis, { tab: 'students', cmp: null, scopeTouched: false }); window.__p = exportGradeReport(null);`);
+  await app.__p;
+  assert.match(app.__out[1].mark.right, /تقرير أداء الشعبة/);
 });
