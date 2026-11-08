@@ -230,7 +230,7 @@ declare
     'classroom_private_notes','classroom_followups','classroom_followup_actions','classroom_grade_columns',
     'classroom_grade_scores','classroom_grade_period_scores','classroom_homework','classroom_homework_status',
     'classroom_tasks','classroom_task_students','classroom_custom_tools','classroom_tool_marks','classroom_lessons',
-    'classroom_rubric_criteria','classroom_rubric_marks'];
+    'classroom_rubric_criteria','classroom_rubric_marks','classroom_rubric_notes'];
   v_user_owned text[] := array['shawahid','activity_programs','performance_goals','tasks'];
   v_relinks text[] := array['shawahid.program_id','shawahid.goal_id','tasks.linked_goal_id','tasks.linked_program_id'];
   v_spec jsonb; v_rel jsonb; v_tab text; v_owner text; v_rows jsonb; v_c int; v_n int := 0;
@@ -347,3 +347,27 @@ begin
   return new;
 end $b$;
 create or replace trigger trg_touch_rubric_mark before insert or update on public.classroom_rubric_marks for each row execute function public.touch_rubric_mark();
+
+-- ملاحظة المعلم على طالب في اختبار بسلّم تقدير (اختيارية، حتى 300 حرف)؛ لا تغيّر الدرجة ولا تدخل التقرير حتى يُقرَّر ذلك
+create table if not exists public.classroom_rubric_notes (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  column_id uuid not null,
+  student_id uuid not null,
+  note text not null check (char_length(btrim(note)) between 1 and 300),
+  updated_at timestamptz not null default now(),
+  unique (column_id, student_id),
+  foreign key (column_id, teacher_id) references public.classroom_grade_columns(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_rubric_notes_student_idx on public.classroom_rubric_notes(student_id);
+alter table public.classroom_rubric_notes enable row level security;
+drop policy if exists "المعلم يدير ملاحظات اختباراته فقط" on public.classroom_rubric_notes;
+create policy "المعلم يدير ملاحظات اختباراته فقط" on public.classroom_rubric_notes for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+create or replace function public.touch_rubric_note() returns trigger
+language plpgsql set search_path = '' as $b$
+begin
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace trigger trg_touch_rubric_note before insert or update on public.classroom_rubric_notes for each row execute function public.touch_rubric_note();

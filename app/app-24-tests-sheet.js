@@ -47,12 +47,17 @@ async function renderCrmTestMode(students, selectId){
       if(crit.length){
         const { data: mk, error: mErr } = await sb.from('classroom_rubric_marks').select('criterion_id, student_id, level').eq('teacher_id', uid).eq('column_id', selectedId);
         if(mErr) throw mErr;
-        rubricInfo = { criteria: crit, marks: mk || [] };
+        let notes = [];
+        try{
+          const { data: nt, error: nErr } = await sb.from('classroom_rubric_notes').select('student_id, note').eq('teacher_id', uid).eq('column_id', selectedId);
+          if(!nErr) notes = nt || [];
+        } catch(e){ /* الملاحظات اختيارية: فشل قراءتها لا يمنع الرصد */ }
+        rubricInfo = { criteria: crit, marks: mk || [], notes };
       }
     }
     if(crmSheet !== s || s.token !== token || s.mode !== 'test') return;
     s.test = { tests, selectedId, values: new Map(scores.map(r => [r.student_id, Number(r.score)])), queue: new Map(), term };
-    s.rubric = rubricInfo ? rubricInitState(tests.find(x => x.id === selectedId), rubricInfo.criteria, rubricInfo.marks, s.test.values, students) : null;
+    s.rubric = rubricInfo ? rubricInitState(tests.find(x => x.id === selectedId), rubricInfo.criteria, rubricInfo.marks, s.test.values, students, rubricInfo.notes) : null;
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== 'test') return;
     body.innerHTML = head + `<div class="empty-state">تعذّر التحميل. <button class="btn btn-outline crm-mini-btn" onclick="setCrmSheetMode('test')">إعادة المحاولة</button></div>`;
@@ -74,7 +79,7 @@ async function renderCrmTestMode(students, selectId){
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmSheetTestModal()">+ اختبار</button>
     </div>`;
   if(s.rubric){
-    body.innerHTML = head + pickerHtml + `<div id="rubricSheetBox"></div>${rubricSheetBarHtml()}`;
+    body.innerHTML = head + pickerHtml + `<div id="rubricSheetBox"></div>`;
     rubricPaint();
     return;
   }

@@ -90,11 +90,11 @@ async function trashCaptureStudent(studentId, ownerId){
   const stu = await trashRows('classroom_students', [['eq', 'id', studentId], ['eq', 'teacher_id', ownerId]]);
   if(!stu.length) return null;
   const f = [['eq', 'student_id', studentId], ['eq', 'teacher_id', ownerId]];
-  const [incidents, cases, attendance, positives, privates, followups, grades, periods, homework, tasks, marks, rubricMarks] = await Promise.all([
+  const [incidents, cases, attendance, positives, privates, followups, grades, periods, homework, tasks, marks, rubricMarks, rubricNotes] = await Promise.all([
     trashRows('classroom_incidents', f), trashRows('academic_cases', f), trashRows('classroom_attendance', f),
     trashRows('classroom_positive_notes', f), trashRows('classroom_private_notes', f), trashRows('classroom_followups', f),
     trashRows('classroom_grade_scores', f), trashRows('classroom_grade_period_scores', f), trashRows('classroom_homework_status', f),
-    trashRows('classroom_task_students', f), trashRows('classroom_tool_marks', f), trashRowsRubric('classroom_rubric_marks', f)
+    trashRows('classroom_task_students', f), trashRows('classroom_tool_marks', f), trashRowsRubric('classroom_rubric_marks', f), trashRowsRubric('classroom_rubric_notes', f)
   ]);
   const actions = followups.length ? await trashRows('classroom_followup_actions', [['eq', 'teacher_id', ownerId], ['in', 'followup_id', trashIds(followups)]]) : [];
   return {
@@ -106,7 +106,7 @@ async function trashCaptureStudent(studentId, ownerId){
       { t: 'classroom_followup_actions', rows: actions }, { t: 'classroom_grade_scores', rows: grades },
       { t: 'classroom_grade_period_scores', rows: periods }, { t: 'classroom_homework_status', rows: homework },
       { t: 'classroom_task_students', rows: tasks }, { t: 'classroom_tool_marks', rows: marks },
-      { t: 'classroom_rubric_marks', rows: rubricMarks }
+      { t: 'classroom_rubric_marks', rows: rubricMarks }, { t: 'classroom_rubric_notes', rows: rubricNotes }
     ]
   };
 }
@@ -159,17 +159,18 @@ async function trashCaptureGradeColumns(columnIds, ownerId, label, meta){
   const cols = await trashRows('classroom_grade_columns', [['eq', 'teacher_id', ownerId], ['in', 'id', columnIds]]);
   if(!cols.length) return null;
   const ids = trashIds(cols);
-  const [scores, periods, criteria, rubricMarks] = await Promise.all([
+  const [scores, periods, criteria, rubricMarks, rubricNotes] = await Promise.all([
     trashRows('classroom_grade_scores', [['eq', 'teacher_id', ownerId], ['in', 'column_id', ids]]),
     trashRows('classroom_grade_period_scores', [['eq', 'teacher_id', ownerId], ['in', 'column_id', ids]]),
     trashRowsRubric('classroom_rubric_criteria', [['eq', 'teacher_id', ownerId], ['in', 'column_id', ids]]),
-    trashRowsRubric('classroom_rubric_marks', [['eq', 'teacher_id', ownerId], ['in', 'column_id', ids]])
+    trashRowsRubric('classroom_rubric_marks', [['eq', 'teacher_id', ownerId], ['in', 'column_id', ids]]),
+    trashRowsRubric('classroom_rubric_notes', [['eq', 'teacher_id', ownerId], ['in', 'column_id', ids]])
   ]);
   /* الترتيب: العمود ثم معاييره ثم درجاته ثم رصد المعايير (يُشير للمعيار والطالب) */
   return {
     kind: 'grade_columns', label: label || cols[0].name || 'عمود درجات', ownerId, meta: meta || {},
     tables: [{ t: 'classroom_grade_columns', rows: cols }, { t: 'classroom_rubric_criteria', rows: criteria }, { t: 'classroom_grade_scores', rows: scores },
-      { t: 'classroom_grade_period_scores', rows: periods }, { t: 'classroom_rubric_marks', rows: rubricMarks }]
+      { t: 'classroom_grade_period_scores', rows: periods }, { t: 'classroom_rubric_marks', rows: rubricMarks }, { t: 'classroom_rubric_notes', rows: rubricNotes }]
   };
 }
 

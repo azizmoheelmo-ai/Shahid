@@ -193,7 +193,7 @@ function rubricModeGet(){ try{ return localStorage.getItem('shahid_rubric_mode')
 function rubricModeSave(m){ try{ localStorage.setItem('shahid_rubric_mode', m); } catch(e){} }
 
 /* حالة الرصد لاختبار واحد: marks = ما حُفظ، picks = نسخة العمل (غير المعتمدة)، done = من لهم درجة محفوظة، dirty = من عُدّلت اختياراتهم بعد الاعتماد */
-function rubricInitState(test, criteria, marksRows, scoreValues, students){
+function rubricInitState(test, criteria, marksRows, scoreValues, students, noteRows){
   const marks = new Map();
   (marksRows || []).forEach(r => {
     if(!marks.has(r.student_id)) marks.set(r.student_id, new Map());
@@ -202,7 +202,8 @@ function rubricInitState(test, criteria, marksRows, scoreValues, students){
   const done = new Set();
   (students || []).forEach(st => { if(scoreValues.has(st.id)) done.add(st.id); });
   const first = (students || []).find(st => !done.has(st.id)) || (students || [])[0];
-  return { testId: test.id, max: Number(test.max_score), criteria, marks, done, picks: new Map(), dirty: new Set(), cur: first ? first.id : null, mode: rubricModeGet(), busy: false, showSet: false };
+  const notes = new Map((noteRows || []).filter(r => r && r.note).map(r => [r.student_id, String(r.note)]));
+  return { testId: test.id, max: Number(test.max_score), criteria, marks, done, notes, noteFor: null, picks: new Map(), dirty: new Set(), cur: first ? first.id : null, mode: rubricModeGet(), busy: false, showSet: false };
 }
 
 function rubricPicksOf(R, studentId){
@@ -218,11 +219,9 @@ function rubricPicksOf(R, studentId){
   return R.picks.get(studentId);
 }
 
-/* شريط الورقة السفلي لاختبار السلّم: «رجوع» وحده. زر «حفظ» العام ينتظر طوابير الأوضاع القديمة فقط ولا يرى اعتماد السلّم
-   (يحفظ نفسه عند «اعتماد»)، فيقول «تم الحفظ» وقد لا ينتهي الاعتماد — طمأنة كاذبة */
-function rubricSheetBarHtml(){
-  return '<div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>';
-}
+/* لا زر «حفظ» العام في اختبار السلّم: ينتظر طوابير الأوضاع القديمة فقط ولا يرى الاعتماد (يحفظ نفسه عند «اعتماد»)،
+   فيقول «تم الحفظ» وقد لا ينتهي الاعتماد — طمأنة كاذبة. أسفل الشاشة: اعتماد، ثم رجوع وملاحظة */
+function rubricNormalizeNote(s){ return String(s == null ? '' : s).trim().slice(0, 300); }
 
 function rubricStudents(){ return crmSheet ? crmStudentsOfSection(crmSheet.sectionId) : []; }
 
@@ -238,7 +237,7 @@ function rubricBodyHtml(R, students){
   const chips = students.map((st, i) => {
     const saved = R.done.has(st.id) && !R.dirty.has(st.id);
     const sc = saved && crmSheet.test.values.has(st.id) ? formatScore(crmSheet.test.values.get(st.id)) : '';
-    return `<button type="button" class="rb-stu${st.id === R.cur ? ' on' : ''}" aria-pressed="${st.id === R.cur}" onclick="rubricSelectStudent(${i})">${escapeHtml(st.full_name)}<small>${saved ? `<b class="rb-ok">✓ ${sc}</b>` : (absent(st) ? 'غائب' : 'لم يُرصد')}</small></button>`;
+    return `<button type="button" class="rb-stu${st.id === R.cur ? ' on' : ''}" aria-pressed="${st.id === R.cur}" onclick="rubricSelectStudent(${i})">${escapeHtml(st.full_name)}<small>${saved ? `<b class="rb-ok">✓ ${sc}</b>` : (absent(st) ? 'غائب' : 'لم يُرصد')}${R.notes.has(st.id) ? '<i class="rb-dot" title="له ملاحظة"></i>' : ''}</small></button>`;
   }).join('');
   const tiles = R.criteria.map((c, ci) => {
     const cur2 = lv(c.id);
@@ -255,14 +254,20 @@ function rubricBodyHtml(R, students){
     ${settings}${tiles}
     <div class="rb-actions">${!complete ? '<span class="rb-warn">أكمل رصد كل المعايير ليُفعَّل الاعتماد</span>' : ''}
       <button type="button" class="btn btn-primary" id="rubricApproveBtn" onclick="rubricApprove()"${(!complete || R.busy) ? ' disabled' : ''}>${R.busy ? 'جارٍ الحفظ…' : (students.findIndex(st => st.id === R.cur) < students.length - 1 ? 'اعتماد والانتقال للتالي' : 'اعتماد الدرجة')}</button>
-      ${R.done.has(cur.id) ? `<button type="button" class="btn btn-outline" onclick="rubricClearStudent()"${R.busy ? ' disabled' : ''}>مسح رصد هذا الطالب</button>` : ''}</div>`;
+      ${R.done.has(cur.id) ? `<button type="button" class="btn btn-outline" onclick="rubricClearStudent()"${R.busy ? ' disabled' : ''}>مسح رصد هذا الطالب</button>` : ''}
+      <div class="rb-row2"><button type="button" class="btn btn-outline" onclick="closeCrmLessonSheet()">رجوع</button><button type="button" class="btn btn-outline" onclick="rubricOpenNote()">📝 ملاحظة${R.notes.has(cur.id) ? '<i class="rb-dot"></i>' : ''}</button></div></div>`;
 }
 
-function rubricPaint(){
+function rubricPaint(scrollToCur){
   const box = document.getElementById('rubricSheetBox');
   const R = crmSheet && crmSheet.rubric;
   if(!box || !R) return;
   box.innerHTML = rubricBodyHtml(R, rubricStudents());
+  /* صف الطلاب يمرَّر أفقيًا: الطالب الحالي يبقى ظاهرًا بعد الانتقال التلقائي أو الاختيار */
+  if(scrollToCur){
+    const on = box.querySelector('.rb-stu.on');
+    if(on && typeof on.scrollIntoView === 'function') on.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
 }
 
 function rubricSelectStudent(i){
@@ -270,7 +275,7 @@ function rubricSelectStudent(i){
   const st = rubricStudents()[i];
   if(!R || R.busy || !st) return;
   R.cur = st.id;
-  rubricPaint();
+  rubricPaint(true);
 }
 
 function rubricPickLevel(ci, level){
@@ -335,7 +340,7 @@ async function rubricApprove(){
   const next = students.slice(idx + 1).find(st => !R.done.has(st.id)) || students[idx + 1];
   if(next) R.cur = next.id;
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
-  rubricPaint();
+  rubricPaint(true);
 }
 
 async function rubricClearStudent(){
@@ -393,4 +398,53 @@ function rubricReportHtml(list){
       const lv = RUBRIC_LEVELS[it.level];
       return `<tr><td>${e(it.name)}</td><td class="n">${n(formatScore(rubricPointsAt(it.points, it.level)))} من ${n(formatScore(it.points))}</td><td class="n">${lv ? lv.label : ''}</td></tr>`;
     }).join('')}<tr><td><b>المجموع</b></td><td class="n"><b>${n(formatScore(t.score))} من ${n(formatScore(t.max))}</b></td><td></td></tr></tbody></table>`).join('')}<div class="fn">تفصيل درجة الاختبار بحسب معاييره، وقائع من رصد المعلم دون حكم.</div></div>`;
+}
+
+/* ============ ملاحظة المعلم على الطالب (اختيارية، لا تغيّر الدرجة) ============ */
+function rubricOpenNote(){
+  const R = crmSheet && crmSheet.rubric;
+  if(!R || !R.cur) return;
+  const st = rubricStudents().find(x => x.id === R.cur);
+  if(!st) return;
+  R.noteFor = { studentId: st.id, testId: R.testId, saving: false };
+  showInfoModal(`<div style="text-align:right;">
+    <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">ملاحظة — ${escapeHtml(st.full_name)}</h3>
+    <textarea class="goal-input" id="rubricNoteText" maxlength="300" rows="4" style="width:100%;margin:0 0 4px;" placeholder="مثال: يتعثر في نطق حرف الراء">${escapeHtml(R.notes.get(st.id) || '')}</textarea>
+    <div class="rb-note">اختيارية حتى 300 حرف، ولا تغيّر الدرجة. اتركها فارغة لحذفها.</div>
+    <button class="btn btn-primary" id="rubricNoteSaveBtn" style="width:100%;justify-content:center;margin-top:8px;" onclick="rubricSaveNote()">حفظ الملاحظة</button>
+  </div>`, '400px');
+}
+
+async function rubricSaveNote(){
+  const s = crmSheet, R = s && s.rubric, nf = R && R.noteFor;
+  if(!R || !nf || nf.saving) return;
+  const el = document.getElementById('rubricNoteText');
+  const text = rubricNormalizeNote(el ? el.value : '');
+  const btn = document.getElementById('rubricNoteSaveBtn');
+  nf.saving = true;
+  if(btn) btn.disabled = true;
+  const token = s.token, uid = currentUser.id;
+  let err = null;
+  try{
+    const r = text === ''
+      ? await sb.from('classroom_rubric_notes').delete().eq('teacher_id', uid).eq('column_id', nf.testId).eq('student_id', nf.studentId)
+      : await sb.from('classroom_rubric_notes').upsert({ teacher_id: uid, column_id: nf.testId, student_id: nf.studentId, note: text }, { onConflict: 'column_id,student_id' });
+    if(r.error) throw r.error;
+  } catch(e){ err = e; }
+  nf.saving = false;
+  /* بُدّل الاختبار/الشعبة أثناء الحفظ: لا نمسّ الشاشة الجديدة */
+  if(crmSheet !== s || s.token !== token || s.rubric !== R || R.testId !== nf.testId){
+    if(typeof closeCrmModal === 'function') closeCrmModal();
+    return;
+  }
+  if(err){
+    showToast('لم تُحفظ الملاحظة: ' + (err.message || 'خطأ بالاتصال'), 'error');
+    if(btn) btn.disabled = false;
+    return;
+  }
+  if(text === '') R.notes.delete(nf.studentId); else R.notes.set(nf.studentId, text);
+  R.noteFor = null;
+  if(typeof closeCrmModal === 'function') closeCrmModal();
+  showToast(text === '' ? 'حُذفت الملاحظة' : 'حُفظت الملاحظة', 'ok');
+  rubricPaint();
 }
