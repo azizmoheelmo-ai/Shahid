@@ -1046,6 +1046,14 @@ alter table public.student_report_shares enable row level security;
 drop policy if exists "المعلم يدير روابط تقاريره فقط" on public.student_report_shares;
 create policy "المعلم يدير روابط تقاريره فقط" on public.student_report_shares for all
   using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+-- رمز قصير لرابط تقرير الطالب (/r/<رمز> عبر api/r.js)
+alter table public.student_report_shares add column if not exists short_code text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'student_report_shares_short_code_chk' and conrelid = 'public.student_report_shares'::regclass) then
+    alter table public.student_report_shares add constraint student_report_shares_short_code_chk check (short_code is null or short_code ~ '^[a-z2-9]{12,32}$');
+  end if;
+end $$;
+create unique index if not exists student_report_shares_short_code_key on public.student_report_shares(short_code) where short_code is not null;
 
 
 -- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:
