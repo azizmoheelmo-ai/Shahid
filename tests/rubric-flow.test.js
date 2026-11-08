@@ -202,10 +202,11 @@ test('السلة: حذف الاختبار يلتقط معاييره ورصدها
     classroom_grade_scores: [{ id: 'g1', teacher_id: 'u1', column_id: 'T1' }],
     classroom_rubric_criteria: [{ id: 'c1', teacher_id: 'u1', column_id: 'T1' }],
     classroom_rubric_marks: [{ id: 'm1', teacher_id: 'u1', column_id: 'T1' }],
+    classroom_rubric_notes: [{ id: 'n1', teacher_id: 'u1', column_id: 'T1' }],
   };
   const app = appWith(seed, log);
   const cap = await runInAppContext(app, `trashCaptureGradeColumns(['T1'], 'u1', 'اختبار قراءة')`);
-  assert.deepEqual(J(cap.tables).map(t => t.t), ['classroom_grade_columns', 'classroom_rubric_criteria', 'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_rubric_marks']);
+  assert.deepEqual(J(cap.tables).map(t => t.t), ['classroom_grade_columns', 'classroom_rubric_criteria', 'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_rubric_marks', 'classroom_rubric_notes']);
   assert.equal(cap.tables[1].rows.length, 1);
   assert.equal(cap.tables[4].rows.length, 1);
 });
@@ -234,18 +235,95 @@ test('انحدار: المجموع يُكتب «س من ص» لا «س / ص» (�
   assert.doesNotMatch(html, /<b>[\d.]+ \/ [\d.]+<\/b>/);
 });
 
-test('اختبار السلّم: شريط الورقة «رجوع» وحده بلا زر «حفظ» العام (لا يرى اعتماد السلّم فيطمئن كذبًا)', () => {
+test('اختبار السلّم: أسفل الشاشة اعتماد ثم رجوع وملاحظة، بلا زر «حفظ» العام (لا يرى الاعتماد فيطمئن كذبًا)', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const app = appWith({}, []);
-  const bar = runInAppContext(app, 'rubricSheetBarHtml()');
-  assert.match(bar, /رجوع/);
-  assert.doesNotMatch(bar, /crmModeFinishBtn|finishCrmLessonSheet|>حفظ</);
-  /* فرع السلّم في ورقة الاختبار يستعمل هذا الشريط ولا يستدعي زر الحفظ العام */
+  openSheet(app);
+  const html = runInAppContext(app, 'rubricBodyHtml(crmSheet.rubric, crmStudentsOfSection())');
+  assert.match(html, /rubricApprove\(\)/);
+  assert.match(html, /closeCrmLessonSheet\(\)[^<]*>رجوع</);
+  assert.match(html, /rubricOpenNote\(\)[^<]*>📝 ملاحظة/);
+  assert.doesNotMatch(html, /crmModeFinishBtn|finishCrmLessonSheet|>حفظ</);
+  /* الترتيب: الاعتماد ثم رجوع ثم ملاحظة */
+  assert.ok(html.indexOf('rubricApprove()') < html.indexOf('closeCrmLessonSheet()') && html.indexOf('closeCrmLessonSheet()') < html.indexOf('rubricOpenNote()'));
+  /* فرع السلّم في ورقة الاختبار لا يستدعي زر الحفظ العام، والاختبار العادي يبقى به */
   const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'app-24-tests-sheet.js'), 'utf8');
   const branch = src.slice(src.indexOf('if(s.rubric){'), src.indexOf('rubricPaint();', src.indexOf('if(s.rubric){')));
-  assert.match(branch, /rubricSheetBarHtml\(\)/);
   assert.doesNotMatch(branch, /crmSheetFinishBtnHtml/);
-  /* الاختبار العادي يبقى بزر الحفظ */
   assert.match(src, /\$\{crmSheetFinishBtnHtml\(\)\}/);
+});
+
+test('ملاحظة الطالب: تُحفظ بفلتر المعلم، والفارغة تحذف، ونقطة على الاسم والزر', async () => {
+  const log = [];
+  const app = appWith({}, log);
+  runInAppContext(app, `window.__modal = ''; showInfoModal = h => { window.__modal = h; }; closeCrmModal = () => {};`);
+  openSheet(app);
+  runInAppContext(app, 'rubricOpenNote()');
+  assert.match(runInAppContext(app, 'window.__modal'), /ملاحظة — سلمان/);
+  runInAppContext(app, `document.getElementById = id => id === 'rubricNoteText' ? { value: '  يتعثر في الراء  ' } : { innerHTML: '', querySelector: () => null, disabled: false };`);
+  await runInAppContext(app, 'rubricSaveNote()');
+  const up = writes(log, 'classroom_rubric_notes', 'upsert')[0];
+  assert.deepEqual(J(up.rows[0]), { teacher_id: 'u1', column_id: 'T1', student_id: 's1', note: 'يتعثر في الراء' });
+  assert.equal(up.onConflict, 'column_id,student_id');
+  assert.equal(runInAppContext(app, 'crmSheet.rubric.notes.get("s1")'), 'يتعثر في الراء');
+  const html = runInAppContext(app, 'rubricBodyHtml(crmSheet.rubric, crmStudentsOfSection())');
+  assert.equal((html.match(/rb-dot/g) || []).length, 2, 'نقطة على اسم الطالب وعلى زر الملاحظة');
+  /* فارغة = حذف بفلتر المعلم */
+  runInAppContext(app, 'rubricOpenNote()');
+  runInAppContext(app, `document.getElementById = id => id === 'rubricNoteText' ? { value: '   ' } : { innerHTML: '', querySelector: () => null, disabled: false };`);
+  await runInAppContext(app, 'rubricSaveNote()');
+  const del = writes(log, 'classroom_rubric_notes', 'delete')[0];
+  assert.deepEqual(J(del.filters), [['teacher_id', 'u1'], ['column_id', 'T1'], ['student_id', 's1']]);
+  assert.equal(runInAppContext(app, 'crmSheet.rubric.notes.has("s1")'), false);
+  /* طول الملاحظة محدود بـ300 */
+  assert.equal(runInAppContext(app, `rubricNormalizeNote('ا'.repeat(400)).length`), 300);
+});
+
+test('ملاحظة الطالب: تبديل الاختبار أثناء الحفظ لا يلمس الشاشة الجديدة، والفشل يترك الملاحظة كما كانت', async () => {
+  const log = [];
+  const app = appWith({}, log, { delay: (t, op) => op === 'upsert' ? new Promise(r => setTimeout(r, 15)) : null });
+  runInAppContext(app, `showInfoModal = () => {}; closeCrmModal = () => {};`);
+  openSheet(app);
+  runInAppContext(app, 'rubricOpenNote()');
+  runInAppContext(app, `document.getElementById = id => id === 'rubricNoteText' ? { value: 'ملاحظة' } : { innerHTML: '', querySelector: () => null, disabled: false };`);
+  const p = runInAppContext(app, 'rubricSaveNote()');
+  runInAppContext(app, `crmSheet.test = { selectedId: 'T2', values: new Map(), queue: new Map(), tests: [] }; crmSheet.rubric = rubricInitState({ id: 'T2', max_score: 5 }, [], [], new Map(), []);`);
+  await p;
+  assert.equal(runInAppContext(app, 'crmSheet.rubric.notes.size'), 0, 'الشاشة الجديدة لم تُلمَس');
+
+  const app2 = appWith({}, [], { fail: (t, op) => t === 'classroom_rubric_notes' && op === 'upsert' });
+  runInAppContext(app2, `showInfoModal = () => {}; closeCrmModal = () => {};`);
+  openSheet(app2);
+  runInAppContext(app2, 'rubricOpenNote()');
+  runInAppContext(app2, `document.getElementById = id => id === 'rubricNoteText' ? { value: 'ملاحظة' } : { innerHTML: '', querySelector: () => null, disabled: false };`);
+  await runInAppContext(app2, 'rubricSaveNote()');
+  assert.equal(runInAppContext(app2, 'crmSheet.rubric.notes.size'), 0);
+  assert.match(runInAppContext(app2, 'window.__toasts.join("|")'), /error:لم تُحفظ الملاحظة/);
+});
+
+test('ملاحظة الطالب: النص يُهرَّب في النافذة (XSS)', () => {
+  const app = appWith({}, []);
+  runInAppContext(app, `window.__modal = ''; showInfoModal = h => { window.__modal = h; };`);
+  openSheet(app);
+  runInAppContext(app, `crmSheet.rubric.notes.set('s1', '</textarea><img src=x onerror=alert(1)>'); rubricOpenNote();`);
+  const m = runInAppContext(app, 'window.__modal');
+  assert.doesNotMatch(m, /<img src=x/);
+  assert.match(m, /&lt;img src=x/);
+});
+
+test('صف الطلاب: الطالب الحالي يُمرَّر لمجال الرؤية بعد الانتقال أو الاختيار لا بعد نقر مستوى', async () => {
+  const app = appWith({}, []);
+  openSheet(app);
+  runInAppContext(app, `
+    window.__scrolls = 0;
+    document.getElementById = id => id === 'rubricSheetBox' ? { innerHTML: '', querySelector: () => ({ scrollIntoView: o => { window.__scrolls++; window.__opt = o; } }) } : { innerHTML: '' };
+  `);
+  runInAppContext(app, 'rubricPickLevel(0, 1)');
+  assert.equal(runInAppContext(app, 'window.__scrolls'), 0, 'نقر مستوى لا يحرّك الصف');
+  runInAppContext(app, 'rubricSelectStudent(1)');
+  assert.equal(runInAppContext(app, 'window.__scrolls'), 1);
+  assert.equal(runInAppContext(app, 'window.__opt.inline'), 'center');
+  await runInAppContext(app, 'rubricApprove()');
+  assert.equal(runInAppContext(app, 'window.__scrolls'), 2, 'بعد الاعتماد والانتقال للتالي');
 });
