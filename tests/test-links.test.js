@@ -244,7 +244,8 @@ test('التقرير: التحليلي يذكر «يقيس» وسبب المقا
     return { a: buildStudentReportHtml2(Object.assign({ version: 'analytical' }, base)), g: buildStudentReportHtml2(Object.assign({ version: 'grades' }, base)) };
   })()`));
   assert.match(out.a, /يقيس: القراءة/);
-  assert.match(out.a, /التقدّم \(كلاهما يقيس: القراءة\):<\/b> من «قراءة 1» <bdi dir="ltr">40%<\/bdi> إلى «قراءة 2» <bdi dir="ltr">90%<\/bdi> \(تحسّن\)/);
+  /* صف التقدّم في جدول التشخيص: سبب المقارنة في خانة البند، والحكم تحسّن، والدليل القياسان */
+  assert.match(out.a, /<td>التقدّم<\/td><td><b>كلاهما يقيس: القراءة<\/b><\/td><td class="n"><span class="chip j">تحسّن<\/span><\/td><td>من «قراءة 1» <bdi dir="ltr">40%<\/bdi> إلى «قراءة 2» <bdi dir="ltr">90%<\/bdi><\/td>/);
   assert.doesNotMatch(out.g, /يقيس/);
 });
 

@@ -163,10 +163,10 @@ function srDiagnose(m){
   if(tah.enough){
     tRows.forEach(r => {
       const l = lvl(r);
-      if(l.key === 'm') tah.strengths.push({ text: `${r.name} ${srRound(r.pct)}% (متفوق)` });
-      else if(nearClass(r) && r.pct - r.classPct >= SR_NEAR_CLASS && l.key !== 'w') tah.strengths.push({ text: `${r.name} ${srRound(r.pct)}% — أعلى من متوسط الشعبة (${srRound(r.classPct)}%)`, classOnly: true });
-      if(l.key === 'w') tah.facts.push({ text: `${r.name} ${srRound(r.pct)}% — دون حدّ الضعف (${rules.pass}%)` });
-      else if(nearClass(r) && r.classPct - r.pct >= SR_NEAR_CLASS) tah.facts.push({ text: `${r.name} ${srRound(r.pct)}% — دون متوسط الشعبة (${srRound(r.classPct)}%)`, classOnly: true });
+      if(l.key === 'm') tah.strengths.push({ name: r.name, text: `${r.name} ${srRound(r.pct)}% (متفوق)` });
+      else if(nearClass(r) && r.pct - r.classPct >= SR_NEAR_CLASS && l.key !== 'w') tah.strengths.push({ name: r.name, text: `${r.name} ${srRound(r.pct)}% — أعلى من متوسط الشعبة (${srRound(r.classPct)}%)`, classOnly: true });
+      if(l.key === 'w') tah.facts.push({ name: r.name, text: `${r.name} ${srRound(r.pct)}% — دون حدّ الضعف (${rules.pass}%)` });
+      else if(nearClass(r) && r.classPct - r.pct >= SR_NEAR_CLASS) tah.facts.push({ name: r.name, text: `${r.name} ${srRound(r.pct)}% — دون متوسط الشعبة (${srRound(r.classPct)}%)`, classOnly: true });
     });
     const lows = tRows.filter(r => lvl(r).key === 'w');
     if(lows.length >= 2 && lows.length * 2 >= tRows.length){
@@ -307,7 +307,8 @@ const SR_CSS = `
 .sr .sgn small{display:block;color:#51636d;min-height:14px;font-size:10px}
 .sr .fn{font-size:9px;color:#6b7c86;margin-top:4px}
 .sr .strip{height:5px;background:linear-gradient(90deg,#3B83B7,#4CB176);margin-top:10px;border-radius:3px}
-`;
+
+.sr table.dxt td{vertical-align:top;padding-top:3px;padding-bottom:3px}.sr table.dxt td:nth-child(1){white-space:nowrap;color:#51636d}.sr table.dxt td:nth-child(3){white-space:nowrap}.sr table.dxt tr{break-inside:avoid}.sr table.dxt .chip{white-space:nowrap}`;
 
 /* صندوق البيانات: يُكمَّل بخلايا فارغة لمضاعف الثلاثة فتكتمل خطوطه (بلا فراغ بلا خطوط بآخر صف) */
 const srMetaBox = cells => { const n = (cells.match(/<div><small>/g) || []).length; return `<div class="mt">${cells}${'<div></div>'.repeat((3 - n % 3) % 3)}</div>`; };
@@ -366,46 +367,47 @@ function srItemsGroupedHtml(rows, rules){
 
 function srBoxes(items, cls){ return items.map(t => `<div class="box ${cls}">${t}</div>`).join(''); }
 
+/* التشخيص والتوصيات بالجدول الموحَّد (ssDxTableHtml في app-38 — الشكل «أ»): المجال · البند · الحكم · الدليل · الإجراء المقترح.
+   الإجراء لحكم الضعف المثبت فقط؛ «نتيجة منخفضة» واقعة بلا توصية، وتبقى سلسلة الدليل ← التشخيص ← الإجراء (التشخيص في الحكم) */
 function srDiagnosisHtml(dx, showClass){
   const e = escapeHtml;
+  const rows = [];
+  const recBy = d => (dx.recommendations || []).find(r => r.diagnosis === d);
   const tah = dx.tahsili;
-  let tahHtml;
-  if(!tah.recorded) tahHtml = '';
-  else if(!tah.enough) tahHtml = `<div class="box"><span class="nd">لا بيانات كافية للحكم على التحصيل (أقل من ${SR_MIN_TAHSILI} بنود تحصيلية مرصودة).</span></div>`;
-  else {
-    const keep = x => showClass || !x.classOnly;
-    const parts = [];
-    tah.strengths.filter(keep).forEach(x => parts.push(`<div class="box s"><b>نقطة قوة:</b> ${e(x.text)}</div>`));
-    if(tah.weak) parts.push(`<div class="box p"><b>ضعف مثبت:</b> ${e(tah.weak.names.join('، '))}</div>`);
-    if(tah.persistent) parts.push(`<div class="box p"><b>ضعف مستمر (${e(tah.persistentInfo.label)}):</b> ${e(tah.persistentInfo.text)} — دون حدّ الضعف.</div>`);
-    tah.facts.filter(keep).forEach(x => parts.push(`<div class="box f"><b>نتيجة منخفضة (واقعة لا حكم):</b> ${e(x.text)}</div>`));
-    if(!parts.length) parts.push('<div class="box"><span class="nd">لا نقاط قوة ولا ضعف مثبتة في التحصيل.</span></div>');
-    tahHtml = parts.join('');
+  if(tah.recorded){
+    if(!tah.enough) rows.push({ domain: 'تحصيلي', noteHtml: `لا بيانات كافية للحكم على التحصيل (أقل من ${SR_MIN_TAHSILI} بنود تحصيلية مرصودة).` });
+    else {
+      const keep = x => showClass || !x.classOnly;
+      const start = rows.length;
+      if(tah.weak){
+        const rec = recBy('ضعف تحصيلي في البنود المذكورة');
+        rows.push({ domain: 'تحصيلي', item: 'عدة بنود', cls: 'w', label: 'ضعف مثبت', evidenceHtml: e(tah.weak.names.join('، ')), action: rec && rec.action });
+      }
+      if(tah.persistent){
+        const rec = recBy('ضعف تحصيلي مستمر');
+        rows.push({ domain: 'تحصيلي', item: tah.persistentInfo.label, cls: 'w', label: 'ضعف مستمر', evidenceHtml: `${e(tah.persistentInfo.text)} — دون حدّ الضعف`, action: rec && rec.action });
+      }
+      tah.strengths.filter(keep).forEach(x => rows.push({ domain: 'تحصيلي', item: x.name || '—', cls: 'm', label: 'نقطة قوة', evidenceHtml: e(x.text) }));
+      tah.facts.filter(keep).forEach(x => rows.push({ domain: 'تحصيلي', item: x.name || '—', cls: 'j', label: 'نتيجة منخفضة', evidenceHtml: `${e(x.text)} <span class="nd">(واقعة لا حكم)</span>` }));
+      if(rows.length === start) rows.push({ domain: 'تحصيلي', noteHtml: 'لا نقاط قوة ولا ضعف مثبتة في التحصيل.' });
+    }
   }
-  const taal = dx.taalumi;
-  const lines = [];
-  taal.indicators.forEach(i => {
-    if(i.status === 'strength') lines.push(`<div class="box s"><b>نقطة قوة:</b> ${e(i.text)}</div>`);
-    else if(i.status === 'weak') lines.push(`<div class="box p"><b>ضعف مثبت:</b> ${e(i.text)}</div>`);
-    else if(i.status === 'nodata') lines.push(`<div class="box"><span class="nd">${e(i.text)}</span></div>`);
+  dx.taalumi.indicators.forEach(i => {
+    if(i.status === 'strength') rows.push({ domain: 'تعلّمي', item: i.name, cls: 'm', label: 'نقطة قوة', evidenceHtml: e(i.text) });
+    else if(i.status === 'weak') rows.push({ domain: 'تعلّمي', item: i.name, cls: 'w', label: 'ضعف مثبت', evidenceHtml: e(i.evidence || i.text), action: i.action });
+    else if(i.status === 'nodata') rows.push({ domain: 'تعلّمي', noteHtml: e(i.text) });
   });
   dx.progress.forEach(p => {
     const t = p.trend === 'up' ? 'تحسّن' : p.trend === 'down' ? 'تراجع' : 'مستقر';
     const body = p.kind === 'tests'
       ? `من «${e(p.fromLabel)}» ${srNum(srRound(p.from) + '%')} إلى «${e(p.toLabel)}» ${srNum(srRound(p.to) + '%')}`
       : `${e(p.name)} من ${srNum(srRound(p.from) + '%')} إلى ${srNum(srRound(p.to) + '%')}`;
-    lines.push(`<div class="box f"><b>التقدّم (${e(p.label)}):</b> ${body} (${t})</div>`);
+    rows.push({ domain: 'التقدّم', item: p.label, cls: 'j', label: t, evidenceHtml: body });
   });
-  const tahSection = tahHtml ? `<div class="sec"><h2>التشخيص: ماذا يتقن الطالب (التحصيل)</h2>${tahHtml}</div>` : '';
-  const taalSection = lines.length ? `<div class="sec"><h2>التشخيص: كيف يتعلّم الطالب (الإنجاز والمشاركة والالتزام والتقدّم)</h2>${lines.join('')}</div>` : '';
-  return tahSection + taalSection;
-}
-
-function srRecommendationsHtml(dx){
-  const e = escapeHtml;
-  if(!dx.recommendations.length) return '';
-  return `<div class="sec"><h2>التوصيات</h2>${dx.recommendations.map(r =>
-    `<div class="rc"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>`;
+  (dx.recommendations || []).filter(r => r.parent).forEach(r => rows.push({ domain: 'عام', item: 'التواصل مع ولي الأمر', cls: 'j', label: 'توصية', evidenceHtml: `${e(r.evidence)}<div class="ev">${e(r.diagnosis)}</div>`, action: r.action }));
+  if(!rows.length) return '';
+  const foot = 'ضعف مثبت: بندان فأكثر دون حدّ الضعف يمثلان نصف المرصود فأكثر، أو مؤشر تعلّمي دونه ببيانات كافية · نتيجة منخفضة: واقعة بلا توصية · تحصيلي: ماذا يتقن الطالب · تعلّمي: الإنجاز والمشاركة والالتزام.';
+  return ssDxTableHtml(rows, foot);
 }
 
 /* الجهة الموجَّه إليها: اسمها تحت خانة توقيعها فقط (لا في الترويسة) */
@@ -458,7 +460,7 @@ function buildStudentReportHtml2(ctx){
     body += '<div class="box"><span class="nd">لا درجات مرصودة لهذا الطالب في الفصل الحالي.</span></div>';
   }
   if(analytic){
-    if(hasRows && !ctx.noDx) body += srDiagnosisHtml(dx, true) + srRecommendationsHtml(dx);
+    if(hasRows && !ctx.noDx) body += srDiagnosisHtml(dx, true);
     if(ctx.tasks && ctx.tasks.length){
       body += `<div class="sec long"><h2>المهام الأدائية</h2><table><thead><tr><th>المهمة</th><th class="n">الموعد</th><th class="n">النتيجة</th></tr></thead><tbody>${ctx.tasks.map(t =>
         `<tr><td>${e(t.title)}</td><td class="n">${e(t.due || '—')}</td><td class="n">${e(t.result)}</td></tr>`).join('')}</tbody></table></div>`;
