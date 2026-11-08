@@ -2,7 +2,7 @@
 /* ============================================================
    اختبار بسلّم تقدير (app-41) — السلوك مع عميل وهمي
    ------------------------------------------------------------
-   - المفتاح مغلق: لا نموذج ولا استعلام (لا أثر على بقية الحسابات).
+   - متاح لكل الحسابات (بلا مفتاح).
    - الاعتماد: رصد المعايير ثم الدرجة الكلية، بفلتر المعلم، ونقرة واحدة فقط أثناء الحفظ.
    - فشل رصد المعايير: لا درجة تُكتب، والطالب يبقى غير معتمد.
    - المعلم انتقل لشاشة أخرى أثناء الحفظ: لا يُكتب شيء فوق الشاشة الجديدة.
@@ -71,13 +71,13 @@ function openSheet(app) {
 const J = x => JSON.parse(JSON.stringify(x));
 const writes = (log, table, op) => log.filter(l => l.table === table && l.op === op);
 
-test('المفتاح مغلق: لا نموذج معايير ولا استعلام', async () => {
+test('متاح لكل الحسابات بلا مفتاح: النموذج يظهر والمعايير تُحمَّل حتى مع features فارغة', async () => {
   const log = [];
-  const app = appWith({}, log, {}, false);
-  assert.equal(runInAppContext(app, 'rubricFormHtml()'), '');
-  const m = await runInAppContext(app, `rubricLoadCriteria(['T1'])`);
-  assert.equal(m.size, 0);
-  assert.equal(log.length, 0);
+  const app = appWith({}, log, {}, false); /* features = {} : لا rubricTests */
+  assert.equal(runInAppContext(app, 'rubricOn()'), true);
+  assert.notEqual(runInAppContext(app, 'rubricFormHtml()'), '');
+  await runInAppContext(app, `rubricLoadCriteria(['T1'])`);
+  assert.ok(log.length > 0, 'استعلام المعايير يجري لكل معلم');
 });
 
 test('المفتاح مفتوح: تحميل المعايير بفلتر المعلم، والعمود يصير محسوبًا وغير قابل للرصد اليدوي', async () => {
