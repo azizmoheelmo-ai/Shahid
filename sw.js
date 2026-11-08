@@ -26,7 +26,7 @@
      HTTPS/localhost، وهذا سلوك طبيعي متوقّع.
 */
 
-const APP_VERSION_SW = '3.16';
+const APP_VERSION_SW = '3.17';
 const CACHE_NAME = 'shahid-shell-v' + APP_VERSION_SW;
 /* الخطوط (خارجية): نخدمها من الكاش فورًا ونحدّثها بالخلفية.
    كاش منفصل لا يُحذف بتغيّر الإصدار. */

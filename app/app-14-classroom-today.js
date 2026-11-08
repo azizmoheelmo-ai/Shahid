@@ -883,7 +883,7 @@ let crmSheetToken = 0;
 let crmSheetSaving = false;
 
 /* mode (اختياري): يفتح الورقة على أداة بعينها (مربّعات بطاقة اليوم) */
-async function openCrmLessonSheet(sectionId, dateIso, period, mode){
+async function openCrmLessonSheet(sectionId, dateIso, period, mode, selectId){
   if(dateIso > localIsoDate()){ showToast('لا يمكن رصد حصة بتاريخ لم يأتِ بعد', 'error'); return; }
   /* لا نفترض أن شاشة إدارة الصف ظاهرة أصلًا (قد تُستدعى من شاشة أخرى
      مستقبلًا): نفتحها ونحمّل شعبها وطلابها أولًا ثم نعرض الورقة */
@@ -936,7 +936,7 @@ async function openCrmLessonSheet(sectionId, dateIso, period, mode){
 
   crmSheet = { sectionId, dateIso, period, states, lessonId: lesson ? lesson.id : null, updatedAt: lesson ? lesson.updated_at : null, token, dirty: draftRestored, markers, markersLoaded: !!attention };
   /* مسودة حضور مستعادة تُعرض أولًا (لا تُخفى خلف أداة أخرى) */
-  if(mode && mode !== 'attendance' && !draftRestored && enabledSheetModes().includes(mode)){ setCrmSheetMode(mode); return; }
+  if(mode && mode !== 'attendance' && !draftRestored && enabledSheetModes().includes(mode)){ setCrmSheetMode(mode, selectId); return; }
   /* الحضور مخفي (تخصيص التطبيق): تفتح الورقة على أول أداة مفعّلة */
   if(!appToolOn('attendance')){ setCrmSheetMode(enabledSheetModes()[0] || 'none'); return; }
   renderCrmLessonSheet(students, draftRestored);

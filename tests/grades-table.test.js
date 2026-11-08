@@ -347,3 +347,21 @@ test('قائمة الأدوات: القالب والتصدير ظاهران بن
   assert.match(html, /exportCrmGradeSheet\('sheet', this\)/);
   assert.match(html, /<small class="hb-sub">/);
 });
+
+test('اختبار السلّم (معيار): يظهر بجانب «رصد» ويفتح ورقة الحصة على الاختبار نفسه، لا خانة درجة', async () => {
+  const app = appWith([]);
+  const cols = COLS.concat([C('rb', 'tests', 10, { name: 'اختبار القراءة' })]);
+  const g = G(cols, []);
+  app.__calls = [];
+  runInAppContext(app, `rubricCache.set('rb', [{ id: 'c1', name: 'الطلاقة', points: 10 }]);
+    window.__page = crmGradesPageHtml(${JSON.stringify(g).replace(/<\/script/g, '')});
+    openCrmLessonSheet = async (...a) => { window.__calls.push(a); };
+    crmGrades = ${JSON.stringify(g)}; window.__p = openCrmGradeRubric('rb');`);
+  await app.__p;
+  assert.match(app.__page, /openCrmGradeRubric\('rb'\)">🎯 اختبار القراءة</, 'الاختبار بمعيار ضمن أزرار الرصد');
+  assert.doesNotMatch(app.__page, /openCrmGradeEntry\('rb'\)/, 'لا خانة درجة له (درجته من معاييره)');
+  assert.equal(app.__calls.length, 1);
+  assert.equal(app.__calls[0][0], 'S');
+  assert.equal(app.__calls[0][3], 'test');
+  assert.equal(app.__calls[0][4], 'rb', 'يُفتح على هذا الاختبار لا آخر اختبار');
+});
