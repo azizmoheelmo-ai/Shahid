@@ -225,3 +225,11 @@ test('السلة: جداول السلّم غير موجودة بعد في الق
   assert.equal(cap.tables.find(t => t.t === 'classroom_rubric_criteria').rows.length, 0);
   await assert.rejects(runInAppContext(app, `trashCaptureGradeColumns(['T1'], 'u1', 'اختبار')`));
 });
+
+test('انحدار: المجموع يُكتب «س من ص» لا «س / ص» (في الاتجاه من اليمين لليسار تنقلب فتظهر «5 / 0»)', async () => {
+  const app = appWith({}, []);
+  openSheet(app);
+  const html = runInAppContext(app, 'rubricBodyHtml(crmSheet.rubric, crmStudentsOfSection())');
+  assert.match(html, /<b>5 من 5<\/b>/, 'يبدأ كاملًا في وضع «كامل الدرجة»');
+  assert.doesNotMatch(html, /<b>[\d.]+ \/ [\d.]+<\/b>/);
+});

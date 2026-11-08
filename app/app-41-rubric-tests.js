@@ -243,7 +243,7 @@ function rubricBodyHtml(R, students){
   const hint = R.mode === 'down' ? 'كل معيار يبدأ بكامل درجته — انقر مستوى أقل عند الحاجة' : `رُصد ${rated} من ${R.criteria.length} معايير`;
   const settings = R.showSet ? `<div class="rb-set"><span>يبدأ كل معيار من</span><div class="rb-seg"><button type="button" aria-pressed="${R.mode === 'down'}" onclick="rubricSetMode('down')">كامل الدرجة</button><button type="button" aria-pressed="${R.mode === 'up'}" onclick="rubricSetMode('up')">صفر</button></div></div>` : '';
   return `<div class="rb-stus" role="group" aria-label="الطلاب">${chips}</div>
-    <div class="rb-total" aria-live="polite"><div class="rb-total-r"><span>${escapeHtml(cur.full_name)}${R.done.has(cur.id) && !R.dirty.has(cur.id) ? ' — معتمد' : ''}</span><b>${formatScore(total)} / ${formatScore(R.max)}</b></div>
+    <div class="rb-total" aria-live="polite"><div class="rb-total-r"><span>${escapeHtml(cur.full_name)}${R.done.has(cur.id) && !R.dirty.has(cur.id) ? ' — معتمد' : ''}</span><b>${formatScore(total)} من ${formatScore(R.max)}</b></div>
       <div class="rb-bar"><i style="width:${R.max > 0 ? Math.min(100, total / R.max * 100) : 0}%"></i></div>
       <div class="rb-total-r"><small>${hint}</small><button type="button" class="rb-link" onclick="rubricToggleSet()">${R.showSet ? 'إخفاء' : 'إعدادات'}</button></div></div>
     ${settings}${tiles}
