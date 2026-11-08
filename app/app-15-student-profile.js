@@ -215,6 +215,7 @@ async function loadCrmStudentProfileData(student){
 
 async function renderCrmStudentProfile(){
   if(!crmProfile) return;
+  if(typeof reportShareCleanup === 'function') reportShareCleanup(); /* روابط التقارير المنتهية: تنظيف مرة بالجلسة */
   const { studentId, token } = crmProfile;
   const body = document.getElementById('crmStudentProfileBody');
   /* المنقول خارج المدرسة: ملفه للاطلاع (سجله محفوظ) */
@@ -300,6 +301,8 @@ async function renderCrmStudentProfile(){
       ${appToolOn('behavior') ? `<div class="crm-status-line"><span class="crm-status-key">المواقف</span><span>${escapeHtml(lines.behaviorLine)}</span></div>` : ''}
       ${followupsOn() ? `<div class="crm-status-line"><span class="crm-status-key">المتابعة</span><span>${escapeHtml(lines.followupLine)}</span></div>` : ''}
     </div>
+
+    ${typeof crmContactCardHtml === 'function' ? crmContactCardHtml(student) : ''}
 
     ${student.is_active === false ? `<div class="crm-today-card" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <span style="font-size:12px;color:var(--muted);">نُقل خارج المدرسة — سجله محفوظ للاطلاع</span>

@@ -371,3 +371,45 @@ begin
   return new;
 end $b$;
 create or replace trigger trg_touch_rubric_note before insert or update on public.classroom_rubric_notes for each row execute function public.touch_rubric_note();
+
+-- جوال الطالب وولي الأمر (اختياريان، أرقام دولية فقط). للتواصل بواتساب؛ لا يدخلان أي تقرير.
+alter table public.classroom_students add column if not exists student_phone text;
+alter table public.classroom_students add column if not exists guardian_phone text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_students_student_phone_chk' and conrelid = 'public.classroom_students'::regclass) then
+    alter table public.classroom_students add constraint classroom_students_student_phone_chk check (student_phone is null or student_phone ~ '^[0-9]{9,15}$');
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'classroom_students_guardian_phone_chk' and conrelid = 'public.classroom_students'::regclass) then
+    alter table public.classroom_students add constraint classroom_students_guardian_phone_chk check (guardian_phone is null or guardian_phone ~ '^[0-9]{9,15}$');
+  end if;
+end $$;
+
+-- إرسال تقرير الطالب برابط مؤقت (واتساب): حاوية خاصة + سجل بالروابط الصادرة. الجدول مؤقت بطبيعته
+-- (يُنظَّف بعد انتهاء الرابط) فهو عمدًا غير مُدرَج بقوائم exportFullBackup/exportBackup ولا بسلة المحذوفات.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('report-shares', 'report-shares', false, 8388608, array['application/pdf'])
+on conflict (id) do nothing;
+drop policy if exists "report-shares: المعلم يرفع ضمن مجلده فقط" on storage.objects;
+create policy "report-shares: المعلم يرفع ضمن مجلده فقط" on storage.objects for insert to authenticated
+  with check (bucket_id = 'report-shares' and (storage.foldername(name))[1] = (select auth.uid())::text);
+drop policy if exists "report-shares: المعلم يقرأ ملفاته فقط" on storage.objects;
+create policy "report-shares: المعلم يقرأ ملفاته فقط" on storage.objects for select to authenticated
+  using (bucket_id = 'report-shares' and (storage.foldername(name))[1] = (select auth.uid())::text);
+drop policy if exists "report-shares: المعلم يحذف ملفاته فقط" on storage.objects;
+create policy "report-shares: المعلم يحذف ملفاته فقط" on storage.objects for delete to authenticated
+  using (bucket_id = 'report-shares' and (storage.foldername(name))[1] = (select auth.uid())::text);
+create table if not exists public.student_report_shares (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  student_id uuid not null,
+  object_path text not null unique,
+  version text not null check (version in ('grades', 'analytical')),
+  recipient text not null check (recipient in ('guardian', 'student')),
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists student_report_shares_teacher_exp_idx on public.student_report_shares(teacher_id, expires_at);
+alter table public.student_report_shares enable row level security;
+drop policy if exists "المعلم يدير روابط تقاريره فقط" on public.student_report_shares;
+create policy "المعلم يدير روابط تقاريره فقط" on public.student_report_shares for all
+  using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);

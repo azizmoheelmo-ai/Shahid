@@ -1243,7 +1243,7 @@ function computePdfSliceBoundaries(cssHeight, maxSliceCssPx, breakPoints){
   return slices;
 }
 
-async function addPdfPagesMulti(pdf, area, html, state){
+async function addPdfPagesMulti(pdf, area, html, state, breakSelector){
   area.innerHTML = html;
   await new Promise(r => setTimeout(r, 100));
 
@@ -1251,7 +1251,7 @@ async function addPdfPagesMulti(pdf, area, html, state){
   const cssHeight = area.offsetHeight;
 
   const areaTop = area.getBoundingClientRect().top;
-  const breakPoints = Array.from(area.querySelectorAll('.pdf-avoid-break'))
+  const breakPoints = Array.from(area.querySelectorAll(breakSelector || '.pdf-avoid-break'))
     .map(el => el.getBoundingClientRect().bottom - areaTop)
     .filter(y => y > 0 && y <= cssHeight)
     .sort((a, b) => a - b);

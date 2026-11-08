@@ -1402,8 +1402,11 @@ function planStudentImport(rows, existingStudents, sectionId){
     if(seen.has(k) || inSection.has(k)){ duplicates++; return; }
     seen.add(k);
     const others = elsewhere.get(k) || [];
-    if(others.length === 1) moveCandidates.push({ full_name: name, existingId: others[0] });
-    else toInsert.push({ full_name: name, student_number: r.student_number || '' });
+    const phones = {}; /* تُضاف فقط إن وُجدت (يبقى شكل السجل كما كان لملف بلا أعمدة جوال) */
+    if(r.student_phone) phones.student_phone = r.student_phone;
+    if(r.guardian_phone) phones.guardian_phone = r.guardian_phone;
+    if(others.length === 1) moveCandidates.push(Object.assign({ full_name: name, existingId: others[0] }, phones));
+    else toInsert.push(Object.assign({ full_name: name, student_number: r.student_number || '' }, phones));
   });
   return { toInsert, moveCandidates, duplicates };
 }
@@ -1680,9 +1683,13 @@ async function addClassroomStudent(){
   if(crmAddStudentBusy) return;
   const name = document.getElementById('newStudentName').value.trim();
   const num = document.getElementById('newStudentNumber').value.trim();
+  const sPhone = normalizePhone(document.getElementById('newStudentPhone').value);
+  const gPhone = normalizePhone(document.getElementById('newGuardianPhone').value);
   const section = crmStuView.mode === 'section' ? crmSectionById(crmStuView.sectionId) : null;
   if(!section){ showToast('افتح شعبة الطالب أولًا', 'error'); return; }
   if(!name){ showToast('اكتب اسم الطالب', 'error'); return; }
+  if(!gPhone.ok){ showToast('جوال ولي الأمر: ' + gPhone.error, 'error'); return; }
+  if(!sPhone.ok){ showToast('جوال الطالب: ' + sPhone.error, 'error'); return; }
   const grade = crmGradeLevels.find(g => g.id === section.grade_level_id);
   crmAddStudentBusy = true;
   const btn = document.getElementById('newStudentSaveBtn');
@@ -1695,11 +1702,15 @@ async function addClassroomStudent(){
       section_number: section.name,
       section_id: section.id,
       student_number: num || null,
+      student_phone: sPhone.value,
+      guardian_phone: gPhone.value,
       academic_year: document.getElementById('crmYearInput').value
     });
     if(error){ showToast('تعذّر الحفظ: ' + error.message, 'error'); return; }
     document.getElementById('newStudentName').value = '';
     document.getElementById('newStudentNumber').value = '';
+    document.getElementById('newStudentPhone').value = '';
+    document.getElementById('newGuardianPhone').value = '';
     showToast('تمت إضافة "' + name + '" — أضف التالي أو أغلق النموذج', 'ok');
     await loadCrmStudents();
     renderCrmStudentsList();
@@ -1771,11 +1782,32 @@ async function importStudentsExcelInner(event, file){
         const k = keys.find(k => names.some(n => norm(k).includes(n)));
         return k ? norm(r[k]) : '';
       };
+      /* أعمدة الجوال: «جوال/هاتف/موبايل/phone»، ومعها «ولي/أب/guardian/parent» فهو لولي الأمر. تُستبعد من عمود «رقم الطالب» (كان «رقم جوال…» يُقرأ رقمًا للطالب) */
+      const isPhoneKey = k => /جوال|هاتف|موبايل|محمول|mobile|phone/i.test(k);
+      const isGuardianKey = k => /ولي|الأب|guardian|parent/i.test(k);
+      const phoneOf = guardian => {
+        const k = keys.find(k => isPhoneKey(k) && isGuardianKey(k) === guardian);
+        return k ? norm(r[k]) : '';
+      };
+      const noPhoneCol = (...names) => {
+        const k = keys.find(k => !isPhoneKey(k) && names.some(n => norm(k).includes(n)));
+        return k ? norm(r[k]) : '';
+      };
       return {
         full_name: findCol('اسم', 'الاسم', 'name'),
-        student_number: findCol('رقم', 'number')
+        student_number: noPhoneCol('رقم', 'number'),
+        student_phone: phoneOf(false),
+        guardian_phone: phoneOf(true)
       };
     }).filter(r => r.full_name);
+    /* الأرقام تُوحَّد هنا؛ غير الصالح يُهمَل بالاسم (لا يوقف الاستيراد) ويُذكر عدده في الملخص */
+    let badPhones = 0;
+    records.forEach(r => {
+      ['student_phone', 'guardian_phone'].forEach(f => {
+        const n = normalizePhone(r[f]);
+        if(!n.ok){ badPhones++; r[f] = null; } else r[f] = n.value;
+      });
+    });
 
     if(!records.length){ showToast('تعذّر التعرف على الأسماء — تأكد من وجود عمود باسم "الاسم"', 'error'); event.target.value=''; return; }
 
@@ -1788,6 +1820,7 @@ async function importStudentsExcelInner(event, file){
 
     let summary = 'استيراد إلى ' + label + ' — جديد: ' + plan.toInsert.length;
     if(plan.duplicates) summary += ' · مكرر أو موجود أصلًا بهذه الشعبة (سيُتخطّى): ' + plan.duplicates;
+    if(badPhones) summary += ' · أرقام جوال غير صالحة (ستُهمَل): ' + badPhones;
     if(plan.moveCandidates.length) summary += ' · موجود في شعبة أخرى: ' + plan.moveCandidates.length + ' (ستُسأل عنهم بعد هذه الخطوة)';
     const ok = await showConfirm(summary + '. متابعة؟');
     if(!ok){ event.target.value=''; return; }
@@ -1799,7 +1832,7 @@ async function importStudentsExcelInner(event, file){
       const names = plan.moveCandidates.slice(0, 8).map(m => m.full_name).join('، ') + (plan.moveCandidates.length > 8 ? '…' : '');
       const move = await showConfirm('هؤلاء مسجّلون في شعبة أخرى: ' + names + ' — هل نُقلوا إلى ' + label + '؟ "تأكيد" ينقل سجلهم الحالي (تبقى مخالفاتهم معهم). "إلغاء" يضيفهم كطلاب جدد ويُبقي السجل القديم كما هو.');
       if(move) moveIds = plan.moveCandidates.map(m => m.existingId);
-      else plan.moveCandidates.forEach(m => plan.toInsert.push({ full_name: m.full_name, student_number: '' }));
+      else plan.moveCandidates.forEach(m => plan.toInsert.push({ full_name: m.full_name, student_number: '', student_phone: m.student_phone, guardian_phone: m.guardian_phone }));
     }
 
     const yearVal = section.academic_year || document.getElementById('crmYearInput').value.trim();
@@ -1809,6 +1842,8 @@ async function importStudentsExcelInner(event, file){
         teacher_id: currentUser.id,
         full_name: r.full_name,
         student_number: r.student_number || null,
+        student_phone: r.student_phone || null,
+        guardian_phone: r.guardian_phone || null,
         academic_year: yearVal
       }, canonical));
       const { error } = await sb.from('classroom_students').insert(payload);
