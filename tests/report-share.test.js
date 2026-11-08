@@ -187,3 +187,15 @@ test('api/r.js: ردود بلا تخزين ولا فهرسة، وrewrite لـ/r/
   const vj = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
   assert.ok(vj.rewrites.some(r => r.source === '/r/:code' && r.destination === '/api/r?c=:code'));
 });
+
+test('رسائل المراحل على الزر بالترتيب (قراءة ← PDF ← رفع ← رابط)، ولا تُكتب فوق نافذة أُغلقت', async () => {
+  const { app } = appWith();
+  runInAppContext(app, `window.__stages = []; const btn = {}; Object.defineProperty(btn, 'textContent', { set(v){ window.__stages.push(v); }, get(){ return ''; } }); window.__els.rsGoBtn = btn;`);
+  await runInAppContext(app, `buildReportShare('a', 'guardian', '5')`);
+  const st = runInAppContext(app, 'window.__stages.filter((x, i, a) => x !== a[i - 1])');
+  assert.deepEqual(Array.from(st).slice(0, 4), ['جارٍ قراءة بيانات الطالب…', 'جارٍ تحويل التقرير إلى PDF…', 'جارٍ رفع الملف…', 'جارٍ إنشاء الرابط…']);
+  const closed = appWith();
+  runInAppContext(closed.app, `window.__stages = []; const btn = {}; Object.defineProperty(btn, 'textContent', { set(v){ window.__stages.push(v); }, get(){ return ''; } }); window.__els.rsGoBtn = btn; window.__els.reportShareBody = { dataset: { token: '99' } };`);
+  await runInAppContext(closed.app, `buildReportShare('a', 'guardian', '5')`);
+  assert.equal(runInAppContext(closed.app, 'window.__stages.length'), 1, 'نافذة مغلقة: لا كتابة سوى الأولى قبل الإغلاق');
+});
