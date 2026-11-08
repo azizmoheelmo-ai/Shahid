@@ -108,6 +108,7 @@ function ssLevelCounts(rows, rules){
 }
 
 /* ============ HTML ============ */
+/* منطقة .dxs (بعد قائمة الأسماء): خلفية خفيفة، تسمية النوع ملوَّنة، والتوصية مرقّمة بعمودين (تسمية | نص). التعليق هنا لا داخل CSS لأن اختبارات «بدون تشخيص» تمنع أي ذكر للتشخيص في الناتج */
 const SS_CSS = `
 .sr .lv .bw{width:34%}.sr .lv .bar{min-width:120px}
 .sr table.rs2 td:nth-child(4){border-left:2px solid #c2c1c1}.sr table.rs2 th:nth-child(4){border-left:2px solid #fff}
@@ -115,6 +116,12 @@ const SS_CSS = `
 .sr table.rs2 td,.sr .fin table td{padding-top:1px;padding-bottom:1px}.sr table.rs2 .chip{line-height:1.5}
 .sr table.inc2 td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.inc2 th:nth-child(3){border-left:2px solid #fff}.sr table.inc2.one td:nth-child(3){border-left:0}.sr table.inc2.one th:nth-child(3){border-left:0}.sr table.inc2.one td:nth-child(1){border-left:2px solid #c2c1c1}.sr table.inc2.one th:nth-child(1){border-left:2px solid #fff}.sr .tag{display:inline-block;border:1px dashed #8a99a2;border-radius:9px;padding:0 8px;font-size:9.5px;font-weight:400;color:#51636d}
 .sr .fin{break-inside:avoid}.sr .cmpw{display:flex;gap:10px}.sr .cmpw>div{flex:1;min-width:0}
+.sr .dxs{background:#f6f9fb;border:1px solid #dbe5ea;border-radius:9px;padding:8px 10px 4px;margin:10px 0 8px;counter-reset:rc}
+.sr .dxs .sec{margin-bottom:6px}.sr .dxs h2{margin-bottom:4px}
+.sr .dxs .box{background:#fff}.sr .dxs .box.s b{color:#05814f}.sr .dxs .box.p b{color:#5b4690}.sr .dxs .box.f b{color:#2f679a}
+.sr .dxs .rc{position:relative;background:#fff;padding-right:26px;counter-increment:rc}
+.sr .dxs .rc::before{content:counter(rc);position:absolute;right:7px;top:6px;width:15px;height:15px;border-radius:50%;background:#15445a;color:#fff;font-size:9.5px;line-height:15px;text-align:center;font-weight:700}
+.sr .dxs .rc div{display:grid;grid-template-columns:84px 1fr;gap:6px;align-items:baseline}
 `;
 
 function ssLevelsHtml(counts, incompleteN, total, rules, compact){
@@ -192,7 +199,7 @@ function ssDiagHtml(dx){
     return `<div class="box f"><b>التقدّم (${e(p.label)}):</b> متوسط الشعبة ${body} (${t})</div>`;
   }).join('');
   const recs = dx.recs.length ? `<div class="sec"><h2>التوصيات</h2>${dx.recs.map(r => `<div class="rc"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>` : '';
-  return sec('التشخيص: ماذا يتقن الطلاب (التحصيل)', dx.tahsili) + sec('التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)', dx.taalumi, prog) + recs;
+  return `<div class="dxs">${sec('التشخيص: ماذا يتقن الطلاب (التحصيل)', dx.tahsili)}${sec('التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)', dx.taalumi, prog)}${recs}</div>`;
 }
 
 /* قائمة الطلاب (عند تشغيل الأسماء): من الأدنى نسبةً، قائمتان متجاورتان بجدول واحد (صف = سجلان) */
@@ -282,7 +289,7 @@ function buildSectionReportHtml(ctx){
   const sign = `<div class="sgn"><div><small>${e(teacher)}</small>معلم المادة</div><div><small>${e(prefs.vice || '')}</small>وكيل شؤون الطلاب</div></div>`;
   return `<style>${SR_CSS}${SS_CSS}</style><div class="sr">${head}${metaHtml}<div class="kp">${kp}</div>
     ${ssLevelsItemsHtml(ctx, show, counts, inc.length, s.total, rules)}
-    ${ctx.noDx ? '' : ssDiagHtml(ctx.dx)}${ssCompareHtml(ctx.prev, ctx.withNames)}${ctx.withNames ? ssRosterHtml(ctx.rows, rules) : ''}<div class="fin">${incHtml}${sign}</div><div class="strip"></div></div>`;
+    ${ssCompareHtml(ctx.prev, ctx.withNames)}${ctx.withNames ? ssRosterHtml(ctx.rows, rules) : ''}${ctx.noDx ? '' : ssDiagHtml(ctx.dx)}<div class="fin">${incHtml}${sign}</div><div class="strip"></div></div>`;
 }
 
 /* من نافذة التحليل (تقرير المجموع): كل البيانات من كشف الشعبة المحمَّل a.g، بلا استعلام جديد */

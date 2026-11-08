@@ -405,3 +405,17 @@ test('صندوق البيانات يُكمَّل بخلايا فارغة لمض�
   const total = await build(opened());
   assert.doesNotMatch(total.match(/<div class="mt">([\s\S]*?)<\/div><div class="kp">/)[1], /<div><\/div>/, '6 خلايا بلا حشو');
 });
+
+test('الترتيب: التشخيص والتوصيات بعد قائمة أسماء الطلاب، ثم الرصد غير المكتمل (طلب المستخدم)', async () => {
+  const h = await build(opened(), { withNames: true });
+  const at = s => h.indexOf(s);
+  for (const s of ['قائمة الطلاب (من الأدنى نسبةً)', 'التشخيص: ماذا يتقن الطلاب', 'التشخيص: كيف يتعلّم الطلاب', '<h2>التوصيات</h2>']) assert.ok(at(s) > -1, s);
+  assert.ok(at('قائمة الطلاب (من الأدنى نسبةً)') < at('التشخيص: ماذا يتقن الطلاب'), 'الأسماء قبل التشخيص');
+  assert.ok(at('التشخيص: ماذا يتقن الطلاب') < at('التشخيص: كيف يتعلّم الطلاب'));
+  assert.ok(at('التشخيص: كيف يتعلّم الطلاب') < at('<h2>التوصيات</h2>'));
+  assert.ok(at('<h2>التوصيات</h2>') < at('class="fin"'), 'التوصيات قبل الرصد غير المكتمل والتوقيع');
+  /* التشخيص والتوصيات داخل منطقة واحدة (dxs) */
+  const zone = h.slice(at('<div class="dxs">'), at('class="fin"'));
+  assert.match(zone, /التشخيص: ماذا يتقن الطلاب/);
+  assert.match(zone, /<h2>التوصيات<\/h2>/);
+});
