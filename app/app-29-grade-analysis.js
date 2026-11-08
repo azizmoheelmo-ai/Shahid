@@ -284,6 +284,16 @@ function gaScopeIds(a, scope){
   return new Set((lists[scope] || []).map(r => r.id));
 }
 
+/* نسخة التقرير المختارة بقائمة التنزيل: 'grades' (افتراضي) أو 'analytical' */
+function gaRepVersion(a){ return a && a.repVer === 'analytical' ? 'analytical' : 'grades'; }
+function setCrmGaRepVer(v){
+  const a = crmGradeAnalysis;
+  if(!a || !a.repFor) return;
+  a.repVer = v === 'analytical' ? 'analytical' : 'grades';
+  a.repOther = false;
+  paintCrmGradeAnalysis();
+}
+
 function gaStudentName(a, id){
   const st = (a.students || []).find(x => x.id === id);
   return st ? st.full_name : '';
@@ -301,11 +311,22 @@ function gaPopHtml(a){
     body = GA_REPORT_SCOPES.map(([k, label]) => row(`<span>${k === 'top' && st.topIsFallback ? 'الأعلى درجات' : label}</span><b>${n(k)}</b>`, `pickCrmGaScope('${k}')`, n(k) ? '' : 'disabled')).join('');
   } else {
     const sc = bulk ? GA_REPORT_SCOPES.find(x => x[0] === (a.repScope || 'all')) : null;
-    head = bulk ? `<button type="button" class="crm-ga-pop-back" aria-label="رجوع لاختيار الفئة" onclick="pickCrmGaScope(null)">‹</button><span>${sc ? sc[1] : ''} — موجّه إلى</span>` : `<span>${escapeHtml(gaStudentName(a, a.repFor))} — موجّه إلى</span>`;
-    body = GA_REPORT_TO.map(([k, label]) => row(label, `pickCrmGaReportTo('${k}', this)`)).join('')
-      + (a.repOther
-        ? `<div class="crm-ga-to-other"><input class="goal-input" type="text" id="crmGaToOther" maxlength="40" placeholder="مثال: مدير المدرسة" aria-label="الجهة الموجّه إليها التقرير" onkeydown="if(event.key==='Enter'){event.preventDefault();pickCrmGaReportTo('otherGo', this.nextElementSibling);}"><button type="button" class="crm-ga-to-chip" onclick="pickCrmGaReportTo('otherGo', this)">تنزيل</button></div>`
-        : row('أخرى…', "pickCrmGaReportTo('other', this)"));
+    const analytic = gaRepVersion(a) === 'analytical';
+    head = bulk ? `<button type="button" class="crm-ga-pop-back" aria-label="رجوع لاختيار الفئة" onclick="pickCrmGaScope(null)">‹</button><span>${sc ? sc[1] : ''} — ${analytic ? 'تحليلي' : 'موجّه إلى'}</span>` : `<span>${escapeHtml(gaStudentName(a, a.repFor))} — ${analytic ? 'تحليلي' : 'موجّه إلى'}</span>`;
+    /* النسخة: الدرجات (موجَّهة لجهة) أو التحليلية (كل ما يخص الطالب، بتشخيص أو بدونه) — كانت التحليلية تُنزَّل من ملف الطالب فقط */
+    const ver = (k, label) => `<button type="button" role="menuitemradio" aria-checked="${analytic === (k === 'analytical')}" class="${analytic === (k === 'analytical') ? 'is-on' : ''}" onclick="setCrmGaRepVer('${k}')">${label}</button>`;
+    const verRow = `<div class="crm-ga-pop-ver">${ver('grades', 'نسخة الدرجات')}${ver('analytical', 'النسخة التحليلية')}</div>`;
+    if(analytic){
+      const dxOn = typeof reportDxOn === 'function' ? reportDxOn() : true;
+      body = verRow + `<label class="crm-ga-chk crm-ga-pop-dx"><input type="checkbox" id="crmGaPopDx"${dxOn ? ' checked' : ''} onchange="gaSetDx(this.checked)"> مع التشخيص والتوصيات</label>`
+        + `<p class="crm-ga-pop-note">كل ما يخص الطالب: الدرجات مع الحضور والمخالفات والمتابعات والحالات.</p>`
+        + row('⤓ تنزيل التقرير التحليلي', "pickCrmGaReportTo('analytical', this)");
+    } else {
+      body = verRow + GA_REPORT_TO.map(([k, label]) => row(label, `pickCrmGaReportTo('${k}', this)`)).join('')
+        + (a.repOther
+          ? `<div class="crm-ga-to-other"><input class="goal-input" type="text" id="crmGaToOther" maxlength="40" placeholder="مثال: مدير المدرسة" aria-label="الجهة الموجّه إليها التقرير" onkeydown="if(event.key==='Enter'){event.preventDefault();pickCrmGaReportTo('otherGo', this.nextElementSibling);}"><button type="button" class="crm-ga-to-chip" onclick="pickCrmGaReportTo('otherGo', this)">تنزيل</button></div>`
+          : row('أخرى…', "pickCrmGaReportTo('other', this)"));
+    }
   }
   return `<div class="crm-ga-pop" role="menu"><div class="crm-ga-pop-h">${head}<button type="button" class="crm-ga-pop-x" aria-label="إغلاق" onclick="toggleCrmGaReportTo(crmGradeAnalysis.repFor)">✕</button></div>${body}</div>`;
 }
@@ -334,6 +355,7 @@ async function pickCrmGaReportTo(kind, btn){
   const a = crmGradeAnalysis;
   if(!a || !a.repFor) return;
   let to;
+  const version = kind === 'analytical' ? 'analytical' : 'grades';
   if(kind === 'other'){
     a.repOther = true;
     paintCrmGradeAnalysis();
@@ -341,7 +363,9 @@ async function pickCrmGaReportTo(kind, btn){
     if(inp) inp.focus();
     return;
   }
-  if(kind === 'otherGo'){
+  if(kind === 'analytical'){
+    to = null; /* التحليلية بلا «موجّه إلى» */
+  } else if(kind === 'otherGo'){
     const inp = document.getElementById('crmGaToOther');
     to = (inp ? inp.value : '').replace(/\s+/g, ' ').trim().slice(0, 40);
     if(!to){ showToast('اكتب الجهة الموجّه إليها التقرير', 'error'); return; }
@@ -354,8 +378,8 @@ async function pickCrmGaReportTo(kind, btn){
   if(target === '*'){
     const scope = a.repScope || 'all';
     const sc = GA_REPORT_SCOPES.find(x => x[0] === scope);
-    await exportCrmAllStudentReports(btn, to, gaScopeIds(a, scope), scope === 'all' ? '' : sc[1]);
-  } else await exportCrmStudentReportFor(target, btn, to);
+    await exportCrmAllStudentReports(btn, to, gaScopeIds(a, scope), scope === 'all' ? '' : sc[1], version);
+  } else await exportCrmStudentReportFor(target, btn, to, version);
   if(crmGradeAnalysis === a && a.repFor === target){ a.repFor = null; a.repOther = false; paintCrmGradeAnalysis(); }
 }
 
