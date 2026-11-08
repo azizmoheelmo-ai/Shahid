@@ -115,7 +115,6 @@ const SS_CSS = `
 .sr table.rs2 td,.sr .fin table td{padding-top:1px;padding-bottom:1px}.sr table.rs2 .chip{line-height:1.5}
 .sr table.inc2 td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.inc2 th:nth-child(3){border-left:2px solid #fff}.sr table.inc2.one td:nth-child(3){border-left:0}.sr table.inc2.one th:nth-child(3){border-left:0}.sr table.inc2.one td:nth-child(1){border-left:2px solid #c2c1c1}.sr table.inc2.one th:nth-child(1){border-left:2px solid #fff}.sr .tag{display:inline-block;border:1px dashed #8a99a2;border-radius:9px;padding:0 8px;font-size:9.5px;font-weight:400;color:#51636d}
 .sr .fin{break-inside:avoid}.sr .cmpw{display:flex;gap:10px}.sr .cmpw>div{flex:1;min-width:0}
-.sr table.dxt td{vertical-align:top;padding-top:3px;padding-bottom:3px}.sr table.dxt td:nth-child(1){white-space:nowrap;color:#51636d}.sr table.dxt td:nth-child(3){white-space:nowrap}.sr table.dxt tr{break-inside:avoid}
 `;
 
 function ssLevelsHtml(counts, incompleteN, total, rules, compact){

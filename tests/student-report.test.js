@@ -298,7 +298,7 @@ test('نسخة الدرجات: أرقام ومستويات فقط — بلا ت�
 test('النسخة التحليلية: كل قسم يظهر فقط إن وُجدت بياناته، بلا اختصار', () => {
   const empty = html('analytical');
   for(const gone of ['الحضور', 'المواقف السلوكية', 'الملاحظات الإيجابية', 'المتابعات المسجلة', 'حالات المتابعة الأكاديمية', 'المهام الأدائية']) assert.doesNotMatch(empty, new RegExp(gone), gone + ' بلا بيانات');
-  assert.match(empty, /التشخيص: ماذا يتقن الطالب/);
+  assert.match(empty, /<h2>التشخيص والتوصيات<\/h2>/);
   assert.match(empty, /الخطوة التالية المتفق عليها/);
   assert.match(empty, /متوسط الشعبة/);
   const list = []; for(let i = 1; i <= 25; i++) list.push({ status: 'absent', date: '2026-10-' + String(i).padStart(2, '0'), period: 1, prevSection: false });
@@ -562,7 +562,7 @@ test('أصناف التقرير لا تتعارض مع أي قاعدة عامة 
 
 test('«بدون تشخيص» (ق18): النسخة التحليلية تُبقي البيانات وتحذف التشخيص والتوصيات', () => {
   const withDx = html('analytical');
-  assert.match(withDx, /<h2>التشخيص/);
+  assert.match(withDx, /<h2>التشخيص والتوصيات<\/h2>/);
   const raw = html('analytical', { noDx: true, attendance: { counts: { present: 3, absent: 1, late: 0, permitted_exit: 0 }, list: [], recorded: 4 } });
   assert.doesNotMatch(raw, /<h2>التشخيص|<h2>التوصيات<\/h2>/);
   assert.match(raw, /<h2>درجات البنود مقارنةً بمتوسط الشعبة<\/h2>/, 'جدول الدرجات باقٍ');
@@ -581,4 +581,42 @@ test('خيار التشخيص: التفضيل يُحفظ بالجهاز، وال
   const src = fs.readFileSync(path.join(__dirname, '..', 'app/app-36-student-report.js'), 'utf8');
   assert.match(src, /noDx: opts\.noDx !== undefined \? !!opts\.noDx : !\(typeof reportDxOn === 'function' \? reportDxOn\(\) : true\)/);
   assert.match(src, /id="srDxChk"/, 'خانة في نافذة اختيار النسخة');
+});
+
+/* ============ جدول التشخيص والتوصيات الموحَّد (الشكل «أ») ============ */
+function dxHtml(rows, extra, over){
+  const app = loadApp();
+  const d = app.srDiagnose(Object.assign({ rows, rules: R, homework: null, lessonsHeld: 10, overall: { pct: 40, incomplete: false } }, extra || {}));
+  return runInAppContext(app, `buildStudentReportHtml2(Object.assign(${JSON.stringify(BASE)}, { version: 'analytical', rows: ${JSON.stringify(rows)}, dx: ${JSON.stringify(J(d))} }, ${JSON.stringify(over || {})}))`);
+}
+
+test('التشخيص بالجدول الموحَّد: ضعف مثبت بإجراء، وقوة بلا إجراء، وصف تعلّمي وتواصل ولي الأمر', () => {
+  const rows = [row('أول', 3, 10), row('قصير', 4, 10), row('ثالث', 10, 10), hwRow(20), partRow(95)];
+  const h = dxHtml(rows, { homework: HW, overall: { pct: 40, incomplete: false } });
+  assert.match(h, /<h2>التشخيص والتوصيات<\/h2>/);
+  assert.match(h, /<th>المجال<\/th><th>البند<\/th><th class="n">الحكم<\/th><th>الدليل<\/th><th>الإجراء المقترح<\/th>/);
+  /* ضعف تحصيلي مثبت بإجراء */
+  assert.match(h, /<td>تحصيلي<\/td><td><b>عدة بنود<\/b><\/td><td class="n"><span class="chip w">ضعف مثبت<\/span><\/td><td>[^<]*أول[^<]*<\/td><td>مراجعة المهارات/);
+  /* نقطة قوة بلا إجراء */
+  assert.match(h, /<td>تحصيلي<\/td><td><b>ثالث<\/b><\/td><td class="n"><span class="chip m">نقطة قوة<\/span><\/td><td>[^<]*<\/td><td><span class="nd">—<\/span><\/td>/);
+  /* ضعف الواجبات بإجراء، والمشاركة القوية بلا إجراء */
+  assert.match(h, /<td>تعلّمي<\/td><td><b>الواجبات<\/b><\/td><td class="n"><span class="chip w">ضعف مثبت<\/span><\/td><td>لم يسلّم 4 من 6 واجبات[^<]*<\/td><td>متابعة تسليم الواجبات/);
+  assert.match(h, /<td>تعلّمي<\/td><td><b>المشاركة<\/b><\/td><td class="n"><span class="chip m">نقطة قوة<\/span>/);
+  /* التواصل مع ولي الأمر */
+  assert.match(h, /<td>عام<\/td><td><b>التواصل مع ولي الأمر<\/b><\/td>/);
+  /* لا الشكل القديم */
+  assert.doesNotMatch(h, /class="rc"|<h2>التوصيات<\/h2>|class="box (s|p)"/);
+});
+
+test('نتيجة منخفضة واحدة: صف «واقعة لا حكم» بلا إجراء، ولا بيانات كافية صف ملاحظة', () => {
+  const one = dxHtml([row('أول', 9, 10), row('قصير', 4, 10)]);
+  assert.match(one, /<span class="chip j">نتيجة منخفضة<\/span><\/td><td>[^<]*قصير[^<]*<span class="nd">\(واقعة لا حكم\)<\/span><\/td><td><span class="nd">—<\/span><\/td>/);
+  const few = dxHtml([row('قصير', 2, 10)]);
+  assert.match(few, /<td>تحصيلي<\/td><td colspan="4"><span class="nd">لا بيانات كافية للحكم على التحصيل/);
+});
+
+test('التشخيص في الجدول يُهرَّب (اسم البند)', () => {
+  const X = '<img src=x onerror=alert(1)>';
+  const h = dxHtml([row(X, 9, 10), row('قصير', 4, 10), row('ثالث', 1, 10)], {});
+  assert.doesNotMatch(h, /<img src=x/);
 });
