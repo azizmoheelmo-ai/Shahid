@@ -108,7 +108,6 @@ function ssLevelCounts(rows, rules){
 }
 
 /* ============ HTML ============ */
-/* منطقة .dxs (بعد قائمة الأسماء): خلفية خفيفة، تسمية النوع ملوَّنة، والتوصية مرقّمة بعمودين (تسمية | نص). التعليق هنا لا داخل CSS لأن اختبارات «بدون تشخيص» تمنع أي ذكر للتشخيص في الناتج */
 const SS_CSS = `
 .sr .lv .bw{width:34%}.sr .lv .bar{min-width:120px}
 .sr table.rs2 td:nth-child(4){border-left:2px solid #c2c1c1}.sr table.rs2 th:nth-child(4){border-left:2px solid #fff}
@@ -116,12 +115,7 @@ const SS_CSS = `
 .sr table.rs2 td,.sr .fin table td{padding-top:1px;padding-bottom:1px}.sr table.rs2 .chip{line-height:1.5}
 .sr table.inc2 td:nth-child(3){border-left:2px solid #c2c1c1}.sr table.inc2 th:nth-child(3){border-left:2px solid #fff}.sr table.inc2.one td:nth-child(3){border-left:0}.sr table.inc2.one th:nth-child(3){border-left:0}.sr table.inc2.one td:nth-child(1){border-left:2px solid #c2c1c1}.sr table.inc2.one th:nth-child(1){border-left:2px solid #fff}.sr .tag{display:inline-block;border:1px dashed #8a99a2;border-radius:9px;padding:0 8px;font-size:9.5px;font-weight:400;color:#51636d}
 .sr .fin{break-inside:avoid}.sr .cmpw{display:flex;gap:10px}.sr .cmpw>div{flex:1;min-width:0}
-.sr .dxs{background:#f6f9fb;border:1px solid #dbe5ea;border-radius:9px;padding:8px 10px 4px;margin:10px 0 8px;counter-reset:rc}
-.sr .dxs .sec{margin-bottom:6px}.sr .dxs h2{margin-bottom:4px}
-.sr .dxs .box{background:#fff}.sr .dxs .box.s b{color:#05814f}.sr .dxs .box.p b{color:#5b4690}.sr .dxs .box.f b{color:#2f679a}
-.sr .dxs .rc{position:relative;background:#fff;padding-right:26px;counter-increment:rc}
-.sr .dxs .rc::before{content:counter(rc);position:absolute;right:7px;top:6px;width:15px;height:15px;border-radius:50%;background:#15445a;color:#fff;font-size:9.5px;line-height:15px;text-align:center;font-weight:700}
-.sr .dxs .rc div{display:grid;grid-template-columns:84px 1fr;gap:6px;align-items:baseline}
+.sr table.dxt td{vertical-align:top;padding-top:3px;padding-bottom:3px}.sr table.dxt td:nth-child(1){white-space:nowrap;color:#51636d}.sr table.dxt td:nth-child(3){white-space:nowrap}.sr table.dxt tr{break-inside:avoid}
 `;
 
 function ssLevelsHtml(counts, incompleteN, total, rules, compact){
@@ -183,23 +177,37 @@ function ssLevelsItemsHtml(ctx, show, counts, incN, total, rules){
     + (showI ? `<div class="sec long"><h2>${tI}</h2>${ssItemsHtml(ctx.items, rules)}</div>` : '');
 }
 
+/* جدول التشخيص والتوصيات الموحَّد (الشكل «أ» الذي اعتمده المستخدم، ويُستعمل في كل تقرير فيه تشخيص):
+   المجال · البند · الحكم · الدليل · الإجراء المقترح. rows: { domain, item, cls, label, evidenceHtml, action } أو { domain, noteHtml } لصف ملاحظة.
+   الإجراء لصف الضعف فقط (لا توصية بلا ضعف مثبت)، وغيره «—». كل نص مستخدم يُهرَّب عند بناء الصفوف */
+function ssDxTableHtml(rows, foot){
+  const e = escapeHtml;
+  const body = rows.map(r => r.noteHtml !== undefined
+    ? `<tr><td>${e(r.domain)}</td><td colspan="4"><span class="nd">${r.noteHtml}</span></td></tr>`
+    : `<tr><td>${e(r.domain)}</td><td><b>${e(r.item)}</b></td><td class="n"><span class="chip ${r.cls}">${e(r.label)}</span></td><td>${r.evidenceHtml}</td><td>${r.action ? e(r.action) : '<span class="nd">—</span>'}</td></tr>`).join('');
+  return `<div class="sec long"><h2>التشخيص والتوصيات</h2><table class="dxt"><thead><tr><th>المجال</th><th>البند</th><th class="n">الحكم</th><th>الدليل</th><th>الإجراء المقترح</th></tr></thead><tbody>${body}</tbody></table>${foot ? `<div class="fn">${foot}</div>` : ''}</div>`;
+}
+
 function ssDiagHtml(dx){
   const e = escapeHtml;
-  const sec = (title, d, extra) => {
-    if(!d.enough) return `<div class="sec"><h2>${title}</h2><div class="box"><span class="nd">لا بيانات كافية للحكم (لا بند رُصد لـ${SS_MIN_STUDENTS} طلاب فأكثر).</span></div>${extra || ''}</div>`;
-    const lines = [];
-    d.strong.forEach(it => lines.push(`<div class="box s"><b>نقطة قوة:</b> ${e(ssLabel(it))} — ${srNum(it.total.top)} من ${srNum(it.total.n)} طالبًا (${srNum(Math.round(it.total.topShare) + '%')}) بمستوى «متفوق».</div>`));
-    d.weak.forEach(it => lines.push(`<div class="box p"><b>ضعف جماعي:</b> ${e(ssLabel(it))} — ${srNum(it.total.below)} من ${srNum(it.total.n)} طالبًا (${srNum(Math.round(it.total.belowShare) + '%')}) دون حدّ الضعف.</div>`));
-    if(!lines.length) lines.push('<div class="box"><span class="nd">لا نقاط قوة ولا ضعف جماعية مثبتة.</span></div>');
-    return `<div class="sec"><h2>${title}</h2>${lines.join('')}${extra || ''}</div>`;
-  };
-  const prog = dx.progress.map(p => {
+  const rows = [];
+  let recIdx = 0;
+  [['تحصيلي', dx.tahsili], ['تعلّمي', dx.taalumi]].forEach(([domain, d]) => {
+    if(!d.enough){ rows.push({ domain, noteHtml: `لا بيانات كافية للحكم (لا بند رُصد لـ${SS_MIN_STUDENTS} طلاب فأكثر).` }); return; }
+    d.weak.forEach(it => {
+      const rec = dx.recs[recIdx++] || {};
+      rows.push({ domain, item: ssLabel(it), cls: 'w', label: 'ضعف جماعي', evidenceHtml: e(rec.evidence || `${it.total.below} من ${it.total.n} طالبًا (${Math.round(it.total.belowShare)}%) دون حدّ الضعف`), action: rec.action });
+    });
+    d.strong.forEach(it => rows.push({ domain, item: ssLabel(it), cls: 'm', label: 'قوة جماعية', evidenceHtml: `${srNum(it.total.top)} من ${srNum(it.total.n)} طالبًا (${srNum(Math.round(it.total.topShare) + '%')}) بمستوى «متفوق»` }));
+    if(!d.weak.length && !d.strong.length) rows.push({ domain, noteHtml: 'لا نقاط قوة ولا ضعف جماعية مثبتة.' });
+  });
+  dx.progress.forEach(p => {
     const t = p.trend === 'up' ? 'تحسّن' : p.trend === 'down' ? 'تراجع' : 'مستقر';
-    const body = p.kind === 'tests' ? `من «${e(p.fromLabel)}» ${srNum(Math.round(p.from) + '%')} إلى «${e(p.toLabel)}» ${srNum(Math.round(p.to) + '%')}` : `${e(p.name)} من ${srNum(Math.round(p.from) + '%')} إلى ${srNum(Math.round(p.to) + '%')}`;
-    return `<div class="box f"><b>التقدّم (${e(p.label)}):</b> متوسط الشعبة ${body} (${t})</div>`;
-  }).join('');
-  const recs = dx.recs.length ? `<div class="sec"><h2>التوصيات</h2>${dx.recs.map(r => `<div class="rc"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>` : '';
-  return `<div class="dxs">${sec('التشخيص: ماذا يتقن الطلاب (التحصيل)', dx.tahsili)}${sec('التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)', dx.taalumi, prog)}${recs}</div>`;
+    const body = p.kind === 'tests' ? `متوسط الشعبة من «${e(p.fromLabel)}» ${srNum(Math.round(p.from) + '%')} إلى «${e(p.toLabel)}» ${srNum(Math.round(p.to) + '%')}` : `متوسط الشعبة من ${srNum(Math.round(p.from) + '%')} إلى ${srNum(Math.round(p.to) + '%')}`;
+    rows.push({ domain: 'التقدّم', item: p.kind === 'tests' ? p.label : `${p.name} (${p.label})`, cls: 'j', label: t, evidenceHtml: body });
+  });
+  const foot = `ضعف جماعي: ${srNum(SS_SHARE + '%')} فأكثر من الطلاب المرصود لهم دون حدّ الضعف · قوة جماعية: ${srNum(SS_SHARE + '%')} فأكثر منهم بمستوى «متفوق» · لا حكم على بند رُصد لأقل من ${srNum(SS_MIN_STUDENTS)} طلاب. تحصيلي: ماذا يتقن الطلاب · تعلّمي: الإنجاز والمشاركة والالتزام.`;
+  return ssDxTableHtml(rows, foot);
 }
 
 /* قائمة الطلاب (عند تشغيل الأسماء): من الأدنى نسبةً، قائمتان متجاورتان بجدول واحد (صف = سجلان) */

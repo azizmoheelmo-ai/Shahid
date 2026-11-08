@@ -202,11 +202,10 @@ test('جدول البنود (ج بأرقام الشعبة): فترات منته�
 test('الخلاصة: ضعف جماعي بمعيار 30% وتوصية بدليل، وحدّ 5 طلاب', async () => {
   const h = await build(opened());
   /* الواجبات: 4 من 8 دون 50% (50%) ← ضعف جماعي */
-  assert.match(h, /ضعف جماعي:<\/b> الواجبات/);
-  assert.match(h, /<b>الدليل:<\/b> 4 من 8 طالبًا \(50%\) دون 50% في الواجبات/);
-  assert.match(h, /<b>التشخيص:<\/b> ضعف جماعي في الواجبات/);
-  assert.match(h, /4 من 8 طالبًا \(50%\) دون 50% في القراءة \(الاختبار الأول\)/, '«يقيس» في الخلاصة');
-  assert.match(h, /التقدّم \(بين فترتين منتهيتين\)/);
+  assert.match(h, /<td>تعلّمي<\/td><td><b>الواجبات<\/b><\/td><td class="n"><span class="chip w">ضعف جماعي<\/span><\/td><td>4 من 8 طالبًا \(50%\) دون 50% في الواجبات<\/td><td>تعزيز متابعة تسليم الواجبات/);
+  assert.match(h, /4 من 8 طالبًا \(50%\) دون 50% في القراءة \(الاختبار الأول\)/, '«يقيس» في الدليل');
+  assert.match(h, /<td>التقدّم<\/td><td><b>[^<]*<\/b><\/td><td class="n"><span class="chip j">/, 'التقدّم صف بحكم تحسّن/تراجع/مستقر');
+  assert.match(h, /بين فترتين منتهيتين/);
 });
 
 test('الرصد غير المكتمل (البند 5): العدد وما ينقص بالبند، والأسماء والدرجة المرصودة والناقص بالخيار، ولا سطر «أكمل»', async () => {
@@ -267,7 +266,7 @@ test('خيارا المستويات والبنود في الإعدادات يُ�
   const h = await build(opened(), {}, { show: { levels: false, items: false, stats: true, names: false, compare: false } });
   assert.doesNotMatch(h, /<h2>مستويات الطلاب<\/h2>/);
   assert.doesNotMatch(h, /<h2>متوسط الشعبة في البنود<\/h2>/);
-  assert.match(h, /التشخيص: ماذا يتقن الطلاب/);
+  assert.match(h, /<h2>التشخيص والتوصيات<\/h2>/);
 });
 
 test('المقارنة بالفصل السابق بالهوية الجديدة، وأسماؤها بخيار الأسماء فقط، وتُهرَّب', async () => {
@@ -329,7 +328,7 @@ test('التصدير: المجموع وبند واحد كلاهما بالتصم
   assert.match(item.html, /<h2>متوسط الشعبة في البند<\/h2>/);
   assert.match(item.html, /<td><b>الاختبار الأول<\/b><div class="ev">يقيس: القراءة<\/div>/);
   assert.doesNotMatch(item.html, /<td><b>الواجبات<\/b>|<td rowspan="2" class="gn"><b>المشاركة/, 'البند المختار وحده في الجدول');
-  assert.match(item.html, /ضعف جماعي:<\/b> القراءة \(الاختبار الأول\)/, 'تشخيص البند بمعيار 30%');
+  assert.match(item.html, /<td><b>القراءة \(الاختبار الأول\)<\/b><\/td><td class="n"><span class="chip w">ضعف جماعي<\/span>/, 'تشخيص البند بمعيار 30%');
   assert.doesNotMatch(item.html, /ضعاف|متوسطون/);
 });
 
@@ -373,8 +372,8 @@ test('«بدون تشخيص» (ق18): تقرير الشعبة يحذف قسمي 
     return app.__p.then(() => app.__out[0].html);
   };
   const withDx = await run(false), raw = await run(true);
-  assert.match(withDx, /التشخيص: ماذا يتقن الطلاب/);
-  assert.doesNotMatch(raw, /التشخيص|التوصيات|ضعف جماعي|نقطة قوة/);
+  assert.match(withDx, /<h2>التشخيص والتوصيات<\/h2>/);
+  assert.doesNotMatch(raw, /التشخيص|التوصيات|ضعف جماعي|قوة جماعية/);
   assert.match(raw, /<h2>مستويات الطلاب<\/h2>/);
   assert.match(raw, /<h2>متوسط الشعبة في البنود<\/h2>/);
 });
@@ -406,16 +405,27 @@ test('صندوق البيانات يُكمَّل بخلايا فارغة لمض�
   assert.doesNotMatch(total.match(/<div class="mt">([\s\S]*?)<\/div><div class="kp">/)[1], /<div><\/div>/, '6 خلايا بلا حشو');
 });
 
-test('الترتيب: التشخيص والتوصيات بعد قائمة أسماء الطلاب، ثم الرصد غير المكتمل (طلب المستخدم)', async () => {
+test('الترتيب والشكل: جدول التشخيص والتوصيات الموحَّد بعد قائمة الأسماء، ثم الرصد غير المكتمل (طلب المستخدم)', async () => {
   const h = await build(opened(), { withNames: true });
   const at = s => h.indexOf(s);
-  for (const s of ['قائمة الطلاب (من الأدنى نسبةً)', 'التشخيص: ماذا يتقن الطلاب', 'التشخيص: كيف يتعلّم الطلاب', '<h2>التوصيات</h2>']) assert.ok(at(s) > -1, s);
-  assert.ok(at('قائمة الطلاب (من الأدنى نسبةً)') < at('التشخيص: ماذا يتقن الطلاب'), 'الأسماء قبل التشخيص');
-  assert.ok(at('التشخيص: ماذا يتقن الطلاب') < at('التشخيص: كيف يتعلّم الطلاب'));
-  assert.ok(at('التشخيص: كيف يتعلّم الطلاب') < at('<h2>التوصيات</h2>'));
-  assert.ok(at('<h2>التوصيات</h2>') < at('class="fin"'), 'التوصيات قبل الرصد غير المكتمل والتوقيع');
-  /* التشخيص والتوصيات داخل منطقة واحدة (dxs) */
-  const zone = h.slice(at('<div class="dxs">'), at('class="fin"'));
-  assert.match(zone, /التشخيص: ماذا يتقن الطلاب/);
-  assert.match(zone, /<h2>التوصيات<\/h2>/);
+  for (const s of ['قائمة الطلاب (من الأدنى نسبةً)', '<h2>التشخيص والتوصيات</h2>', 'class="fin"']) assert.ok(at(s) > -1, s);
+  assert.ok(at('قائمة الطلاب (من الأدنى نسبةً)') < at('<h2>التشخيص والتوصيات</h2>'), 'الأسماء قبل التشخيص');
+  assert.ok(at('<h2>التشخيص والتوصيات</h2>') < at('class="fin"'), 'التشخيص قبل الرصد غير المكتمل والتوقيع');
+  /* جدول واحد بخمسة أعمدة، ولا صناديق قديمة ولا قسم توصيات منفصل */
+  assert.match(h, /<th>المجال<\/th><th>البند<\/th><th class="n">الحكم<\/th><th>الدليل<\/th><th>الإجراء المقترح<\/th>/);
+  assert.doesNotMatch(h, /class="rc"|<h2>التوصيات<\/h2>|class="box (s|p)"|dxs/);
+  /* الإجراء لصف الضعف فقط: صف القوة «—» */
+  const dxRows = h.slice(h.indexOf('<h2>التشخيص والتوصيات</h2>')).split('<tr>').filter(r => /chip (w|m)">(ضعف|قوة) جماعي/.test(r));
+  assert.ok(dxRows.length > 0);
+  dxRows.forEach(r => {
+    if (/قوة جماعية/.test(r)) assert.match(r, /<span class="nd">—<\/span><\/td><\/tr>/, 'صف القوة بلا إجراء');
+    else assert.doesNotMatch(r, /<span class="nd">—<\/span><\/td><\/tr>/, 'صف الضعف له إجراء');
+  });
+});
+
+test('XSS: اسم البند ويقيس في جدول التشخيص يُهرَّبان', async () => {
+  const X = '<img src=x onerror=alert(1)>';
+  const app = opened(`crmGrades.columns.forEach(c => { if(c.id === 't1'){ c.name = ${JSON.stringify(X)}; c.measures = ${JSON.stringify(X)}; } }); crmGrades.allColumns = crmGrades.columns; crmGradeAnalysis = null; openCrmGradeAnalysis();`);
+  const h = await build(app);
+  assert.doesNotMatch(h, /<img src=x/);
 });

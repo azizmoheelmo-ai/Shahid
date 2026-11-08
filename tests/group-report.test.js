@@ -143,13 +143,16 @@ test('جدول البنود: صفوف الفترات ثم «الداخل في ا
 
 test('التشخيص والتوصيات: مشترك، بعض الشعب، تباين — بصياغة محايدة بلا تفسير سببي', async () => {
   const h = await build(groupEnv());
-  assert.match(h, /ضعف مشترك:<\/b> الواجبات — في كل الشعب/);
-  assert.match(h, /قوة في بعض الشعب:<\/b> المشاركة — ثانية أول/);
-  assert.match(h, /ضعف في بعض الشعب:<\/b> القراءة \(الاختبار الأول\) — ثانية سابع/);
-  assert.match(h, /تباين بين الشعب:<\/b> القواعد \(الاختبار القصير\) — قوة في ثانية أول/);
-  assert.match(h, /<b>التشخيص:<\/b> ضعف مشترك بين الشعب في هذا البند/);
+  /* جدول واحد (الشكل «أ»): المجال · البند · الحكم · الدليل · الإجراء */
+  assert.match(h, /<h2>التشخيص والتوصيات<\/h2>/);
+  assert.match(h, /<th>المجال<\/th><th>البند<\/th><th class="n">الحكم<\/th><th>الدليل<\/th><th>الإجراء المقترح<\/th>/);
+  assert.match(h, /<td><b>الواجبات<\/b><\/td><td class="n"><span class="chip w">ضعف مشترك<\/span><\/td><td>في كل الشعب/);
+  assert.match(h, /<td><b>المشاركة<\/b><\/td><td class="n"><span class="chip m">قوة في بعض الشعب<\/span><\/td><td>ثانية أول/);
+  assert.match(h, /<td><b>القراءة \(الاختبار الأول\)<\/b><\/td><td class="n"><span class="chip w">ضعف في بعض الشعب<\/span><\/td><td>ثانية سابع/);
+  assert.match(h, /<td><b>القواعد \(الاختبار القصير\)<\/b><\/td><td class="n"><span class="chip j">تباين بين الشعب<\/span><\/td><td>قوة في ثانية أول/);
   assert.match(h, /والبيانات لا تحدّد سببه/);
-  assert.match(h, /<b>الإجراء المقترح:<\/b> مقارنة ما اختلف في تدريس القواعد بين ثانية أول وثانية سابع/);
+  assert.match(h, /<td>مقارنة ما اختلف في تدريس القواعد بين ثانية أول وثانية سابع/);
+  assert.doesNotMatch(h, /class="rc"|<h2>التوصيات لتحسين الممارسة<\/h2>/, 'لا الشكل القديم (صناديق وتوصيات منفصلة)');
   assert.doesNotMatch(h, /غالبًا في الدرس|بسبب/);
 });
 
@@ -161,7 +164,7 @@ test('لا مؤشرات إحصائية مجمَّعة ولا تعليق عام (
   assert.doesNotMatch(forced, /المؤشرات الإحصائية|أقل درجة/, 'حتى لو شُغّل الخيار القديم');
   const none = await build(app, { show: { levels: false, items: false, stats: false, names: false, compare: false } });
   assert.doesNotMatch(none, /<h2>مقارنة مستويات الطلاب|<h2>مقارنة البنود بين الشعب/);
-  assert.match(none, /التشخيص: ماذا يتقن الطلاب/);
+  assert.match(none, /<h2>التشخيص والتوصيات<\/h2>/);
   assert.doesNotMatch(h, /أعلى الشعب تحصيلًا|يرجّح أن السبب/, 'لا تعليق عام ولا ترتيب ولا سبب');
   const on = await build(app);
   assert.equal(on, await build(app));
@@ -207,7 +210,7 @@ test('التصدير: المجموع وبند واحد كلاهما بالتصم
   assert.match(h, /<h2>مقارنة مستويات الطلاب في هذا البند بين الشعب<\/h2>/);
   assert.match(h, /<td class="gn"><b>الاختبار الأول<\/b><div class="ev">يقيس: القراءة<\/div><\/td>/);
   assert.doesNotMatch(h, /<b>الواجبات<\/b>|<b>المشاركة<\/b>/, 'البند المختار وحده');
-  assert.match(h, /ضعف في بعض الشعب:<\/b> القراءة \(الاختبار الأول\) — ثانية سابع/);
+  assert.match(h, /<td><b>القراءة \(الاختبار الأول\)<\/b><\/td><td class="n"><span class="chip w">ضعف في بعض الشعب<\/span><\/td><td>ثانية سابع/);
   assert.doesNotMatch(h, /<tr class="sgtot">/, 'بند بلا فترات: لا صف مجموع');
   const single = groupEnv({ sections: [{ id: 'A', grade_level_id: 'G' }, { id: 'B', grade_level_id: 'H' }, { id: 'C', grade_level_id: 'H' }], setup: `crmGradeAnalysis.scope = 'group'; crmGradeAnalysis.scopeTouched = true; window.__out = []; window.__t = []; showToast = (m, k) => window.__t.push(m);
     gradeReportRun = async (btn, build) => { window.__out.push(await build()); }; window.__p = exportGradeReport(null);` });
@@ -275,8 +278,7 @@ test('«بدون تشخيص» (ق18): تقرير مقارنة الشعب يحذ�
     await app.__p; return app.__out[0].html;
   };
   const withDx = await run(false), raw = await run(true);
-  assert.match(withDx, /التشخيص: ماذا يتقن الطلاب/);
-  assert.match(withDx, /التوصيات لتحسين الممارسة/);
+  assert.match(withDx, /<h2>التشخيص والتوصيات<\/h2>/);
   assert.doesNotMatch(raw, /التشخيص|التوصيات|ضعف مشترك|ضعف في بعض الشعب/);
   assert.match(raw, /<h2>مقارنة مستويات الطلاب بين الشعب/);
   assert.match(raw, /<h2>مقارنة البنود بين الشعب/);

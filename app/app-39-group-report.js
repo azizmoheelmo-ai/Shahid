@@ -45,25 +45,25 @@ const sgName = c => c.measures ? `${c.measures} (${c.name})` : c.name;
 const sgList = (list, f) => list.map(f).join('، ');
 
 /* توصيات لتحسين الممارسة: الدليل ← التشخيص ← الإجراء (بلا تفسير سببي) */
-function sgRecommendations(cls){
-  const recs = [];
+function sgRecOf(c){
   const pct = n => Math.round(n);
-  cls.forEach(c => {
-    const nm = sgName(c);
-    const ev = c.per.map(p => `${p.label}: ${pct(p.t.belowShare)}% دون الحدّ`).join('، ');
-    const what = c.measures || nm;
-    if(c.kind === 'sharedWeak'){
-      recs.push({ evidence: `${nm} — ${ev}`, diagnosis: 'ضعف مشترك بين الشعب في هذا البند', action: `إعادة تدريس ${what} لكل شعب الصف، ومراجعة أنشطة التقويم المتصلة به` });
-    } else if(c.kind === 'weakSome'){
-      const w = c.weak.map(p => p.label).join('، ');
-      recs.push({ evidence: `${nm} — ${ev}`, diagnosis: `ضعف خاص بـ${w}`, action: `دعم موجَّه لـ${w} في ${what} (جلسات علاجية قصيرة)` });
-    } else if(c.kind === 'contrast'){
-      const s = c.strong.map(p => p.label).join('، '), w = c.weak.map(p => p.label).join('، ');
-      recs.push({ evidence: `${nm} — قوة في ${s}، وضعف في ${w}`, diagnosis: 'فرق ملحوظ بين الشعب في البند نفسه؛ والبيانات لا تحدّد سببه',
-        action: `مقارنة ما اختلف في تدريس ${what} بين ${s} و${w} (الأنشطة، والتقويم، والتغذية الراجعة)، ونقل الممارسة الأنسب` });
-    }
-  });
-  return recs;
+  const nm = sgName(c);
+  const ev = c.per.map(p => `${p.label}: ${pct(p.t.belowShare)}% دون الحدّ`).join('، ');
+  const what = c.measures || nm;
+  if(c.kind === 'sharedWeak') return { evidence: `${nm} — ${ev}`, diagnosis: 'ضعف مشترك بين الشعب في هذا البند', action: `إعادة تدريس ${what} لكل شعب الصف، ومراجعة أنشطة التقويم المتصلة به` };
+  if(c.kind === 'weakSome'){
+    const w = c.weak.map(p => p.label).join('، ');
+    return { evidence: `${nm} — ${ev}`, diagnosis: `ضعف خاص بـ${w}`, action: `دعم موجَّه لـ${w} في ${what} (جلسات علاجية قصيرة)` };
+  }
+  if(c.kind === 'contrast'){
+    const s = c.strong.map(p => p.label).join('، '), w = c.weak.map(p => p.label).join('، ');
+    return { evidence: `${nm} — قوة في ${s}، وضعف في ${w}`, diagnosis: 'فرق ملحوظ بين الشعب في البند نفسه؛ والبيانات لا تحدّد سببه',
+      action: `مقارنة ما اختلف في تدريس ${what} بين ${s} و${w} (الأنشطة، والتقويم، والتغذية الراجعة)، ونقل الممارسة الأنسب` };
+  }
+  return null;
+}
+function sgRecommendations(cls){
+  return cls.map(sgRecOf).filter(Boolean);
 }
 
 /* ============ HTML ============ */
@@ -110,22 +110,29 @@ function sgMatrixHtml(cls, secs){
     <div class="fn">اللون البنفسجي: ${srNum(SS_SHARE + '%')} فأكثر من طلاب الشعبة دون حدّ الضعف · الأخضر: ${srNum(SS_SHARE + '%')} فأكثر بمستوى «متفوق» (على «الداخل في المجموع»). البنود تُطابَق بالاسم بين الشعب، ولا يظهر بند رُصد لأقل من ${srNum(SS_MIN_STUDENTS)} طلاب في شعبته.</div>`;
 }
 
-function sgDiagHtml(cls, domain, title){
+/* التشخيص والتوصيات بالجدول الموحَّد (ssDxTableHtml في app-38): الحكم، ثم الدليل، ثم الإجراء بلا تفسير سببي */
+function sgDiagHtml(cls){
   const e = escapeHtml;
-  const lines = [];
-  cls.filter(c => c.domain === domain && c.kind).forEach(c => {
-    const nm = e(sgName(c));
-    const wl = sgList(c.weak, p => `${e(p.label)} <span class="nd">(${srNum(Math.round(p.t.belowShare))}% دون الحدّ)</span>`);
-    const sl = sgList(c.strong, p => `${e(p.label)} <span class="nd">(${srNum(Math.round(p.t.topShare))}% متفوقون)</span>`);
-    if(c.kind === 'sharedWeak') lines.push(`<div class="box p"><b>ضعف مشترك:</b> ${nm} — في كل الشعب: ${wl}.</div>`);
-    else if(c.kind === 'sharedStrong') lines.push(`<div class="box s"><b>قوة مشتركة:</b> ${nm} — في كل الشعب: ${sl}.</div>`);
-    else if(c.kind === 'contrast') lines.push(`<div class="box f"><b>تباين بين الشعب:</b> ${nm} — قوة في ${sl}، وضعف في ${wl}.</div>`);
-    else if(c.kind === 'weakSome') lines.push(`<div class="box p"><b>ضعف في بعض الشعب:</b> ${nm} — ${wl}.</div>`);
-    else if(c.kind === 'strongSome') lines.push(`<div class="box s"><b>قوة في بعض الشعب:</b> ${nm} — ${sl}.</div>`);
+  const rows = [];
+  const KIND = { sharedWeak: ['w', 'ضعف مشترك'], sharedStrong: ['m', 'قوة مشتركة'], contrast: ['j', 'تباين بين الشعب'], weakSome: ['w', 'ضعف في بعض الشعب'], strongSome: ['m', 'قوة في بعض الشعب'] };
+  [['تحصيلي', 'tahsili'], ['تعلّمي', 'taalumi']].forEach(([label, domain]) => {
+    const start = rows.length;
+    cls.filter(c => c.domain === domain && c.kind).forEach(c => {
+      const wl = sgList(c.weak, p => `${e(p.label)} <span class="nd">(${srNum(Math.round(p.t.belowShare))}% دون الحدّ)</span>`);
+      const sl = sgList(c.strong, p => `${e(p.label)} <span class="nd">(${srNum(Math.round(p.t.topShare))}% متفوقون)</span>`);
+      const rec = sgRecOf(c);
+      const ev = c.kind === 'sharedWeak' ? `في كل الشعب: ${wl}` : c.kind === 'sharedStrong' ? `في كل الشعب: ${sl}`
+        : c.kind === 'contrast' ? `قوة في ${sl}، وضعف في ${wl}<div class="ev">${e(rec ? rec.diagnosis : '')}</div>`
+        : c.kind === 'weakSome' ? wl : sl;
+      rows.push({ domain: label, item: sgName(c), cls: KIND[c.kind][0], label: KIND[c.kind][1], evidenceHtml: ev, action: rec ? rec.action : null });
+    });
+    if(rows.length === start){
+      const has = cls.some(c => c.domain === domain);
+      rows.push({ domain: label, noteHtml: has ? 'لا نقاط قوة ولا ضعف مثبتة في المجموعة.' : 'لا بيانات كافية للمقارنة (لا بند مشترك رُصد لـ' + SS_MIN_STUDENTS + ' طلاب فأكثر في شعبتين).' });
+    }
   });
-  const has = cls.some(c => c.domain === domain);
-  if(!lines.length) lines.push(`<div class="box"><span class="nd">${has ? 'لا نقاط قوة ولا ضعف مثبتة في المجموعة.' : 'لا بيانات كافية للمقارنة (لا بند مشترك رُصد لـ' + SS_MIN_STUDENTS + ' طلاب فأكثر في شعبتين).'}</span></div>`);
-  return `<div class="sec"><h2>${title}</h2>${lines.join('')}</div>`;
+  const foot = `ضعف/قوة مشتركة: في كل الشعب · «في بعض الشعب»: في بعضها فقط · تباين: قوة في شعبة وضعف في أخرى (فرصة تبادل ممارسة، والبيانات لا تحدّد سببه). تحصيلي: ماذا يتقن الطلاب · تعلّمي: الإنجاز والمشاركة والالتزام.`;
+  return ssDxTableHtml(rows, foot);
 }
 
 /* ctx: { gradeName, term, date, prefs, logo, schoolLogo, rules, secs: [{ label, recorded, top, mid, low, avg, avgPct, items }], max, pooled: { avgPct, low }, cls } */
@@ -143,15 +150,12 @@ function buildGroupReportHtml(ctx){
   const head = `<div class="hd"><div class="mo">${logo}</div><div class="tt"><div class="sch">${school ? e(school) : 'اسم المدرسة'}</div><h1>تقرير مقارنة شعب الصف</h1></div><div class="sl">${slogo}</div></div>`;
   const metaHtml = srMetaBox(`${meta('الصف', ctx.gradeName)}${meta('الفصل الدراسي', `${sem} ${ctx.term.year}`)}${meta('المادة', subject)}${meta('المعلم', teacher)}${meta('شعب المعلم من الصف نفسه', secs.map(s => s.label).join('، '))}${ctx.itemName ? meta('البند (تقرير بند واحد)', ctx.itemName) : ''}${meta('التاريخ', ctx.date)}`);
   const kp = `<div class="kp"><div><b>${srNum(secs.length)}</b><span>شعب</span></div><div><b>${srNum(total)}</b><span>طلاب مرصودة درجاتهم</span></div><div><b>${ctx.pooled.avgPct === null ? '—' : srNum(ctx.pooled.avgPct + '%')}</b><span>متوسط المجموعة</span></div><div><b>${total ? srNum(Math.round(100 * ctx.pooled.low / total) + '%') : '—'}</b><span>يحتاجون تحسين</span></div></div>`;
-  const recs = sgRecommendations(ctx.cls);
-  const recHtml = recs.length ? `<div class="sec"><h2>التوصيات لتحسين الممارسة</h2>${recs.map(r => `<div class="rc"><div><b>الدليل:</b> ${e(r.evidence)}</div><div><b>التشخيص:</b> ${e(r.diagnosis)}</div><div><b>الإجراء المقترح:</b> ${e(r.action)}</div></div>`).join('')}</div>` : '';
   const sign = `<div class="sgn"><div><small>${e(teacher)}</small>معلم المادة</div><div><small>${e(prefs.vice || '')}</small>وكيل شؤون الطلاب</div></div>`;
   const matrixCls = ctx.cls;
   return `<style>${SR_CSS}${SS_CSS}${SG_CSS}</style><div class="sr">${head}${metaHtml}${kp}
     ${show.levels === false ? '' : `<div class="sec"><h2>${ctx.itemName ? 'مقارنة مستويات الطلاب في هذا البند بين الشعب' : 'مقارنة مستويات الطلاب بين الشعب (حصة كل مستوى)'}</h2>${sgLevelsHtml(secs, ctx.max)}</div>`}
     ${show.items === false || !matrixCls.length ? '' : `<div class="sec long"><h2>مقارنة البنود بين الشعب (متوسط الشعبة)</h2>${sgMatrixHtml(matrixCls, secs)}</div>`}
-    ${ctx.noDx ? '' : sgDiagHtml(ctx.cls, 'tahsili', 'التشخيص: ماذا يتقن الطلاب (التحصيل)')}${ctx.noDx ? '' : sgDiagHtml(ctx.cls, 'taalumi', 'التشخيص: كيف يتعلّم الطلاب (الإنجاز والمشاركة والالتزام)')}
-    ${ctx.noDx ? '' : recHtml}<div class="fin">${sign}</div><div class="strip"></div></div>`;
+    ${ctx.noDx ? '' : sgDiagHtml(ctx.cls)}<div class="fin">${sign}</div><div class="strip"></div></div>`;
 }
 
 /* من نافذة التحليل (تقرير المجموعة، البند «المجموع»): كشف كل شعبة من loadCrmGradeSheet (به الفترات)؛
