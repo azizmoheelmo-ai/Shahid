@@ -312,6 +312,34 @@ test('قائمة السهم تذكر اسم الطالب، وبديل «الأع
   assert.match(JSON.stringify(fb.__x), /"الأعلى درجات"/, 'Excel يوسم أصحاب البديل');
 });
 
+test('نافذة التحليل: النسخة التحليلية (بتشخيص أو بدونه) تُنزَّل لطالب واحد ولكل الطلاب، وافتراضي القائمة نسخة الدرجات', async () => {
+  const app = opened(`crmGradeAnalysis.tab = 'students'; crmGradeAnalysis.open = 'low'; toggleCrmGaReportTo('a'); window.__g = crmGradeAnalysisHtml(crmGradeAnalysis);
+    setCrmGaRepVer('analytical'); window.__a = crmGradeAnalysisHtml(crmGradeAnalysis);
+    window.__calls = []; srBuildReport = async (id, ver, to) => { window.__calls.push({ id, ver, to }); return { html: '<div class="gr"></div>', mark: null }; };
+    gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = pickCrmGaReportTo('analytical', null);`);
+  await app.__p;
+  assert.match(app.__g, /pickCrmGaReportTo\('guardian'/, 'الافتراضي نسخة الدرجات بجهاتها');
+  assert.match(app.__g, /setCrmGaRepVer\('analytical'\)/);
+  assert.match(app.__a, /id="crmGaPopDx"/, 'خيار التشخيص ظاهر بالتحليلية');
+  assert.doesNotMatch(app.__a, /pickCrmGaReportTo\('guardian'/, 'لا جهات بالتحليلية');
+  assert.equal(app.__calls[0].id, 'a');
+  assert.equal(app.__calls[0].ver, 'analytical');
+  assert.equal(app.__calls[0].to, null);
+  assert.match(app.__calls[1].filename, /^تقرير-طالب-تحليلي-أحمد-/);
+  const all = opened(`crmGradeAnalysis.tab = 'students'; toggleCrmGaReportTo('*'); pickCrmGaScope('mid'); setCrmGaRepVer('analytical');
+    window.__calls = []; srBuildReport = async (id, ver, to) => { window.__calls.push({ id, ver, to }); return { html: '<div class="gr"></div>', mark: null }; };
+    gradeReportRun = async (btn, build, filename) => { window.__calls.push({ out: await build(), filename }); };
+    window.__p = pickCrmGaReportTo('analytical', null);`);
+  await all.__p;
+  const built = all.__calls.filter(c => c.ver);
+  assert.equal(built.length, 2, 'المتوسطون اثنان');
+  assert.ok(built.every(c => c.ver === 'analytical' && c.to === null));
+  const last = all.__calls[all.__calls.length - 1];
+  assert.match(last.filename, /^تقارير-المتوسطون-تحليلي-/);
+  assert.match(last.out.mark.right, /التحليلية/);
+});
+
 test('تقارير كل الطلاب: لا تعمل لو تبدّلت الشعبة المعروضة', async () => {
   const app = opened(`window.__calls = []; gradeReportRun = async () => { window.__calls.push(1); };
     crmGrades = Object.assign({}, crmGrades, { sectionId: 'S2' }); exportCrmAllStudentReports(null);`);

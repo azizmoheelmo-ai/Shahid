@@ -246,10 +246,11 @@ async function exportGradeReport(btn){
 
 /* تقرير طالب واحد (لولي الأمر): من الكشف المحمَّل g — لا استعلام جديد */
 /* كل طلاب الشعبة في ملف PDF واحد: تقرير لكل طالب بصفحة جديدة، ومن لم تُرصد درجاته يُستثنى */
-async function exportCrmAllStudentReports(btn, to, ids, scopeLabel){
+async function exportCrmAllStudentReports(btn, to, ids, scopeLabel, version){
   const a = crmGradeAnalysis;
   if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId || gradeReportBusy) return;
   const g = a.g;
+  const analytic = version === 'analytical'; /* التحليلية: كل ما يخص الطالب، بتشخيص أو بدونه حسب الاختيار */
   const prefs = gradeReportPrefsNow();
   const date = new Date().toISOString().slice(0, 10);
   const pool = ids ? a.students.filter(st => ids.has(st.id)) : a.students;
@@ -261,18 +262,18 @@ async function exportCrmAllStudentReports(btn, to, ids, scopeLabel){
     /* تقرير الطالب الجديد (app-36، نسخة الدرجات): بنفس كشف الشعبة المحمَّل فلا استعلام إضافي لكل طالب */
     const pages = [];
     for(const st of list){
-      const one = await srBuildReport(st.id, 'grades', to, { g });
+      const one = await srBuildReport(st.id, analytic ? 'analytical' : 'grades', to, { g });
       pages.push(`<div class="gr-pg">${one.html}</div>`);
     }
-    return { html: pages.join(''), mark: gradeReportMark(prefs, 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
-  }, gradeReportFile(scopeLabel ? 'تقارير-' + scopeLabel : 'تقارير-الطلاب', a.label), btn && to ? '…' : undefined);
+    return { html: pages.join(''), mark: gradeReportMark(prefs, analytic ? 'تقارير أداء الطلاب التحليلية' : 'تقارير أداء الطلاب', a.label + (scopeLabel ? ' · ' + scopeLabel : '')) };
+  }, gradeReportFile((scopeLabel ? 'تقارير-' + scopeLabel : 'تقارير-الطلاب') + (analytic ? '-تحليلي' : ''), a.label), btn && to ? '…' : undefined);
 }
 
 /* من قائمة الطلاب داخل نافذة التحليل: نسخة الدرجات بنقرة، والجهة اسمها تحت التوقيع */
-function exportCrmStudentReportFor(id, btn, to){
+function exportCrmStudentReportFor(id, btn, to, version){
   const a = crmGradeAnalysis;
   if(!a || !crmGrades || crmGrades.sectionId !== a.g.sectionId) return;
-  return srRun(id, 'grades', to, btn, a.g);
+  return srRun(id, version === 'analytical' ? 'analytical' : 'grades', to, btn, a.g);
 }
 
 /* ============ خيارات التقارير (إعدادات المعلم) ============ */
