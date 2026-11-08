@@ -218,6 +218,12 @@ function rubricPicksOf(R, studentId){
   return R.picks.get(studentId);
 }
 
+/* شريط الورقة السفلي لاختبار السلّم: «رجوع» وحده. زر «حفظ» العام ينتظر طوابير الأوضاع القديمة فقط ولا يرى اعتماد السلّم
+   (يحفظ نفسه عند «اعتماد»)، فيقول «تم الحفظ» وقد لا ينتهي الاعتماد — طمأنة كاذبة */
+function rubricSheetBarHtml(){
+  return '<div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>';
+}
+
 function rubricStudents(){ return crmSheet ? crmStudentsOfSection(crmSheet.sectionId) : []; }
 
 function rubricBodyHtml(R, students){

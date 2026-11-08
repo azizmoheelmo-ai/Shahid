@@ -74,11 +74,7 @@ async function renderCrmTestMode(students, selectId){
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmSheetTestModal()">+ اختبار</button>
     </div>`;
   if(s.rubric){
-    body.innerHTML = head + pickerHtml + `<div id="rubricSheetBox"></div>
-    <div class="crm-sheet-bar">
-      ${crmSheetFinishBtnHtml()}
-      <button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button>
-    </div>`;
+    body.innerHTML = head + pickerHtml + `<div id="rubricSheetBox"></div>${rubricSheetBarHtml()}`;
     rubricPaint();
     return;
   }
