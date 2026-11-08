@@ -38,6 +38,7 @@ function toolColumnVisible(c){
 /* عمود محسوب (لا يُرصد يدويًا): الواجبات والمهام، وأدوات الحالة والدرجة */
 function isComputedGradeColumn(c){
   if(!c) return false;
+  if(typeof rubricIsColumn === 'function' && rubricIsColumn(c.id)) return true; /* اختبار بسلّم تقدير: درجته من معاييره */
   if(c.tool_id){
     const t = customToolById(c.tool_id);
     return !!t && t.tool_type !== 'counter';

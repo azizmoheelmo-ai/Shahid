@@ -316,8 +316,9 @@ async function loadCrmGradeSheet(sectionId){
     if(sErr) return { error: sErr };
     scores = data || [];
   }
+  const rubric = await rubricLoadCriteria((columns || []).filter(c => c.category === 'tests' && !c.tool_id).map(c => c.id));
   return {
-    sectionId, year, semester, scores, breakdown,
+    sectionId, year, semester, scores, breakdown, rubric,
     columns: sortGradeColumns(visible),
     allColumns: sortGradeColumns(columns || []), /* لسقف الفئة وفحص التكرار: القاعدة تعدّ المخفي أيضًا */
     hiddenColumns: sortGradeColumns((columns || []).filter(c => !gradeColumnVisible(c)))
@@ -670,6 +671,7 @@ function crmAddMenuToggle(key){
 function crmGradeColumnEditable(c){
   if(c.kind === 'homework' || c.kind === 'task') return false;
   if(c.tool_id && isComputedGradeColumn(c)) return false;
+  if(rubricIsColumn(c.id)) return false; /* درجته من معاييره (ورقة الحصة) */
   return true;
 }
 
@@ -943,7 +945,9 @@ function openCrmGradeColumnMenu(columnId){
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${escapeHtml(c.name)} · من ${formatScore(c.max_score)}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${GRADE_CATEGORY_LABELS[c.category]}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · مرصود ${recorded}</div>
-      ${c.tool_id && isComputedGradeColumn(c)
+      ${rubricIsColumn(c.id)
+        ? `<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">🎯 اختبار بسلّم تقدير (${rubricCriteriaOf(c.id).length} معايير): درجته تُحسب من معاييره — ارصده من ورقة الحصة ← "اختبار".</div>`
+        : c.tool_id && isComputedGradeColumn(c)
         ? `<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">يُحسب تلقائيًا من رصد الأداة (ورقة الحصة ← "${escapeHtml(c.name)}") — لا يُعدَّل يدويًا. ما لم يُرصد لا يُحسب.</div>`
         : c.kind === 'homework'
         ? `<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">يُحسب تلقائيًا من رصد تسليم الواجبات (ورقة الحصة ← "واجب") — لا يُعدَّل يدويًا.</div>
@@ -978,7 +982,7 @@ function crmGradeColumnFormHtml(category, c){
       <label class="crm-field-label">${isTest ? 'اسم الاختبار' : 'الاسم'}</label>
       <input class="goal-input" id="crmGradeColName" maxlength="60" value="${c ? escapeHtml(c.name) : ''}" placeholder="${isTest ? 'مثال: الفترة الأولى، اختبار قصير 1' : 'مثال: مشروع'}" style="margin-bottom:8px;">
       <label class="crm-field-label">${isTest ? 'الدرجة الكاملة' : 'الدرجة القصوى'}</label>
-      <input class="goal-input" id="crmGradeColMax" inputmode="decimal" value="${defMax}" style="margin-bottom:8px;">
+      <input class="goal-input" id="crmGradeColMax" inputmode="decimal" value="${defMax}"${c && rubricIsColumn(c.id) ? ' disabled title="درجة اختبار السلّم ثابتة"' : ''} style="margin-bottom:8px;">
       ${category === 'performance' && !(c && c.tool_id) ? `<label class="crm-field-label">النوع</label>
       <select class="goal-input" id="crmGradeColKind" style="margin-bottom:8px;">${Object.keys(GRADE_KIND_LABELS).filter(k => k === 'manual' || (c && c.kind === k) || appToolOn(GRADE_KIND_TOOL[k])).map(k => `<option value="${k}"${(c ? (c.kind || 'manual') : 'manual') === k ? ' selected' : ''}>${GRADE_KIND_LABELS[k]}</option>`).join('')}</select>` : ''}
       ${isTest && !c ? '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="crmGradeColAll" checked> أضفه لكل شعبي (لها كشف هذا الفصل)</label>' : ''}
@@ -1000,6 +1004,7 @@ function crmNewTestFormHtml(defMax){
             <input class="goal-input" id="crmGradeColMax" inputmode="decimal" value="${defMax}" oninput="crmNewTestQuickSync()"></div>
         </div>
         <div class="crm-nt-quick" aria-label="درجات شائعة">${[5, 10, 20, 40].map(v => `<button type="button" class="crm-nt-q${String(defMax) === String(v) ? ' on' : ''}" onclick="setCrmNewTestMax(${v})">${v}</button>`).join('')}</div>
+        ${rubricFormHtml()}
         <div id="crmGradeColError" style="display:none;color:#8A2C2C;font-size:12px;margin:8px 0;line-height:1.7;"></div>
         <button class="btn btn-primary" id="crmGradeColSaveBtn" style="width:100%;justify-content:center;margin-top:10px;" onclick="saveCrmGradeColumn()">إضافة الاختبار</button>
         <button type="button" class="crm-more" aria-expanded="false" onclick="crmNewTestMore(this)">خيارات أخرى ⌄</button>
@@ -1035,6 +1040,7 @@ function openCrmGradeColumnEditor(category, columnId){
   if(columnId && !c) return;
   const isTest = category === 'tests';
   crmGradeColumnDraft = { id: columnId || null, category, saving: false };
+  if(isTest && !c) rubricDraftReset();
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${isTest ? (c ? 'تعديل اختبار' : 'اختبار جديد') : `${c ? 'تعديل عمود' : 'عمود جديد'} · ${GRADE_CATEGORY_LABELS[category]}`}</h3>
@@ -1063,6 +1069,8 @@ async function saveCrmGradeColumn(){
   const computed = isComputedGradeKind(kind) || isComputedGradeColumn(before);
   const err = validateGradeColumn(allCols, draft, computed ? [] : crmGrades.scores);
   if(err){ errBox.textContent = err; errBox.style.display = 'block'; return; }
+  const rubricBuild = (!d.id && d.category === 'tests') ? rubricDraftRows(Number(draft.max_score)) : null; /* اختبار بسلّم تقدير */
+  if(rubricBuild && rubricBuild.error){ errBox.textContent = rubricBuild.error; errBox.style.display = 'block'; return; }
   d.saving = true;
   const btn = document.getElementById('crmGradeColSaveBtn');
   if(btn) btn.disabled = true;
@@ -1076,18 +1084,32 @@ async function saveCrmGradeColumn(){
   const allEl = document.getElementById('crmGradeColAll');
   const sectionIds = (!d.id && d.category === 'tests' && allEl && allEl.checked) ? await gradeSheetSectionIds(g.year, g.semester, g.sectionId) : [g.sectionId];
   const position = g.columns.filter(c => c.category === d.category).length;
-  const { error } = d.id
-    ? await sb.from('classroom_grade_columns').update(payload).eq('teacher_id', currentUser.id).eq('id', d.id)
-    : await sb.from('classroom_grade_columns').insert(sectionIds.map(sectionId => Object.assign({
-        teacher_id: currentUser.id, section_id: sectionId, academic_year: g.year, semester: g.semester,
-        category: d.category, position
-      }, payload)));
+  let saveRes;
+  if(d.id) saveRes = await sb.from('classroom_grade_columns').update(payload).eq('teacher_id', currentUser.id).eq('id', d.id);
+  else {
+    const insQ = sb.from('classroom_grade_columns').insert(sectionIds.map(sectionId => Object.assign({
+      teacher_id: currentUser.id, section_id: sectionId, academic_year: g.year, semester: g.semester,
+      category: d.category, position
+    }, payload)));
+    saveRes = await (rubricBuild && rubricBuild.rows ? insQ.select('id, section_id') : insQ);
+  }
+  const error = saveRes.error;
   if(error){
     errBox.textContent = 'تعذّر الحفظ: ' + gradeDbErrorMessage(error);
     errBox.style.display = 'block';
     d.saving = false;
     if(btn) btn.disabled = false;
     return;
+  }
+  if(rubricBuild && rubricBuild.rows){
+    const rErr = await rubricCreateForColumns(saveRes.data || [], rubricBuild.rows);
+    if(rErr){
+      errBox.textContent = 'تعذّر حفظ المعايير: ' + gradeDbErrorMessage(rErr);
+      errBox.style.display = 'block';
+      d.saving = false;
+      if(btn) btn.disabled = false;
+      return;
+    }
   }
   /* ربط الاختبار للمقارنة وإعادة التسمية (app-37): قبل إغلاق النموذج لقراءة اختياره؛ الفشل تنبيه فقط */
   if(d.category === 'tests') await tlApplyFromForm({ year: g.year, semester: g.semester }, before ? before.name : null, draft.name);
@@ -1134,6 +1156,7 @@ function openCrmGradeEntry(columnId){
   if(!box || !c) return;
   if(c.kind === 'homework'){ showToast('عمود الواجبات يُحسب تلقائيًا — ارصد التسليم من ورقة الحصة', 'error'); return; }
   if(c.kind === 'task'){ showToast('عمود المهام يُحسب تلقائيًا — ارصد درجات المهام من ورقة الحصة', 'error'); return; }
+  if(rubricIsColumn(c.id)){ showToast('درجة هذا الاختبار تُحسب من معاييره — ارصده من ورقة الحصة ← اختبار', 'error'); return; }
   if(c.tool_id && isComputedGradeColumn(c)){ showToast(`عمود "${c.name}" يُحسب تلقائيًا — ارصده من ورقة الحصة`, 'error'); return; }
   /* المشاركة: الرصد اليدوي لدرجة الفترة الحالية، والكشف = معدّل الفترتين */
   const period = crmGradeEntryPeriod(crmGrades, c);

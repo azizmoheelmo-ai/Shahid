@@ -1650,6 +1650,51 @@ begin
 end $b$;
 create or replace trigger trg_check_tool_max before update on public.classroom_custom_tools for each row execute function public.check_tool_max();
 
+-- ============ اختبار بسلّم تقدير (تجربة): معايير الاختبار ورصد الطالب لها ============
+-- الاختبار بسلّم = عمود اختبار عادي (classroom_grade_columns) تُحسب درجة طالبه من معايير:
+-- المعايير هنا، ومستوى الطالب لكل معيار هنا، والدرجة الكلية تبقى في classroom_grade_scores.
+-- حذف الاختبار أو الطالب يحذف تابعيه (cascade) وتحميه سلة المحذوفات.
+create table if not exists public.classroom_rubric_criteria (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  column_id uuid not null,
+  name text not null check (char_length(btrim(name)) between 1 and 60),
+  points numeric(5,2) not null check (points > 0),
+  position smallint not null default 0,
+  created_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  foreign key (column_id, teacher_id) references public.classroom_grade_columns(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_rubric_criteria_col_idx on public.classroom_rubric_criteria(column_id);
+alter table public.classroom_rubric_criteria enable row level security;
+drop policy if exists "المعلم يدير معايير اختباراته فقط" on public.classroom_rubric_criteria;
+create policy "المعلم يدير معايير اختباراته فقط" on public.classroom_rubric_criteria for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+create table if not exists public.classroom_rubric_marks (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  column_id uuid not null,
+  criterion_id uuid not null,
+  student_id uuid not null,
+  level smallint not null check (level between 0 and 4),
+  updated_at timestamptz not null default now(),
+  unique (criterion_id, student_id),
+  foreign key (column_id, teacher_id) references public.classroom_grade_columns(id, teacher_id) on update cascade on delete cascade,
+  foreign key (criterion_id, teacher_id) references public.classroom_rubric_criteria(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_rubric_marks_col_idx on public.classroom_rubric_marks(column_id, student_id);
+create index if not exists classroom_rubric_marks_student_idx on public.classroom_rubric_marks(student_id);
+alter table public.classroom_rubric_marks enable row level security;
+drop policy if exists "المعلم يدير رصد معايير اختباراته فقط" on public.classroom_rubric_marks;
+create policy "المعلم يدير رصد معايير اختباراته فقط" on public.classroom_rubric_marks for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+create or replace function public.touch_rubric_mark() returns trigger
+language plpgsql set search_path = '' as $b$
+begin
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace trigger trg_touch_rubric_mark before insert or update on public.classroom_rubric_marks for each row execute function public.touch_rubric_mark();
+
 -- حفظ النطاق الجغرافي للتقويم (المعلم لا يملك تعديل profiles مباشرة)
 create or replace function public.set_calendar_region(region text)
 returns void language plpgsql security definer set search_path = '' as $b$
@@ -2165,7 +2210,8 @@ declare
     'classroom_students','classroom_incidents','academic_cases','classroom_attendance','classroom_positive_notes',
     'classroom_private_notes','classroom_followups','classroom_followup_actions','classroom_grade_columns',
     'classroom_grade_scores','classroom_grade_period_scores','classroom_homework','classroom_homework_status',
-    'classroom_tasks','classroom_task_students','classroom_custom_tools','classroom_tool_marks','classroom_lessons'];
+    'classroom_tasks','classroom_task_students','classroom_custom_tools','classroom_tool_marks','classroom_lessons',
+    'classroom_rubric_criteria','classroom_rubric_marks'];
   v_user_owned text[] := array['shawahid','activity_programs','performance_goals','tasks'];
   v_relinks text[] := array['shawahid.program_id','shawahid.goal_id','tasks.linked_goal_id','tasks.linked_program_id'];
   v_spec jsonb; v_rel jsonb; v_tab text; v_owner text; v_rows jsonb; v_c int; v_n int := 0;
@@ -2264,7 +2310,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'lesson_plans', 'shahid_drafts', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_rubric_criteria', 'classroom_rubric_marks', 'lesson_plans', 'shahid_drafts', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items'];
     /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
        صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
        قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
@@ -2380,6 +2426,8 @@ async function exportFullBackup(){
       '     40. classroom_grade_period_scores.csv (لازم بعد classroom_grade_scores — مشغّله يكتب معدّل الفترتين في الكشف)',
       '     41. deleted_items.csv (سلة المحذوفات — مستقل، يُستعاد في أي وقت؛ صور محذوفاتها لا تُنسخ هنا)',
       '     42. shahid_drafts.csv (مسودات «تجهيز الشواهد دفعة واحدة» — مستقل، لا يُشير لجدول آخر)',
+      '     43. classroom_rubric_criteria.csv (اختبار بسلّم تقدير — لازم بعد classroom_grade_columns)',
+      '     44. classroom_rubric_marks.csv (لازم بعد classroom_rubric_criteria وclassroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

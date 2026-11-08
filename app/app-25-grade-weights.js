@@ -116,8 +116,8 @@ function crmGradeSettingsHtml(g){
   const testRows = g.columns.filter(c => c.category === 'tests').map(c => {
     const st = gradeColumnStats(c.id, g.scores, ids);
     return `<div class="crm-gs-line">
-      <a href="#" class="gs-test" onclick="event.preventDefault();openCrmGradeColumnMenu('${c.id}')"><b>${escapeHtml(c.name)}</b> · من ${formatScore(c.max_score)}${c.tool_id ? ' 🧩' : ''}
-        <small style="color:var(--muted);">رُصد ${ids.length - st.missing} من ${ids.length}</small></a>
+      <a href="#" class="gs-test" onclick="event.preventDefault();openCrmGradeColumnMenu('${c.id}')"><b>${escapeHtml(c.name)}</b> · من ${formatScore(c.max_score)}${c.tool_id ? ' 🧩' : ''}${rubricIsColumn(c.id) ? ' 🎯' : ''}
+        <small style="color:var(--muted);">رُصد ${ids.length - st.missing} من ${ids.length}${rubricIsColumn(c.id) ? ' · ' + rubricCriteriaOf(c.id).length + ' معايير' : ''}</small></a>
       ${c.tool_id ? '' : `<button type="button" class="gs-del" title="حذف" aria-label="حذف ${escapeHtml(c.name)}" onclick="deleteGradeTestEverywhere('${c.id}')">🗑</button>`}</div>`;
   }).join('');
   return back + `<div class="crm-today-card gs-panel">
