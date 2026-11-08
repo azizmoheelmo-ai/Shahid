@@ -262,7 +262,7 @@ function rubricBodyHtml(R, students){
 /* تنبيه فوق زر الاعتماد: الاختيارات لا تُحفظ إلا بالاعتماد */
 function rubricWarnHtml(R, studentId, complete){
   const unsaved = R.touched.has(studentId);
-  if(!complete) return `<span class="rb-warn">${unsaved ? 'اختياراتك لم تُحفظ بعد — أكمل المعايير ثم اعتمد' : 'أكمل رصد كل المعايير ليُفعَّل الاعتماد'}</span>`;
+  if(!complete) return unsaved ? '<span class="rb-warn">اختياراتك لم تُحفظ بعد — أكمل المعايير ثم اعتمد</span>' : ''; /* جملة «أكمل رصد كل المعايير ليُفعَّل الاعتماد» حُذفت: الزر المعطّل يكفي */
   return unsaved ? '<span class="rb-warn">اختياراتك لم تُحفظ بعد — اعتمد لحفظ الدرجة</span>' : '';
 }
 
