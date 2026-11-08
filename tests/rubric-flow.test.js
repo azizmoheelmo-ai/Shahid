@@ -233,3 +233,19 @@ test('انحدار: المجموع يُكتب «س من ص» لا «س / ص» (�
   assert.match(html, /<b>5 من 5<\/b>/, 'يبدأ كاملًا في وضع «كامل الدرجة»');
   assert.doesNotMatch(html, /<b>[\d.]+ \/ [\d.]+<\/b>/);
 });
+
+test('اختبار السلّم: شريط الورقة «رجوع» وحده بلا زر «حفظ» العام (لا يرى اعتماد السلّم فيطمئن كذبًا)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const app = appWith({}, []);
+  const bar = runInAppContext(app, 'rubricSheetBarHtml()');
+  assert.match(bar, /رجوع/);
+  assert.doesNotMatch(bar, /crmModeFinishBtn|finishCrmLessonSheet|>حفظ</);
+  /* فرع السلّم في ورقة الاختبار يستعمل هذا الشريط ولا يستدعي زر الحفظ العام */
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'app-24-tests-sheet.js'), 'utf8');
+  const branch = src.slice(src.indexOf('if(s.rubric){'), src.indexOf('rubricPaint();', src.indexOf('if(s.rubric){')));
+  assert.match(branch, /rubricSheetBarHtml\(\)/);
+  assert.doesNotMatch(branch, /crmSheetFinishBtnHtml/);
+  /* الاختبار العادي يبقى بزر الحفظ */
+  assert.match(src, /\$\{crmSheetFinishBtnHtml\(\)\}/);
+});
