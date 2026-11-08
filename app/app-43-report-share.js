@@ -104,6 +104,16 @@ function reportShareStillOpen(token){
   return !!box && box.dataset && String(box.dataset.token) === String(token);
 }
 
+/* رسالة المرحلة على الزر (قراءة ← PDF ← رفع ← رابط): يُرسم النص قبل الخطوة الثقيلة التالية بنبضة قصيرة،
+   ولا يُكتب فوق نافذة أُغلقت أو استُبدلت */
+async function reportShareStage(token, text){
+  if(reportShareStillOpen(token)){
+    const b = document.getElementById('rsGoBtn');
+    if(b) b.textContent = text;
+  }
+  await new Promise(r => setTimeout(r, 30));
+}
+
 async function buildReportShare(studentId, who, token){
   if(reportShareBusy) return;
   const st = srStudentById(studentId);
@@ -118,18 +128,22 @@ async function buildReportShare(studentId, who, token){
   const uid = currentUser.id;
   const btn = document.getElementById('rsGoBtn');
   reportShareBusy = true;
-  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ تجهيز التقرير…'; }
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ قراءة بيانات الطالب…'; }
   let path = null, uploaded = false;
   try{
+    await reportShareStage(token, 'جارٍ قراءة بيانات الطالب…');
     const out = await srBuildReport(studentId, version, version === 'grades' && who === 'guardian' ? 'ولي الأمر' : null, { noDx });
     if(!out || !out.html) throw new Error('تعذّر بناء التقرير');
+    await reportShareStage(token, 'جارٍ تحويل التقرير إلى PDF…');
     const blob = await reportSharePdfBlob(out.html);
     if(blob.size > REPORT_SHARE_MAX_BYTES) throw new Error('حجم الملف كبير');
+    await reportShareStage(token, 'جارٍ رفع الملف…');
     path = `${uid}/${studentId}/${crypto.randomUUID()}.pdf`;
     const up = await sb.storage.from(REPORT_SHARE_BUCKET).upload(path, blob, { contentType: 'application/pdf', upsert: false });
     if(up.error) throw up.error;
     uploaded = true;
     const exp = new Date(Date.now() + days * 86400000);
+    await reportShareStage(token, 'جارٍ إنشاء الرابط…');
     /* رمز قصير فريد: تصادم (شبه مستحيل) يُعاد مرة بشفرة جديدة */
     let code = reportShareCode();
     const row = c => ({ teacher_id: uid, student_id: studentId, object_path: path, version, recipient: who, expires_at: exp.toISOString(), short_code: c });
