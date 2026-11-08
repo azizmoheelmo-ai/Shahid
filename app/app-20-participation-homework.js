@@ -147,7 +147,7 @@ function crmSheetModeSwitchHtml(){
   return `<div class="crm-seg${modes.length > 4 ? ' is-wrap' : ''}">${modes.map(k => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${escapeHtml(sheetModeLabel(k))}</button>`).join('')}</div>`;
 }
 
-function setCrmSheetMode(mode){
+function setCrmSheetMode(mode, selectId){
   if(!crmSheet) return;
   if(!enabledSheetModes().includes(mode)) mode = enabledSheetModes()[0] || 'none';
   crmSheet.mode = mode;
@@ -162,7 +162,7 @@ function setCrmSheetMode(mode){
   if(mode === 'participation') return renderCrmParticipation(students);
   if(mode === 'homework') return renderCrmHomework(students);
   if(mode === 'task') return renderCrmTasks(students);
-  if(mode === 'test') return renderCrmTestMode(students);
+  if(mode === 'test') return renderCrmTestMode(students, selectId);
   renderCrmLessonSheet(students, false);
 }
 

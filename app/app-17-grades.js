@@ -399,8 +399,11 @@ function crmGradeSimpleHtml(g){
     <span>لم يُرصد<b>${sum.none}</b></span>
     <span class="crm-gs-strip-go">تحليل<b aria-hidden="true">‹</b></span></button>` + distHtml;
   /* «رصد»: أزرار الأعمدة التي تُرصد يدويًا (بديل عناوين الجدول)؛ المحسوب تلقائيًا لا يظهر هنا */
-  const recCols = g.columns.filter(c => crmGradeColumnEditable(c));
-  if(recCols.length) html += `<div class="crm-gs-rec"><span>رصد:</span>${recCols.map(c => `<button type="button" class="crm-gs-recchip" onclick="openCrmGradeEntry('${c.id}')">${escapeHtml(c.name)}</button>`).join('')}</div>`;
+  /* اختبار بسلّم تقدير (معيار): لا يُرصد بخانة درجة هنا — زره يفتح ورقة الحصة على الاختبار نفسه (كان يغيب عن «رصد») */
+  const recCols = g.columns.filter(c => crmGradeColumnEditable(c) || (c.category === 'tests' && !c.tool_id && rubricIsColumn(c.id)));
+  if(recCols.length) html += `<div class="crm-gs-rec"><span>رصد:</span>${recCols.map(c => rubricIsColumn(c.id)
+    ? `<button type="button" class="crm-gs-recchip" onclick="openCrmGradeRubric('${c.id}')">🎯 ${escapeHtml(c.name)}</button>`
+    : `<button type="button" class="crm-gs-recchip" onclick="openCrmGradeEntry('${c.id}')">${escapeHtml(c.name)}</button>`).join('')}</div>`;
   const SORT_LABEL = { name: 'أبجدي', low: 'الأضعف أولًا', high: 'الأعلى أولًا' };
   html += `<div class="crm-gs-listrow"><div class="crm-gs-listhead">الطلاب <small>الدرجة من ${formatScore(totalMax)}</small></div><button type="button" class="crm-gs-sortbtn" aria-label="الترتيب" onclick="cycleCrmGradesSort()">${SORT_LABEL[crmGradesSortMode()]} ⇅</button></div><div class="crm-gs-list">`;
   sortGradeRows(rows, crmGradesSortMode()).forEach(r => {
@@ -1150,6 +1153,13 @@ async function gradeSheetSectionIds(year, semester, currentId){
 }
 
 /* ============ رصد عمود ============ */
+/* اختبار السلّم: رصده من ورقة الحصة (وضع «اختبار») مفتوحةً على هذا الاختبار بتاريخ اليوم؛ لا يُحفظ شيء بمجرد الفتح */
+async function openCrmGradeRubric(columnId){
+  const g = crmGrades;
+  if(!g || !g.columns.some(x => x.id === columnId)) return;
+  await openCrmLessonSheet(g.sectionId, localIsoDate(), null, 'test', columnId);
+}
+
 function openCrmGradeEntry(columnId){
   const box = document.getElementById('crmGradesBody');
   const c = crmGrades && crmGrades.columns.find(x => x.id === columnId);
