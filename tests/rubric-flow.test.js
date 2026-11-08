@@ -10,6 +10,9 @@
    - عمود السلّم محسوب: لا رصد يدوي ولا تعديل لدرجته، وتحميه السلة مع معاييره ورصده.
    - XSS: أسماء المعايير تمرّ بـescapeHtml في الرصد والتقرير.
    ============================================================ */
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { loadApp, runInAppContext } = require('./load-app');
@@ -236,19 +239,17 @@ test('انحدار: المجموع يُكتب «س من ص» لا «س / ص» (�
 });
 
 test('اختبار السلّم: أسفل الشاشة اعتماد ثم رجوع وملاحظة، بلا زر «حفظ» العام (لا يرى الاعتماد فيطمئن كذبًا)', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
   const app = appWith({}, []);
   openSheet(app);
   const html = runInAppContext(app, 'rubricBodyHtml(crmSheet.rubric, crmStudentsOfSection())');
   assert.match(html, /rubricApprove\(\)/);
-  assert.match(html, /closeCrmLessonSheet\(\)[^<]*>رجوع</);
+  assert.match(html, /rubricBack\(\)[^<]*>رجوع</);
   assert.match(html, /rubricOpenNote\(\)[^<]*>📝 ملاحظة/);
   assert.doesNotMatch(html, /crmModeFinishBtn|finishCrmLessonSheet|>حفظ</);
   /* الترتيب: الاعتماد ثم رجوع ثم ملاحظة */
-  assert.ok(html.indexOf('rubricApprove()') < html.indexOf('closeCrmLessonSheet()') && html.indexOf('closeCrmLessonSheet()') < html.indexOf('rubricOpenNote()'));
+  assert.ok(html.indexOf('rubricApprove()') < html.indexOf('rubricBack()') && html.indexOf('rubricBack()') < html.indexOf('rubricOpenNote()'));
   /* فرع السلّم في ورقة الاختبار لا يستدعي زر الحفظ العام، والاختبار العادي يبقى به */
-  const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'app-24-tests-sheet.js'), 'utf8');
+  const src = fs.readFileSync(path.join(root, "app", "app-24-tests-sheet.js"), 'utf8');
   const branch = src.slice(src.indexOf('if(s.rubric){'), src.indexOf('rubricPaint();', src.indexOf('if(s.rubric){')));
   assert.doesNotMatch(branch, /crmSheetFinishBtnHtml/);
   assert.match(src, /\$\{crmSheetFinishBtnHtml\(\)\}/);
@@ -326,4 +327,43 @@ test('صف الطلاب: الطالب الحالي يُمرَّر لمجال ا�
   assert.equal(runInAppContext(app, 'window.__opt.inline'), 'center');
   await runInAppContext(app, 'rubricApprove()');
   assert.equal(runInAppContext(app, 'window.__scrolls'), 2, 'بعد الاعتماد والانتقال للتالي');
+});
+
+test('زر الاعتماد: اسم واحد «اعتماد» دائمًا، وتنبيه «لم تُحفظ» بعد أي اختيار، ويزول بالاعتماد', async () => {
+  const app = appWith({}, []);
+  openSheet(app);
+  const html = () => runInAppContext(app, `rubricBodyHtml(crmSheet.rubric, rubricStudents())`);
+  const h0 = html();
+  assert.match(h0, /id="rubricApproveBtn"[^>]*>اعتماد<\/button>/, 'الطالب الأول');
+  assert.doesNotMatch(h0, /اعتماد والانتقال للتالي|اعتماد الدرجة/);
+  assert.doesNotMatch(h0, /لم تُحفظ بعد/, 'لا تنبيه قبل أي اختيار');
+  runInAppContext(app, `rubricPickLevel(0, 1)`);
+  assert.match(html(), /اختياراتك لم تُحفظ بعد/);
+  runInAppContext(app, `rubricSelectStudent(1)`);
+  assert.match(html(), /id="rubricApproveBtn"[^>]*>اعتماد<\/button>/, 'الطالب الأخير بالاسم نفسه');
+  runInAppContext(app, `rubricSelectStudent(0); crmSheet.rubric.criteria.forEach((c, i) => rubricPickLevel(i, 0));`);
+  assert.match(html(), /اعتمد لحفظ الدرجة/, 'مكتمل وغير معتمد');
+  await runInAppContext(app, 'rubricApprove()');
+  assert.equal(runInAppContext(app, 'crmSheet.rubric.touched.has("s1")'), false, 'الاعتماد يُنهي حالة «لم يُحفظ»');
+});
+
+test('«رجوع»: يسأل إن بقيت اختيارات غير معتمدة ولا يخرج لو رفض، ويخرج مباشرة بلا شيء معلّق', async () => {
+  const app = appWith({}, []);
+  openSheet(app);
+  runInAppContext(app, `window.__closed = 0; closeCrmLessonSheet = () => { window.__closed++; }; window.__asked = 0; showConfirm = async () => { window.__asked++; return window.__ans; };`);
+  await runInAppContext(app, 'rubricBack()');
+  assert.equal(runInAppContext(app, 'window.__closed'), 1, 'بلا اختيارات: يخرج بلا سؤال');
+  assert.equal(runInAppContext(app, 'window.__asked'), 0);
+  runInAppContext(app, `rubricPickLevel(0, 1); window.__ans = false;`);
+  await runInAppContext(app, 'rubricBack()');
+  assert.equal(runInAppContext(app, 'window.__asked'), 1);
+  assert.equal(runInAppContext(app, 'window.__closed'), 1, 'رفض: يبقى');
+  runInAppContext(app, `window.__ans = true;`);
+  await runInAppContext(app, 'rubricBack()');
+  assert.equal(runInAppContext(app, 'window.__closed'), 2, 'وافق: يخرج');
+});
+
+test('شريط الاعتماد يثبت فوق شريط التنقل السفلي لا خلفه', () => {
+  const css = fs.readFileSync(path.join(root, 'style.css'), 'utf8');
+  assert.match(css, /\.rb-actions\{[^}]*position:sticky;bottom:calc\(66px \+ env\(safe-area-inset-bottom/);
 });

@@ -2684,7 +2684,7 @@ button.bt-cell{cursor:pointer;}
 .rb-lv[data-l="0"][aria-pressed="true"]{background:#1c7c54;} .rb-lv[data-l="1"][aria-pressed="true"]{background:#4a7f2e;}
 .rb-lv[data-l="2"][aria-pressed="true"]{background:#946500;} .rb-lv[data-l="3"][aria-pressed="true"]{background:#b4531a;}
 .rb-lv[data-l="4"][aria-pressed="true"]{background:#b3402f;}
-.rb-actions{display:flex;flex-direction:column;gap:6px;position:sticky;bottom:0;padding:8px 0 6px;background:linear-gradient(to top,#fff 70%,transparent);}
+.rb-actions{display:flex;flex-direction:column;gap:6px;position:sticky;bottom:calc(66px + env(safe-area-inset-bottom, 0px));z-index:5;padding:8px 0 6px;background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 14px rgba(16,30,43,.10);}
 .rb-actions .btn{width:100%;justify-content:center;}
 .rb-warn{font-size:11.5px;color:#8a5a00;font-weight:700;}
 .rb-actions .btn:disabled{opacity:1;background:#DCE0E5;color:#4A5560;cursor:not-allowed;}
