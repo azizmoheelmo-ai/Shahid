@@ -42,7 +42,8 @@ function appWith(opts){
     const els = { reportShareBody: { dataset: { token: '5' } }, rsGoBtn: {}, reportShareForm: { style: {} }, reportShareResult: { style: {}, dataset: {} }, rsDays: { value: '7' }, rsDx: { checked: true } };
     window.__els = els; document.getElementById = id => els[id] || null;
     document.querySelector = () => ({ value: 'grades' });
-    crypto = { randomUUID: () => 'RID' };`);
+    crypto = { randomUUID: () => 'RID', getRandomValues: a => { for(let i = 0; i < a.length; i++) a[i] = i * 7 % 248; return a; } };
+    location = { origin: 'https://app.example' };`);
   return { app, log };
 }
 
@@ -53,19 +54,22 @@ test('إرسال: ملف بمجلد المعلم، سجل بمعرّفه، را�
   assert.equal(up.bucket, 'report-shares');
   assert.equal(up.p, 'u1/a/RID.pdf', 'مجلد المعلم ثم الطالب');
   assert.equal(up.o.upsert, false);
-  assert.equal(log.find(l => l.op === 'sign').sec, 7 * 86400);
+  assert.ok(!log.some(l => l.op === 'sign'), 'لا رابط موقَّع طويل من المتصفح: الخادم يُنشئه عند الفتح');
   const ins = log.find(l => l.table === 'student_report_shares' && l.op === 'insert');
   assert.equal(ins.values.teacher_id, 'u1');
   assert.equal(ins.values.object_path, 'u1/a/RID.pdf');
   assert.equal(ins.values.version, 'grades');
   assert.equal(ins.values.recipient, 'guardian');
   assert.ok(new Date(ins.values.expires_at) > new Date());
+  assert.match(ins.values.short_code, /^[a-z2-9]{14}$/, 'رمز قصير بالأبجدية المسموحة');
   const html = runInAppContext(app, 'window.__els.reportShareResult.innerHTML');
   const href = html.match(/href="([^"]+)"/)[1].replace(/&amp;/g, '&');
   assert.match(href, /^https:\/\/wa\.me\/966501234567\?text=/);
   const text = decodeURIComponent(href.split('?text=')[1]);
   assert.match(text, /تقرير الدرجات للطالب أحمد <b>/, 'الاسم كما هو في الرسالة، ومُهرَّب في الصفحة فقط');
-  assert.match(text, /token=T&a=1/, 'الرابط الموقَّع كاملًا داخل النص المُرمَّز');
+  assert.match(text, new RegExp('https://app\\.example/r/' + ins.values.short_code), 'الرابط القصير على نطاق التطبيق');
+  assert.ok(text.length < 140, 'الرسالة قصيرة');
+  assert.doesNotMatch(text, /supabase|token=/, 'لا رابط تخزين طويل');
   assert.doesNotMatch(html, /<b>:/, 'الاسم لا يدخل HTML الصفحة خامًا');
   assert.equal(runInAppContext(app, 'window.__built[0].to'), 'ولي الأمر', 'نسخة الدرجات لولي الأمر');
 });
@@ -90,7 +94,7 @@ test('أُغلقت النافذة أثناء التجهيز: لا رابط يُ�
   assert.equal(runInAppContext(app, 'window.__els.reportShareResult.innerHTML'), undefined);
 });
 
-test('فشل الرفع: لا سجل. فشل السجل أو الرابط بعد الرفع: يُزال الملف ولا يبقى يتيمًا', async () => {
+test('فشل الرفع: لا سجل. فشل السجل بعد الرفع: يُزال الملف ولا يبقى يتيمًا', async () => {
   const a = appWith({ uploadError: new Error('رفض') });
   await runInAppContext(a.app, `buildReportShare('a', 'guardian', '5')`);
   assert.ok(!a.log.some(l => l.table === 'student_report_shares'), 'لا سجل');
@@ -98,10 +102,6 @@ test('فشل الرفع: لا سجل. فشل السجل أو الرابط بعد
   const b = appWith({ insertError: new Error('x') });
   await runInAppContext(b.app, `buildReportShare('a', 'guardian', '5')`);
   assert.ok(b.log.some(l => l.op === 'remove'), 'فشل السجل: الملف يُزال');
-  const c = appWith({ signError: new Error('x') });
-  await runInAppContext(c.app, `buildReportShare('a', 'guardian', '5')`);
-  assert.ok(c.log.some(l => l.op === 'remove'), 'فشل الرابط: الملف يُزال');
-  assert.ok(!c.log.some(l => l.table === 'student_report_shares' && l.op === 'insert'));
 });
 
 test('لا نقرتان متزامنتان، ولا إرسال بلا رقم، ولا نافذة لطالب بلا رقم', async () => {
@@ -147,4 +147,43 @@ test('البنية: السجل والحاوية بلا سياسة مسؤول، �
   assert.match(block, /public.*false|array\['application\/pdf'\]/s);
   assert.match(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), /app\/app-43-report-share\.js/);
   assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), /app-43-report-share\.js/);
+});
+
+test('تصادم الرمز القصير يُعاد مرة بشفرة جديدة، والرمز عشوائي بلا انحياز وبالأبجدية المسموحة', async () => {
+  const { app, log } = appWith();
+  runInAppContext(app, `window.__n = 0; const real = sb.from.bind(sb);
+    sb.from = t => { const api = real(t); if(t === 'student_report_shares'){ const ins = api.insert; api.insert = v => { const r = ins(v); window.__n++; if(window.__n === 1) r.then = (res) => Promise.resolve({ data: null, error: { code: '23505' } }).then(res); return r; }; } return api; };`);
+  await runInAppContext(app, `buildReportShare('a', 'guardian', '5')`);
+  assert.equal(runInAppContext(app, 'window.__n'), 2, 'تصادم أول ثم محاولة ثانية بشفرة جديدة');
+  assert.match(runInAppContext(app, 'window.__els.reportShareResult.innerHTML'), /wa\.me/, 'ونجح الإرسال بعد الإعادة');
+  const code = runInAppContext(app, 'reportShareCode()');
+  assert.match(code, /^[a-z2-9]{14}$/);
+  assert.doesNotMatch(code, /[ilo01]/, 'بلا الحروف الملتبسة');
+});
+
+test('api/r.js: الرمز الصالح غير المنتهي فقط يُحوَّل، والخاطئ والمنتهي والمفقود بالرد نفسه، ولا قراءة بغير الرمز', async () => {
+  const { resolveShare } = require('../api/r.js');
+  const rows = [{ short_code: 'abcdefghjkmnpq', object_path: 'u1/a/1.pdf', expires_at: new Date(Date.now() + 86400000).toISOString() },
+    { short_code: 'zzzzzzzzzzzzzz', object_path: 'u1/a/2.pdf', expires_at: new Date(Date.now() - 1000).toISOString() }];
+  const calls = [];
+  const sb = { from: t => { const f = []; const api = { select(){ return api; }, eq(c, v){ f.push([c, v]); return api; },
+    maybeSingle: async () => { calls.push({ t, f }); return { data: rows.find(r => f.every(([c, v]) => r[c] === v)) || null, error: null }; } }; return api; } };
+  assert.deepEqual(await resolveShare('abcdefghjkmnpq', sb), { ok: true, path: 'u1/a/1.pdf' });
+  assert.deepEqual(await resolveShare('zzzzzzzzzzzzzz', sb), { ok: false }, 'منتهي');
+  assert.deepEqual(await resolveShare('mmmmmmmmmmmmmm', sb), { ok: false }, 'غير موجود');
+  const before = calls.length;
+  for(const bad of ['', 'ABC', 'abc', "a' or '1'='1aaaaa", '../../etc/passwd', null, undefined, 'a'.repeat(40), ['abcdefghjkmnpq']])
+    assert.deepEqual(await resolveShare(bad, sb), { ok: false }, 'يُرفض قبل أي استعلام: ' + String(bad));
+  assert.equal(calls.length, before, 'الشكل الخاطئ لا يصل للقاعدة');
+  assert.ok(calls.every(c => c.t === 'student_report_shares' && c.f.length === 1 && c.f[0][0] === 'short_code'), 'استعلام واحد بالرمز وحده');
+});
+
+test('api/r.js: ردود بلا تخزين ولا فهرسة، وrewrite لـ/r/ في vercel.json، وبلا require للحزمة بأعلى الملف', () => {
+  const src = fs.readFileSync(path.join(root, 'api/r.js'), 'utf8');
+  assert.match(src, /Cache-Control', 'no-store'/);
+  assert.match(src, /Referrer-Policy', 'no-referrer'/);
+  assert.match(src, /X-Robots-Tag', 'noindex'/);
+  assert.match(src, /res\.redirect\(302/);
+  const vj = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
+  assert.ok(vj.rewrites.some(r => r.source === '/r/:code' && r.destination === '/api/r?c=:code'));
 });

@@ -4,7 +4,8 @@
    التقرير نفسه (srBuildReport، app-36): نسخة الدرجات أو التحليلية بتشخيص أو بدونه — لا تصميم جديد.
    التقرير لا يُخزَّن ملفًا في أي مكان (يُبنى عند الطلب)، فنحوّله هنا إلى ملف PDF ونرفعه مؤقتًا:
      1) PDF من نفس HTML التقرير (html2canvas + jsPDF كخطابات الإحالة)، ويُقسَّم صفحاتٍ عند حدود الأقسام والصفوف.
-     2) حاوية خاصة report-shares (مجلد المعلم)، رابط موقَّع ينتهي بعد 3/7/14 يومًا (الافتراضي 7).
+     2) حاوية خاصة report-shares (مجلد المعلم)، ورابط قصير /r/<رمز> (api/r.js) ينتهي بعد 3/7/14 يومًا (الافتراضي 7):
+      الخادم يحوّل الرمز الصالح إلى رابط موقَّع قصير العمر (60 ثانية) للملف؛ الصلاحية الفعلية = expires_at بالسجل.
      3) صف بسجل student_report_shares لتنظيف المنتهي (يُحذف الملف عند فتح التطبيق بعد الانتهاء).
      4) زر «فتح واتساب» رابطٌ حقيقي (a href) على رقم الطالب/ولي الأمر المحفوظ: النقر عليه لمسة مستخدم فلا يحجبه المتصفح.
    لا يُرسل شيء تلقائيًا: المعلم يضغط إرسال داخل واتساب بنفسه. الأرقام وروابط المعلمين لا يراها المسؤول (بلا سياسة مسؤول).
@@ -20,6 +21,19 @@ const REPORT_SHARE_BREAKS = '.pdf-avoid-break,.sr .sec:not(.long),.sr .box,.sr .
 let reportShareBusy = false;
 let reportShareToken = 0;
 let reportShareCleaned = false;
+
+/* رمز الرابط القصير: 14 حرفًا من 31 (بلا الحروف الملتبسة) ≈ 70 بتًا، بسحب عشوائي آمن وبلا انحياز */
+const REPORT_SHARE_CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+function reportShareCode(){
+  let out = '';
+  while(out.length < 14){
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    for(let i = 0; i < bytes.length && out.length < 14; i++){
+      if(bytes[i] < 248) out += REPORT_SHARE_CODE_ALPHABET[bytes[i] % REPORT_SHARE_CODE_ALPHABET.length]; /* 248 = 31×8: نرفض الباقي فلا انحياز */
+    }
+  }
+  return out;
+}
 
 function reportShareWho(who){ return who === 'student' ? 'student' : 'guardian'; }
 function reportSharePhone(st, who){ return who === 'student' ? st.student_phone : st.guardian_phone; }
@@ -116,9 +130,11 @@ async function buildReportShare(studentId, who, token){
     if(up.error) throw up.error;
     uploaded = true;
     const exp = new Date(Date.now() + days * 86400000);
-    const signed = await sb.storage.from(REPORT_SHARE_BUCKET).createSignedUrl(path, days * 86400);
-    if(signed.error || !signed.data || !signed.data.signedUrl) throw (signed.error || new Error('تعذّر إنشاء الرابط'));
-    const ins = await sb.from('student_report_shares').insert({ teacher_id: uid, student_id: studentId, object_path: path, version, recipient: who, expires_at: exp.toISOString() });
+    /* رمز قصير فريد: تصادم (شبه مستحيل) يُعاد مرة بشفرة جديدة */
+    let code = reportShareCode();
+    const row = c => ({ teacher_id: uid, student_id: studentId, object_path: path, version, recipient: who, expires_at: exp.toISOString(), short_code: c });
+    let ins = await sb.from('student_report_shares').insert(row(code));
+    if(ins.error && String(ins.error.code) === '23505'){ code = reportShareCode(); ins = await sb.from('student_report_shares').insert(row(code)); }
     if(ins.error) throw ins.error;
     if(!reportShareStillOpen(token)){
       /* أُغلقت النافذة قبل الاكتمال: لا رابط يُعرض لأحد، فنزيل الملف والسجل بدل تركهما */
@@ -126,8 +142,9 @@ async function buildReportShare(studentId, who, token){
       return;
     }
     const expIso = localIsoDate(exp);
-    const wa = waChatUrl(phone, reportShareMessage(st, version, signed.data.signedUrl, expIso));
-    reportShareShowResult(wa, signed.data.signedUrl, expIso);
+    const shortUrl = location.origin + '/r/' + code; /* الرابط القصير على نطاق التطبيق (يفتحه الخادم api/r.js) */
+    const wa = waChatUrl(phone, reportShareMessage(st, version, shortUrl, expIso));
+    reportShareShowResult(wa, shortUrl, expIso);
     reportShareCleaned = false; reportShareCleanup();
   } catch(err){
     if(uploaded && path) await reportShareDiscard(uid, path);
