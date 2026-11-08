@@ -85,6 +85,8 @@ function normalizeFeatures(raw){
   /* خيارات تقارير الدرجات: المدرسة والمعلم والوكيل وما يُطبع (app-34) */
   const rp = typeof normalizeReportPrefs === 'function' ? normalizeReportPrefs(raw && raw.reportPrefs) : null;
   if(rp) out.reportPrefs = rp;
+  /* سلّم تقدير الاختبارات (app-41): تجربة لحسابات يفعّلها المسؤول فقط */
+  if(raw && raw.rubricTests === true) out.rubricTests = true;
   return out;
 }
 

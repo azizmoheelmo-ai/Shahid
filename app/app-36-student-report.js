@@ -463,6 +463,7 @@ function buildStudentReportHtml2(ctx){
       body += `<div class="sec long"><h2>المهام الأدائية</h2><table><thead><tr><th>المهمة</th><th class="n">الموعد</th><th class="n">النتيجة</th></tr></thead><tbody>${ctx.tasks.map(t =>
         `<tr><td>${e(t.title)}</td><td class="n">${e(t.due || '—')}</td><td class="n">${e(t.result)}</td></tr>`).join('')}</tbody></table></div>`;
     }
+    if(ctx.rubric && ctx.rubric.length) body += rubricReportHtml(ctx.rubric); /* سلّم التقدير (app-41): تجربة لحساب مفعَّل فقط */
     const at = ctx.attendance;
     if(at && (at.recorded || at.list.length)){
       const c = at.counts;
@@ -617,6 +618,7 @@ async function srBuildReport(studentId, version, to, opts){
       cases: acadOn ? await srLoadCases(studentId) : []
     };
   }
+  if(analytic && g) extra.rubric = await rubricReportRows(g, studentId);
   const testGroups = typeof tlGroupsOf === 'function' ? tlGroupsOf(typeof appFeatures !== 'undefined' ? appFeatures : null, term) : [];
   const dx = srDiagnose({ rows, rules, homework, lessonsHeld, overall, testGroups });
   await srEnsureFonts();

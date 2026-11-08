@@ -39,8 +39,20 @@ async function renderCrmTestMode(students, selectId){
       if(sErr) throw sErr;
       scores = sc || [];
     }
+    /* اختبار بسلّم تقدير: معاييره ورصد طلابه (للحسابات المفعَّلة فقط) */
+    let rubricInfo = null;
+    if(selectedId && rubricOn()){
+      const rub = await rubricLoadCriteria(tests.map(x => x.id));
+      const crit = rub.get(selectedId) || [];
+      if(crit.length){
+        const { data: mk, error: mErr } = await sb.from('classroom_rubric_marks').select('criterion_id, student_id, level').eq('teacher_id', uid).eq('column_id', selectedId);
+        if(mErr) throw mErr;
+        rubricInfo = { criteria: crit, marks: mk || [] };
+      }
+    }
     if(crmSheet !== s || s.token !== token || s.mode !== 'test') return;
     s.test = { tests, selectedId, values: new Map(scores.map(r => [r.student_id, Number(r.score)])), queue: new Map(), term };
+    s.rubric = rubricInfo ? rubricInitState(tests.find(x => x.id === selectedId), rubricInfo.criteria, rubricInfo.marks, s.test.values, students) : null;
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== 'test') return;
     body.innerHTML = head + `<div class="empty-state">تعذّر التحميل. <button class="btn btn-outline crm-mini-btn" onclick="setCrmSheetMode('test')">إعادة المحاولة</button></div>`;
@@ -54,13 +66,23 @@ async function renderCrmTestMode(students, selectId){
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
-  body.innerHTML = head + `
+  const pickerHtml = `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmTestMode(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${t.tests.map(x => `<option value="${x.id}"${x.id === t.selectedId ? ' selected' : ''}>${escapeHtml(x.name)} · من ${formatScore(x.max_score)}</option>`).join('')}
+        ${t.tests.map(x => `<option value="${x.id}"${x.id === t.selectedId ? ' selected' : ''}>${rubricIsColumn(x.id) ? '🎯 ' : ''}${escapeHtml(x.name)} · من ${formatScore(x.max_score)}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmSheetTestModal()">+ اختبار</button>
-    </div>
+    </div>`;
+  if(s.rubric){
+    body.innerHTML = head + pickerHtml + `<div id="rubricSheetBox"></div>
+    <div class="crm-sheet-bar">
+      ${crmSheetFinishBtnHtml()}
+      <button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button>
+    </div>`;
+    rubricPaint();
+    return;
+  }
+  body.innerHTML = head + pickerHtml + `
     <div id="crmTestCounts" class="crm-sheet-counts"></div>
     <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">اكتب درجة كل طالب (من ${formatScore(test.max_score)}) — تُحفظ فور الانتقال للخانة التالية. اترك الغائب فارغًا فلا يُحسب عليه. التعديل والحذف من الكشف.</p>
     <div class="crm-grade-entry">
@@ -145,6 +167,7 @@ function openCrmSheetTestModal(){
   const s = crmSheet;
   if(!s) return;
   crmSheetTestDraft = { sectionId: s.sectionId, term: crmCurrentTerm(), position: s.test ? s.test.tests.length : 0, saving: false };
+  rubricDraftReset();
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">اختبار جديد</h3>
@@ -154,6 +177,7 @@ function openCrmSheetTestModal(){
       <label class="crm-field-label">الدرجة الكاملة</label>
       <input class="goal-input" id="crmSheetTestMax" inputmode="decimal" value="${GRADE_TEST_DEFAULT_MAX}" style="margin-bottom:8px;">
       <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="crmSheetTestAll" checked> أضفه لكل شعبي (لها كشف هذا الفصل)</label>
+      ${rubricFormHtml()}
       <div id="crmSheetTestError" style="display:none;color:#8A2C2C;font-size:12px;margin-bottom:8px;"></div>
       <button class="btn btn-primary" id="crmSheetTestSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmSheetTest()">إضافة الاختبار</button>
     </div>`, '400px');
@@ -168,6 +192,8 @@ async function saveCrmSheetTest(){
   const draft = { category: 'tests', name: document.getElementById('crmSheetTestName').value.trim(), max_score: toLatin(document.getElementById('crmSheetTestMax').value) };
   const msg = validateGradeColumn([], draft, []);
   if(msg) return fail(msg);
+  const rubricBuild = rubricDraftRows(Number(draft.max_score)); /* اختبار بسلّم تقدير */
+  if(rubricBuild && rubricBuild.error) return fail(rubricBuild.error);
   d.saving = true;
   const btn = document.getElementById('crmSheetTestSaveBtn');
   if(btn) btn.disabled = true;
@@ -183,6 +209,14 @@ async function saveCrmSheetTest(){
     d.saving = false;
     if(btn) btn.disabled = false;
     return fail('تعذّر الحفظ: ' + (error ? gradeDbErrorMessage(error) : ''));
+  }
+  if(rubricBuild && rubricBuild.rows){
+    const rErr = await rubricCreateForColumns(rows, rubricBuild.rows);
+    if(rErr){
+      d.saving = false;
+      if(btn) btn.disabled = false;
+      return fail('تعذّر حفظ المعايير: ' + gradeDbErrorMessage(rErr));
+    }
   }
   crmSheetTestDraft = null;
   closeCrmModal();
