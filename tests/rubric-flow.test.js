@@ -337,6 +337,11 @@ test('زر الاعتماد: اسم واحد «اعتماد» دائمًا، و�
   assert.match(h0, /id="rubricApproveBtn"[^>]*>اعتماد<\/button>/, 'الطالب الأول');
   assert.doesNotMatch(h0, /اعتماد والانتقال للتالي|اعتماد الدرجة/);
   assert.doesNotMatch(h0, /لم تُحفظ بعد/, 'لا تنبيه قبل أي اختيار');
+  assert.doesNotMatch(h0, /أكمل رصد كل المعايير ليُفعَّل/, 'لا جملة «أكمل رصد…» بلا اختيار');
+  runInAppContext(app, `rubricSetMode('up')`);
+  const hUp = html();
+  assert.doesNotMatch(hUp, /أكمل رصد كل المعايير ليُفعَّل/, 'وضع «يبدأ من صفر»: لا جملة، والزر معطّل');
+  assert.match(hUp, /id="rubricApproveBtn"[^>]*disabled/);
   runInAppContext(app, `rubricPickLevel(0, 1)`);
   assert.match(html(), /اختياراتك لم تُحفظ بعد/);
   runInAppContext(app, `rubricSelectStudent(1)`);
