@@ -1005,6 +1005,18 @@ do $$ begin
   end if;
 end $$;
 create index if not exists classroom_students_section_id_idx on public.classroom_students(section_id);
+-- جوال الطالب وولي الأمر (اختياريان، أرقام دولية فقط). للتواصل بواتساب؛ لا يدخلان أي تقرير.
+alter table public.classroom_students add column if not exists student_phone text;
+alter table public.classroom_students add column if not exists guardian_phone text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_students_student_phone_chk' and conrelid = 'public.classroom_students'::regclass) then
+    alter table public.classroom_students add constraint classroom_students_student_phone_chk check (student_phone is null or student_phone ~ '^[0-9]{9,15}$');
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'classroom_students_guardian_phone_chk' and conrelid = 'public.classroom_students'::regclass) then
+    alter table public.classroom_students add constraint classroom_students_guardian_phone_chk check (guardian_phone is null or guardian_phone ~ '^[0-9]{9,15}$');
+  end if;
+end $$;
+
 
 -- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:
 -- عدّ الطلبة التلقائي وتحذير تعارض الجدولة بين برامج مختلفة بنفس الشعبة

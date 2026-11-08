@@ -850,7 +850,9 @@
 
             <div id="addStudentBox" class="crm-stu-form" style="display:none;">
               <input class="goal-input" id="newStudentName" maxlength="100" placeholder="اسم الطالب" style="margin-bottom:8px;">
-              <input class="goal-input" id="newStudentNumber" maxlength="30" placeholder="رقم الطالب (اختياري)" style="margin-bottom:10px;">
+              <input class="goal-input" id="newStudentNumber" maxlength="30" placeholder="رقم الطالب (اختياري)" style="margin-bottom:8px;">
+              <input class="goal-input" id="newStudentPhone" type="tel" inputmode="tel" dir="ltr" maxlength="20" placeholder="📱 جوال الطالب (اختياري) 05xxxxxxxx" style="margin-bottom:8px;text-align:left;">
+              <input class="goal-input" id="newGuardianPhone" type="tel" inputmode="tel" dir="ltr" maxlength="20" placeholder="📱 جوال ولي الأمر (اختياري) 05xxxxxxxx" style="margin-bottom:10px;text-align:left;">
               <button class="btn btn-primary" id="newStudentSaveBtn" onclick="addClassroomStudent()">حفظ الطالب</button>
             </div>
 
@@ -1557,6 +1559,7 @@
 <script src="app/app-39-group-report.js"></script>
 <script src="app/app-40-moe-docs.js"></script>
 <script src="app/app-41-rubric-tests.js"></script>
+<script src="app/app-42-student-contact.js"></script>
 
 </body>
 </html>

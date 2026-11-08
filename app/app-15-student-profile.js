@@ -301,6 +301,8 @@ async function renderCrmStudentProfile(){
       ${followupsOn() ? `<div class="crm-status-line"><span class="crm-status-key">المتابعة</span><span>${escapeHtml(lines.followupLine)}</span></div>` : ''}
     </div>
 
+    ${typeof crmContactCardHtml === 'function' ? crmContactCardHtml(student) : ''}
+
     ${student.is_active === false ? `<div class="crm-today-card" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <span style="font-size:12px;color:var(--muted);">نُقل خارج المدرسة — سجله محفوظ للاطلاع</span>
       <button class="crm-transfer-btn" onclick="restoreCrmStudent('${student.id}')">إعادة</button>

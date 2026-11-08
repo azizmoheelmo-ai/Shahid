@@ -2697,3 +2697,11 @@ button.bt-cell{cursor:pointer;}
 .crm-ga-pop-ver button.is-on{background:var(--navy);color:#fff;}
 .crm-ga-pop-dx{padding:6px 14px;border-bottom:0;}
 .crm-ga-pop-note{margin:0;padding:0 14px 8px;font-size:11.5px;line-height:1.6;color:var(--muted);}
+.crm-ct-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.crm-link-btn{border:0;background:none;font-family:inherit;font-size:12.5px;font-weight:700;color:var(--navy);text-decoration:underline;min-height:36px;padding:0 4px;cursor:pointer;}
+.crm-ct-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid #EEE9DF;font-size:13.5px;}
+.crm-ct-row small{display:block;color:var(--muted);font-size:12px;text-align:right;}
+.crm-ct-wa{border:1.5px solid #1FA855;background:#fff;color:#1FA855;border-radius:20px;padding:6px 14px;min-height:40px;font-family:inherit;font-weight:800;font-size:12.5px;cursor:pointer;}
+.crm-ct-picks{display:flex;gap:8px;}
+.crm-ct-pick{flex:1;display:flex;align-items:center;gap:6px;border:1.5px solid var(--navy);border-radius:10px;padding:9px 10px;font-size:13px;font-weight:700;color:var(--navy);}
+.crm-ct-pick.is-off{opacity:.45;}
