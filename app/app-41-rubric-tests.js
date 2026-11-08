@@ -204,7 +204,7 @@ function rubricInitState(test, criteria, marksRows, scoreValues, students, noteR
   (students || []).forEach(st => { if(scoreValues.has(st.id)) done.add(st.id); });
   const first = (students || []).find(st => !done.has(st.id)) || (students || [])[0];
   const notes = new Map((noteRows || []).filter(r => r && r.note).map(r => [r.student_id, String(r.note)]));
-  return { testId: test.id, max: Number(test.max_score), criteria, marks, done, notes, noteFor: null, picks: new Map(), dirty: new Set(), cur: first ? first.id : null, mode: rubricModeGet(), busy: false, showSet: false };
+  return { testId: test.id, max: Number(test.max_score), criteria, marks, done, notes, noteFor: null, picks: new Map(), dirty: new Set(), touched: new Set(), cur: first ? first.id : null, mode: rubricModeGet(), busy: false, showSet: false };
 }
 
 function rubricPicksOf(R, studentId){
@@ -253,10 +253,29 @@ function rubricBodyHtml(R, students){
       <div class="rb-bar"><i style="width:${R.max > 0 ? Math.min(100, total / R.max * 100) : 0}%"></i></div>
       <div class="rb-total-r"><small>${hint}</small><button type="button" class="rb-link" onclick="rubricToggleSet()">${R.showSet ? 'إخفاء' : 'إعدادات'}</button></div></div>
     ${settings}${tiles}
-    <div class="rb-actions">${!complete ? '<span class="rb-warn">أكمل رصد كل المعايير ليُفعَّل الاعتماد</span>' : ''}
-      <button type="button" class="btn btn-primary" id="rubricApproveBtn" onclick="rubricApprove()"${(!complete || R.busy) ? ' disabled' : ''}>${R.busy ? 'جارٍ الحفظ…' : (students.findIndex(st => st.id === R.cur) < students.length - 1 ? 'اعتماد والانتقال للتالي' : 'اعتماد الدرجة')}</button>
+    <div class="rb-actions">${rubricWarnHtml(R, cur.id, complete)}
+      <button type="button" class="btn btn-primary" id="rubricApproveBtn" onclick="rubricApprove()"${(!complete || R.busy) ? ' disabled' : ''}>${R.busy ? 'جارٍ الحفظ…' : 'اعتماد'}</button>
       ${R.done.has(cur.id) ? `<button type="button" class="btn btn-outline" onclick="rubricClearStudent()"${R.busy ? ' disabled' : ''}>مسح رصد هذا الطالب</button>` : ''}
-      <div class="rb-row2"><button type="button" class="btn btn-outline" onclick="closeCrmLessonSheet()">رجوع</button><button type="button" class="btn btn-outline" onclick="rubricOpenNote()">📝 ملاحظة${R.notes.has(cur.id) ? '<i class="rb-dot"></i>' : ''}</button></div></div>`;
+      <div class="rb-row2"><button type="button" class="btn btn-outline" onclick="rubricBack()">رجوع</button><button type="button" class="btn btn-outline" onclick="rubricOpenNote()">📝 ملاحظة${R.notes.has(cur.id) ? '<i class="rb-dot"></i>' : ''}</button></div></div>`;
+}
+
+/* تنبيه فوق زر الاعتماد: الاختيارات لا تُحفظ إلا بالاعتماد */
+function rubricWarnHtml(R, studentId, complete){
+  const unsaved = R.touched.has(studentId);
+  if(!complete) return `<span class="rb-warn">${unsaved ? 'اختياراتك لم تُحفظ بعد — أكمل المعايير ثم اعتمد' : 'أكمل رصد كل المعايير ليُفعَّل الاعتماد'}</span>`;
+  return unsaved ? '<span class="rb-warn">اختياراتك لم تُحفظ بعد — اعتمد لحفظ الدرجة</span>' : '';
+}
+
+/* «رجوع»: لو بقيت اختيارات لم تُعتمد تضيع بالخروج — نسأل أولًا */
+async function rubricBack(){
+  const s = crmSheet, R = s && s.rubric;
+  if(!s) return;
+  if(R && R.busy) return;
+  if(R && R.touched.size){
+    const ok = await showConfirm(`لديك اختيارات غير معتمدة (${R.touched.size}) ستضيع إن خرجت. هل تخرج دون اعتمادها؟`);
+    if(!ok || crmSheet !== s) return;
+  }
+  closeCrmLessonSheet();
 }
 
 function rubricPaint(scrollToCur){
@@ -284,6 +303,7 @@ function rubricPickLevel(ci, level){
   if(!R || R.busy || !R.cur || !R.criteria[ci] || !RUBRIC_LEVELS[level]) return;
   rubricPicksOf(R, R.cur).set(R.criteria[ci].id, level);
   if(R.done.has(R.cur)) R.dirty.add(R.cur);
+  R.touched.add(R.cur); /* اختيار لم يُعتمد بعد: يُنبَّه عليه قبل الخروج */
   rubricPaint();
 }
 
@@ -300,7 +320,7 @@ function rubricSetMode(m){
   R.mode = m;
   rubricModeSave(m);
   /* من لم يُعتمد ولم يلمس شيئًا يعاد بناء اختياراته على الطريقة الجديدة */
-  [...R.picks.keys()].forEach(id => { if(!R.done.has(id)) R.picks.delete(id); });
+  [...R.picks.keys()].forEach(id => { if(!R.done.has(id)){ R.picks.delete(id); R.touched.delete(id); } });
   rubricPaint();
 }
 
@@ -335,6 +355,7 @@ async function rubricApprove(){
   R.marks.set(studentId, new Map(picks));
   R.done.add(studentId);
   R.dirty.delete(studentId);
+  R.touched.delete(studentId);
   s.test.values.set(studentId, total);
   const students = rubricStudents();
   const idx = students.findIndex(st => st.id === studentId);
@@ -364,7 +385,7 @@ async function rubricClearStudent(){
   R.busy = false;
   if(crmSheet !== s || s.token !== token || s.rubric !== R || s.test.selectedId !== testId) return;
   if(err){ showToast('تعذّر المسح: ' + (err.message || 'خطأ بالاتصال'), 'error'); rubricPaint(); return; }
-  R.marks.delete(studentId); R.picks.delete(studentId); R.done.delete(studentId); R.dirty.delete(studentId);
+  R.marks.delete(studentId); R.picks.delete(studentId); R.done.delete(studentId); R.dirty.delete(studentId); R.touched.delete(studentId);
   s.test.values.delete(studentId);
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   rubricPaint();
