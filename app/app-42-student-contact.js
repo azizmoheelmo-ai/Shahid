@@ -57,6 +57,7 @@ function crmContactCardHtml(student){
   return `<div class="crm-today-card crm-ct-card">
     <div class="crm-ct-head"><span class="crm-today-title" style="margin:0;">التواصل</span>${editable ? `<button type="button" class="crm-link-btn" onclick="openCrmContactEditor('${sid}')">${student.guardian_phone || student.student_phone ? 'تعديل الأرقام' : '+ إضافة رقم'}</button>` : ''}</div>
     ${row('ولي الأمر', student.guardian_phone, 'guardian')}${row('الطالب', student.student_phone, 'student')}
+    ${(student.guardian_phone || student.student_phone) && typeof openReportShare === 'function' ? `<div class="crm-ct-send"><span>إرسال تقرير الطالب (رابط مؤقت)</span><div>${student.guardian_phone ? `<button type="button" class="crm-ct-wa crm-ct-wa-fill" onclick="openReportShare('${sid}','guardian')">إلى ولي الأمر</button>` : ''}${student.student_phone ? `<button type="button" class="crm-ct-wa crm-ct-wa-fill" onclick="openReportShare('${sid}','student')">إلى الطالب</button>` : ''}</div></div>` : ''}
   </div>`;
 }
 

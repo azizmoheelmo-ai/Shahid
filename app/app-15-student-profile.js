@@ -215,6 +215,7 @@ async function loadCrmStudentProfileData(student){
 
 async function renderCrmStudentProfile(){
   if(!crmProfile) return;
+  if(typeof reportShareCleanup === 'function') reportShareCleanup(); /* روابط التقارير المنتهية: تنظيف مرة بالجلسة */
   const { studentId, token } = crmProfile;
   const body = document.getElementById('crmStudentProfileBody');
   /* المنقول خارج المدرسة: ملفه للاطلاع (سجله محفوظ) */

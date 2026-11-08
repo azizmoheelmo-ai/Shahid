@@ -2705,3 +2705,6 @@ button.bt-cell{cursor:pointer;}
 .crm-ct-picks{display:flex;gap:8px;}
 .crm-ct-pick{flex:1;display:flex;align-items:center;gap:6px;border:1.5px solid var(--navy);border-radius:10px;padding:9px 10px;font-size:13px;font-weight:700;color:var(--navy);}
 .crm-ct-pick.is-off{opacity:.45;}
+.crm-ct-send{border-top:1px solid #EEE9DF;padding-top:8px;margin-top:2px;font-size:12.5px;color:var(--navy);}
+.crm-ct-send>div{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;}
+.crm-ct-wa-fill{background:#1FA855;color:#fff;flex:1;min-width:120px;}
