@@ -866,7 +866,7 @@ function makeExistingSlot(url){
       <div class="doc-card">
         <div class="doc-icon">${fileTypeIcon('', name)}</div>
         <div class="doc-name">${escapeHtml(shortName(name))}</div>
-        <a href="${url}" target="_blank" class="doc-open" onclick="event.stopPropagation();">فتح الملف</a>
+        <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="doc-open" onclick="event.stopPropagation();">فتح الملف</a>
       </div>
       <button type="button" class="remove" title="حذف">×</button>`;
   }
