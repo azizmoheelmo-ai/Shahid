@@ -272,6 +272,7 @@
           🔔 التنبيهات
           <span id="riskNavBadge" class="acct-badge" style="display:none;">0</span>
         </button>
+        <button type="button" class="ghost" id="toolsNavBtn" onclick="closeAcctMenu();showTools()">🧰 الأدوات</button>
         <button type="button" class="ghost" onclick="closeAcctMenu();showSupportModal()">💬 تواصل معنا</button>
         <button type="button" class="ghost" id="installAppBtn" style="display:none;" onclick="closeAcctMenu();installApp()">📲 تثبيت التطبيق على جهازك</button>
         <button type="button" class="ghost" onclick="closeAcctMenu();showSettings()">⚙ الإعدادات</button>
@@ -500,6 +501,13 @@
   </div>
 
   <!-- ---------- الإعدادات ---------- -->
+  <div id="toolsView" style="display:none;">
+    <div class="sheet">
+      <div class="band band-title"><h1 id="toolsTitle">الأدوات</h1></div>
+      <div id="toolsBody" class="section"></div>
+    </div>
+  </div>
+
   <div id="settingsView" style="display:none;">
     <div class="sheet">
       <div class="band band-title"><h1>الإعدادات</h1></div>
@@ -835,7 +843,6 @@
               <div class="crm-stu-actions" id="crmStuSectionActions">
                 <button type="button" class="crm-ic-btn" id="crmStuAddBtn" aria-label="إضافة طلاب" title="إضافة طالب أو استيراد من Excel" aria-expanded="false" onclick="toggleCrmStuAddMenu()">＋</button>
                 <button type="button" class="crm-ic-btn" id="crmStuSelectBtn" aria-label="تحديد عدة طلاب" title="تحديد عدة طلاب لنقلهم" aria-pressed="false" onclick="toggleCrmStuSelect()">☑</button>
-                <button type="button" class="crm-ic-btn" id="crmStuSurveyBtn" aria-label="استبانة رضا المستفيدين" title="استبانة رضا المستفيدين" onclick="openSurvey(crmStuView.sectionId)">★</button>
                 <input type="file" id="crmExcelInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importStudentsExcel(event)">
               </div>
             </div>
@@ -1564,6 +1571,7 @@
 <script src="app/app-43-report-share.js"></script>
 <script src="survey-templates.js"></script>
 <script src="app/app-44-satisfaction.js"></script>
+<script src="app/app-45-tools.js"></script>
 
 </body>
 </html>
