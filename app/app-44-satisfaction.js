@@ -1,42 +1,35 @@
 /* ============================================================
    استبانة رضا المستفيدين — شاشة المعلم (التصميم: SURVEYS.md)
    ------------------------------------------------------------
-   - لكل طالب له جوال: «تذكرة» (رابط /s/<رمز> يخدمه api/s.js) تُرسل بواتساب يدويًا؛ ردّ ولي الأمر يُحفظ بلا اسم الطالب.
-   - التطبيق يعمل عن المعلم: يبدأ الاستبانة بنقرة، يولّد التذاكر لمن له رقم (جوال ولي الأمر ثم الطالب)،
-     ويضيف تلقائيًا من يُضاف للشعبة لاحقًا، ويعلّم «أُرسل» عند فتح واتساب، ويُظهر النتائج وحدها بعد 5 ردود.
+   - المستفيد: ولي الأمر أو الطالب. لكل رقم جوال محفوظ «تذكرة» خاصة به (رابط قصير /s/<رمز> يخدمه api/s.js)
+     فيصير للطالب حتى تذكرتان: واحدة لرقم ولي الأمر وأخرى لرقمه هو (وإن تطابق الرقمان فتذكرة واحدة).
+     التذكرة تُرسل بواتساب يدويًا وتقبل ردًّا واحدًا؛ والردّ يُحفظ بلا اسم الطالب ولا الجهة.
+   - التطبيق يعمل عن المعلم: يبدأ الاستبانة بنقرة، يولّد التذاكر، ويضيف تلقائيًا من يُضاف للشعبة أو يُضاف رقمه لاحقًا،
+     ويعلّم «أُرسل» عند فتح واتساب، ويُظهر النتائج وحدها بعد 5 ردود.
    - المعلم يرى من ردّ ومن لم يردّ (للتذكير) ولا يرى ما كتبه أحد: الإجابات بجدول منفصل بلا مرجع للطالب.
    - كل استعلام هنا بتصفية صريحة .eq('teacher_id') (السياسة وحدها لا تكفي بالشاشات الشخصية).
-   - لا حذف لحملة فيها ردود: «إغلاق» فقط. القالب نسخة طبق الأصل من SURVEY_TEMPLATES.v1 في api/s.js (اختبار يطابقهما).
+   - لا حذف لحملة فيها ردود: «إغلاق» فقط.
+   - الأسئلة ومدقّق الإجابات ومولّد الرمز من ملف واحد مشترك مع الخادم: survey-templates.js (لا نسخة ثانية تنحرف بصمت).
+     والقالب يُقرأ من campaign.template: نسخة مجهولة تُعلَن صراحةً ولا تُقرأ خطأً.
    - الشاشة نافذة ملء الشاشة (ليست «عرضًا رئيسيًا»): لا تمسّ hideAllMainViews ولا تتعارض مع الشاشات.
    ============================================================ */
 
 const SURVEY_MIN_RESULTS = 5;
-const SURVEY_TEMPLATE_V1 = {
-  questions: [
-    { id: 'q1', type: 'rating', label: 'وضوح شرح المعلم للدرس' },
-    { id: 'q2', type: 'rating', label: 'أسلوب تعامل المعلم مع الطالب' },
-    { id: 'q3', type: 'rating', label: 'متابعة المعلم لمستوى الطالب' },
-    { id: 'q4', type: 'truefalse', label: 'يتواصل المعلم مع ولي الأمر عند الحاجة' },
-    { id: 'q5', type: 'truefalse', label: 'الواجبات مناسبة وتفيد الطالب' },
-    { id: 'q6', type: 'choice', label: 'أفضل وسيلة للتواصل مع المعلم', options: ['واتساب', 'اتصال هاتفي', 'لقاء في المدرسة', 'رسالة من المدرسة'] },
-    { id: 'q7', type: 'rating', label: 'رضاكم العام عن المعلم' },
-    { id: 'q8', type: 'text', label: 'ما الذي أعجبكم؟' },
-    { id: 'q9', type: 'text', label: 'ما اقتراحكم للتحسين؟' }
-  ]
-};
+const SV_WHO = { guardian: 'ولي الأمر', student: 'الطالب' };
 
-let svState = null; /* { token, sectionId, campaign, invites, responses, tab, filter, loading, busy } */
+let svState = null; /* { token, sectionId, campaign, invites, responses, tab, filter, loading, busy, noPhoneOpen } */
 let svToken = 0;
 let svKeyHandler = null;
 
 /* ============ دوال صرفة ============ */
 
-/* رقم التذكرة: جوال ولي الأمر ثم جوال الطالب، أو لا شيء */
-function svRecipientFor(student){
-  if(!student) return null;
-  if(student.guardian_phone) return { recipient: 'guardian', phone: student.guardian_phone };
-  if(student.student_phone) return { recipient: 'student', phone: student.student_phone };
-  return null;
+/* الجهات التي تُرسل إليها تذاكر الطالب: ولي الأمر ثم الطالب؛ وإن تطابق الرقمان فتذكرة واحدة (لولي الأمر) */
+function svRecipientsFor(student){
+  if(!student) return [];
+  const out = [];
+  if(student.guardian_phone) out.push({ recipient: 'guardian', phone: student.guardian_phone });
+  if(student.student_phone && student.student_phone !== student.guardian_phone) out.push({ recipient: 'student', phone: student.student_phone });
+  return out;
 }
 
 function svPhoneOfInvite(student, invite){
@@ -54,32 +47,28 @@ function svCounts(invites){
   return { total: invites.length, answered, sent, unsent };
 }
 
-function svWaMessage(studentName, code, origin, reminder){
+function svWaMessage(studentName, code, origin, reminder, recipient){
   const url = origin + '/s/' + code;
   const lead = reminder ? 'السلام عليكم، تذكير لطيف بالاستبانة' : 'السلام عليكم، نرجو مشاركتنا رأيكم';
-  return `${lead} عن تعليم الطالب ${studentName} (دقيقة واحدة):\n${url}\nردّكم لا يُربط باسمكم، وشكرًا لتعاونكم.`;
+  const about = recipient === 'student' ? 'في تعليمك' : `في تعليم الطالب ${studentName}`;
+  return `${lead} ${about} (دقيقتان):\n${url}\nالردّ لا يُربط باسمك، وشكرًا لتعاونكم.`;
 }
 
-/* تجميع الردود حسب القالب. النص يُخلط ترتيبه فلا يدلّ ترتيب الرد على صاحبه. */
-function svAggregate(responses, template, rand){
+/* تجميع الإجابات الصالحة حسب القالب. النص يُخلط ترتيبه فلا يدلّ ترتيب الرد على صاحبه. */
+function svAggregate(answersList, template, rand){
   const rnd = rand || Math.random;
   return template.questions.map(q => {
-    const vals = responses.map(r => r && r.answers ? r.answers[q.id] : undefined).filter(v => v !== undefined && v !== null && v !== '');
+    const vals = answersList.map(a => a ? a[q.id] : undefined).filter(v => v !== undefined && v !== null && v !== '');
     const out = { id: q.id, type: q.type, label: q.label, n: vals.length };
     if(q.type === 'rating'){
-      const nums = vals.filter(v => Number.isInteger(v) && v >= 1 && v <= 5);
-      out.n = nums.length;
-      out.avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+      out.avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
     } else if(q.type === 'truefalse'){
-      const bs = vals.filter(v => typeof v === 'boolean');
-      out.n = bs.length;
-      out.yes = bs.filter(Boolean).length;
-      out.pct = bs.length ? Math.round(100 * out.yes / bs.length) : null;
+      out.yes = vals.filter(Boolean).length;
+      out.pct = vals.length ? Math.round(100 * out.yes / vals.length) : null;
     } else if(q.type === 'choice'){
       out.counts = q.options.map((label, i) => ({ label, count: vals.filter(v => v === i).length }));
-      out.n = out.counts.reduce((a, c) => a + c.count, 0);
     } else if(q.type === 'text'){
-      const ts = vals.filter(v => typeof v === 'string' && v.trim()).map(v => v.trim());
+      const ts = vals.map(v => String(v).trim()).filter(Boolean);
       for(let i = ts.length - 1; i > 0; i--){ const j = Math.floor(rnd() * (i + 1)); const t = ts[i]; ts[i] = ts[j]; ts[j] = t; }
       out.texts = ts;
       out.n = ts.length;
@@ -88,9 +77,22 @@ function svAggregate(responses, template, rand){
   });
 }
 
+/* الردود → { ok, valid, invalid, items } بالمدقّق المشترك نفسه الذي يقبل به الخادم. لا إسقاط صامت: غير الصالح يُعدّ ويُعلَن. */
+function svAnalyze(responses, templateKey, rand){
+  const tpl = typeof SURVEY_TEMPLATES === 'object' && SURVEY_TEMPLATES ? SURVEY_TEMPLATES[templateKey] : null;
+  if(!tpl) return { ok: false, reason: 'unknown-template', valid: 0, invalid: responses.length, items: [] };
+  const good = [];
+  let invalid = 0;
+  responses.forEach(r => {
+    const v = r && r.answers ? surveyValidateAnswers(templateKey, r.answers) : { ok: false };
+    if(v.ok) good.push(v.value); else invalid++;
+  });
+  return { ok: true, valid: good.length, invalid, items: svAggregate(good, tpl, rand) };
+}
+
 /* أضعف محور تقييم (إن وُجد أكثر من واحد) */
-function svWeakestRating(agg){
-  const rs = agg.filter(a => a.type === 'rating' && a.avg != null);
+function svWeakestRating(items){
+  const rs = items.filter(a => a.type === 'rating' && a.avg != null);
   if(rs.length < 2) return null;
   return rs.reduce((m, a) => a.avg < m.avg ? a : m, rs[0]);
 }
@@ -169,22 +171,28 @@ function svSectionStudents(){
 }
 
 async function svFetchInvites(campaignId){
-  const { data, error } = await sb.from('survey_invites')
+  const { data, error } = await fetchAllRows((from, to) => sb.from('survey_invites')
     .select('id, student_id, recipient, code, sent_at, answered_on')
-    .eq('teacher_id', currentUser.id).eq('campaign_id', campaignId);
+    .eq('teacher_id', currentUser.id).eq('campaign_id', campaignId).order('id', { ascending: true }).range(from, to));
   if(error) throw error;
   return data || [];
 }
 
-/* تذكرة لكل طالب له رقم ولا تذكرة له بعد (يتكرر عند كل فتح فيلتقط الطلاب الجدد تلقائيًا) */
+/* تذكرة لكل (طالب، جهة) له رقمها ولا تذكرة له بعد. تتكرر عند كل فتح فتلتقط الطلاب الجدد والأرقام المضافة لاحقًا تلقائيًا. */
 async function svSyncInvites(token){
   const c = svState.campaign;
   let invites = await svFetchInvites(c.id);
   if(!svStillOpen(token)) return;
   if(svCampaignOpen(c)){
-    const have = new Set(invites.map(i => i.student_id));
-    const make = () => svSectionStudents().filter(s => !have.has(s.id)).map(s => ({ s, r: svRecipientFor(s) })).filter(x => x.r)
-      .map(x => ({ teacher_id: currentUser.id, campaign_id: c.id, student_id: x.s.id, recipient: x.r.recipient, code: reportShareCode() }));
+    const key = (sid, rec) => sid + '|' + rec;
+    const have = new Set(invites.map(i => key(i.student_id, i.recipient)));
+    const make = () => {
+      const rows = [];
+      svSectionStudents().forEach(s => svRecipientsFor(s).forEach(r => {
+        if(!have.has(key(s.id, r.recipient))) rows.push({ teacher_id: currentUser.id, campaign_id: c.id, student_id: s.id, recipient: r.recipient, code: surveyNewCode() });
+      }));
+      return rows;
+    };
     let rows = make();
     if(rows.length){
       let ins = await sb.from('survey_invites').insert(rows);
@@ -192,7 +200,7 @@ async function svSyncInvites(token){
         /* سباق من جهاز آخر أو رمز مكرر نادر: نعيد القراءة ونكمل الناقص مرة واحدة */
         invites = await svFetchInvites(c.id);
         if(!svStillOpen(token)) return;
-        have.clear(); invites.forEach(i => have.add(i.student_id));
+        have.clear(); invites.forEach(i => have.add(key(i.student_id, i.recipient)));
         rows = make();
         ins = rows.length ? await sb.from('survey_invites').insert(rows) : { error: null };
       }
@@ -205,12 +213,12 @@ async function svSyncInvites(token){
   svState.invites = invites;
 }
 
+/* كل الردود بلا سقف صامت (صفحات) */
 async function svLoadResponses(token){
-  const answered = svState.invites.filter(i => i.answered_on).length;
-  if(!answered){ svState.responses = []; return; }
+  if(!svState.invites.some(i => i.answered_on)){ svState.responses = []; return; }
   const campaignId = svState.campaign.id;
-  const { data, error } = await sb.from('survey_responses').select('answers')
-    .eq('teacher_id', currentUser.id).eq('campaign_id', campaignId).limit(1000);
+  const { data, error } = await fetchAllRows((from, to) => sb.from('survey_responses').select('answers')
+    .eq('teacher_id', currentUser.id).eq('campaign_id', campaignId).order('id', { ascending: true }).range(from, to));
   if(error) throw error;
   if(!svStillOpen(token)) return;
   svState.responses = data || [];
@@ -294,6 +302,12 @@ function svSectionTitle(){
   return sec ? crmSectionOptionLabel(sec) : 'الشعبة';
 }
 
+/* التذاكر التي يتعامل معها المعلم الآن: لطلاب نشطين بالشعبة (من غادر لا يُحسب عليه إرسال ناقص) */
+function svVisibleInvites(){
+  const ids = new Set(svSectionStudents().map(s => s.id));
+  return svState.invites.filter(i => ids.has(i.student_id));
+}
+
 function svHeaderHtml(counts){
   const c = svState.campaign;
   let progress = '';
@@ -315,11 +329,11 @@ function svPaint(){
     return;
   }
   if(!st.campaign){ sheet.innerHTML = svHeaderHtml({ total: 0 }) + svStartHtml(); return; }
-  const counts = svCounts(st.invites);
+  const counts = svCounts(svVisibleInvites());
   const open = svCampaignOpen(st.campaign);
   const tabs = `<div class="sv-tabs" role="tablist">
     <button type="button" role="tab" aria-selected="${st.tab === 'send'}" class="sv-tab${st.tab === 'send' ? ' is-on' : ''}" onclick="svSetTab('send')">الإرسال</button>
-    <button type="button" role="tab" aria-selected="${st.tab === 'results'}" class="sv-tab${st.tab === 'results' ? ' is-on' : ''}" onclick="svSetTab('results')">النتائج${counts.answered ? ` <span class="sv-badge">${counts.answered}</span>` : ''}</button>
+    <button type="button" role="tab" aria-selected="${st.tab === 'results'}" class="sv-tab${st.tab === 'results' ? ' is-on' : ''}" onclick="svSetTab('results')">النتائج${st.responses.length ? ` <span class="sv-badge">${st.responses.length}</span>` : ''}</button>
   </div>`;
   const body = st.tab === 'results' ? svResultsHtml(counts) : svSendHtml(counts, open);
   const foot = open
@@ -334,24 +348,26 @@ function svDateAr(iso){
 
 function svStartHtml(){
   const students = svSectionStudents();
-  const withPhone = students.filter(s => svRecipientFor(s)).length;
+  const withPhone = students.filter(s => svRecipientsFor(s).length).length;
   const noPhone = students.length - withPhone;
+  let guardians = 0, pupils = 0;
+  students.forEach(s => svRecipientsFor(s).forEach(r => { if(r.recipient === 'guardian') guardians++; else pupils++; }));
   if(!students.length) return '<div class="sv-body"><div class="sv-empty">لا طلاب في هذه الشعبة بعد.</div></div>';
-  if(!withPhone) return `<div class="sv-body"><div class="sv-card sv-center"><h2>أضف أرقام الجوال أولًا</h2><p>تُرسل الاستبانة بواتساب إلى ولي الأمر. افتح ملف أي طالب وأضف رقمه من بطاقة «التواصل».</p></div></div>`;
+  if(!withPhone) return `<div class="sv-body"><div class="sv-card sv-center"><h2>أضف أرقام الجوال أولًا</h2><p>تُرسل الاستبانة بواتساب إلى ولي الأمر أو الطالب. افتح ملف أي طالب وأضف رقمه من بطاقة «التواصل».</p></div></div>`;
   return `<div class="sv-body">
     <div class="sv-card sv-center">
       <div class="sv-ico" aria-hidden="true">★</div>
       <h2>استبانة رضا المستفيدين</h2>
-      <p>نُرسل لولي أمر كل طالب رابطًا خاصًا به عبر واتساب فيجيب في دقيقة، وتصلك النتائج تلقائيًا.</p>
+      <p>نرسل لولي أمر كل طالب وللطالب نفسه رابطًا خاصًّا بكلٍّ منهما عبر واتساب، فيجيب في دقيقتين، وتصلك النتائج تلقائيًا.</p>
     </div>
     <div class="sv-card sv-facts">
-      <div><span>سيُرسل إلى</span><b>ولي الأمر</b></div>
-      <div><span>لديهم رقم جوال</span><b>${withPhone} من ${students.length}</b></div>
+      <div><span>روابط ولي الأمر</span><b>${guardians}</b></div>
+      <div><span>روابط الطالب</span><b>${pupils}</b></div>
       <div><span>ينتهي الرابط بعد</span><b>14 يومًا</b></div>
     </div>
     ${noPhone ? `<p class="sv-note">${noPhone} ${noPhone === 1 ? 'طالب' : 'طلاب'} بلا رقم جوال — أضف رقمه لاحقًا وسيُضاف تلقائيًا.</p>` : ''}
     <button type="button" class="sv-primary" id="svStartBtn" onclick="svStart()"${svState.busy ? ' disabled' : ''}>ابدأ الاستبانة</button>
-    <p class="sv-note sv-center-t">ردّ ولي الأمر لا يُربط باسمه، وتظهر النتائج بعد ${SURVEY_MIN_RESULTS} ردود على الأقل.</p>
+    <p class="sv-note sv-center-t">الردّ لا يُربط باسم صاحبه، وتظهر النتائج بعد ${SURVEY_MIN_RESULTS} ردود على الأقل.</p>
   </div>`;
 }
 
@@ -360,57 +376,65 @@ function svSendHtml(counts, open){
   const rows = [];
   const noPhone = [];
   svSectionStudents().forEach(s => {
-    const inv = st.invites.find(i => i.student_id === s.id);
-    if(!inv){ if(!svRecipientFor(s)) noPhone.push(s); return; }
-    rows.push({ s, inv });
+    const invs = st.invites.filter(i => i.student_id === s.id).sort((a, b) => (a.recipient === 'guardian' ? 0 : 1) - (b.recipient === 'guardian' ? 0 : 1));
+    if(!invs.length){ if(!svRecipientsFor(s).length) noPhone.push(s); return; }
+    rows.push({ s, invs });
   });
   rows.sort((a, b) => crmByArabic(a.s.full_name, b.s.full_name));
-  /* من لم يُرسل أولًا، ثم من أُرسل، ثم من ردّ: العمل المتبقي يتصدّر القائمة */
-  const rank = r => r.inv.answered_on ? 2 : (r.inv.sent_at ? 1 : 0);
+  /* ما بقي من عمل يتصدّر القائمة: من عنده تذكرة لم تُرسل، ثم من أُرسلت له، ثم من ردّ كله */
+  const rank = r => Math.min(...r.invs.map(i => i.answered_on ? 2 : (i.sent_at ? 1 : 0)));
   rows.sort((a, b) => rank(a) - rank(b));
-  const shown = st.filter === 'remind' ? rows.filter(r => r.inv.sent_at && !r.inv.answered_on) : rows;
-  const filters = `<div class="sv-filters"><button type="button" class="sv-chip${st.filter === 'all' ? ' is-on' : ''}" onclick="svSetFilter('all')">كل الطلاب</button><button type="button" class="sv-chip${st.filter === 'remind' ? ' is-on' : ''}" onclick="svSetFilter('remind')">ذكّر من لم يرد (${counts.sent})</button></div>`;
-  const list = shown.length ? shown.map(r => svRowHtml(r.s, r.inv, open)).join('')
-    : `<div class="sv-empty">${st.filter === 'remind' ? 'لا أحد بانتظار التذكير.' : 'لا طلاب بأرقام جوال.'}</div>`;
+  const remind = st.filter === 'remind';
+  const shown = remind ? rows.filter(r => r.invs.some(i => i.sent_at && !i.answered_on)) : rows;
+  const filters = `<div class="sv-filters"><button type="button" class="sv-chip${!remind ? ' is-on' : ''}" onclick="svSetFilter('all')">كل الطلاب</button><button type="button" class="sv-chip${remind ? ' is-on' : ''}" onclick="svSetFilter('remind')">ذكّر من لم يرد (${counts.sent})</button></div>`;
+  const list = shown.length ? shown.map(r => svRowHtml(r.s, remind ? r.invs.filter(i => i.sent_at && !i.answered_on) : r.invs, open)).join('')
+    : `<div class="sv-empty">${remind ? 'لا أحد بانتظار التذكير.' : 'لا طلاب بأرقام جوال.'}</div>`;
   const nop = noPhone.length ? `<div class="sv-nophone"><button type="button" class="sv-np-btn" aria-expanded="${st.noPhoneOpen}" onclick="svToggleNoPhone()">${noPhone.length} ${noPhone.length === 1 ? 'طالب' : 'طلاب'} بلا رقم جوال <span aria-hidden="true">${st.noPhoneOpen ? '▴' : '▾'}</span></button>${st.noPhoneOpen ? `<div class="sv-np-list">${noPhone.map(s => `<span>${escapeHtml(s.full_name)}</span>`).join('')}</div><small>أضف الرقم من ملف الطالب (بطاقة «التواصل») وسيُضاف هنا تلقائيًا.</small>` : ''}</div>` : '';
   return `<div class="sv-body">${filters}<div class="sv-list">${list}</div>${nop}</div>`;
 }
 
-function svRowHtml(s, inv, open){
+/* زر واحد لكل جهة: واتساب (لم يُرسل) / أعد الإرسال (أُرسل) / ✓ ردّ */
+function svActionHtml(s, inv, open){
+  const who = SV_WHO[inv.recipient] || '';
+  if(inv.answered_on) return `<span class="sv-act sv-act-done">${who} ✓ ردّ</span>`;
+  if(!open || !inv.code) return '';
   const phone = svPhoneOfInvite(s, inv);
-  let status, action = '';
-  if(inv.answered_on){
-    status = '<small class="sv-st sv-st-done">✓ ردّ</small>';
-  } else {
-    const reminder = !!inv.sent_at;
-    status = reminder ? '<small class="sv-st sv-st-sent">أُرسل — بانتظار الرد</small>' : '<small class="sv-st">لم يُرسل بعد</small>';
-    if(open && inv.code){
-      const wa = phone ? waChatUrl(phone, svWaMessage(s.full_name, inv.code, location.origin, reminder)) : '';
-      action = wa
-        ? `<a class="${reminder ? 'sv-wa sv-wa-again' : 'sv-wa'}" href="${escapeHtml(wa)}" target="_blank" rel="noopener" onclick="svMarkSent('${escapeHtml(inv.id)}')">${reminder ? 'أعد الإرسال' : 'واتساب'}</a>`
-        : '<small class="sv-st">بلا رقم</small>';
-    }
-  }
-  return `<div class="sv-row"><div class="sv-row-main"><b>${escapeHtml(s.full_name)}</b>${status}</div>${action}</div>`;
+  const reminder = !!inv.sent_at;
+  const wa = phone ? waChatUrl(phone, svWaMessage(s.full_name, inv.code, location.origin, reminder, inv.recipient)) : '';
+  if(!wa) return `<span class="sv-act sv-act-none">${who} · بلا رقم</span>`;
+  return `<a class="${reminder ? 'sv-act sv-wa sv-wa-again' : 'sv-act sv-wa'}" href="${escapeHtml(wa)}" target="_blank" rel="noopener" onclick="svMarkSent('${escapeHtml(inv.id)}')">${who} · ${reminder ? 'أعد الإرسال' : 'واتساب'}</a>`;
+}
+
+function svRowHtml(s, invs, open){
+  const acts = invs.map(i => svActionHtml(s, i, open)).join('');
+  const done = invs.length && invs.every(i => i.answered_on);
+  const none = !invs.some(i => i.sent_at || i.answered_on);
+  const hint = done ? '<small class="sv-st sv-st-done">✓ ردّوا جميعًا</small>' : (none ? '<small class="sv-st">لم يُرسل بعد</small>' : '');
+  return `<div class="sv-row"><div class="sv-row-top"><b>${escapeHtml(s.full_name)}</b>${hint}</div><div class="sv-acts">${acts}</div></div>`;
 }
 
 function svResultsHtml(counts){
   const st = svState;
-  const n = st.responses.length;
+  const tplKey = st.campaign.template;
+  const an = svAnalyze(st.responses, tplKey);
+  if(!an.ok){
+    return `<div class="sv-body"><div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">!</div><h2>نسخة أسئلة غير مدعومة</h2><p>هذه الاستبانة بنسخة أسئلة («${escapeHtml(tplKey || 'غير معروفة')}») لا يعرفها هذا الإصدار من التطبيق. حدّث التطبيق ثم أعد المحاولة، ولن تُعرض نتائج مضللة.</p></div></div>`;
+  }
+  const n = an.valid;
+  const warn = an.invalid ? `<div class="sv-weak sv-warn"><b>تنبيه:</b> ${an.invalid} ${an.invalid === 1 ? 'رد' : 'ردود'} لا يطابق صيغة الأسئلة فاستُبعد من الحساب.</div>` : '';
   if(n < SURVEY_MIN_RESULTS){
     const left = SURVEY_MIN_RESULTS - n;
-    return `<div class="sv-body"><div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">⏳</div><h2>ننتظر ردودًا أكثر</h2>
-      <p>تظهر النتائج بعد ${SURVEY_MIN_RESULTS} ردود على الأقل حمايةً لخصوصية الأولياء. وصلك حتى الآن ${n} ${n === 1 ? 'رد' : 'ردود'}${left > 0 ? `، وبقي ${left}` : ''}.</p>
+    return `<div class="sv-body">${warn}<div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">⏳</div><h2>ننتظر ردودًا أكثر</h2>
+      <p>تظهر النتائج بعد ${SURVEY_MIN_RESULTS} ردود على الأقل حمايةً لخصوصية المستفيدين. وصلك حتى الآن ${n} ${n === 1 ? 'رد' : 'ردود'}${left > 0 ? `، وبقي ${left}` : ''}.</p>
       <div class="sv-meter" role="img" aria-label="${n} من ${SURVEY_MIN_RESULTS}"><i style="width:${Math.min(100, Math.round(100 * n / SURVEY_MIN_RESULTS))}%"></i></div></div></div>`;
   }
-  const agg = svAggregate(st.responses, SURVEY_TEMPLATE_V1);
-  const rate = counts.total ? Math.round(100 * n / counts.total) : 0;
-  const overall = agg.find(a => a.id === 'q7');
-  const weak = svWeakestRating(agg.filter(a => a.id !== 'q7'));
-  const head = `<div class="sv-card sv-bigstat"><b>${overall && overall.avg != null ? Math.round(overall.avg / 5 * 100) + '%' : '—'}</b><span>نسبة الرضا العام<br><small>من ${n} ${n === 1 ? 'رد' : 'ردود'} (${rate}% من الأولياء)</small></span></div>`;
+  const rate = counts.total ? Math.min(100, Math.round(100 * n / counts.total)) : 0;
+  const overall = an.items.find(a => a.id === 'q7');
+  const weak = svWeakestRating(an.items.filter(a => a.id !== 'q7'));
+  const head = `<div class="sv-card sv-bigstat"><b>${overall && overall.avg != null ? Math.round(overall.avg / 5 * 100) + '%' : '—'}</b><span>نسبة الرضا العام<br><small>من ${n} ${n === 1 ? 'رد' : 'ردود'} (${rate}% من الروابط)</small></span></div>`;
   const weakNote = weak ? `<div class="sv-weak"><b>أضعف محور:</b> ${escapeHtml(weak.label)} (${svFmtAvg(weak.avg)} من 5)</div>` : '';
-  const blocks = agg.map(a => svAggBlockHtml(a, weak)).join('');
-  return `<div class="sv-body">${head}${weakNote}${blocks}</div>`;
+  const blocks = an.items.map(a => svAggBlockHtml(a, weak)).join('');
+  return `<div class="sv-body">${warn}${head}${weakNote}${blocks}</div>`;
 }
 
 function svAggBlockHtml(a, weak){

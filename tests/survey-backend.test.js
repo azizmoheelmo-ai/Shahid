@@ -5,6 +5,8 @@
    - الرمز الخاطئ والمنتهي والمستخدَم والمغلق: الرد نفسه تمامًا، والشكل الخاطئ لا يصل للقاعدة.
    - الصفحة مبهمة (لا بيانات طالب ولا رمز)، وبلا تخزين ولا فهرسة ولا Referer، وCSP بـnonce.
    - SQL: الردود بلا student_id/invite_id، بلا سياسة مسؤول، بلا سياسة إدراج، والدالة لـservice_role وحده.
+   - survey-templates.js مصدر وحيد للقالب والمدقق والرمز: بصمة v1 مجمَّدة، ولكل إصدار فرع مطابق بالـSQL.
+   - محدِّد المحاولات الفاشلة لكل عنوان (20 فشلًا/10 دقائق ← 429)، والنجاح لا يُحتسب.
    (الذرّية تحت التزامن فُحصت يدويًا على PostgreSQL 16 حقيقي: 20 طلبًا متزامنًا على تذكرة واحدة ← رد واحد.)
    ============================================================ */
 const assert = require('node:assert/strict');
@@ -12,7 +14,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
 const root = path.join(__dirname, '..');
+const crypto = require('node:crypto');
+const vm = require('node:vm');
 const S = require('../api/s.js');
+const T = require('../survey-templates.js');
 
 /* إجابة صالحة كاملة للقالب v1 (مفاتيح بمعرّفات الأسئلة لا بالموضع) */
 const OK = Object.freeze({ q1: 5, q2: 4, q3: 4, q4: true, q5: false, q6: 2, q7: 5 });
@@ -63,7 +68,7 @@ test('SURVEY_TEMPLATES.v1: الأسئلة التسعة بترتيبها وأنو
     ['q1', 'rating', true], ['q2', 'rating', true], ['q3', 'rating', true], ['q4', 'truefalse', true], ['q5', 'truefalse', true],
     ['q6', 'choice', true], ['q7', 'rating', true], ['q8', 'text', false], ['q9', 'text', false]]);
   assert.deepEqual(t.questions.map(q => q.label), ['وضوح شرح المعلم للدرس', 'أسلوب تعامل المعلم مع الطالب', 'متابعة المعلم لمستوى الطالب',
-    'يتواصل المعلم مع ولي الأمر عند الحاجة', 'الواجبات مناسبة وتفيد الطالب', 'أفضل وسيلة للتواصل مع المعلم', 'رضاكم العام عن المعلم',
+    'يتواصل المعلم مع الطالب أو ولي أمره عند الحاجة', 'الواجبات مناسبة وتفيد الطالب', 'أفضل وسيلة للتواصل مع المعلم', 'رضاكم العام عن المعلم',
     'ما الذي أعجبكم؟', 'ما اقتراحكم للتحسين؟']);
   assert.deepEqual(t.questions[5].options, ['واتساب', 'اتصال هاتفي', 'لقاء في المدرسة', 'رسالة من المدرسة']);
   assert.ok(t.questions.every(q => (q.type === 'choice') === Array.isArray(q.options)), 'الخيارات للاختيار فقط');
@@ -74,14 +79,111 @@ test('SURVEY_TEMPLATES.v1: الأسئلة التسعة بترتيبها وأنو
   assert.ok(Object.isFrozen(S.SURVEY_TEMPLATES) && Object.isFrozen(t.questions) && Object.isFrozen(t.questions[5].options), 'لا تعديل عرضي للقالب');
 });
 
-test('SQL ↔ api/s.js: معرّفات أسئلة v1 وأنواعها وعدد خيارات الاختيار متطابقة، وسقف النص 300', () => {
+/* ---------- survey-templates.js: المصدر الوحيد ---------- */
+function canon(v){
+  if(Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+  if(v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
+  return JSON.stringify(v);
+}
+const V1_SHA256 = 'ee0c2289ee6ef19ce79724b0cbc9cb968ae531b4c4bf23d05fd6c476f35e6359';
+
+test('بصمة v1 مجمَّدة: أي تغيير على أسئلته أو خياراته أو نصوصه يفشل هنا', () => {
+  const got = crypto.createHash('sha256').update(canon(T.SURVEY_TEMPLATES.v1)).digest('hex');
+  assert.equal(got, V1_SHA256,
+    'SURVEY_TEMPLATES.v1 مجمَّد بعد الإطلاق: ردود محفوظة تعتمد على معنى كل معرّف وترتيب كل خيار. '
+    + 'لا تعدّله؛ أضف إصدارًا جديدًا v2 بجانبه (مع فرعه في submit_survey وقيمته في قيد survey_campaigns.template). '
+    + 'حدِّث هذه البصمة فقط إن كان v1 لم يُطلق بعد لأي مستخدم.');
+});
+
+test('survey-templates.js: الصادرات بالضبط، وapi/s.js يستعمل قالبه ومدققه هو لا نسخة', () => {
+  assert.deepEqual(Object.keys(T).sort(), ['SURVEY_CODE_LENGTH', 'SURVEY_CODE_RE', 'SURVEY_TEMPLATES', 'surveyNewCode', 'surveyValidateAnswers']);
+  assert.equal(S.SURVEY_TEMPLATES, T.SURVEY_TEMPLATES, 'الكائن نفسه لا نسخة');
+  assert.equal(S.CODE_RE, T.SURVEY_CODE_RE);
+  const src = fs.readFileSync(path.join(root, 'api/s.js'), 'utf8');
+  assert.match(src, /require\('\.\.\/survey-templates\.js'\)/, 'مسار حرفي ثابت ليجمعه متتبّع Vercel');
+  for(const q of T.SURVEY_TEMPLATES.v1.questions) assert.ok(!src.includes(q.label), 'لا نسخة من نص السؤال في api/s.js: ' + q.label);
+  assert.doesNotMatch(src, /Number\.isInteger|function cleanText/, 'لا مدقق مكرر في api/s.js');
+});
+
+test('survey-templates.js يعمل كسكربت متصفح عادي: أسماؤه الخمسة فقط على globalThis، بلا أسماء عامة أخرى', () => {
+  const src = fs.readFileSync(path.join(root, 'survey-templates.js'), 'utf8');
+  const ctx = vm.createContext({ crypto: { getRandomValues: a => crypto.webcrypto.getRandomValues(a) } });
+  const before = new Set(Object.getOwnPropertyNames(ctx));
+  vm.runInContext(src, ctx);
+  const added = Object.getOwnPropertyNames(ctx).filter(k => !before.has(k)).sort();
+  assert.deepEqual(added, ['SURVEY_CODE_LENGTH', 'SURVEY_CODE_RE', 'SURVEY_TEMPLATES', 'surveyNewCode', 'surveyValidateAnswers']);
+  assert.doesNotMatch(src, /^(const|let|var|function|class)\s/m, 'كل شيء داخل IIFE: لا تصادم عند دمج سكربتات index.html');
+  assert.doesNotMatch(src, /\bimport\b|\bexport\b|\(\?<[=!]/, 'بلا وحدات ES ولا lookbehind (متصفحات iOS القديمة)');
+  assert.equal(vm.runInContext('surveyValidateAnswers("v1", {q1:5,q2:5,q3:5,q4:true,q5:true,q6:0,q7:5}).ok', ctx), true);
+  assert.match(vm.runInContext('surveyNewCode()', ctx), /^[a-z2-9]{10}$/);
+  /* ودمجه مع سكربتات أخرى بنفس السياق (كما يفعل load-app) لا يتصادم مع const بنفس الاسم الداخلي */
+  const ctx2 = vm.createContext({ crypto: ctx.crypto });
+  vm.runInContext('const deepFreeze = 1; const CODE_ALPHABET = 2; function cleanText(){ return 3; }\n' + src, ctx2);
+  assert.equal(vm.runInContext('cleanText()', ctx2), 3, 'لا يكتب فوق دوال التطبيق');
+});
+
+test('surveyValidateAnswers: value بالمفاتيح المعروفة فقط، وerror نص قصير يحدد السبب', () => {
+  const ok = T.surveyValidateAnswers('v1', okWith({ q8: '  نص  ', extra: 1 }));
+  assert.deepEqual(ok, { ok: true, value: okWith({ q8: 'نص' }) });
+  const cases = [
+    [['v9', OK], 'unknown_template'], [['__proto__', OK], 'unknown_template'], [[undefined, OK], 'unknown_template'],
+    [['v1', null], 'not_object'], [['v1', [1]], 'not_object'],
+    [['v1', without('q2')], 'missing:q2'], [['v1', okWith({ q4: 'true' })], 'bad_type:q4'],
+    [['v1', okWith({ q1: 6 })], 'out_of_range:q1'], [['v1', okWith({ q6: 4 })], 'out_of_range:q6'],
+    [['v1', okWith({ q6: 1.5 })], 'bad_type:q6'], [['v1', okWith({ q9: 3 })], 'bad_type:q9'],
+  ];
+  for(const [args, err] of cases){
+    const r = T.surveyValidateAnswers(...args);
+    assert.equal(r.ok, false, err); assert.equal(r.error, err); assert.equal(r.value, undefined);
+  }
+});
+
+test('surveyNewCode: 10 أحرف من الأبجدية بلا الملتبسة، وبلا انحياز (البايتات ≥248 تُرفض)', () => {
+  assert.equal(T.SURVEY_CODE_LENGTH, 10);
+  const seen = new Set();
+  for(let i = 0; i < 300; i++){ const c = T.surveyNewCode(); assert.match(c, /^[abcdefghjkmnpqrstuvwxyz23456789]{10}$/); seen.add(c); }
+  assert.equal(seen.size, 300, 'بلا تكرار');
+  const real = globalThis.crypto.getRandomValues;
+  let n = 0;
+  try {
+    /* أول دفعة كلها ≥248 (يجب رفضها كلها)، ثم بايتات 0..30 بالترتيب */
+    globalThis.crypto.getRandomValues = a => { n++; for(let i = 0; i < a.length; i++) a[i] = n === 1 ? 248 + (i % 8) : i % 31; return a; };
+    assert.equal(T.surveyNewCode(), 'abcdefghjk', 'البايتات المرفوضة لا تُستعمل');
+    assert.equal(n, 2);
+  } finally { globalThis.crypto.getRandomValues = real; }
+  assert.ok(T.SURVEY_CODE_RE.test('abcdefghjk') && T.SURVEY_CODE_RE.test('abcdefghjkmnpq'), '10 و14');
+  assert.ok(!T.SURVEY_CODE_RE.test('abcdefg') && !T.SURVEY_CODE_RE.test('abcdefghj0') && !T.SURVEY_CODE_RE.test('a'.repeat(33)));
+});
+
+/* استخراج فروع القوالب من submit_survey */
+function sqlSpecs(){
   const sql = fs.readFileSync(path.join(root, 'sql-updates-run-in-supabase.sql'), 'utf8');
-  const m = sql.match(/when 'v1' then '(\[[^']*\])'::jsonb/);
-  assert.ok(m, 'مواصفة v1 داخل submit_survey');
-  const spec = JSON.parse(m[1]);
-  const fromJs = S.SURVEY_TEMPLATES.v1.questions.map(q => q.type === 'choice' ? { id: q.id, type: q.type, n: q.options.length } : { id: q.id, type: q.type });
-  assert.deepEqual(spec, fromJs);
-  assert.match(sql, /char_length\(v_s\) > 300/);
+  const i = sql.indexOf('create or replace function public.submit_survey');
+  const fn = sql.slice(i, sql.indexOf('$fn$;', i));
+  const out = {};
+  for(const m of fn.matchAll(/when '([^']+)' then '(\[[^']*\])'::jsonb/g)) out[m[1]] = JSON.parse(m[2]);
+  return { sql, fn, out };
+}
+const jsSpec = tpl => tpl.questions.map(q => q.type === 'choice' ? { id: q.id, type: q.type, n: q.options.length } : { id: q.id, type: q.type });
+
+test('كل إصدار بـSURVEY_TEMPLATES له فرع مطابق بـsubmit_survey (معرّفات/أنواع/عدد خيارات) وقيمته بقيد الحملة، والعكس', () => {
+  const { sql, fn, out } = sqlSpecs();
+  const keys = Object.keys(T.SURVEY_TEMPLATES).sort();
+  assert.deepEqual(Object.keys(out).sort(), keys, 'فرع SQL لكل إصدار ولا فرع بلا إصدار');
+  for(const k of keys) assert.deepEqual(out[k], jsSpec(T.SURVEY_TEMPLATES[k]), 'مواصفة ' + k + ' متطابقة');
+  const chk = sql.match(/template text not null default 'v1' check \(template in \(([^)]*)\)\)/);
+  assert.ok(chk, 'قيد قالب الحملة');
+  assert.deepEqual(chk[1].split(',').map(x => x.trim().replace(/'/g, '')).sort(), keys, 'القيد يقبل الإصدارات المعرَّفة فقط');
+  for(const k of keys){
+    const t = T.SURVEY_TEMPLATES[k];
+    assert.ok(t.questions.every(q => q.type !== 'text' || !q.required), 'النص اختياري بالـSQL دائمًا: ' + k);
+    assert.ok(t.questions.every(q => q.type === 'text' || q.required), 'غير النصي إلزامي بالـSQL دائمًا: ' + k);
+    assert.equal(t.textMax, 300, 'سقف النص بالـSQL 300');
+  }
+  assert.match(fn, /char_length\(v_s\) > 300/);
+  /* إصدار مجهول: المدقق والدالة يرفضانه */
+  assert.equal(T.surveyValidateAnswers('v999', OK).ok, false);
+  assert.match(fn, /else null end;\s*if v_spec is null then return false; end if;/, 'الدالة ترجع false لإصدار بلا فرع');
 });
 
 /* ---------- قاعدة وهمية ---------- */
@@ -140,12 +242,13 @@ function fakeRes(){
 }
 function handlerWith(o){
   const f = fakeDb(o);
-  const h = S.createHandler({ url: 'https://x.supabase.co', key: 'service', createClient: () => f.client });
-  return { h, f };
+  const limiter = (o && o.limiter) || S.createFailureLimiter(); /* محدِّد جديد لكل اختبار: لا تراكم بين الاختبارات */
+  const h = S.createHandler({ url: 'https://x.supabase.co', key: 'service', createClient: () => f.client, limiter });
+  return { h, f, limiter };
 }
-async function call(h, method, code, body, headers){
+async function call(h, method, code, body, headers, socketIp){
   const res = fakeRes();
-  await h({ method, query: { c: code }, headers: Object.assign({ 'content-type': 'application/json' }, headers || {}), body }, res);
+  await h({ method, query: { c: code }, headers: Object.assign({ 'content-type': 'application/json' }, headers || {}), body, socket: { remoteAddress: socketIp || '10.0.0.1' } }, res);
   return res;
 }
 function assertPrivateHeaders(res){
@@ -184,9 +287,18 @@ test('GET: الرابط الصالح يعرض النموذج المبهم بـno
   assert.match(ok.body, /classList\.add\('miss'\)/, 'الإلزامي يُنبَّه عليه بالصفحة');
   assert.match(ok.body, /b\.disabled=true/, 'الزر يتعطّل أثناء الطلب');
   assert.match(ok.body, /شكرًا لك/, 'حالة الشكر');
+  assert.match(ok.body, /لولي الأمر أو الطالب/, 'صياغة محايدة للمستلمَين');
+  assert.match(ok.body, /<span id="pgt"[^>]*>0 من 7 أسئلة مطلوبة<\/span>/, 'شريط تقدّم بعدد الأسئلة المطلوبة');
+  assert.match(ok.body, /<progress id="pgb" max="7" value="0"/);
+  assert.match(ok.body, /\.prog\{position:sticky;top:0/, 'الشريط ثابت أعلى الصفحة');
+  assert.equal((ok.body.match(/data-req="1"/g) || []).length, 7); assert.equal((ok.body.match(/data-req="0"/g) || []).length, 2);
+  assert.match(ok.body, /prefers-reduced-motion: reduce/, 'يحترم تقليل الحركة');
+  assert.match(ok.body, /behavior:calm\?'auto':'smooth'/);
+  assert.match(ok.body, /b\.classList\.toggle\('ready',all\)/, 'إبراز الإرسال عند اكتمال المطلوب');
+  assert.match(ok.body, /button\.ready\{/);
 
   const gone = [];
-  for(const c of ['usedusedusedus', 'expiredexpired', 'closedclosedcl', 'mmmmmmmmmmmmmm', 'BAD!', undefined]){
+  for(const c of ['usedusedusedus', 'expiredexpired', 'closedclosedcl', 'mmmmmmmmmmmmmm', 'mmmmmmmmmm', 'BAD!', undefined]){
     const r = await call(h, 'GET', c);
     assertPrivateHeaders(r);
     gone.push({ s: r.statusCode, b: r.body.replace(/nonce="[^"]+"/g, '') });
@@ -273,8 +385,11 @@ test('SQL: survey_responses بلا student_id ولا invite_id ولا وقت، �
   assert.match(resp, /octet_length\(answers::text\) <= \d+/, 'سقف حجم الإجابات');
   const inv = tableBody('survey_invites');
   assert.match(inv, /answered_on date,/);
-  assert.match(inv, /unique \(campaign_id, student_id\)/);
-  assert.match(inv, /code ~ '\^\[a-z2-9\]\{12,32\}\$'/);
+  assert.match(inv, /\n  unique \(campaign_id, student_id, recipient\),/, 'تذكرة لكل مستلم (ولي أمر/طالب) لا لكل طالب');
+  assert.doesNotMatch(inv, /unique \(campaign_id, student_id\)/, 'القيد القديم يمنع التذكرة الثانية');
+  assert.match(inv, /recipient text not null default 'guardian' check \(recipient in \('guardian', 'student'\)\)/);
+  assert.match(inv, /code ~ '\^\[a-z2-9\]\{8,32\}\$'/, 'رموز 10 أحرف مقبولة');
+  assert.match(SQL, /p_code !~ '\^\[a-z2-9\]\{8,32\}\$'/, 'والدالة بنفس النمط');
   assert.match(inv, /foreign key \(student_id, teacher_id\) references public\.classroom_students\(id, teacher_id\)[^\n]*on delete cascade/, 'لا تذكرة لطالب معلم آخر');
   assert.doesNotMatch(inv, /answers|rating|comment|q1/, 'لا إجابات بالتذكرة');
   assert.match(SQL, /create unique index if not exists survey_invites_code_key on public\.survey_invites\(code\) where code is not null/);
@@ -320,4 +435,67 @@ test('SQL: submit_survey لـservice_role وحده، security definer بمسار
   assert.match(fn, /if v_v is null then return false; end if;/, 'الإلزامي المفقود يُرفض');
   assert.match(fn, /values \(v_campaign, v_teacher, v_out, current_date\)/, 'يُخزَّن الكائن المعاد بناؤه لا المُرسَل');
   assert.match(fn, /char_length\(v_s\) > 300/, 'سقف النص بالدالة أيضًا');
+});
+
+/* ---------- محدِّد المحاولات الفاشلة ---------- */
+function clock(){ const c = { t: 1e12, now: () => c.t }; return c; }
+
+test('المحدِّد: 20 فشلًا من عنوان واحد ← 429 (GET صفحة ودية، POST JSON) مع Retry-After، حتى للرمز الصحيح', async () => {
+  const c = clock();
+  const { h, f } = handlerWith({ limiter: S.createFailureLimiter({ now: c.now }) });
+  for(let i = 0; i < 20; i++){
+    const r = await call(h, i % 2 ? 'POST' : 'GET', i % 3 ? 'mmmmmmmmmmmmmm' : 'BAD!', OK);
+    assert.equal(r.statusCode, 404, 'محاولة ' + (i + 1) + ' ما تزال مسموحة');
+  }
+  const g = await call(h, 'GET', 'abcdefghjkmnpq');
+  assert.equal(g.statusCode, 429, 'بعد 20 فشلًا: محظور حتى برمز صحيح (لا يكتشف المخمِّن إصابة)');
+  assert.equal(g.headers['retry-after'], '600');
+  assert.match(g.body, /محاولات كثيرة/); assertPrivateHeaders(g);
+  assert.doesNotMatch(g.body, /<script/);
+  const p = await call(h, 'POST', 'abcdefghjkmnpq', OK);
+  assert.equal(p.statusCode, 429); assert.equal(p.body, '{"ok":false}');
+  assert.equal(f.calls.filter(x => x.rpc).length, 0, 'لا وصول للدالة أثناء الحظر');
+  assert.equal((await call(h, 'GET', 'abcdefghjkmnpq', null, null, '10.9.9.9')).statusCode, 200, 'عنوان آخر غير متأثر');
+  c.t += 5 * 60 * 1000;
+  assert.equal((await call(h, 'GET', 'abcdefghjkmnpq')).headers['retry-after'], '300', 'المتبقي يتناقص');
+  c.t += 5 * 60 * 1000 + 1;
+  assert.equal((await call(h, 'GET', 'abcdefghjkmnpq')).statusCode, 200, 'بعد 10 دقائق يُرفع الحظر');
+});
+
+test('المحدِّد: النجاح لا يُحتسب، والفشل يُحتسب للرمز المستخدَم والمنتهي والمغلق والمشوَّه وسباق الدالة', async () => {
+  const { h, limiter } = handlerWith();
+  for(let i = 0; i < 40; i++) assert.equal((await call(h, 'GET', 'abcdefghjkmnpq')).statusCode, 200);
+  assert.equal(limiter.blockedFor('10.0.0.1'), 0, '40 فتحًا ناجحًا لا تحظر');
+  assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', without('q1'))).statusCode, 400, 'إجابة ناقصة ليست محاولة رمز');
+  assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', '{bad')).statusCode, 400);
+  assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', OK)).statusCode, 200);
+  assert.equal(limiter.size(), 0, 'لا شيء مسجَّل بعد النجاحات وأخطاء الجسم');
+  for(const code of ['usedusedusedus', 'expiredexpired', 'closedclosedcl', 'NOPE', undefined, 'abcdefghjkmnpq' /* صار مستخدَمًا */]) await call(h, 'GET', code);
+  const race = handlerWith({ rpcFalse: true });
+  await call(race.h, 'POST', 'abcdefghjkmnpq', OK);
+  assert.equal(race.limiter.size(), 1, 'false من الدالة = فشل');
+  assert.equal(limiter.size(), 1);
+  for(let i = 0; i < 14; i++) await call(h, 'GET', 'NOPE');
+  assert.equal((await call(h, 'GET', 'abcdefghjkmnpq')).statusCode, 429, '6 + 14 = 20 فشلًا');
+});
+
+test('المحدِّد: عنوان العميل أول قفزة بـx-forwarded-for وإلا المقبس، والخريطة محدودة الحجم، وبلا مؤقتات', () => {
+  assert.equal(S.clientIp({ headers: { 'x-forwarded-for': ' 1.2.3.4 , 10.0.0.1' }, socket: { remoteAddress: '9.9.9.9' } }), '1.2.3.4');
+  assert.equal(S.clientIp({ headers: {}, socket: { remoteAddress: '9.9.9.9' } }), '9.9.9.9');
+  assert.equal(S.clientIp({ headers: {} }), 'unknown');
+  assert.equal(S.clientIp({ headers: { 'x-forwarded-for': 'x'.repeat(500) } }).length, 64, 'مفتاح محدود الطول');
+  const c = clock();
+  const l = S.createFailureLimiter({ now: c.now, maxKeys: 100 });
+  for(let i = 0; i < 1000; i++) l.fail('ip' + i);
+  assert.ok(l.size() <= 100, 'لا نمو بلا حد: ' + l.size());
+  c.t += S.LIMIT_WINDOW_MS + 1;
+  l.fail('fresh');
+  assert.equal(l.size(), 1, 'التنظيف الكسول يحذف المنتهي');
+  const one = S.createFailureLimiter({ now: c.now });
+  for(let i = 0; i < 500; i++) one.fail('same');
+  assert.ok(one.blockedFor('same') > 0);
+  const src = fs.readFileSync(path.join(root, 'api/s.js'), 'utf8').replace(/const SCRIPT = `[^`]*`;/, '');
+  assert.doesNotMatch(src, /setInterval|setTimeout/, 'لا مؤقت يُبقي الدالة حية');
+  assert.match(src, /Vercel WAF/, 'التعليق يذكر المكمّل الحقيقي وحدود المحدِّد');
+  assert.equal(S.LIMIT_MAX_FAILURES, 20); assert.equal(S.LIMIT_WINDOW_MS, 600000);
 });

@@ -424,7 +424,7 @@ end $$;
 create unique index if not exists student_report_shares_short_code_key on public.student_report_shares(short_code) where short_code is not null;
 
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
--- تذكرة شخصية لكل طالب، وردّ غير مربوط بالاسم:
+-- تذكرة شخصية لكل طالب (وحتى تذكرتين: لولي الأمر وللطالب)، وردّ غير مربوط بالاسم ولا بالمستلم:
 -- - survey_invites تعرف من ردّ (answered_on، تاريخ بلا وقت) ولا تحمل أي إجابة.
 -- - survey_responses تحمل الإجابات بلا student_id ولا invite_id، وبتاريخ بلا وقت، ومعرّف عشوائي (uuid لا تسلسل)
 --   فلا يُستنتج صاحب الرد من الترتيب ولا التوقيت.
@@ -456,11 +456,13 @@ create table if not exists public.survey_invites (
   campaign_id uuid not null,
   student_id uuid not null,
   recipient text not null default 'guardian' check (recipient in ('guardian', 'student')),
-  code text check (code is null or code ~ '^[a-z2-9]{12,32}$'),
+  -- 10 أحرف عند الإنشاء (surveyNewCode بـsurvey-templates.js، ≈49.5 بت)؛ القيد يقبل 8..32 فلا يكسر طولًا مستقبليًا
+  code text check (code is null or code ~ '^[a-z2-9]{8,32}$'),
   sent_at timestamptz,
   answered_on date,
   created_at timestamptz not null default now(),
-  unique (campaign_id, student_id),
+  -- تذكرتان مستقلتان كحد أقصى لكل طالب بالحملة: لولي الأمر وللطالب
+  unique (campaign_id, student_id, recipient),
   foreign key (campaign_id, teacher_id) references public.survey_campaigns(id, teacher_id) on update cascade on delete cascade,
   -- حذف الطالب يحذف تذكرته فقط؛ الردود لا تشير إليها فتبقى سليمة
   foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
@@ -497,14 +499,15 @@ declare
   v_template text; v_spec jsonb; v_q jsonb; v_id text; v_type text; v_v jsonb; v_s text;
   v_out jsonb := '{}'::jsonb; v_campaign uuid; v_teacher uuid;
 begin
-  if p_code is null or p_code !~ '^[a-z2-9]{12,32}$' then return false; end if;
+  if p_code is null or p_code !~ '^[a-z2-9]{8,32}$' then return false; end if;
   if p_answers is null or jsonb_typeof(p_answers) <> 'object' then return false; end if;
 
   select c.template into v_template
     from public.survey_invites i join public.survey_campaigns c on c.id = i.campaign_id and c.teacher_id = i.teacher_id
     where i.code = p_code;
   if not found then return false; end if;
-  -- القالب ثابت (نسخة من SURVEY_TEMPLATES بـapi/s.js؛ اختبار يتحقق من تطابق المعرّفات والأنواع وعدد الخيارات).
+  -- القالب ثابت (نسخة من SURVEY_TEMPLATES بـsurvey-templates.js؛ اختبار يتحقق أن لكل إصدار هناك فرعًا هنا
+  -- بنفس المعرّفات والأنواع وعدد الخيارات، وأن قيد survey_campaigns.template يطابق الإصدارات). إصدار جديد = فرع جديد.
   -- n = عدد خيارات سؤال الاختيار. النص اختياري ≤300 حرف، وما سواه إلزامي.
   v_spec := case v_template
     when 'v1' then '[{"id":"q1","type":"rating"},{"id":"q2","type":"rating"},{"id":"q3","type":"rating"},{"id":"q4","type":"truefalse"},{"id":"q5","type":"truefalse"},{"id":"q6","type":"choice","n":4},{"id":"q7","type":"rating"},{"id":"q8","type":"text"},{"id":"q9","type":"text"}]'::jsonb

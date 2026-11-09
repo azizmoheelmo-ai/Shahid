@@ -88,6 +88,7 @@ const APP_SHELL = [
   './app/app-41-rubric-tests.js',
   './app/app-42-student-contact.js',
   './app/app-43-report-share.js',
+  './survey-templates.js',
   './app/app-44-satisfaction.js',
   './moe-logo.png',
   './fonts/HelveticaNeueW23forSKY-Regular.ttf',
