@@ -97,6 +97,7 @@ test('بصمة v1 مجمَّدة: أي تغيير على أسئلته أو خي�
 
 test('survey-templates.js: الصادرات بالضبط، وapi/s.js يستعمل قالبه ومدققه هو لا نسخة', () => {
   assert.deepEqual(Object.keys(T).sort(), ['SURVEY_CODE_LENGTH', 'SURVEY_CODE_RE', 'SURVEY_TEMPLATES', 'surveyNewCode', 'surveyValidateAnswers']);
+  for(const k of Object.keys(T)) assert.equal(globalThis[k], undefined, 'في Node لا يُلوَّث globalThis: ' + k);
   assert.equal(S.SURVEY_TEMPLATES, T.SURVEY_TEMPLATES, 'الكائن نفسه لا نسخة');
   assert.equal(S.CODE_RE, T.SURVEY_CODE_RE);
   const src = fs.readFileSync(path.join(root, 'api/s.js'), 'utf8');
@@ -491,9 +492,11 @@ test('المحدِّد: عنوان العميل أول قفزة بـx-forwarded-
   c.t += S.LIMIT_WINDOW_MS + 1;
   l.fail('fresh');
   assert.equal(l.size(), 1, 'التنظيف الكسول يحذف المنتهي');
-  const one = S.createFailureLimiter({ now: c.now });
+  const store = new Map();
+  const one = S.createFailureLimiter({ now: c.now, store });
   for(let i = 0; i < 500; i++) one.fail('same');
   assert.ok(one.blockedFor('same') > 0);
+  assert.ok(store.get('same').length <= S.LIMIT_MAX_FAILURES, 'ذاكرة العنوان الواحد محدودة: ' + store.get('same').length);
   const src = fs.readFileSync(path.join(root, 'api/s.js'), 'utf8').replace(/const SCRIPT = `[^`]*`;/, '');
   assert.doesNotMatch(src, /setInterval|setTimeout/, 'لا مؤقت يُبقي الدالة حية');
   assert.match(src, /Vercel WAF/, 'التعليق يذكر المكمّل الحقيقي وحدود المحدِّد');
