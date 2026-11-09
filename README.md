@@ -34,6 +34,7 @@
 | `icon-180.png`, `icon-192.png` | أيقونات PWA |
 | `sql-updates-run-in-supabase.sql` | تحديثات قاعدة بيانات تُشغَّل يدويًا مرة بـ Supabase SQL Editor (ليست جزءًا من الملفات المستضافة) |
 | `api/mcp.js` | دالة Vercel خادمية (Node.js) لموصل الذكاء الاصطناعي (قراءة، وتعديل محدود برمز منفصل عبر `api/_mcp-write.js`)، تحتاج متغيرَي بيئة `SUPABASE_URL` و`SUPABASE_SERVICE_ROLE_KEY` بإعدادات المشروع على Vercel (لا تُحفظ بالكود إطلاقًا) |
+| `SURVEYS.md` | تصميم معماري **مقترح** (غير منفَّذ) لروابط استبانة رضا المستفيدين — يُقرأ قبل لمس هذه الميزة |
 | `package.json` | اعتماديات `api/mcp.js` فقط (`@modelcontextprotocol/sdk`, `@supabase/supabase-js`, `zod`) — الواجهة نفسها بلا أي اعتماديات npm |
 
 ### لماذا مقسَّم لـ 9 ملفات JS بهذا الترتيب تحديدًا؟
