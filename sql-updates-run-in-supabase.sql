@@ -476,7 +476,7 @@ create table if not exists public.survey_responses (
   id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null,
   teacher_id uuid not null references auth.users(id) on delete cascade,
-  answers jsonb not null check (jsonb_typeof(answers) = 'object' and octet_length(answers::text) <= 2048),
+  answers jsonb not null check (jsonb_typeof(answers) = 'object' and octet_length(answers::text) <= 4096),
   created_on date not null default current_date,
   -- no action (لا cascade): لا تُحذف حملة فيها ردود؛ وحذف حساب المعلم يحذف الاثنين معًا بنفس الجملة
   foreign key (campaign_id, teacher_id) references public.survey_campaigns(id, teacher_id) on update cascade
@@ -494,8 +494,8 @@ revoke insert, update, delete on public.survey_responses from anon, authenticate
 create or replace function public.submit_survey(p_code text, p_answers jsonb)
 returns boolean language plpgsql security definer set search_path = '' as $fn$
 declare
-  v_template text; v_n int; v_r jsonb; v_c jsonb; v_comment text;
-  v_campaign uuid; v_teacher uuid;
+  v_template text; v_spec jsonb; v_q jsonb; v_id text; v_type text; v_v jsonb; v_s text;
+  v_out jsonb := '{}'::jsonb; v_campaign uuid; v_teacher uuid;
 begin
   if p_code is null or p_code !~ '^[a-z2-9]{12,32}$' then return false; end if;
   if p_answers is null or jsonb_typeof(p_answers) <> 'object' then return false; end if;
@@ -504,21 +504,37 @@ begin
     from public.survey_invites i join public.survey_campaigns c on c.id = i.campaign_id and c.teacher_id = i.teacher_id
     where i.code = p_code;
   if not found then return false; end if;
-  v_n := case v_template when 'v1' then 6 else null end;
-  if v_n is null then return false; end if;
+  -- القالب ثابت (نسخة من SURVEY_TEMPLATES بـapi/s.js؛ اختبار يتحقق من تطابق المعرّفات والأنواع وعدد الخيارات).
+  -- n = عدد خيارات سؤال الاختيار. النص اختياري ≤300 حرف، وما سواه إلزامي.
+  v_spec := case v_template
+    when 'v1' then '[{"id":"q1","type":"rating"},{"id":"q2","type":"rating"},{"id":"q3","type":"rating"},{"id":"q4","type":"truefalse"},{"id":"q5","type":"truefalse"},{"id":"q6","type":"choice","n":4},{"id":"q7","type":"rating"},{"id":"q8","type":"text"},{"id":"q9","type":"text"}]'::jsonb
+    else null end;
+  if v_spec is null then return false; end if;
 
-  -- تحقق من الشكل بالخادم أيضًا (دفاع متعدد الطبقات): أعداد صحيحة 1..5 بطول القالب، وتعليق نصي ≤300
-  v_r := p_answers->'ratings';
-  if v_r is null or jsonb_typeof(v_r) <> 'array' or jsonb_array_length(v_r) <> v_n then return false; end if;
-  if exists (select 1 from jsonb_array_elements(v_r) e where jsonb_typeof(e) <> 'number' or e::text !~ '^[1-5]$') then
-    return false;
-  end if;
-  v_c := p_answers->'comment';
-  if v_c is not null and jsonb_typeof(v_c) <> 'null' then
-    if jsonb_typeof(v_c) <> 'string' then return false; end if;
-    v_comment := nullif(btrim(v_c #>> '{}'), '');
-    if v_comment is not null and char_length(v_comment) > 300 then return false; end if;
-  end if;
+  -- تحقق من الشكل بالخادم أيضًا (دفاع متعدد الطبقات)، وبناء الرد من مفاتيح القالب وحدها (أي مفتاح زائد يُهمل)
+  for v_q in select * from jsonb_array_elements(v_spec) loop
+    v_id := v_q->>'id'; v_type := v_q->>'type'; v_v := p_answers->v_id;
+    if v_type = 'text' then
+      if v_v is null or jsonb_typeof(v_v) = 'null' then continue; end if;
+      if jsonb_typeof(v_v) <> 'string' then return false; end if;
+      v_s := nullif(btrim(v_v #>> '{}'), '');
+      if v_s is null then continue; end if;
+      if char_length(v_s) > 300 then return false; end if;
+      v_out := v_out || jsonb_build_object(v_id, v_s);
+    else
+      if v_v is null then return false; end if;
+      if v_type = 'rating' then
+        if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[1-5]$' then return false; end if;
+      elsif v_type = 'truefalse' then
+        if jsonb_typeof(v_v) <> 'boolean' then return false; end if;
+      elsif v_type = 'choice' then
+        if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[0-9]{1,2}$' or (v_v::text)::int >= (v_q->>'n')::int then return false; end if;
+      else
+        return false;
+      end if;
+      v_out := v_out || jsonb_build_object(v_id, v_v);
+    end if;
+  end loop;
 
   update public.survey_invites i set answered_on = current_date
     from public.survey_campaigns c
@@ -528,11 +544,8 @@ begin
     returning i.campaign_id, i.teacher_id into v_campaign, v_teacher;
   if not found then return false; end if;
 
-  -- تُخزَّن الحقول المعروفة فقط (أي حقل زائد يُهمل)
   insert into public.survey_responses (campaign_id, teacher_id, answers, created_on)
-    values (v_campaign, v_teacher,
-            jsonb_strip_nulls(jsonb_build_object('ratings', v_r, 'comment', v_comment)),
-            current_date);
+    values (v_campaign, v_teacher, v_out, current_date);
   return true;
 end
 $fn$;

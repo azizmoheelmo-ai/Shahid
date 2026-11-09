@@ -1260,6 +1260,7 @@ function renderCrmStuSectionPage(){
   document.getElementById('crmStuSectionCount').textContent = list.length ? arabicCountPhrase(list.length, CRM_STUDENT_COUNT_FORMS) : '';
   /* الإضافة والاستيراد لشعبة حقيقية فقط؛ والتحديد (للنقل) يخدم "غير المربوطين" أيضًا */
   document.getElementById('crmStuAddBtn').style.display = unlinked ? 'none' : '';
+  document.getElementById('crmStuSurveyBtn').style.display = unlinked || !list.length ? 'none' : '';
   document.getElementById('crmStuSelectBtn').style.display = list.length ? '' : 'none';
   document.getElementById('crmStuSelectBtn').setAttribute('aria-pressed', String(crmStuSel.on));
   document.getElementById('crmStuSelectBtn').classList.toggle('is-on', crmStuSel.on);

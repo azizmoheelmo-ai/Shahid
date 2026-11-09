@@ -1055,6 +1055,135 @@ do $$ begin
 end $$;
 create unique index if not exists student_report_shares_short_code_key on public.student_report_shares(short_code) where short_code is not null;
 
+-- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
+-- تذكرة شخصية لكل طالب، وردّ غير مربوط بالاسم:
+-- - survey_invites تعرف من ردّ (answered_on، تاريخ بلا وقت) ولا تحمل أي إجابة.
+-- - survey_responses تحمل الإجابات بلا student_id ولا invite_id، وبتاريخ بلا وقت، ومعرّف عشوائي (uuid لا تسلسل)
+--   فلا يُستنتج صاحب الرد من الترتيب ولا التوقيت.
+-- - كلها بـauth.uid() = teacher_id وبلا سياسة مسؤول (كـstudent_report_shares).
+-- - لا سياسة إدراج/تعديل/حذف على الردود: الكتابة من submit_survey وحدها (لـservice_role فقط عبر api/s.js).
+create table if not exists public.survey_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  section_id uuid,
+  academic_year text not null check (char_length(btrim(academic_year)) between 1 and 20),
+  semester_label text not null check (char_length(btrim(semester_label)) between 1 and 40),
+  template text not null default 'v1' check (template in ('v1')),
+  status text not null default 'open' check (status in ('open', 'closed')),
+  closes_at timestamptz not null default (now() + interval '14 days'),
+  created_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  -- حذف الشعبة يفكّ الربط فقط: الحملة وردودها تبقى شاهدًا ثابتًا
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id)
+);
+create index if not exists survey_campaigns_teacher_section_idx on public.survey_campaigns(teacher_id, section_id);
+alter table public.survey_campaigns enable row level security;
+drop policy if exists "المعلم يدير حملات استباناته فقط" on public.survey_campaigns;
+create policy "المعلم يدير حملات استباناته فقط" on public.survey_campaigns for all to authenticated
+  using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+create table if not exists public.survey_invites (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  campaign_id uuid not null,
+  student_id uuid not null,
+  recipient text not null default 'guardian' check (recipient in ('guardian', 'student')),
+  code text check (code is null or code ~ '^[a-z2-9]{12,32}$'),
+  sent_at timestamptz,
+  answered_on date,
+  created_at timestamptz not null default now(),
+  unique (campaign_id, student_id),
+  foreign key (campaign_id, teacher_id) references public.survey_campaigns(id, teacher_id) on update cascade on delete cascade,
+  -- حذف الطالب يحذف تذكرته فقط؛ الردود لا تشير إليها فتبقى سليمة
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create unique index if not exists survey_invites_code_key on public.survey_invites(code) where code is not null;
+create index if not exists survey_invites_student_idx on public.survey_invites(student_id);
+alter table public.survey_invites enable row level security;
+drop policy if exists "المعلم يدير تذاكر استباناته فقط" on public.survey_invites;
+create policy "المعلم يدير تذاكر استباناته فقط" on public.survey_invites for all to authenticated
+  using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+create table if not exists public.survey_responses (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null,
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  answers jsonb not null check (jsonb_typeof(answers) = 'object' and octet_length(answers::text) <= 4096),
+  created_on date not null default current_date,
+  -- no action (لا cascade): لا تُحذف حملة فيها ردود؛ وحذف حساب المعلم يحذف الاثنين معًا بنفس الجملة
+  foreign key (campaign_id, teacher_id) references public.survey_campaigns(id, teacher_id) on update cascade
+);
+create index if not exists survey_responses_campaign_idx on public.survey_responses(campaign_id);
+alter table public.survey_responses enable row level security;
+drop policy if exists "المعلم يقرأ ردود استباناته فقط" on public.survey_responses;
+create policy "المعلم يقرأ ردود استباناته فقط" on public.survey_responses for select to authenticated
+  using (auth.uid() = teacher_id);
+revoke insert, update, delete on public.survey_responses from anon, authenticated;
+
+-- استلام رد عبر التذكرة: ذرّي بمعاملة واحدة. التحديث المشروط (answered_on is null) يقفل الصف، فطلبان
+-- متزامنان بنفس الرمز: الثاني ينتظر ثم لا يجد صفًا فيرجع false بلا إدراج. يرجع true فقط إن أُدرج الرد.
+-- الرمز الخاطئ والمنتهي والمستخدَم والمغلق وشكل الإجابات الخاطئ كلها false (لا يُكشف السبب).
+create or replace function public.submit_survey(p_code text, p_answers jsonb)
+returns boolean language plpgsql security definer set search_path = '' as $fn$
+declare
+  v_template text; v_spec jsonb; v_q jsonb; v_id text; v_type text; v_v jsonb; v_s text;
+  v_out jsonb := '{}'::jsonb; v_campaign uuid; v_teacher uuid;
+begin
+  if p_code is null or p_code !~ '^[a-z2-9]{12,32}$' then return false; end if;
+  if p_answers is null or jsonb_typeof(p_answers) <> 'object' then return false; end if;
+
+  select c.template into v_template
+    from public.survey_invites i join public.survey_campaigns c on c.id = i.campaign_id and c.teacher_id = i.teacher_id
+    where i.code = p_code;
+  if not found then return false; end if;
+  -- القالب ثابت (نسخة من SURVEY_TEMPLATES بـapi/s.js؛ اختبار يتحقق من تطابق المعرّفات والأنواع وعدد الخيارات).
+  -- n = عدد خيارات سؤال الاختيار. النص اختياري ≤300 حرف، وما سواه إلزامي.
+  v_spec := case v_template
+    when 'v1' then '[{"id":"q1","type":"rating"},{"id":"q2","type":"rating"},{"id":"q3","type":"rating"},{"id":"q4","type":"truefalse"},{"id":"q5","type":"truefalse"},{"id":"q6","type":"choice","n":4},{"id":"q7","type":"rating"},{"id":"q8","type":"text"},{"id":"q9","type":"text"}]'::jsonb
+    else null end;
+  if v_spec is null then return false; end if;
+
+  -- تحقق من الشكل بالخادم أيضًا (دفاع متعدد الطبقات)، وبناء الرد من مفاتيح القالب وحدها (أي مفتاح زائد يُهمل)
+  for v_q in select * from jsonb_array_elements(v_spec) loop
+    v_id := v_q->>'id'; v_type := v_q->>'type'; v_v := p_answers->v_id;
+    if v_type = 'text' then
+      if v_v is null or jsonb_typeof(v_v) = 'null' then continue; end if;
+      if jsonb_typeof(v_v) <> 'string' then return false; end if;
+      v_s := nullif(btrim(v_v #>> '{}'), '');
+      if v_s is null then continue; end if;
+      if char_length(v_s) > 300 then return false; end if;
+      v_out := v_out || jsonb_build_object(v_id, v_s);
+    else
+      if v_v is null then return false; end if;
+      if v_type = 'rating' then
+        if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[1-5]$' then return false; end if;
+      elsif v_type = 'truefalse' then
+        if jsonb_typeof(v_v) <> 'boolean' then return false; end if;
+      elsif v_type = 'choice' then
+        if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[0-9]{1,2}$' or (v_v::text)::int >= (v_q->>'n')::int then return false; end if;
+      else
+        return false;
+      end if;
+      v_out := v_out || jsonb_build_object(v_id, v_v);
+    end if;
+  end loop;
+
+  update public.survey_invites i set answered_on = current_date
+    from public.survey_campaigns c
+    where i.code = p_code and i.answered_on is null
+      and c.id = i.campaign_id and c.teacher_id = i.teacher_id
+      and c.status = 'open' and c.closes_at > now()
+    returning i.campaign_id, i.teacher_id into v_campaign, v_teacher;
+  if not found then return false; end if;
+
+  insert into public.survey_responses (campaign_id, teacher_id, answers, created_on)
+    values (v_campaign, v_teacher, v_out, current_date);
+  return true;
+end
+$fn$;
+revoke execute on function public.submit_survey(text, jsonb) from public, anon, authenticated;
+grant execute on function public.submit_survey(text, jsonb) to service_role;
+
 
 -- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:
 -- عدّ الطلبة التلقائي وتحذير تعارض الجدولة بين برامج مختلفة بنفس الشعبة

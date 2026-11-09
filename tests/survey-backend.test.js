@@ -1,7 +1,7 @@
 'use strict';
 /* ============================================================
    استبانة رضا المستفيدين — الخادم (api/s.js) وSQL (SURVEYS.md):
-   - التحقق من الصيغة: أعداد صحيحة 1..5 بطول القالب، تعليق مقصوص ≤300، الحقول الزائدة تُهمل.
+   - التحقق من الصيغة لكل نوع (تقييم 1..5، صح/خطأ منطقي، اختيار بفهرس، نص مقصوص ≤300)، الإلزامي، والمفاتيح الزائدة تُهمل.
    - الرمز الخاطئ والمنتهي والمستخدَم والمغلق: الرد نفسه تمامًا، والشكل الخاطئ لا يصل للقاعدة.
    - الصفحة مبهمة (لا بيانات طالب ولا رمز)، وبلا تخزين ولا فهرسة ولا Referer، وCSP بـnonce.
    - SQL: الردود بلا student_id/invite_id، بلا سياسة مسؤول، بلا سياسة إدراج، والدالة لـservice_role وحده.
@@ -14,58 +14,74 @@ const { test } = require('node:test');
 const root = path.join(__dirname, '..');
 const S = require('../api/s.js');
 
-const OK6 = [1, 2, 3, 4, 5, 5];
+/* إجابة صالحة كاملة للقالب v1 (مفاتيح بمعرّفات الأسئلة لا بالموضع) */
+const OK = Object.freeze({ q1: 5, q2: 4, q3: 4, q4: true, q5: false, q6: 2, q7: 5 });
+const okWith = extra => Object.assign({}, OK, extra);
+const without = k => { const o = Object.assign({}, OK); delete o[k]; return o; };
 
-/* ---------- الدوال الصرفة ---------- */
-
-test('validateAnswers: الصالح يُقبل، والحقول الزائدة تُهمل، والتعليق يُقص ويُنظَّف', () => {
-  const v = S.validateAnswers({ ratings: OK6, comment: '  شكرًا  ', student_id: 'x', name: 'أحمد', invite_id: 'i' }, 'v1');
-  assert.deepEqual(v, { ok: true, answers: { ratings: OK6, comment: 'شكرًا' } });
-  assert.deepEqual(Object.keys(v.answers).sort(), ['comment', 'ratings'], 'لا حقل زائد يمر للقاعدة');
-  assert.deepEqual(S.validateAnswers({ ratings: OK6 }, 'v1'), { ok: true, answers: { ratings: OK6 } }, 'التعليق اختياري');
-  assert.deepEqual(S.validateAnswers({ ratings: OK6, comment: '   ' }, 'v1'), { ok: true, answers: { ratings: OK6 } }, 'تعليق فارغ لا يُخزَّن');
-  assert.deepEqual(S.validateAnswers({ ratings: OK6, comment: null }, 'v1'), { ok: true, answers: { ratings: OK6 } });
-  const long = S.validateAnswers({ ratings: OK6, comment: 'ع'.repeat(500) }, 'v1');
-  assert.equal(Array.from(long.answers.comment).length, S.COMMENT_MAX, 'مقصوص إلى 300 محرف');
-  const emoji = S.validateAnswers({ ratings: OK6, comment: '😀'.repeat(400) }, 'v1');
-  assert.equal(Array.from(emoji.answers.comment).length, 300, 'القص بالمحارف الفعلية لا بوحدات UTF-16');
-  const ctl = S.validateAnswers({ ratings: OK6, comment: 'a\u0000b\u0007c\r\nd\uD800' }, 'v1');
-  assert.equal(ctl.answers.comment, 'abc\nd�', 'محارف التحكم وأنصاف الأزواج لا تصل للقاعدة (jsonb يرفضها)');
+test('validateAnswers: الصالح يُقبل بكل الأنواع، والمفاتيح الزائدة تُهمل، والنص يُقص ويُنظَّف ويُحذف إن فرغ', () => {
+  const v = S.validateAnswers(okWith({ q8: '  شرح ممتاز  ', q9: 'المزيد من الأمثلة', student_id: 'x', name: 'أحمد', invite_id: 'i', q10: 1, ratings: [1] }), 'v1');
+  assert.deepEqual(v, { ok: true, answers: okWith({ q8: 'شرح ممتاز', q9: 'المزيد من الأمثلة' }) });
+  assert.deepEqual(Object.keys(v.answers).sort(), ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9'], 'لا مفتاح زائد يمر للقاعدة');
+  assert.deepEqual(S.validateAnswers(OK, 'v1'), { ok: true, answers: OK }, 'النصوص اختيارية');
+  assert.deepEqual(S.validateAnswers(okWith({ q8: '   ', q9: null }), 'v1'), { ok: true, answers: OK }, 'نص فارغ لا يُخزَّن مفتاحه');
+  assert.deepEqual(S.validateAnswers(okWith({ q4: false, q5: true, q6: 0 }), 'v1').answers.q6, 0, 'الفهرس صفر صالح');
+  assert.equal(S.validateAnswers(okWith({ q6: 3 }), 'v1').ok, true, 'آخر خيار صالح');
+  const long = S.validateAnswers(okWith({ q8: 'ع'.repeat(500), q9: 'ب'.repeat(301) }), 'v1');
+  assert.equal(Array.from(long.answers.q8).length, S.TEXT_MAX, 'مقصوص إلى 300 محرف');
+  assert.equal(Array.from(long.answers.q9).length, 300);
+  const emoji = S.validateAnswers(okWith({ q9: '😀'.repeat(400) }), 'v1');
+  assert.equal(Array.from(emoji.answers.q9).length, 300, 'القص بالمحارف الفعلية لا بوحدات UTF-16');
+  const ctl = S.validateAnswers(okWith({ q8: 'a\u0000b\u0007c\r\nd\uD800' }), 'v1');
+  assert.equal(ctl.answers.q8, 'abc\nd�', 'محارف التحكم وأنصاف الأزواج لا تصل للقاعدة (jsonb يرفضها)');
 });
 
-test('validateAnswers: الشكل الخاطئ يُرفض (الطول، النوع، المدى، الأعداد غير الصحيحة، القالب المجهول)', () => {
+test('validateAnswers: الإلزامي المفقود والنوع الخاطئ والمدى الخاطئ تُرفض بلا تحويل', () => {
   const bad = [
-    [{ ratings: [1, 2, 3, 4, 5] }, 'أقصر من القالب'],
-    [{ ratings: [1, 2, 3, 4, 5, 5, 5] }, 'أطول من القالب'],
-    [{ ratings: [0, 2, 3, 4, 5, 5] }, 'أقل من 1'],
-    [{ ratings: [1, 2, 3, 4, 5, 6] }, 'أكبر من 5'],
-    [{ ratings: [1, 2, 3, 4, 5, 2.5] }, 'كسر'],
-    [{ ratings: [1, 2, 3, 4, 5, '5'] }, 'نص'],
-    [{ ratings: [1, 2, 3, 4, 5, true] }, 'منطقي'],
-    [{ ratings: [1, 2, 3, 4, 5, null] }, 'فارغ'],
-    [{ ratings: [1, 2, 3, 4, 5, NaN] }, 'NaN'],
-    [{ ratings: '1,2,3,4,5,5' }, 'ليست مصفوفة'],
-    [{ ratings: OK6, comment: 5 }, 'تعليق ليس نصًا'],
-    [{ ratings: OK6, comment: { x: 1 } }, 'تعليق كائن'],
-    [{}, 'بلا تقييمات'],
-    [[OK6], 'مصفوفة لا كائن'],
-    [null, 'فارغ'],
-    ['x', 'نص'],
+    [without('q1'), 'تقييم مفقود'], [without('q4'), 'صح/خطأ مفقود'], [without('q6'), 'اختيار مفقود'], [without('q7'), 'التقييم العام مفقود'],
+    [okWith({ q1: null }), 'تقييم null'], [okWith({ q4: null }), 'صح/خطأ null'],
+    [okWith({ q1: 0 }), 'تقييم أقل من 1'], [okWith({ q2: 6 }), 'تقييم أكبر من 5'], [okWith({ q3: 2.5 }), 'تقييم كسر'],
+    [okWith({ q1: '5' }), 'تقييم نص'], [okWith({ q7: true }), 'تقييم منطقي'], [okWith({ q1: NaN }), 'NaN'],
+    [okWith({ q4: 'true' }), 'صح/خطأ نص'], [okWith({ q4: 1 }), 'صح/خطأ رقم'], [okWith({ q5: 0 }), 'صح/خطأ صفر'],
+    [okWith({ q6: 4 }), 'اختيار خارج المدى'], [okWith({ q6: -1 }), 'اختيار سالب'], [okWith({ q6: 1.5 }), 'اختيار كسر'],
+    [okWith({ q6: '2' }), 'اختيار نص'], [okWith({ q6: 'واتساب' }), 'اختيار بالاسم لا بالفهرس'], [okWith({ q6: true }), 'اختيار منطقي'],
+    [okWith({ q8: 5 }), 'نص رقم'], [okWith({ q9: { x: 1 } }), 'نص كائن'], [okWith({ q8: ['a'] }), 'نص مصفوفة'],
+    [{}, 'فارغ'], [[1, 2, 3], 'مصفوفة لا كائن'], [null, 'null'], ['x', 'نص'],
+    [{ ratings: [5, 4, 4, 5, 5, 5], comment: 'x' }, 'الشكل القديم بالمصفوفة'],
   ];
   for(const [b, why] of bad) assert.deepEqual(S.validateAnswers(b, 'v1'), { ok: false }, why);
-  assert.deepEqual(S.validateAnswers({ ratings: OK6 }, 'v9'), { ok: false }, 'قالب مجهول');
-  assert.deepEqual(S.validateAnswers({ ratings: OK6 }, '__proto__'), { ok: false }, 'لا مفاتيح موروثة');
+  assert.deepEqual(S.validateAnswers(OK, 'v9'), { ok: false }, 'قالب مجهول');
+  assert.deepEqual(S.validateAnswers(OK, '__proto__'), { ok: false }, 'لا مفاتيح موروثة');
+  const inherited = Object.create({ q1: 5 }); Object.assign(inherited, without('q1'));
+  assert.deepEqual(S.validateAnswers(inherited, 'v1'), { ok: false }, 'الإجابة من prototype لا تُحتسب');
 });
 
-test('SURVEY_TEMPLATES: v1 بستة محاور ثابتة ومجمّدة (الواجهة تعتمد عليها)', () => {
+test('SURVEY_TEMPLATES.v1: الأسئلة التسعة بترتيبها وأنواعها، JSON صرف، مجمّد', () => {
   const t = S.SURVEY_TEMPLATES.v1;
   assert.equal(S.SURVEY_TEMPLATE_V1, t);
-  assert.deepEqual(t.axes.map(a => a.label), ['وضوح الشرح', 'التعامل', 'المتابعة', 'الواجبات', 'التواصل', 'الرضا العام']);
-  assert.equal(new Set(t.axes.map(a => a.key)).size, 6);
+  assert.deepEqual(t.questions.map(q => [q.id, q.type, q.required]), [
+    ['q1', 'rating', true], ['q2', 'rating', true], ['q3', 'rating', true], ['q4', 'truefalse', true], ['q5', 'truefalse', true],
+    ['q6', 'choice', true], ['q7', 'rating', true], ['q8', 'text', false], ['q9', 'text', false]]);
+  assert.deepEqual(t.questions.map(q => q.label), ['وضوح شرح المعلم للدرس', 'أسلوب تعامل المعلم مع الطالب', 'متابعة المعلم لمستوى الطالب',
+    'يتواصل المعلم مع ولي الأمر عند الحاجة', 'الواجبات مناسبة وتفيد الطالب', 'أفضل وسيلة للتواصل مع المعلم', 'رضاكم العام عن المعلم',
+    'ما الذي أعجبكم؟', 'ما اقتراحكم للتحسين؟']);
+  assert.deepEqual(t.questions[5].options, ['واتساب', 'اتصال هاتفي', 'لقاء في المدرسة', 'رسالة من المدرسة']);
+  assert.ok(t.questions.every(q => (q.type === 'choice') === Array.isArray(q.options)), 'الخيارات للاختيار فقط');
+  assert.ok(t.questions.every(q => S.QUESTION_TYPES.includes(q.type)));
   assert.equal(t.scale.length, 5);
-  assert.ok(Object.isFrozen(S.SURVEY_TEMPLATES) && Object.isFrozen(t.axes) && Object.isFrozen(t.axes[0]), 'لا تعديل عرضي للقالب');
+  assert.equal(t.textMax, 300);
+  assert.deepEqual(JSON.parse(JSON.stringify(t)), t, 'قابل للتحويل لـJSON بلا فقد');
+  assert.ok(Object.isFrozen(S.SURVEY_TEMPLATES) && Object.isFrozen(t.questions) && Object.isFrozen(t.questions[5].options), 'لا تعديل عرضي للقالب');
+});
+
+test('SQL ↔ api/s.js: معرّفات أسئلة v1 وأنواعها وعدد خيارات الاختيار متطابقة، وسقف النص 300', () => {
   const sql = fs.readFileSync(path.join(root, 'sql-updates-run-in-supabase.sql'), 'utf8');
-  assert.match(sql, new RegExp(`when 'v1' then ${t.axes.length}\\b`), 'طول القالب بالدالة = عدد المحاور بالكود');
+  const m = sql.match(/when 'v1' then '(\[[^']*\])'::jsonb/);
+  assert.ok(m, 'مواصفة v1 داخل submit_survey');
+  const spec = JSON.parse(m[1]);
+  const fromJs = S.SURVEY_TEMPLATES.v1.questions.map(q => q.type === 'choice' ? { id: q.id, type: q.type, n: q.options.length } : { id: q.id, type: q.type });
+  assert.deepEqual(spec, fromJs);
+  assert.match(sql, /char_length\(v_s\) > 300/);
 });
 
 /* ---------- قاعدة وهمية ---------- */
@@ -158,7 +174,14 @@ test('GET: الرابط الصالح يعرض النموذج المبهم بـno
   assert.doesNotMatch(ok.body, /مجهول/, 'لا وعد بمجهولية مطلقة');
   assert.doesNotMatch(ok.body, /abcdefghjkmnpq/, 'الرمز لا يُطبع بالصفحة');
   assert.doesNotMatch(ok.body, /student|guardian|phone|full_name|c1/i, 'لا معرّفات ولا بيانات طالب');
-  for(const a of S.SURVEY_TEMPLATES.v1.axes) assert.ok(ok.body.includes(a.label));
+  for(const q of S.SURVEY_TEMPLATES.v1.questions) assert.ok(ok.body.includes(q.label), q.label);
+  assert.equal((ok.body.match(/<fieldset data-q=/g) || []).length, 9, 'سؤال لكل fieldset');
+  assert.equal((ok.body.match(/<input type="radio" name="q1"/g) || []).length, 5, 'التقييم 5 أزرار');
+  assert.match(ok.body, /name="q4" value="true"><span><b>صح<\/b>/); assert.match(ok.body, /name="q4" value="false"><span><b>خطأ<\/b>/);
+  assert.equal((ok.body.match(/<input type="radio" name="q6"/g) || []).length, 4, 'خيارات الاختيار');
+  assert.match(ok.body, /<textarea name="q8" maxlength="300"/); assert.match(ok.body, /id="c-q9"[^>]*>0 \/ 300</, 'عدّاد الحروف');
+  assert.doesNotMatch(ok.body, /alert\(/, 'لا alert');
+  assert.match(ok.body, /classList\.add\('miss'\)/, 'الإلزامي يُنبَّه عليه بالصفحة');
   assert.match(ok.body, /b\.disabled=true/, 'الزر يتعطّل أثناء الطلب');
   assert.match(ok.body, /شكرًا لك/, 'حالة الشكر');
 
@@ -173,24 +196,24 @@ test('GET: الرابط الصالح يعرض النموذج المبهم بـno
 
 test('POST: رد واحد فقط، والرموز الخاطئة/المنتهية/المستخدمة/المغلقة بالرد الموحَّد نفسه، والصيغة الخاطئة لا تصل للدالة', async () => {
   const { h, f } = handlerWith();
-  const first = await call(h, 'POST', 'abcdefghjkmnpq', { ratings: OK6, comment: ' جيد ', student_id: 'S1' });
+  const first = await call(h, 'POST', 'abcdefghjkmnpq', okWith({ q8: ' جيد ', student_id: 'S1' }));
   assert.equal(first.statusCode, 200);
   assert.deepEqual(JSON.parse(first.body), { ok: true });
   assertPrivateHeaders(first);
   const rpc = f.calls.find(c => c.rpc);
   assert.equal(rpc.rpc, 'submit_survey');
-  assert.deepEqual(rpc.args, { p_code: 'abcdefghjkmnpq', p_answers: { ratings: OK6, comment: 'جيد' } }, 'الحقول الزائدة لا تُمرَّر');
+  assert.deepEqual(rpc.args, { p_code: 'abcdefghjkmnpq', p_answers: okWith({ q8: 'جيد' }) }, 'الحقول الزائدة لا تُمرَّر');
 
   const uniform = [];
   for(const c of ['abcdefghjkmnpq' /* استُخدم للتو */, 'usedusedusedus', 'expiredexpired', 'closedclosedcl', 'mmmmmmmmmmmmmm', 'NOT-A-CODE']){
-    const r = await call(h, 'POST', c, { ratings: OK6 });
+    const r = await call(h, 'POST', c, OK);
     uniform.push({ s: r.statusCode, b: r.body });
   }
   assert.ok(uniform.every(u => u.s === 404 && u.b === '{"ok":false}'), 'الرد نفسه حرفيًا: ' + JSON.stringify(uniform));
   assert.equal(f.calls.filter(c => c.rpc).length, 1, 'لا نداء للدالة لرمز غير صالح');
 
   const g = handlerWith();
-  const bad = await call(g.h, 'POST', 'abcdefghjkmnpq', { ratings: [1, 2, 3] });
+  const bad = await call(g.h, 'POST', 'abcdefghjkmnpq', without('q6'));
   assert.equal(bad.statusCode, 400);
   assert.equal(g.f.calls.filter(c => c.rpc).length, 0, 'الصيغة الخاطئة لا تصل للدالة');
   assert.equal(g.f.db.survey_invites[0].answered_on, null, 'ولا تستهلك التذكرة');
@@ -198,24 +221,24 @@ test('POST: رد واحد فقط، والرموز الخاطئة/المنتهي�
 
 test('POST: سباق (الدالة رجعت false) يُعامل كرمز مستخدَم؛ وخطأ القاعدة 503 قابل لإعادة المحاولة', async () => {
   const race = handlerWith({ rpcFalse: true });
-  const r = await call(race.h, 'POST', 'abcdefghjkmnpq', { ratings: OK6 });
+  const r = await call(race.h, 'POST', 'abcdefghjkmnpq', OK);
   assert.equal(r.statusCode, 404); assert.equal(r.body, '{"ok":false}');
   const down = handlerWith({ rpcError: true });
-  const d = await call(down.h, 'POST', 'abcdefghjkmnpq', { ratings: OK6 });
+  const d = await call(down.h, 'POST', 'abcdefghjkmnpq', OK);
   assert.equal(d.statusCode, 503);
   const dbDown = handlerWith({ dbError: true });
-  assert.equal((await call(dbDown.h, 'POST', 'abcdefghjkmnpq', { ratings: OK6 })).statusCode, 404, 'خطأ قراءة = غير موجود (لا يُكشف شيء)');
+  assert.equal((await call(dbDown.h, 'POST', 'abcdefghjkmnpq', OK)).statusCode, 404, 'خطأ قراءة = غير موجود (لا يُكشف شيء)');
 });
 
 test('POST: سقف الحجم، وJSON فقط، وطرق أخرى مرفوضة، وبلا متغيرات بيئة لا شيء', async () => {
   const { h, f } = handlerWith();
-  const big = await call(h, 'POST', 'abcdefghjkmnpq', { ratings: OK6, comment: 'x'.repeat(5000) });
+  const big = await call(h, 'POST', 'abcdefghjkmnpq', okWith({ q8: 'x'.repeat(5000) }));
   assert.equal(big.statusCode, 413);
-  assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', { ratings: OK6 }, { 'content-length': '999999' })).statusCode, 413);
+  assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', OK, { 'content-length': '999999' })).statusCode, 413);
   assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', 'x'.repeat(5000))).statusCode, 413, 'نص خام كبير');
   assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', '{bad json')).statusCode, 400);
   assert.equal((await call(h, 'POST', 'abcdefghjkmnpq', 'ratings=1', { 'content-type': 'application/x-www-form-urlencoded' })).statusCode, 415);
-  const parsed = await call(h, 'POST', 'abcdefghjkmnpq', JSON.stringify({ ratings: OK6 }));
+  const parsed = await call(h, 'POST', 'abcdefghjkmnpq', JSON.stringify(OK));
   assert.equal(parsed.statusCode, 200, 'الجسم النصي يُحلَّل');
   for(const m of ['PUT', 'DELETE', 'PATCH']) assert.equal((await call(h, m, 'abcdefghjkmnpq')).statusCode, 405);
   assert.equal(f.calls.filter(c => c.rpc).length, 1);
@@ -253,7 +276,7 @@ test('SQL: survey_responses بلا student_id ولا invite_id ولا وقت، �
   assert.match(inv, /unique \(campaign_id, student_id\)/);
   assert.match(inv, /code ~ '\^\[a-z2-9\]\{12,32\}\$'/);
   assert.match(inv, /foreign key \(student_id, teacher_id\) references public\.classroom_students\(id, teacher_id\)[^\n]*on delete cascade/, 'لا تذكرة لطالب معلم آخر');
-  assert.doesNotMatch(inv, /answers|rating|comment/, 'لا إجابات بالتذكرة');
+  assert.doesNotMatch(inv, /answers|rating|comment|q1/, 'لا إجابات بالتذكرة');
   assert.match(SQL, /create unique index if not exists survey_invites_code_key on public\.survey_invites\(code\) where code is not null/);
 });
 
@@ -291,6 +314,10 @@ test('SQL: submit_survey لـservice_role وحده، security definer بمسار
   assert.match(fn.slice(upd, ins), /if not found then return false; end if;/, 'لا إدراج إن لم يُحدَّث صف');
   const insStmt = fn.slice(ins, fn.indexOf(';', ins));
   assert.doesNotMatch(insStmt, /student|invite|p_answers/, 'الرد يُبنى من الحقول المعروفة فقط، بلا مرجع للطالب');
-  assert.match(fn, /e::text !~ '\^\[1-5\]\$'/, 'تحقق الأعداد 1..5 بالدالة أيضًا');
-  assert.match(fn, /char_length\(v_comment\) > 300/, 'سقف التعليق بالدالة أيضًا');
+  assert.match(fn, /v_v::text !~ '\^\[1-5\]\$'/, 'تحقق التقييم 1..5 بالدالة أيضًا');
+  assert.match(fn, /jsonb_typeof\(v_v\) <> 'boolean'/, 'صح/خطأ منطقي فقط');
+  assert.match(fn, /\(v_v::text\)::int >= \(v_q->>'n'\)::int/, 'فهرس الاختيار ضمن الخيارات');
+  assert.match(fn, /if v_v is null then return false; end if;/, 'الإلزامي المفقود يُرفض');
+  assert.match(fn, /values \(v_campaign, v_teacher, v_out, current_date\)/, 'يُخزَّن الكائن المعاد بناؤه لا المُرسَل');
+  assert.match(fn, /char_length\(v_s\) > 300/, 'سقف النص بالدالة أيضًا');
 });

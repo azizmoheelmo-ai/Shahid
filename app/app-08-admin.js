@@ -584,7 +584,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveyInvitesRes, surveyResponsesRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -620,7 +620,10 @@ async function exportBackup(evt){
       fetchAllRows((from, to) => sb.from('classroom_rubric_criteria').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
       fetchAllRows((from, to) => sb.from('classroom_rubric_marks').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
       fetchAllRows((from, to) => sb.from('classroom_rubric_notes').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
-      fetchAllRows((from, to) => sb.from('deleted_items').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
+      fetchAllRows((from, to) => sb.from('deleted_items').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('survey_campaigns').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('survey_invites').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('survey_responses').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
     ]);
 
     const shawahid = shRes.data || [];
@@ -920,7 +923,11 @@ async function exportBackup(evt){
       classroom_rubric_criteria: rubricCriteriaRes.data || [],
       classroom_rubric_marks: rubricMarksRes.data || [],
       classroom_rubric_notes: rubricNotesRes.data || [],
-      deleted_items: deletedItemsRes.data || []
+      deleted_items: deletedItemsRes.data || [],
+      /* استبانة الرضا (SURVEYS.md): التذاكر بلا رمز الرابط فلا تُحيي النسخةُ المستعادة روابطَ قديمة؛ الردود بلا أي مرجع للطالب أصلًا */
+      survey_campaigns: surveyCampaignsRes.data || [],
+      survey_invites: (surveyInvitesRes.data || []).map(r => Object.assign({}, r, { code: null })),
+      survey_responses: surveyResponsesRes.data || []
     };
     zip.file('بيانات-كاملة.json', JSON.stringify(fullData, null, 2));
 

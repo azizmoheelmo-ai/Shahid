@@ -835,6 +835,7 @@
               <div class="crm-stu-actions" id="crmStuSectionActions">
                 <button type="button" class="crm-ic-btn" id="crmStuAddBtn" aria-label="إضافة طلاب" title="إضافة طالب أو استيراد من Excel" aria-expanded="false" onclick="toggleCrmStuAddMenu()">＋</button>
                 <button type="button" class="crm-ic-btn" id="crmStuSelectBtn" aria-label="تحديد عدة طلاب" title="تحديد عدة طلاب لنقلهم" aria-pressed="false" onclick="toggleCrmStuSelect()">☑</button>
+                <button type="button" class="crm-ic-btn" id="crmStuSurveyBtn" aria-label="استبانة رضا المستفيدين" title="استبانة رضا المستفيدين" onclick="openSurvey(crmStuView.sectionId)">★</button>
                 <input type="file" id="crmExcelInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importStudentsExcel(event)">
               </div>
             </div>
@@ -1561,6 +1562,7 @@
 <script src="app/app-41-rubric-tests.js"></script>
 <script src="app/app-42-student-contact.js"></script>
 <script src="app/app-43-report-share.js"></script>
+<script src="app/app-44-satisfaction.js"></script>
 
 </body>
 </html>
