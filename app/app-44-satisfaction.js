@@ -35,7 +35,9 @@ function svRecipientsFor(student, audience){
 }
 
 function svPhoneOfInvite(student, invite){
-  if(!student || !invite) return null;
+  if(!invite) return null;
+  if(invite.recipient === 'other') return invite.contact_phone || null; /* جهة أخرى: رقمها بالتذكرة نفسها */
+  if(!student) return null;
   return (invite.recipient === 'student' ? student.student_phone : student.guardian_phone) || null;
 }
 
@@ -52,6 +54,7 @@ function svCounts(invites){
 function svWaMessage(studentName, code, origin, reminder, recipient){
   const url = origin + '/s/' + code;
   const lead = reminder ? 'السلام عليكم، تذكير لطيف بالاستبانة' : 'السلام عليكم، نرجو مشاركتنا رأيكم';
+  if(recipient === 'other') return `${lead} (دقيقتان):\n${url}\nالردّ لا يُربط باسمك، وشكرًا لتعاونكم.`;
   const about = recipient === 'student' ? 'في تعليمك' : `في تعليم الطالب ${studentName}`;
   return `${lead} ${about} (دقيقتان):\n${url}\nالردّ لا يُربط باسمك، وشكرًا لتعاونكم.`;
 }
@@ -192,7 +195,7 @@ function svSectionStudents(){
 
 async function svFetchInvites(campaignId){
   const { data, error } = await fetchAllRows((from, to) => sb.from('survey_invites')
-    .select('id, student_id, recipient, code, sent_at, answered_on')
+    .select('id, student_id, recipient, code, sent_at, answered_on, contact_label, contact_phone')
     .eq('teacher_id', currentUser.id).eq('campaign_id', campaignId).order('id', { ascending: true }).range(from, to));
   if(error) throw error;
   return data || [];
@@ -266,10 +269,13 @@ async function svMarkSent(inviteId){
 }
 
 async function svClose(){
-  if(!svState || svState.busy || !svState.campaign) return;
+  if(!svState || svState.busy || svState.asking || !svState.campaign) return;
   const token = svState.token;
   const campaignId = svState.campaign.id;
-  const ok = await showConfirm('إغلاق الاستبانة؟ ستتوقف الروابط عن العمل ولا يستطيع أحد الرد بعدها، وتبقى النتائج محفوظة، ويمكنك إعادة فتحها لاحقًا.');
+  svState.asking = true; /* نقرتان سريعتان لا تفتحان سؤالين قبل أن يُحجز الزر */
+  let ok = false;
+  try{ ok = await showConfirm('إغلاق الاستبانة؟ ستتوقف الروابط عن العمل ولا يستطيع أحد الرد بعدها، وتبقى النتائج محفوظة، ويمكنك إعادة فتحها لاحقًا.'); }
+  finally{ if(svStillOpen(token)) svState.asking = false; }
   if(!ok || !svStillOpen(token)) return;
   svState.busy = true; svPaint();
   try{
@@ -342,6 +348,52 @@ async function svCopy(){
   openSurvey(createdId); /* يستبدل هذه النافذة بالنسخة الجديدة (نفس النافذة، رمز جديد) */
 }
 
+/* الأسئلة قابلة للتعديل ما دام لا تذكرة أُرسلت ولا أُجيب عنها (بعدها يجمّدها التريجر بالقاعدة) */
+function svQuestionsEditable(){
+  const st = svState;
+  return !!st && !!st.campaign && svCampaignOpen(st.campaign) && !st.invites.some(i => i.sent_at || i.answered_on);
+}
+
+function svEditQuestions(){
+  if(!svState || svState.busy || !svQuestionsEditable()) return;
+  const c = svState.campaign;
+  const id = c.id, questions = JSON.parse(JSON.stringify(c.questions)), title = c.title;
+  closeSurvey();
+  toolsEditQuestions('edit', id, questions, title);
+}
+
+/* حذف الاستبانة نهائيًا مع روابطها وردودها، عبر الدالة المضبوطة delete_survey (المالك يُفحص داخلها بـauth.uid()):
+   المعلم لا يملك حذف الردود مباشرةً. نسأل بالعواقب، ومع وجود ردود نسأل ثانية؛ و«الإغلاق» بديل يُبقي النتائج. */
+async function svDelete(){
+  if(!svState || svState.busy || svState.asking || !svState.campaign) return;
+  const token = svState.token;
+  const c = svState.campaign;
+  const campaignId = c.id;
+  const answered = svState.invites.filter(i => i.answered_on).length;
+  const n = Math.max(svState.responses.length, answered);
+  const base = n > 0
+    ? `حذف «${c.title}» نهائيًا؟ ستُحذف معها روابطها وكل ردودها (${n}) ولا يمكن استرجاعها. إن أردت الاحتفاظ بالنتائج فأغلقها بدل حذفها.`
+    : `حذف «${c.title}» نهائيًا؟ ستُحذف مع روابطها ولا يمكن استرجاعها.`;
+  svState.asking = true; /* نقرتان سريعتان لا تفتحان سؤالين */
+  let sure = false;
+  try{
+    sure = await showConfirm(base);
+    if(sure && svStillOpen(token) && n > 0) sure = await showConfirm(`تأكيد أخير: حذف ${n} ${n === 1 ? 'ردٍّ' : 'ردًّا'} نهائيًا؟`);
+  } finally { if(svStillOpen(token)) svState.asking = false; }
+  if(!sure || !svStillOpen(token)) return;
+  svState.busy = true; svPaint();
+  try{
+    const { data, error } = await sb.rpc('delete_survey', { p_id: campaignId });
+    if(error) throw error;
+    if(data !== true) throw new Error('لم تُحذف الاستبانة (ربما حُذفت من جهاز آخر)');
+    showToast('حُذفت الاستبانة', 'ok');
+    closeSurvey();
+  } catch(err){
+    showToast('تعذّر الحذف: ' + (err && err.message ? err.message : 'خطأ'), 'error');
+    if(svStillOpen(token)){ svState.busy = false; svPaint(); }
+  }
+}
+
 function svSetTab(tab){ if(!svState) return; svState.tab = tab === 'results' ? 'results' : 'send'; svPaint(); }
 function svSetFilter(f){ if(!svState) return; svState.filter = f === 'remind' ? 'remind' : 'all'; svPaint(); }
 function svSetSecFilter(id){ if(!svState) return; svState.secFilter = id === 'all' || svState.sectionIds.indexOf(id) >= 0 ? id : 'all'; svPaint(); }
@@ -351,6 +403,7 @@ function svToggleNoPhone(){ if(!svState) return; svState.noPhoneOpen = !svState.
 
 /* التذاكر التي يتعامل معها المعلم الآن: لطلاب نشطين بشعب الاستبانة (من غادر لا يُحسب عليه إرسال ناقص) */
 function svVisibleInvites(){
+  if(svState.campaign && svState.campaign.audience === 'custom') return svState.invites; /* المخصّصة: كل التذاكر (مستلموها محدَّدون بأعينهم) */
   const ids = new Set(svSectionStudents().map(s => s.id));
   return svState.invites.filter(i => ids.has(i.student_id));
 }
@@ -388,9 +441,8 @@ function svPaint(){
     <button type="button" role="tab" aria-selected="${st.tab === 'results'}" class="sv-tab${st.tab === 'results' ? ' is-on' : ''}" onclick="svSetTab('results')">النتائج${st.responses.length ? ` <span class="sv-badge">${st.responses.length}</span>` : ''}</button>
   </div>`;
   const body = st.tab === 'results' ? svResultsHtml(counts) : svSendHtml(counts, open);
-  const foot = open
-    ? `<div class="sv-foot"><button type="button" class="sv-ghost" id="svCloseBtn" onclick="svClose()"${st.busy ? ' disabled' : ''}>إغلاق الاستبانة</button></div>`
-    : '';
+  const editable = svQuestionsEditable();
+  const foot = `<div class="sv-foot">${open ? `<button type="button" class="sv-ghost" id="svCloseBtn" onclick="svClose()"${st.busy ? ' disabled' : ''}>إغلاق</button>` : ''}${editable ? `<button type="button" class="sv-ghost" id="svEditQBtn" onclick="svEditQuestions()"${st.busy ? ' disabled' : ''}>تعديل الأسئلة</button>` : ''}<button type="button" class="sv-ghost sv-danger" id="svDeleteBtn" onclick="svDelete()"${st.busy ? ' disabled' : ''}>حذف الاستبانة</button></div>`;
   sheet.innerHTML = svHeaderHtml(counts) + tabs + body + foot;
 }
 
@@ -413,9 +465,7 @@ function svClosedHtml(){
 function svSendHtml(counts, open){
   const st = svState;
   const c = st.campaign;
-  if(c.audience !== 'guardian' && c.audience !== 'student'){
-    return `<div class="sv-body"><div class="sv-card sv-center"><h2>الاستبانات المخصّصة</h2><p>هذا النوع يُضاف في تحديث قادم.</p></div></div>`;
-  }
+  if(c.audience === 'custom') return svCustomSendHtml(counts, open);
   if(!st.sectionIds.length) return `<div class="sv-body">${open ? '' : svClosedHtml()}<div class="sv-card sv-center"><h2>لا شعب لهذه الاستبانة</h2><p>الشعب التي أُنشئت لها حُذفت. انسخ الاستبانة واختر شعبًا جديدة.</p></div></div>`;
   const rows = [];
   const noPhone = [];
@@ -457,6 +507,30 @@ function svRowHtml(s, inv, open){
   const state = inv.answered_on ? ['ردّ', 'sv-st-done'] : (inv.sent_at ? ['أُرسل — بانتظار الرد', 'sv-st-sent'] : ['لم يُرسل بعد', '']);
   const sec = s.section_id ? crmSectionLabel(s.section_id) : '';
   return `<div class="sv-row"><span class="sv-row-main"><b>${escapeHtml(s.full_name)}</b><small class="sv-st ${state[1]}">${escapeHtml(sec)}${sec ? ' · ' : ''}${state[0]}</small></span><div class="sv-acts">${svActionHtml(s, inv, open)}</div></div>`;
+}
+
+/* الاستبانة المخصّصة: صف لكل تذكرة (طالب بجهته أو جهة أخرى بالاسم)، بلا شعب ولا مزامنة تلقائية */
+function svCustomRow(inv){
+  if(inv.recipient === 'other') return { s: { id: 'o-' + inv.id, full_name: inv.contact_label || 'جهة أخرى', section_id: null }, inv, tag: 'جهة أخرى' };
+  const st = crmStudents.find(x => x.id === inv.student_id);
+  const base = st || { id: inv.student_id, full_name: 'طالب غير موجود', section_id: null };
+  return { s: base, inv, tag: SV_WHO[inv.recipient] || '' };
+}
+
+function svCustomSendHtml(counts, open){
+  const st = svState;
+  const rows = st.invites.map(svCustomRow);
+  rows.sort((a, b) => crmByArabic(a.s.full_name, b.s.full_name));
+  const rank = r => r.inv.answered_on ? 2 : (r.inv.sent_at ? 1 : 0);
+  rows.sort((a, b) => rank(a) - rank(b));
+  const remind = st.filter === 'remind';
+  const shown = remind ? rows.filter(r => r.inv.sent_at && !r.inv.answered_on) : rows;
+  const filters = open ? `<button type="button" class="sv-chip${remind ? ' is-on' : ''}" onclick="svSetFilter('${remind ? 'all' : 'remind'}')">${remind ? 'عرض الكل' : `ذكّر من لم يرد (${counts.sent})`}</button>` : '';
+  const list = shown.length ? shown.map(r => {
+    const state = r.inv.answered_on ? ['ردّ', 'sv-st-done'] : (r.inv.sent_at ? ['أُرسل — بانتظار الرد', 'sv-st-sent'] : ['لم يُرسل بعد', '']);
+    return `<div class="sv-row"><span class="sv-row-main"><b>${escapeHtml(r.s.full_name)}</b><small class="sv-st ${state[1]}">${escapeHtml(r.tag)} · ${state[0]}</small></span><div class="sv-acts">${svActionHtml(r.s, r.inv, open)}</div></div>`;
+  }).join('') : `<div class="sv-empty">${remind ? 'لا أحد بانتظار التذكير.' : 'لا مستلمين.'}</div>`;
+  return `<div class="sv-body">${open ? '' : svClosedHtml()}${filters}<div class="sv-list">${list}</div></div>`;
 }
 
 function svResultsHtml(counts){

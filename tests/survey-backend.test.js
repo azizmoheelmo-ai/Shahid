@@ -239,7 +239,7 @@ test('SQL: قيود الحملة تطابق الملف المشترك (الجم�
 
 test('SQL: survey_responses بلا مرجع لطالب أو تذكرة أو مستلم، والتذاكر: تذكرة لكل مستلم ورموز 8..32', () => {
   const resp = tableBody('survey_responses');
-  assert.doesNotMatch(resp, /student|invite|recipient/i, 'الرد لا يشير لطالب ولا لتذكرة ولا لمستلم');
+  assert.doesNotMatch(resp, /student|invite|recipient|contact|phone|label/i, 'الرد لا يشير لطالب ولا لتذكرة ولا لمستلم ولا لجهة أخرى');
   assert.match(resp, /created_on date not null/);
   assert.doesNotMatch(resp, /timestamptz|created_at/, 'لا وقت بالرد');
   assert.doesNotMatch(resp, /bigserial|serial|identity/i, 'معرّف عشوائي لا تسلسلي');
@@ -324,6 +324,71 @@ test('SQL: حارس الترقية — الشكل القديم الفارغ يُ
   assert.match(staged, /check \(staging\.survey_questions_ok\(questions\)\)/);
   /* الكتلة تُنسخ حرفيًا داخل نص JavaScript بـapp-07: بلا شرطة مائلة ولا ` ولا ${ */
   assert.doesNotMatch(BLOCK, /\\|`|\$\{/);
+});
+
+/* ---------- المرحلة 2: «جهة أخرى»، والحذف، والتعديل الإضافي فقط ---------- */
+function phase2(){
+  const a = BLOCK.indexOf('alter table public.survey_invites alter column student_id drop not null;');
+  assert.ok(a > -1, 'قسم المرحلة 2 موجود');
+  return BLOCK.slice(a, BLOCK.indexOf('create table if not exists public.survey_responses', a));
+}
+
+test('SQL المرحلة 2: survey_invites بـ«جهة أخرى» إضافيًا — أعمدة، قيدان مسمّيان، فهرس رقم فريد، واستبدال القيد القديم بتعريفه', () => {
+  const p = phase2();
+  assert.ok(BLOCK.indexOf('create table if not exists public.survey_invites') < BLOCK.indexOf(p), 'بعد إنشاء الجدول: يعمل على الجديد والقائم');
+  assert.match(p, /alter table public\.survey_invites add column if not exists contact_label text;/);
+  assert.match(p, /alter table public\.survey_invites add column if not exists contact_phone text;/);
+  assert.match(p, /declare v_rel regclass := to_regclass\('public\.survey_invites'\)/);
+  assert.match(p, /where conrelid = v_rel and contype = 'c'\s+and conname not in \('survey_invites_recipient_chk', 'survey_invites_target_chk'\)\s+and pg_get_constraintdef\(oid\) like '%recipient%'/, 'القيد القديم يُعرف بتعريفه لا باسمه التلقائي');
+  assert.match(p, /execute format\('alter table %s drop constraint %I', v_rel, r\.conname\)/);
+  assert.match(p, /if not exists \(select 1 from pg_constraint where conrelid = v_rel and conname = 'survey_invites_recipient_chk'\) then\s+alter table public\.survey_invites add constraint survey_invites_recipient_chk\s+check \(recipient in \('guardian', 'student', 'other'\)\);/);
+  const t = p.slice(p.indexOf('add constraint survey_invites_target_chk'));
+  assert.match(p, /if not exists \(select 1 from pg_constraint where conrelid = v_rel and conname = 'survey_invites_target_chk'\) then/);
+  assert.match(t, /\(recipient = 'other' and student_id is null\s+and contact_label is not null and char_length\(btrim\(contact_label\)\) between 1 and 60\s+and contact_label !~ \('\[' \|\| chr\(1\) \|\| '-' \|\| chr\(31\) \|\| chr\(127\) \|\| '-' \|\| chr\(159\) \|\| '\]'\)\s+and contact_phone is not null and contact_phone ~ '\^\[0-9\]\{9,15\}\$'\)/, 'جهة أخرى: بلا طالب، ووصف 1..60 بلا محارف تحكم، ورقم 9..15 رقمًا');
+  assert.match(t, /or \(recipient <> 'other' and student_id is not null and contact_label is null and contact_phone is null\)\);/, 'تذكرة الطالب: بطالب وبلا بيانات جهة');
+  assert.match(p, /create unique index if not exists survey_invites_other_phone_key on public\.survey_invites\(campaign_id, contact_phone\) where recipient = 'other';/);
+  const inv = tableBody('survey_invites');
+  assert.match(inv, /\n  unique \(campaign_id, student_id, recipient\),/, 'قيد تذاكر الطلاب باقٍ');
+  assert.match(inv, /foreign key \(student_id, teacher_id\) references public\.classroom_students\(id, teacher_id\)/, 'المفتاح المركّب باقٍ (null يتخطاه)');
+});
+
+test('SQL: التعديلات إضافية فقط — لا حذف جدول أو عمود أو بيانات خارج حارس الشكل الأول الفارغ ودالة الحذف المضبوطة', () => {
+  const code = BLOCK.replace(/--[^\n]*/g, ''); /* التعليقات ليست أوامر */
+  const guardEnd = code.indexOf('end $$;') + 7;
+  const rest = code.slice(guardEnd);
+  assert.doesNotMatch(rest, /\bdrop table\b/i, 'drop table فقط داخل حارس الشكل الأول (الفارغ)');
+  assert.doesNotMatch(code, /\bdrop column\b|\btruncate\b|\balter column \w+ (set data )?type\b|\brename\b/i);
+  assert.doesNotMatch(rest, /\bdrop function\b/i);
+  const dels = rest.match(/\bdelete from public\.\w+/g) || [];
+  const del = sqlFn('delete_survey');
+  assert.equal(dels.length, 4, 'delete from في delete_survey وحدها');
+  assert.ok(dels.every(d => del.includes(d)));
+  assert.equal((rest.match(/drop constraint/g) || []).length, 1, 'drop constraint واحد: القيد القديم بتعريفه داخل حلقة محروسة');
+  assert.doesNotMatch(BLOCK, /\\|`|\$\{/, 'بلا شرطة مائلة ولا ` ولا ${ (نسخة app-07)');
+});
+
+test('SQL: delete_survey — المالك فقط، بمعاملة واحدة بالترتيب، وfalse بلا تمييز، ولـauthenticated وحده', () => {
+  const fn = sqlFn('delete_survey');
+  assert.match(fn, /create or replace function public\.delete_survey\(p_id uuid\)\s+returns boolean language plpgsql security definer set search_path = ''/);
+  assert.match(fn, /declare v_uid uuid := auth\.uid\(\);/);
+  assert.match(fn, /if v_uid is null or p_id is null then return false; end if;/);
+  assert.match(fn, /perform 1 from public\.survey_campaigns where id = p_id and teacher_id = v_uid for update;\s+if not found then return false; end if;/, 'غير الموجود وغير المالك: false نفسه');
+  const order = ['survey_responses', 'survey_invites', 'survey_campaign_sections', 'survey_campaigns'].map(t => {
+    const m = new RegExp(`delete from public\\.${t} where (campaign_id|id) = p_id and teacher_id = v_uid;`).exec(fn);
+    assert.ok(m, 'حذف بتصفية المالك: ' + t); return m.index; });
+  assert.deepEqual(order.slice().sort((a, b) => a - b), order, 'الردود ثم التذاكر ثم الشعب ثم الاستبانة');
+  assert.match(BLOCK, /revoke execute on function public\.delete_survey\(uuid\) from public, anon;/);
+  assert.match(BLOCK, /grant execute on function public\.delete_survey\(uuid\) to authenticated;/);
+  assert.equal(statements(/grant execute on function public\.delete_survey[^]*to [^;]*(anon|public)/).length, 0);
+});
+
+test('SQL: قاعدة الجمهور — guardian ← guardian، student ← student، custom ← الثلاثة؛ و«جهة أخرى» لا تصل الرد ولا الدالة', () => {
+  const a = sqlFn('survey_invite_audience_guard');
+  assert.match(a, /if v_aud is not null and v_aud <> 'custom' and new\.recipient <> v_aud then/, 'other يخالف guardian وstudent دائمًا');
+  const g = sqlFn('survey_campaign_guard');
+  assert.match(g, /i\.recipient <> new\.audience/, 'تذاكر other تمنع تحويل المخصصة لجمهور محدد');
+  assert.match(g, /\(i\.sent_at is not null or i\.answered_on is not null\)/, 'أي تذكرة (ومنها other) تجمّد الأسئلة');
+  for(const f of ['submit_survey', 'survey_answers_clean']) assert.doesNotMatch(sqlFn(f), /contact|recipient|student/, f + ' لا تمس بيانات المستلم');
 });
 
 test('buildSchemaSql (app-07): نسخة كتلة الاستبانة مطابقة لملف SQL، وتحويل staging يطال الحارس', () => {
@@ -424,7 +489,7 @@ test('resolveSurveyCode: استعلام واحد بدمج الحملة (واحت
   for(const bad of ['', 'ABCDEFGHJK', 'abc', "a' or '1'='1aaaaa", '../../etc/passwd', null, undefined, 'a'.repeat(40), [CODE], 'abcdefghj0'])
     assert.deepEqual(await S.resolveSurveyCode(bad, client), { ok: false }, 'يُرفض قبل أي استعلام: ' + String(bad));
   assert.equal(calls.length, before, 'الشكل الخاطئ لا يصل للقاعدة');
-  assert.ok(calls.every(c => !/student|name|phone|recipient|teacher/.test(c.cols || '')), 'لا يُقرأ أي حقل يخص الطالب أو المعلم');
+  assert.ok(calls.every(c => !/student|name|phone|recipient|teacher|contact|label/.test(c.cols || '')), 'لا يُقرأ أي حقل يخص الطالب أو المستلم أو المعلم');
   const fb = fakeDb({ noEmbed: true });
   assert.deepEqual(await S.resolveSurveyCode(CODE, fb.client), r, 'الاحتياط باستعلامين يعطي النتيجة نفسها');
   assert.deepEqual(await S.resolveSurveyCode('usedusedus', fb.client), { ok: false });
@@ -472,6 +537,9 @@ test('GET: صفحة الاستبانة من أسئلة الحملة نفسها،
   assert.match(cu.body, />0 من 2 أسئلة مطلوبة</, 'التقدم بعدد مطلوب هذه الاستبانة');
   assert.equal((cu.body.match(/data-req="1"/g) || []).length, 2);
   assert.match(cu.body, /<legend><bdi>تقييم<\/bdi> <span class="opt-tag">\(اختياري\)<\/span>/);
+  const one = await call(handlerWith({ campaign: { title: 'استبانة مخصصة', audience: 'custom', min_results: 1 } }).h, 'GET', CODE);
+  assert.match(one.body, /العدد قليل وقد يعرف المعلم من أجاب/, 'عتبة 1 (المخصصة)');
+  assert.doesNotMatch(one.body, /other|contact|recipient|جهة أخرى|966/i, 'لا شيء عن المستلم بالصفحة');
   const allOpt = await call(handlerWith({ campaign: { questions: [{ id: 'q1', type: 'text', label: 'x', required: false }] } }).h, 'GET', CODE);
   assert.match(allOpt.body, /كل الأسئلة اختيارية/); assert.doesNotMatch(allOpt.body, /<progress/);
 

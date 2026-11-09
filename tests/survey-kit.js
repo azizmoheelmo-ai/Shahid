@@ -49,6 +49,19 @@ function makeApp(opts){
       };
       return api;
     },
+    rpc(name, args){
+      log.push({ rpc: true, name, args });
+      if(opts.rpc){ const r = opts.rpc(name, args, db); if(r) return Promise.resolve(r); }
+      if(name === 'delete_survey'){
+        /* يحاكي الدالة: المالك فقط، ويحذف الردود والتذاكر والروابط ثم الاستبانة */
+        const c = db.survey_campaigns.find(x => x.id === args.p_id && x.teacher_id === 'u1');
+        if(!c) return Promise.resolve({ data: false, error: null });
+        ['survey_responses', 'survey_invites', 'survey_campaign_sections'].forEach(t => { const keep = db[t].filter(r => r.campaign_id !== c.id); db[t].length = 0; keep.forEach(r => db[t].push(r)); });
+        db.survey_campaigns.splice(db.survey_campaigns.indexOf(c), 1);
+        return Promise.resolve({ data: true, error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    },
     auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) },
   };
   const app = loadApp({ supabaseClient: sb, currentUser: { id: 'u1' } });
