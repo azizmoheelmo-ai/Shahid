@@ -1058,12 +1058,16 @@ create unique index if not exists student_report_shares_short_code_key on public
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
 -- الاستبانة كائن مستقل على مستوى المعلم: عنوان، وجمهور واحد، وشعب مختارة، وأسئلتها هي (نسخة محفوظة بالحملة)،
 -- وترتيب يحدده المعلم، وعتبة عرض نتائج لكل استبانة.
--- - survey_invites تذكرة لكل مستلم (ولي أمر/طالب) تعرف من ردّ (answered_on، تاريخ بلا وقت) ولا تحمل أي إجابة.
+-- - survey_invites تذكرة لكل مستلم (ولي أمر/طالب، أو «جهة أخرى» برقم يُدخله المعلم في الاستبانة المخصصة) تعرف من ردّ
+--   (answered_on، تاريخ بلا وقت) ولا تحمل أي إجابة.
 -- - survey_responses تحمل الإجابات بلا student_id ولا invite_id ولا المستلم، وبتاريخ بلا وقت، ومعرّف عشوائي (uuid لا تسلسل)
 --   فلا يُستنتج صاحب الرد من الترتيب ولا التوقيت.
 -- - كلها بـauth.uid() = teacher_id وبلا سياسة مسؤول (كـstudent_report_shares).
 -- - لا سياسة إدراج/تعديل/حذف على الردود: الكتابة من submit_survey وحدها (لـservice_role فقط عبر api/s.js).
 -- - الأسئلة تتجمّد بعد أول إرسال (تريجر)، فتبقى كل الردود مفهومة بنفس الأسئلة التي أُجيب عنها.
+-- - الحذف عبر delete_survey وحدها (المالك فقط، بمعاملة واحدة تحذف الردود والتذاكر والشعب ثم الاستبانة).
+-- - التعديلات بعد التشغيل الأول إضافية فقط وآمنة التكرار (add column if not exists، قيود بأسماء صريحة):
+--   الجداول قد تحمل بيانات حقيقية، فلا drop table ولا drop column هنا إلا حارس الشكل الأول (الفارغ فقط).
 
 -- ترقية من الشكل الأول (حملة مربوطة بشعبة واحدة وقالب ثابت بالكود): إن كانت الجداول القديمة فارغة تُحذف ويُعاد
 -- إنشاؤها بالشكل الجديد؛ وإن كان فيها أي صف يتوقف التشغيل كله (لا فقد بيانات صامت). يُعرَف الشكل القديم بعمود
@@ -1185,6 +1189,39 @@ drop policy if exists "المعلم يدير تذاكر استباناته فق�
 create policy "المعلم يدير تذاكر استباناته فقط" on public.survey_invites for all to authenticated
   using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
+-- المرحلة 2 (إضافية، آمنة على جدول فيه بيانات): «جهة أخرى» في الاستبانة المخصصة = شخص ليس طالبًا ولا ولي أمر،
+-- يُدخل المعلم اسمه/وصفه ورقمه يدويًا. التذكرة إما لطالب (guardian/student) وإما لجهة أخرى (other)، لا الاثنان.
+-- الرد لا يحمل شيئًا من ذلك (survey_responses بلا مستلم ولا اسم ولا رقم)، والصفحة العامة لا تعرضه.
+alter table public.survey_invites alter column student_id drop not null;
+alter table public.survey_invites add column if not exists contact_label text;
+alter table public.survey_invites add column if not exists contact_phone text;
+do $$
+declare v_rel regclass := to_regclass('public.survey_invites'); r record;
+begin
+  -- قيد المستلم الأول باسم تلقائي: يُبحث عنه بتعريفه لا باسمه، ويُستبدل بقيد مسمّى (لا شيء في التشغيل الثاني)
+  for r in select conname from pg_constraint
+           where conrelid = v_rel and contype = 'c'
+             and conname not in ('survey_invites_recipient_chk', 'survey_invites_target_chk')
+             and pg_get_constraintdef(oid) like '%recipient%'
+  loop
+    execute format('alter table %s drop constraint %I', v_rel, r.conname);
+  end loop;
+  if not exists (select 1 from pg_constraint where conrelid = v_rel and conname = 'survey_invites_recipient_chk') then
+    alter table public.survey_invites add constraint survey_invites_recipient_chk
+      check (recipient in ('guardian', 'student', 'other'));
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = v_rel and conname = 'survey_invites_target_chk') then
+    alter table public.survey_invites add constraint survey_invites_target_chk check (
+      (recipient = 'other' and student_id is null
+        and contact_label is not null and char_length(btrim(contact_label)) between 1 and 60
+        and contact_label !~ ('[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']')
+        and contact_phone is not null and contact_phone ~ '^[0-9]{9,15}$')
+      or (recipient <> 'other' and student_id is not null and contact_label is null and contact_phone is null));
+  end if;
+end $$;
+-- لا رقم مكرر لجهة أخرى في الاستبانة نفسها (تذاكر الطلاب يضبطها unique (campaign_id, student_id, recipient))
+create unique index if not exists survey_invites_other_phone_key on public.survey_invites(campaign_id, contact_phone) where recipient = 'other';
+
 create table if not exists public.survey_responses (
   id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null,
@@ -1223,7 +1260,8 @@ $fn$;
 create or replace trigger trg_survey_campaign_guard before update on public.survey_campaigns
   for each row execute function public.survey_campaign_guard();
 
--- مستلم التذكرة يطابق جمهور الاستبانة (guardian ← ولي الأمر فقط، student ← الطالب فقط، custom ← الاثنان)
+-- مستلم التذكرة يطابق جمهور الاستبانة (guardian ← ولي الأمر فقط، student ← الطالب فقط،
+-- custom ← ولي الأمر أو الطالب أو جهة أخرى). «other» لا يُقبل أبدًا في استبانة guardian أو student.
 create or replace function public.survey_invite_audience_guard() returns trigger
 language plpgsql set search_path = '' as $fn$
 declare v_aud text;
@@ -1311,6 +1349,26 @@ end
 $fn$;
 revoke execute on function public.submit_survey(text, jsonb) from public, anon, authenticated;
 grant execute on function public.submit_survey(text, jsonb) to service_role;
+
+-- حذف استبانة كاملة (المالك فقط): الردود ثم التذاكر ثم ربط الشعب ثم الاستبانة، بمعاملة واحدة.
+-- المعلم لا يملك حذف الردود مباشرة (مسحوب)، فهذا المسار المضبوط هو الوحيد. يرجع false لغير الموجود ولغير المالك
+-- بلا تمييز. قفل الصف (for update) يُسلسله مع submit_survey (for share): لا رد يُدرج لاستبانة تُحذف.
+create or replace function public.delete_survey(p_id uuid)
+returns boolean language plpgsql security definer set search_path = '' as $fn$
+declare v_uid uuid := auth.uid();
+begin
+  if v_uid is null or p_id is null then return false; end if;
+  perform 1 from public.survey_campaigns where id = p_id and teacher_id = v_uid for update;
+  if not found then return false; end if;
+  delete from public.survey_responses where campaign_id = p_id and teacher_id = v_uid;
+  delete from public.survey_invites where campaign_id = p_id and teacher_id = v_uid;
+  delete from public.survey_campaign_sections where campaign_id = p_id and teacher_id = v_uid;
+  delete from public.survey_campaigns where id = p_id and teacher_id = v_uid;
+  return true;
+end
+$fn$;
+revoke execute on function public.delete_survey(uuid) from public, anon;
+grant execute on function public.delete_survey(uuid) to authenticated;
 
 
 

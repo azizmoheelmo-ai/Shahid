@@ -48,6 +48,12 @@ function toolsExpectedLinks(students, sectionIds, audience){
   return students.filter(s => s.is_active !== false && set.has(s.section_id) && (audience === 'student' ? s.student_phone : s.guardian_phone)).length;
 }
 
+/* أسئلة القالب الجاهز للجهة (نسخة عميقة؛ المخصّصة تبدأ فارغة) */
+function toolsReadyQuestions(audience){
+  const t = typeof SURVEY_READY_TEMPLATES === 'object' ? SURVEY_READY_TEMPLATES[(TOOLS_AUDIENCES[audience] || TOOLS_AUDIENCES.guardian).template] : null;
+  return t ? JSON.parse(JSON.stringify(t.questions)) : [];
+}
+
 function toolsDefaultTitle(audience){
   const t = typeof SURVEY_READY_TEMPLATES === 'object' ? SURVEY_READY_TEMPLATES[(TOOLS_AUDIENCES[audience] || TOOLS_AUDIENCES.guardian).template] : null;
   return t && t.title ? t.title : 'استبانة جديدة';
@@ -74,8 +80,9 @@ function toolsGo(screen){
   toolsState.token++;
   toolsState.screen = screen;
   toolsState.sorting = false;
+  if(screen === 'list' || screen === 'home'){ toolsState.create = null; toolsState.qed = null; toolsState.recipsUi = null; }
   if(screen === 'list') toolsLoadList();
-  else if(screen === 'create') toolsInitCreate();
+  else if(screen === 'create' && !toolsState.create) toolsInitCreate(); /* العودة من المحرّر/المستلمين تُبقي حالة الإنشاء */
   else renderTools();
 }
 
@@ -144,6 +151,9 @@ function renderTools(){
   const s = toolsState.screen;
   if(s === 'list'){ toolsSetTitle('الاستبانات'); body.innerHTML = toolsListHtml(); }
   else if(s === 'create'){ toolsSetTitle('استبانة جديدة'); body.innerHTML = toolsCreateHtml(); }
+  else if(s === 'questions'){ toolsSetTitle('أسئلة الاستبانة'); body.innerHTML = toolsQuestionsHtml(); }
+  else if(s === 'qedit'){ toolsSetTitle('سؤال'); body.innerHTML = toolsQeditHtml(); }
+  else if(s === 'recips'){ toolsSetTitle('المستلمون'); body.innerHTML = toolsRecipsHtml(); }
   else { toolsSetTitle('الأدوات'); body.innerHTML = toolsHomeHtml(); }
 }
 
@@ -226,7 +236,8 @@ async function toolsMove(id, dir){
 
 async function toolsInitCreate(){
   const token = toolsState.token;
-  toolsState.create = { audience: 'guardian', title: toolsDefaultTitle('guardian'), titleTouched: false, sectionIds: new Set(), days: 14, loading: true };
+  toolsState.create = { audience: 'guardian', title: toolsDefaultTitle('guardian'), titleTouched: false, sectionIds: new Set(), days: 14, loading: true,
+    questions: toolsReadyQuestions('guardian'), qTouched: false, recips: { students: {}, others: [] } };
   renderTools();
   try{
     await toolsEnsureStructure();
@@ -240,13 +251,22 @@ async function toolsInitCreate(){
   renderTools();
 }
 
+/* جاهزية الإنشاء: عنوان وأسئلة صالحة، والمستلمون: شعب مختارة (أولياء الأمور/الطلاب) أو روابط محدَّدة (المخصّصة) */
+function toolsCreateReady(c){
+  if(!c || c.busy || !c.title.trim().length) return false;
+  if(!surveyValidateQuestions(c.questions).ok) return false;
+  return c.audience === 'custom' ? toolsRecipCount(c.recips, crmStudents).links > 0 : c.sectionIds.size > 0;
+}
+
 function toolsCreateHtml(){
   const c = toolsState.create;
   if(!c || c.loading) return toolsBackLink('الاستبانات', 'list') + '<div class="sv-empty">جارٍ التحميل…</div>';
-  if(!crmSections.length) return toolsBackLink('الاستبانات', 'list') + `<div class="sv-card sv-center"><h2>لا شعب بعد</h2><p>أضف شعبك وطلابك من «إدارة الصف» أولًا، ثم أنشئ الاستبانة.</p></div>`;
-  const who = ['guardian', 'student'].map(k => {
+  const custom = c.audience === 'custom';
+  if(!custom && !crmSections.length) return toolsBackLink('الاستبانات', 'list') + `<div class="sv-card sv-center"><h2>لا شعب بعد</h2><p>أضف شعبك وطلابك من «إدارة الصف» أولًا، أو أنشئ استبانة مخصّصة تختار مستلميها بنفسك.</p><button type="button" class="btn btn-outline" onclick="toolsPickAudience('custom')">استبانة مخصّصة</button></div>`;
+  const hints = { guardian: 'أسئلة بصيغة «ابنكم»', student: 'أسئلة بصيغة «أنت»', custom: 'بأسئلتك ومستلميك' };
+  const who = ['guardian', 'student', 'custom'].map(k => {
     const on = c.audience === k, a = TOOLS_AUDIENCES[k];
-    return `<button type="button" class="tl-opt${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toolsPickAudience('${k}')"><b>${escapeHtml(a.label)}</b><small>${k === 'guardian' ? 'أسئلة بصيغة «ابنكم»' : 'أسئلة بصيغة «أنت»'}</small></button>`;
+    return `<button type="button" class="tl-opt${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toolsPickAudience('${k}')"><b>${escapeHtml(a.label)}</b><small>${hints[k]}</small></button>`;
   }).join('');
   const allOn = crmSections.every(s => c.sectionIds.has(s.id));
   const secs = `<button type="button" class="tl-chip-btn${allOn ? ' is-on' : ''}" aria-pressed="${allOn}" onclick="toolsToggleAllSections()">كل شعبي</button>` + crmSections.slice().sort((a, b) => crmByArabic(crmSectionOptionLabel(a), crmSectionOptionLabel(b))).map(s => {
@@ -254,17 +274,26 @@ function toolsCreateHtml(){
     return `<button type="button" class="tl-chip-btn${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toolsToggleSection('${escapeHtml(s.id)}')">${escapeHtml(crmSectionOptionLabel(s))}</button>`;
   }).join('');
   const days = TOOLS_DAYS.map(d => `<button type="button" class="tl-day${c.days === d ? ' is-on' : ''}" aria-pressed="${c.days === d}" onclick="toolsPickDays(${d})">${d === 7 ? '7 أيام' : d + ' يومًا'}</button>`).join('');
-  const links = toolsExpectedLinks(crmStudents, [...c.sectionIds], c.audience);
-  const qn = (SURVEY_READY_TEMPLATES[TOOLS_AUDIENCES[c.audience].template] || { questions: [] }).questions.length;
-  const ready = c.sectionIds.size > 0 && c.title.trim().length > 0 && !c.busy;
+  const qn = c.questions.length;
+  const qInfo = `<button type="button" class="tl-info tl-info-btn" onclick="toolsEditQuestions('create')"><span><b>${qn ? qn + ' ' + (qn === 1 ? 'سؤال' : 'أسئلة') : 'لا أسئلة بعد'}</b><small>${qn ? (c.qTouched ? 'عدّلتها بنفسك' : 'جاهزة بصيغة ' + escapeHtml(TOOLS_AUDIENCES[c.audience].who) + '، تعدّلها كما تشاء') : 'أضف سؤالك الأول'}</small></span><span class="tl-edit">تعديل ‹</span></button>`;
+  let target, note;
+  if(custom){
+    const cnt = toolsRecipCount(c.recips, crmStudents);
+    target = `<div class="tl-field"><span class="tl-label">المستلمون</span><button type="button" class="tl-info tl-info-btn" onclick="toolsEditRecips()"><span><b>${cnt.links ? cnt.links + ' ' + (cnt.links === 1 ? 'رابط' : 'روابط') : 'اختر المستلمين'}</b><small>${cnt.links ? cnt.students + ' ' + (cnt.students === 1 ? 'طالب' : 'طلاب') + ' · ' + cnt.others + ' ' + (cnt.others === 1 ? 'جهة أخرى' : 'جهات أخرى') : 'طلاب بأعينهم أو جهات أخرى بالاسم والرقم'}</small></span><span class="tl-edit">اختيار ‹</span></button></div>`;
+    note = `${cnt.links} ${cnt.links === 1 ? 'رابط' : 'روابط'} · تظهر النتائج من أول ردّ، وتُنبَّه صفحة المستفيد أن العدد قليل · لا يُرسل شيء حتى تضغط واتساب بنفسك`;
+  } else {
+    const links = toolsExpectedLinks(crmStudents, [...c.sectionIds], c.audience);
+    target = `<div class="tl-field"><span class="tl-label">الشعب</span><div class="tl-chips">${secs}</div></div>`;
+    note = `${links} ${links === 1 ? 'رابط' : 'روابط'} ${escapeHtml(TOOLS_AUDIENCES[c.audience].to)} بالشعب المختارة · لا يُرسل شيء حتى تضغط واتساب بنفسك`;
+  }
   return `${toolsBackLink('الاستبانات', 'list')}
     <div class="tl-field"><label for="toolsTitleInput">اسم الاستبانة</label><input id="toolsTitleInput" class="goal-input" type="text" maxlength="${SURVEY_LIMITS.maxTitle}" value="${escapeHtml(c.title)}" oninput="toolsSetTitleText(this.value)"></div>
-    <div class="tl-field"><span class="tl-label">لمن؟</span><div class="tl-opts">${who}</div></div>
-    <div class="tl-field"><span class="tl-label">الشعب</span><div class="tl-chips">${secs}</div></div>
-    <div class="tl-field"><span class="tl-label">الأسئلة</span><div class="tl-info"><b>${qn} أسئلة جاهزة</b><small>تقييم، صح/خطأ، اختيار، وتعليق حر — بصيغة ${escapeHtml(TOOLS_AUDIENCES[c.audience].who)}</small></div></div>
+    <div class="tl-field"><span class="tl-label">لمن؟</span><div class="tl-opts tl-opts3">${who}</div></div>
+    ${target}
+    <div class="tl-field"><span class="tl-label">الأسئلة</span>${qInfo}</div>
     <div class="tl-field"><span class="tl-label">ينتهي الرابط بعد</span><div class="tl-days">${days}</div></div>
-    <button type="button" class="btn btn-primary tl-create" id="toolsCreateBtn" onclick="toolsCreate()"${ready ? '' : ' disabled'}>إنشاء الاستبانة</button>
-    <p class="tl-note">${links} ${links === 1 ? 'رابط' : 'روابط'} ${escapeHtml(TOOLS_AUDIENCES[c.audience].to)} بالشعب المختارة · لا يُرسل شيء حتى تضغط واتساب بنفسك</p>`;
+    <button type="button" class="btn btn-primary tl-create" id="toolsCreateBtn" onclick="toolsCreate()"${toolsCreateReady(c) ? '' : ' disabled'}>إنشاء الاستبانة</button>
+    <p class="tl-note">${note}</p>`;
 }
 
 function toolsSetTitleText(v){
@@ -272,12 +301,13 @@ function toolsSetTitleText(v){
   c.title = String(v).slice(0, SURVEY_LIMITS.maxTitle);
   c.titleTouched = true;
   const btn = document.getElementById('toolsCreateBtn');
-  if(btn) btn.disabled = !(c.sectionIds.size > 0 && c.title.trim().length > 0 && !c.busy);
+  if(btn) btn.disabled = !toolsCreateReady(c);
 }
 function toolsPickAudience(k){
   const c = toolsState.create; if(!c || !TOOLS_AUDIENCES[k]) return;
   c.audience = k;
   if(!c.titleTouched) c.title = toolsDefaultTitle(k);
+  if(!c.qTouched) c.questions = toolsReadyQuestions(k); /* ما لم يعدّل المعلم الأسئلة بنفسه */
   renderTools();
 }
 function toolsToggleSection(id){
@@ -295,12 +325,14 @@ function toolsPickDays(d){ const c = toolsState.create; if(!c || TOOLS_DAYS.inde
 async function toolsCreate(){
   const c = toolsState.create;
   if(!c || c.busy || !currentUser) return;
-  const title = c.title.trim();
-  if(!title || !c.sectionIds.size || !TOOLS_AUDIENCES[c.audience]) return;
+  if(!toolsCreateReady(c) || !TOOLS_AUDIENCES[c.audience]) return;
   const token = toolsState.token;
-  const tpl = SURVEY_READY_TEMPLATES[TOOLS_AUDIENCES[c.audience].template];
-  const secIds = [...c.sectionIds].filter(id => crmSections.some(s => s.id === id));
-  if(!tpl || !secIds.length) return;
+  const custom = c.audience === 'custom';
+  const qv = surveyValidateQuestions(c.questions);
+  if(!qv.ok){ showToast(toolsQuestionErrorText(qv.error), 'error'); return; }
+  const secIds = custom ? [] : [...c.sectionIds].filter(id => crmSections.some(s => s.id === id));
+  if(!custom && !secIds.length) return;
+  const title = c.title.trim();
   c.busy = true;
   const btn = document.getElementById('toolsCreateBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الإنشاء…'; }
@@ -309,16 +341,25 @@ async function toolsCreate(){
   try{
     const { data, error } = await sb.from('survey_campaigns').insert({
       teacher_id: uid, title, audience: c.audience, template: TOOLS_AUDIENCES[c.audience].template,
-      questions: JSON.parse(JSON.stringify(tpl.questions)),
+      questions: qv.value,
       closes_at: new Date(Date.now() + c.days * 86400000).toISOString(),
+      min_results: custom ? 1 : 5, /* المخصّصة: عدد المستلمين قليل غالبًا فتظهر النتائج من أول ردّ (وصفحة المستفيد تنبّه لذلك) */
       sort_order: -Math.floor(Date.now() / 60000) /* الأحدث يتصدّر تصنيفه، والمعلم يعيد ترتيبه كما يشاء */
     }).select('id').single();
     if(error) throw error;
     createdId = data.id;
-    const ins = await sb.from('survey_campaign_sections').insert(secIds.map(sid => ({ teacher_id: uid, campaign_id: createdId, section_id: sid })));
-    if(ins.error) throw ins.error;
+    if(custom){
+      const rows = toolsCustomInviteRows(c.recips, uid, createdId);
+      if(rows.length){
+        const ins = await sb.from('survey_invites').insert(rows);
+        if(ins.error) throw ins.error;
+      }
+    } else {
+      const ins = await sb.from('survey_campaign_sections').insert(secIds.map(sid => ({ teacher_id: uid, campaign_id: createdId, section_id: sid })));
+      if(ins.error) throw ins.error;
+    }
   } catch(err){
-    /* استبانة بلا شعب لا تنفع: نزيلها بدل تركها يتيمة (لا ردود عليها بعد) */
+    /* استبانة بلا شعب/مستلمين لا تنفع: نزيلها بدل تركها يتيمة (لا ردود عليها بعد) */
     if(createdId) await sb.from('survey_campaigns').delete().eq('teacher_id', uid).eq('id', createdId);
     c.busy = false;
     showToast('تعذّر إنشاء الاستبانة: ' + (err && err.message ? err.message : 'خطأ'), 'error');
@@ -330,4 +371,18 @@ async function toolsCreate(){
   if(!toolsStillHere(token, 'create')) return;
   toolsGo('list');
   openSurvey(createdId);
+}
+
+/* تذاكر الاستبانة المخصّصة: طالب بجهة (ولي أمر/طالب) له رقمها، وجهة أخرى بالاسم والرقم */
+function toolsCustomInviteRows(recips, uid, campaignId){
+  const rows = [];
+  Object.keys(recips.students).forEach(sid => {
+    const st = crmStudents.find(s => s.id === sid);
+    if(!st) return;
+    const r = recips.students[sid];
+    if(r.guardian && st.guardian_phone) rows.push({ teacher_id: uid, campaign_id: campaignId, student_id: sid, recipient: 'guardian', code: surveyNewCode() });
+    if(r.student && st.student_phone) rows.push({ teacher_id: uid, campaign_id: campaignId, student_id: sid, recipient: 'student', code: surveyNewCode() });
+  });
+  recips.others.forEach(o => rows.push({ teacher_id: uid, campaign_id: campaignId, student_id: null, recipient: 'other', contact_label: o.label, contact_phone: o.phone, code: surveyNewCode() }));
+  return rows;
 }
