@@ -214,16 +214,43 @@ async function toolsQuestionsDone(){
 
 /* ============ المستلمون (للاستبانة المخصّصة) ============ */
 
+/* الهدف الذي يُحرَّر: حالة الإنشاء (create) أو إضافة لاستبانة قائمة (add: التذاكر الموجودة مقفلة لا تُحذف) */
+function toolsRecipsCtx(){
+  const ui = toolsState.recipsUi;
+  if(!ui) return null;
+  return ui.mode === 'add' ? toolsState.addR : toolsState.create;
+}
+
+/* ما للاستبانة من تذاكر الآن: طالب بجهته، ورقم جهة أخرى (لا تُكرَّر ولا تُحذف من هنا) */
+function toolsExistingRecips(invites){
+  const students = new Set(), phones = new Set();
+  (invites || []).forEach(i => {
+    if(i.recipient === 'other') { if(i.contact_phone) phones.add(i.contact_phone); }
+    else if(i.student_id) students.add(i.student_id + '|' + i.recipient);
+  });
+  return { students, phones };
+}
+
 function toolsEditRecips(){
   if(!toolsState.create) return;
-  toolsState.recipsUi = { query: '', sec: 'all', error: '' };
+  toolsState.recipsUi = { mode: 'create', query: '', sec: 'all', error: '' };
+  toolsState.token++;
+  toolsState.screen = 'recips';
+  renderTools();
+}
+
+/* إضافة مستلمين لاستبانة مخصّصة قائمة (مفتوحة): تُضاف تذاكر جديدة فقط، والقديمة بحالتها وإرسالها كما هي */
+function toolsAddRecipients(campaignId, title, invites){
+  toolsState.addR = { campaignId, title: title || '', recips: { students: {}, others: [] }, existing: toolsExistingRecips(invites), busy: false };
+  toolsState.recipsUi = { mode: 'add', query: '', sec: 'all', error: '' };
   toolsState.token++;
   toolsState.screen = 'recips';
   renderTools();
 }
 
 function toolsRecipsListHtml(){
-  const c = toolsState.create, ui = toolsState.recipsUi;
+  const c = toolsRecipsCtx(), ui = toolsState.recipsUi;
+  const ex = ui.mode === 'add' ? c.existing : null;
   const q = String(ui.query || '').trim();
   let list = crmStudents.filter(s => s.is_active !== false && (ui.sec === 'all' || s.section_id === ui.sec) && (!q || String(s.full_name).indexOf(q) !== -1));
   list.sort((a, b) => crmByArabic(a.full_name, b.full_name));
@@ -232,21 +259,33 @@ function toolsRecipsListHtml(){
   if(!list.length) return '<div class="sv-empty">لا نتائج.</div>';
   const rows = list.map(s => {
     const r = c.recips.students[s.id] || {};
-    const tog = (who, label, phone) => `<button type="button" class="tl-chip-btn tq-who${r[who] ? ' is-on' : ''}" aria-pressed="${!!r[who]}" onclick="toolsRecipToggle('${escapeHtml(s.id)}','${who}')"${phone ? '' : ' disabled'}>${label}${phone ? '' : ' (بلا رقم)'}</button>`;
+    const tog = (who, label, phone) => {
+      const locked = !!(ex && ex.students.has(s.id + '|' + who));
+      if(locked) return `<button type="button" class="tl-chip-btn tq-who is-on" aria-pressed="true" disabled>${label} ✓ مضاف</button>`;
+      return `<button type="button" class="tl-chip-btn tq-who${r[who] ? ' is-on' : ''}" aria-pressed="${!!r[who]}" onclick="toolsRecipToggle('${escapeHtml(s.id)}','${who}')"${phone ? '' : ' disabled'}>${label}${phone ? '' : ' (بلا رقم)'}</button>`;
+    };
     return `<div class="tq-stu"><span class="tq-stu-name"><b>${escapeHtml(s.full_name)}</b><small>${escapeHtml(s.section_id ? crmSectionLabel(s.section_id) : '')}</small></span><span class="tq-who-row">${tog('guardian', 'ولي الأمر', s.guardian_phone)}${tog('student', 'الطالب', s.student_phone)}</span></div>`;
   }).join('');
   return rows + (total > list.length ? `<p class="tl-note">يُعرض أول ${TQ_RECIP_LIST_MAX} من ${total} — ضيّق بالبحث أو بالشعبة.</p>` : '');
 }
 
 function toolsRecipsHtml(){
-  const c = toolsState.create, ui = toolsState.recipsUi;
+  const c = toolsRecipsCtx(), ui = toolsState.recipsUi;
   if(!c || !ui) return toolsBackLink('الاستبانات', 'list');
+  const add = ui.mode === 'add';
   const cnt = toolsRecipCount(c.recips, crmStudents);
   const secs = [['all', 'كل الشعب']].concat(crmSections.slice().sort((a, b) => crmByArabic(crmSectionOptionLabel(a), crmSectionOptionLabel(b))).map(s => [s.id, crmSectionOptionLabel(s)]));
   const chips = secs.map(x => `<button type="button" class="sv-chip2${ui.sec === x[0] ? ' is-on' : ''}" onclick="toolsRecipsSec('${escapeHtml(x[0])}')">${escapeHtml(x[1])}</button>`).join('');
   const others = c.recips.others.map((o, i) => `<div class="tq-other"><span><b>${escapeHtml(o.label)}</b><small dir="ltr">${escapeHtml(typeof phoneDisplay === 'function' ? phoneDisplay(o.phone) : o.phone)}</small></span><button type="button" class="tl-mv tq-del" aria-label="حذف" onclick="toolsRecipRemoveOther(${i})">✕</button></div>`).join('');
-  return `${toolsBackLink('رجوع للإنشاء', 'create')}
-    <div class="tl-info"><b>${cnt.links} ${cnt.links === 1 ? 'رابط' : 'روابط'}</b><small>${cnt.students} ${cnt.students === 1 ? 'طالب' : 'طلاب'} · ${cnt.others} ${cnt.others === 1 ? 'جهة أخرى' : 'جهات أخرى'}</small></div>
+  const back = add
+    ? `<button type="button" class="tl-back" onclick="toolsCancelAddRecips()"><span aria-hidden="true">›</span> رجوع بلا إضافة</button>`
+    : toolsBackLink('رجوع للإنشاء', 'create');
+  const summary = add ? `${cnt.links} ${cnt.links === 1 ? 'رابط جديد' : 'روابط جديدة'}` : `${cnt.links} ${cnt.links === 1 ? 'رابط' : 'روابط'}`;
+  const doneLabel = add ? 'إضافة المستلمين' : 'تم';
+  const doneOn = add ? 'toolsRecipsDone()' : "toolsGo('create')";
+  const doneDisabled = add && (cnt.links === 0 || c.busy) ? ' disabled' : '';
+  return `${back}
+    <div class="tl-info"><b>${summary}</b><small>${cnt.students} ${cnt.students === 1 ? 'طالب' : 'طلاب'} · ${cnt.others} ${cnt.others === 1 ? 'جهة أخرى' : 'جهات أخرى'}${add ? ' — التذاكر الموجودة بحالتها لا تتغيّر' : ''}</small></div>
     <div class="tl-field"><span class="tl-label">طلاب بأعينهم</span>
       <input class="goal-input" id="tqSearch" type="search" placeholder="ابحث بالاسم" value="${escapeHtml(ui.query)}" oninput="toolsRecipsSearch(this.value)">
       <div class="sv-chips">${chips}</div>
@@ -257,7 +296,7 @@ function toolsRecipsHtml(){
       ${ui.error ? `<p class="tq-err" role="alert">${escapeHtml(ui.error)}</p>` : ''}
       <button type="button" class="btn btn-outline" onclick="toolsRecipAddOther()"${c.recips.others.length >= TQ_OTHER_MAX ? ' disabled' : ''}>＋ إضافة</button>
       ${others}</div>
-    <button type="button" class="btn btn-primary tl-create" onclick="toolsGo('create')">تم</button>`;
+    <button type="button" class="btn btn-primary tl-create" id="toolsRecipsDoneBtn" onclick="${doneOn}"${doneDisabled}>${doneLabel}</button>`;
 }
 
 function toolsRecipsSearch(v){
@@ -269,9 +308,10 @@ function toolsRecipsSearch(v){
 function toolsRecipsSec(id){ const ui = toolsState.recipsUi; if(!ui) return; ui.sec = id; renderTools(); }
 
 function toolsRecipToggle(sid, who){
-  const c = toolsState.create; if(!c || (who !== 'guardian' && who !== 'student')) return;
+  const c = toolsRecipsCtx(); if(!c || (who !== 'guardian' && who !== 'student')) return;
   const st = crmStudents.find(s => s.id === sid);
   if(!st || !(who === 'guardian' ? st.guardian_phone : st.student_phone)) return;
+  if(c.existing && c.existing.students.has(sid + '|' + who)) return; /* مضافة من قبل */
   const r = c.recips.students[sid] = c.recips.students[sid] || {};
   r[who] = !r[who];
   if(!r.guardian && !r.student) delete c.recips.students[sid];
@@ -279,16 +319,57 @@ function toolsRecipToggle(sid, who){
 }
 
 function toolsRecipAddOther(){
-  const c = toolsState.create, ui = toolsState.recipsUi; if(!c || !ui) return;
+  const c = toolsRecipsCtx(), ui = toolsState.recipsUi; if(!c || !ui) return;
   const nameEl = document.getElementById('tqOtherName'), phoneEl = document.getElementById('tqOtherPhone');
   const label = String((nameEl || {}).value || '').trim();
   const p = normalizePhone((phoneEl || {}).value);
   ui.error = '';
   if(!label || label.length > 60) ui.error = 'اكتب الاسم (حتى 60 حرفًا)';
   else if(!p.ok || !p.value) ui.error = p.ok ? 'اكتب رقم الجوال' : p.error;
-  else if(c.recips.others.some(o => o.phone === p.value)) ui.error = 'هذا الرقم مضاف';
-  else if(c.recips.others.length >= TQ_OTHER_MAX) ui.error = 'بلغت الحد الأقصى';
+  else if(c.recips.others.some(o => o.phone === p.value) || (c.existing && c.existing.phones.has(p.value))) ui.error = 'هذا الرقم مضاف';
+  else if(c.recips.others.length + (c.existing ? c.existing.phones.size : 0) >= TQ_OTHER_MAX) ui.error = 'بلغت الحد الأقصى';
   else c.recips.others.push({ label, phone: p.value });
   renderTools();
 }
-function toolsRecipRemoveOther(i){ const c = toolsState.create; if(!c || i < 0 || i >= c.recips.others.length) return; c.recips.others.splice(i, 1); renderTools(); }
+function toolsRecipRemoveOther(i){ const c = toolsRecipsCtx(); if(!c || i < 0 || i >= c.recips.others.length) return; c.recips.others.splice(i, 1); renderTools(); }
+
+/* ============ إضافة مستلمين لاستبانة قائمة ============ */
+
+function toolsCancelAddRecips(){
+  const a = toolsState.addR;
+  const cid = a ? a.campaignId : null;
+  toolsState.addR = null;
+  toolsGo('list');
+  if(cid) openSurvey(cid);
+}
+
+async function toolsRecipsDone(){
+  const ui = toolsState.recipsUi;
+  const a = toolsState.addR;
+  if(!ui || ui.mode !== 'add' || !a || a.busy || !currentUser) return;
+  const token = toolsState.token;
+  const uid = currentUser.id;
+  const cid = a.campaignId;
+  const rows = toolsCustomInviteRows(a.recips, uid, cid).filter(r => r.recipient === 'other'
+    ? !a.existing.phones.has(r.contact_phone)
+    : !a.existing.students.has(r.student_id + '|' + r.recipient)); /* لا تذكرة مكررة مهما حدث */
+  if(!rows.length){ ui.error = 'لم تختر مستلمًا جديدًا'; renderTools(); return; }
+  a.busy = true;
+  const btn = document.getElementById('toolsRecipsDoneBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الإضافة…'; }
+  try{
+    const ins = await sb.from('survey_invites').insert(rows);
+    if(ins.error) throw ins.error;
+  } catch(err){
+    a.busy = false;
+    ui.error = err && err.message ? err.message : 'تعذّرت الإضافة';
+    if(toolsStillHere(token, 'recips')) renderTools();
+    return;
+  }
+  a.busy = false;
+  if(!toolsStillHere(token, 'recips')) return;
+  toolsState.addR = null;
+  showToast(rows.length === 1 ? 'أُضيف مستلم واحد' : 'أُضيف ' + rows.length + ' مستلمين', 'ok');
+  toolsGo('list');
+  openSurvey(cid);
+}
