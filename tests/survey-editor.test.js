@@ -417,8 +417,108 @@ test('الملف الجديد مسجَّل، وكل استعلام survey_ في�
   assert.doesNotMatch(src, /\.delete\(\)/);
   const calls = src.split(/sb\.from\('survey_/).slice(1);
   assert.ok(calls.length >= 1);
-  calls.forEach(c => assert.match(c.slice(0, 300), /teacher_id/));
+  calls.filter(c => !/^[a-z_]+'\)\.insert\(/.test(c)).forEach(c => assert.match(c.slice(0, 300), /teacher_id/));
+  assert.ok((src.match(/teacher_id: uid/g) || []).length >= 1 || /toolsCustomInviteRows\(/.test(src), 'صفوف الإدراج تحمل المعلم');
   const a44 = fs.readFileSync(path.join(root, 'app/app-44-satisfaction.js'), 'utf8');
   assert.match(a44, /sb\.rpc\('delete_survey'/);
   assert.doesNotMatch(a44, /survey_responses'\)\.delete|survey_invites'\)\.delete/);
+});
+
+/* ============ إضافة مستلمين لاستبانة مخصّصة قائمة ============ */
+
+const addCtx = async (opts) => {
+  const k = makeApp(Object.assign({ students: STUDENTS, campaigns: [customCamp()], invites: customInvites() }, opts || {}));
+  runInAppContext(k.app, `showTools('surveys'); window.__opened = []; openSurvey = id => window.__opened.push(id);`);
+  runInAppContext(k.app, `toolsAddRecipients('c9', 'استبانتي', ${JSON.stringify(k.db.survey_invites)})`);
+  return k;
+};
+
+test('زر «مستلمون»: للمخصّصة المفتوحة وحدها (لا لولي الأمر/الطالب ولا للمغلقة)', async () => {
+  const cust = makeApp({ students: STUDENTS, campaigns: [customCamp()], invites: customInvites() });
+  runInAppContext(cust.app, `showTools('surveys')`);
+  await runInAppContext(cust.app, `openSurvey('c9')`);
+  assert.match(cust.app.__els.svSheet.innerHTML, /id="svAddRecBtn"/);
+  const guardian = makeApp({ students: STUDENTS, campaigns: [camp()], sections: [{ teacher_id: 'u1', campaign_id: 'c1', section_id: 'sec1' }] });
+  runInAppContext(guardian.app, `showTools('surveys')`);
+  await runInAppContext(guardian.app, `openSurvey('c1')`);
+  assert.doesNotMatch(guardian.app.__els.svSheet.innerHTML, /svAddRecBtn/);
+  const closed = makeApp({ students: STUDENTS, campaigns: [Object.assign(customCamp(), { status: 'closed' })], invites: customInvites() });
+  runInAppContext(closed.app, `showTools('surveys')`);
+  await runInAppContext(closed.app, `openSurvey('c9')`);
+  assert.doesNotMatch(closed.app.__els.svSheet.innerHTML, /svAddRecBtn/);
+});
+
+test('فتح الإضافة: تغلق النافذة وتعرض المنتقين سابقًا مقفلين («مضاف») ولا يُغيَّرون', async () => {
+  const k = makeApp({ students: STUDENTS, campaigns: [customCamp()], invites: customInvites() });
+  runInAppContext(k.app, `showTools('surveys')`);
+  await runInAppContext(k.app, `openSurvey('c9')`);
+  runInAppContext(k.app, `svAddRecipients()`);
+  assert.ok(!k.app.__els.svBack);
+  assert.equal(ev(k, 'toolsState.screen'), 'recips');
+  const html = k.app.__els.toolsBody.innerHTML;
+  assert.match(html, /ولي الأمر ✓ مضاف/, 'أحمد/ولي الأمر موجود');
+  ev(k, `toolsRecipToggle('a', 'guardian')`);
+  assert.deepEqual(J(ev(k, 'toolsState.addR.recips.students')), {}, 'المقفل لا يتغيّر');
+  ev(k, `toolsRecipToggle('a', 'student'); toolsRecipToggle('e', 'guardian')`);
+  assert.deepEqual(J(ev(k, 'toolsState.addR.recips.students')), { a: { student: true }, e: { guardian: true } });
+  assert.match(k.app.__els.toolsBody.innerHTML, /2 رابطان جديدة|2 روابط جديدة/);
+});
+
+test('جهة أخرى بالإضافة: رقم موجود مسبقًا يُرفض، والجديد يُقبل', async () => {
+  const k = await addCtx();
+  const put = (n, p) => { k.app.__els.tqOtherName = { value: n }; k.app.__els.tqOtherPhone = { value: p }; ev(k, `toolsRecipAddOther()`); };
+  put('مكرر', '0507654321'); /* موجود بالتذكرة k i2 */
+  assert.match(k.app.__els.toolsBody.innerHTML, /هذا الرقم مضاف/);
+  put('زميل', '0509999999');
+  assert.deepEqual(J(ev(k, 'toolsState.addR.recips.others')), [{ label: 'زميل', phone: '966509999999' }]);
+});
+
+test('الإضافة: تذاكر جديدة فقط بتصفية المعلم، والقديمة بحالتها، ثم تُعاد فتح الاستبانة', async () => {
+  const k = await addCtx();
+  k.db.survey_invites[0].sent_at = 'x'; /* أحمد/ولي الأمر أُرسل له */
+  runInAppContext(k.app, `toolsState.addR.existing = toolsExistingRecips(${JSON.stringify(k.db.survey_invites)})`);
+  ev(k, `toolsRecipToggle('a', 'guardian'); toolsRecipToggle('a', 'student'); toolsRecipToggle('e', 'guardian')`);
+  k.app.__els.tqOtherName = { value: 'زميل' }; k.app.__els.tqOtherPhone = { value: '0509999999' };
+  ev(k, `toolsRecipAddOther()`);
+  k.log.length = 0;
+  await ev(k, `toolsRecipsDone()`);
+  const ins = k.log.filter(l => l.table === 'survey_invites' && l.op === 'insert');
+  assert.equal(ins.length, 1);
+  const rows = ins[0].values;
+  assert.deepEqual(J(rows.map(r => r.recipient + ':' + (r.student_id || r.contact_phone)).sort()), ['guardian:e', 'other:966509999999', 'student:a']);
+  rows.forEach(r => { assert.equal(r.teacher_id, 'u1'); assert.equal(r.campaign_id, 'c9'); assert.match(r.code, /^[a-z2-9]{10}$/); });
+  assert.equal(k.db.survey_invites.length, 5);
+  assert.equal(k.db.survey_invites.find(i => i.id === 'i1').sent_at, 'x', 'القديمة بحالتها');
+  assert.deepEqual(J(ev(k, 'window.__opened')), ['c9']);
+});
+
+test('الإضافة: بلا اختيار جديد رسالة، ونقرتان متزامنتان تُدخلان مرة، والفشل يُعرض ولا يفتح شيئًا', async () => {
+  const none = await addCtx();
+  await ev(none, `toolsRecipsDone()`);
+  assert.match(none.app.__els.toolsBody.innerHTML, /لم تختر مستلمًا جديدًا/);
+  assert.equal(none.db.survey_invites.length, 2);
+
+  const dbl = await addCtx();
+  ev(dbl, `toolsRecipToggle('e', 'guardian')`);
+  await ev(dbl, `Promise.all([toolsRecipsDone(), toolsRecipsDone()])`);
+  assert.equal(dbl.db.survey_invites.length, 3);
+
+  const bad = await addCtx({ fail: (t, op) => t === 'survey_invites' && op === 'insert' ? { message: 'boom' } : null });
+  ev(bad, `toolsRecipToggle('e', 'guardian')`);
+  await ev(bad, `toolsRecipsDone()`);
+  assert.match(bad.app.__els.toolsBody.innerHTML, /boom/);
+  assert.equal(ev(bad, 'window.__opened.length'), 0);
+  assert.equal(ev(bad, 'toolsState.screen'), 'recips');
+});
+
+test('الإلغاء يعيد فتح الاستبانة بلا إدخال، ومغادرة الشاشة أثناء الإضافة لا تفتح نافذة فجأة', async () => {
+  const c = await addCtx();
+  ev(c, `toolsRecipToggle('e', 'guardian'); toolsCancelAddRecips()`);
+  assert.equal(c.db.survey_invites.length, 2);
+  assert.deepEqual(J(ev(c, 'window.__opened')), ['c9']);
+  const r = await addCtx();
+  ev(r, `toolsRecipToggle('e', 'guardian')`);
+  await ev(r, `(async () => { const p = toolsRecipsDone(); toolsGo('home'); await p; })()`);
+  assert.equal(r.db.survey_invites.length, 3, 'أُضيفت');
+  assert.equal(ev(r, 'window.__opened.length'), 0);
 });

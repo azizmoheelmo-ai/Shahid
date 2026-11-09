@@ -29,17 +29,34 @@ function toolsGroupCampaigns(campaigns){
   return ['guardian', 'student', 'custom'].map(k => ({ key: k, items: sorted.filter(c => c.audience === k) })).filter(g => g.items.length);
 }
 
-/* تحريك استبانة خطوة داخل تصنيفها: يُرجع ترتيب كل الاستبانات الجديد كمصفوفة معرّفات، أو null إن لم يمكن */
-function toolsMoveInOrder(campaigns, id, dir){
+/* نقل استبانة إلى موضع داخل تصنيفها: يُرجع ترتيب كل الاستبانات الجديد كمصفوفة معرّفات، أو null إن لم يتغيّر شيء */
+function toolsReorderInOrder(campaigns, id, toIdx){
   const groups = toolsGroupCampaigns(campaigns);
   const g = groups.find(x => x.items.some(c => c.id === id));
   if(!g) return null;
-  const i = g.items.findIndex(c => c.id === id), j = i + dir;
-  if(j < 0 || j >= g.items.length) return null;
+  const i = g.items.findIndex(c => c.id === id);
+  const j = Math.max(0, Math.min(g.items.length - 1, toIdx));
+  if(!(j >= 0) || j === i) return null;
   const ids = g.items.map(c => c.id);
-  const t = ids[i]; ids[i] = ids[j]; ids[j] = t;
+  ids.splice(i, 1); ids.splice(j, 0, id);
   g.items = ids.map(x => g.items.find(c => c.id === x));
   return groups.reduce((all, x) => all.concat(x.items.map(c => c.id)), []);
+}
+
+/* تحريك استبانة خطوة (سهم ▲▼) */
+function toolsMoveInOrder(campaigns, id, dir){
+  const g = toolsGroupCampaigns(campaigns).find(x => x.items.some(c => c.id === id));
+  if(!g) return null;
+  const i = g.items.findIndex(c => c.id === id), j = i + dir;
+  if(j < 0 || j >= g.items.length) return null;
+  return toolsReorderInOrder(campaigns, id, j);
+}
+
+/* موضع الإفلات: عدد منتصفات البلاطات الأخرى (بترتيبها) الواقعة فوق المؤشر */
+function toolsDropIndex(otherMids, y){
+  let n = 0;
+  otherMids.forEach(m => { if(m < y) n++; });
+  return n;
 }
 
 /* عدد الروابط المتوقعة: طلاب نشطون بالشعب المختارة لهم رقم الجهة */
@@ -80,7 +97,7 @@ function toolsGo(screen){
   toolsState.token++;
   toolsState.screen = screen;
   toolsState.sorting = false;
-  if(screen === 'list' || screen === 'home'){ toolsState.create = null; toolsState.qed = null; toolsState.recipsUi = null; }
+  if(screen === 'list' || screen === 'home'){ toolsState.create = null; toolsState.qed = null; toolsState.recipsUi = null; toolsState.addR = null; }
   if(screen === 'list') toolsLoadList();
   else if(screen === 'create' && !toolsState.create) toolsInitCreate(); /* العودة من المحرّر/المستلمين تُبقي حالة الإنشاء */
   else renderTools();
@@ -185,7 +202,7 @@ function toolsListHtml(){
     body = shown.map(g => `<div class="tl-group"><div class="tl-group-head" style="color:${TOOLS_AUDIENCES[g.key].color}"><i style="background:${TOOLS_AUDIENCES[g.key].color}"></i>${escapeHtml(TOOLS_AUDIENCES[g.key].group)}<span>${g.items.length}</span></div>${g.items.map((c, i) => toolsTileHtml(c, list.stats, g, i)).join('')}</div>`).join('');
   }
   const sortBtn = list.campaigns.length > 1 ? `<button type="button" class="btn btn-outline tl-sort" onclick="toolsToggleSort()"${st.busy ? ' disabled' : ''}>${st.sorting ? 'تم' : 'ترتيب'}</button>` : '';
-  return `${toolsBackLink('الأدوات', 'home')}${tabsHtml}${st.sorting ? '<div class="tl-hint">حرّك الاستبانة بالسهمين داخل تصنيفها، ثم اضغط «تم».</div>' : ''}${body}
+  return `${toolsBackLink('الأدوات', 'home')}${tabsHtml}${st.sorting ? '<div class="tl-hint">اسحب ⠿ (أو استخدم السهمين) داخل تصنيف الاستبانة، ثم اضغط «تم».</div>' : ''}${body}
     <div class="tl-actions"><button type="button" class="btn btn-primary tl-new" onclick="toolsGo('create')">＋ استبانة جديدة</button>${sortBtn}</div>`;
 }
 
@@ -195,7 +212,7 @@ function toolsTileHtml(c, stats, group, idx){
   const chip = `<span class="tl-chip ${open ? 'is-open' : 'is-closed'}">${open ? 'مفتوحة' : 'مغلقة'}</span>`;
   const main = `<span class="tl-tile-main"><b>${escapeHtml(c.title)}</b><small>${escapeHtml(toolsCampaignMeta(c, stats))}</small></span>`;
   if(toolsState.sorting){
-    return `<div class="tl-tile is-sorting" style="border-right-color:${color}">${main}
+    return `<div class="tl-tile is-sorting" data-tid="${escapeHtml(c.id)}" style="border-right-color:${color}"><span class="tl-grip" role="button" aria-label="اسحب لإعادة الترتيب" onpointerdown="toolsDragStart(event,'${escapeHtml(c.id)}')">⠿</span>${main}
       <button type="button" class="tl-mv" aria-label="للأعلى" onclick="toolsMove('${escapeHtml(c.id)}',-1)"${idx === 0 || toolsState.busy ? ' disabled' : ''}>▲</button>
       <button type="button" class="tl-mv" aria-label="للأسفل" onclick="toolsMove('${escapeHtml(c.id)}',1)"${idx === group.items.length - 1 || toolsState.busy ? ' disabled' : ''}>▼</button></div>`;
   }
@@ -207,11 +224,45 @@ function toolsToggleSort(){ if(toolsState.busy) return; toolsState.sorting = !to
 
 /* ============ الترتيب (يُحفظ بحساب المعلم وحده) ============ */
 
-async function toolsMove(id, dir){
+function toolsMove(id, dir){
   const st = toolsState;
   if(st.busy || !st.list) return;
-  const order = toolsMoveInOrder(st.list.campaigns, id, dir);
-  if(!order) return;
+  return toolsCommitOrder(toolsMoveInOrder(st.list.campaigns, id, dir));
+}
+
+/* سحب وإفلات: المقبض ⠿ وحده يلتقط المؤشر (يعمل باللمس والفأرة)، ولا يُحفظ إلا عند الإفلات */
+let toolsDrag = null;
+function toolsDragStart(e, id){
+  const st = toolsState;
+  if(st.busy || toolsDrag || !st.list || !e.currentTarget) return;
+  const tile = e.currentTarget.closest ? e.currentTarget.closest('.tl-tile') : null;
+  if(!tile || !tile.parentNode) return;
+  const group = Array.prototype.slice.call(tile.parentNode.querySelectorAll('.tl-tile'));
+  if(group.length < 2) return;
+  if(e.preventDefault) e.preventDefault();
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  toolsDrag = { id, tile, group, y0: e.clientY, grip: e.currentTarget, pid: e.pointerId, token: st.token };
+  tile.classList.add('is-dragging');
+  const g = toolsDrag.grip;
+  g.onpointermove = toolsDragMove; g.onpointerup = ev => toolsDragEnd(ev, true); g.onpointercancel = ev => toolsDragEnd(ev, false);
+}
+function toolsDragMove(e){
+  const d = toolsDrag; if(!d) return;
+  d.tile.style.transform = 'translateY(' + (e.clientY - d.y0) + 'px)';
+}
+function toolsDragEnd(e, drop){
+  const d = toolsDrag; if(!d) return;
+  toolsDrag = null;
+  d.grip.onpointermove = d.grip.onpointerup = d.grip.onpointercancel = null;
+  d.tile.classList.remove('is-dragging'); d.tile.style.transform = '';
+  if(!drop || !toolsStillHere(d.token, 'list') || toolsState.busy || !toolsState.list) return;
+  const others = d.group.filter(t => t !== d.tile).map(t => { const r = t.getBoundingClientRect(); return r.top + r.height / 2; });
+  toolsCommitOrder(toolsReorderInOrder(toolsState.list.campaigns, d.id, toolsDropIndex(others, e.clientY)));
+}
+
+async function toolsCommitOrder(order){
+  const st = toolsState;
+  if(st.busy || !st.list || !order) return;
   const token = st.token;
   st.busy = true;
   const before = st.list.campaigns.map(c => ({ id: c.id, sort_order: c.sort_order }));

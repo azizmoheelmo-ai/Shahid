@@ -362,6 +362,16 @@ function svEditQuestions(){
   toolsEditQuestions('edit', id, questions, title);
 }
 
+/* إضافة مستلمين لاستبانة مخصّصة مفتوحة: تُضاف تذاكر جديدة فقط، والقديمة (وحالة إرسالها) لا تتغيّر */
+function svAddRecipients(){
+  if(!svState || svState.busy || !svState.campaign) return;
+  const c = svState.campaign;
+  if(c.audience !== 'custom' || !svCampaignOpen(c)) return;
+  const id = c.id, title = c.title, invites = svState.invites.slice();
+  closeSurvey();
+  toolsAddRecipients(id, title, invites);
+}
+
 /* حذف الاستبانة نهائيًا مع روابطها وردودها، عبر الدالة المضبوطة delete_survey (المالك يُفحص داخلها بـauth.uid()):
    المعلم لا يملك حذف الردود مباشرةً. نسأل بالعواقب، ومع وجود ردود نسأل ثانية؛ و«الإغلاق» بديل يُبقي النتائج. */
 async function svDelete(){
@@ -442,7 +452,8 @@ function svPaint(){
   </div>`;
   const body = st.tab === 'results' ? svResultsHtml(counts) : svSendHtml(counts, open);
   const editable = svQuestionsEditable();
-  const foot = `<div class="sv-foot">${open ? `<button type="button" class="sv-ghost" id="svCloseBtn" onclick="svClose()"${st.busy ? ' disabled' : ''}>إغلاق</button>` : ''}${editable ? `<button type="button" class="sv-ghost" id="svEditQBtn" onclick="svEditQuestions()"${st.busy ? ' disabled' : ''}>تعديل الأسئلة</button>` : ''}<button type="button" class="sv-ghost sv-danger" id="svDeleteBtn" onclick="svDelete()"${st.busy ? ' disabled' : ''}>حذف الاستبانة</button></div>`;
+  const canAdd = open && st.campaign.audience === 'custom';
+  const foot = `<div class="sv-foot">${canAdd ? `<button type="button" class="sv-ghost" id="svAddRecBtn" onclick="svAddRecipients()"${st.busy ? ' disabled' : ''}>＋ مستلمون</button>` : ''}${open ? `<button type="button" class="sv-ghost" id="svCloseBtn" onclick="svClose()"${st.busy ? ' disabled' : ''}>إغلاق</button>` : ''}${editable ? `<button type="button" class="sv-ghost" id="svEditQBtn" onclick="svEditQuestions()"${st.busy ? ' disabled' : ''}>تعديل الأسئلة</button>` : ''}<button type="button" class="sv-ghost sv-danger" id="svDeleteBtn" onclick="svDelete()"${st.busy ? ' disabled' : ''}>حذف الاستبانة</button></div>`;
   sheet.innerHTML = svHeaderHtml(counts) + tabs + body + foot;
 }
 
@@ -555,7 +566,8 @@ function svResultsHtml(counts){
   const head = pct == null ? '' : `<div class="sv-card sv-bigstat"><b>${pct}%</b><span>متوسط التقييمات<br><small>من ${n} ${n === 1 ? 'رد' : 'ردود'} (${rate}% من الروابط)</small></span></div>`;
   const weakNote = weak ? `<div class="sv-weak"><b>أضعف محور:</b> ${escapeHtml(weak.label)} (${svFmtAvg(weak.avg)} من 5)</div>` : '';
   const blocks = an.items.map(a => svAggBlockHtml(a, weak)).join('');
-  return `<div class="sv-body">${warn}${head}${weakNote}${blocks}</div>`;
+  const exp = `<button type="button" class="sv-ghost" id="svReportBtn" onclick="svExportReport(event)">تصدير النتائج PDF</button>`;
+  return `<div class="sv-body">${warn}${head}${weakNote}${blocks}${exp}</div>`;
 }
 
 function svAggBlockHtml(a, weak){

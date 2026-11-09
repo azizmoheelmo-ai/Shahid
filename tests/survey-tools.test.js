@@ -161,6 +161,57 @@ test('الترتيب: يحفظ الصفوف المتغيّرة فقط بتصفي
   assert.ok(failing.app.__toasts.some(t => /تعذّر حفظ الترتيب/.test(t)));
 });
 
+
+test('السحب والإفلات: موضع الإفلات، حفظ الصفوف المتغيّرة بتصفية المعلم، وإلغاء/سباق لا يحفظان', async () => {
+  const { app } = makeApp();
+  assert.equal(app.toolsDropIndex([10, 30, 50], 5), 0);
+  assert.equal(app.toolsDropIndex([10, 30, 50], 40), 2);
+  assert.equal(app.toolsDropIndex([10, 30, 50], 99), 3);
+  const cs = [camp('g1', 'guardian', 0), camp('g2', 'guardian', 1), camp('g3', 'guardian', 2), camp('s1', 'student', 3)];
+  assert.deepEqual(J(app.toolsReorderInOrder(cs, 'g1', 2)), ['g2', 'g3', 'g1', 's1']);
+  assert.deepEqual(J(app.toolsReorderInOrder(cs, 'g3', 0)), ['g3', 'g1', 'g2', 's1']);
+  assert.equal(app.toolsReorderInOrder(cs, 'g1', 0), null, 'نفس الموضع');
+  assert.deepEqual(J(app.toolsReorderInOrder(cs, 'g1', 99)), ['g2', 'g3', 'g1', 's1'], 'يُقصّ داخل التصنيف ولا يعبر إلى غيره');
+
+  const setup = async () => {
+    const m = await loadList({ students: STUDENTS, campaigns: [camp('g1', 'guardian', 0), camp('g2', 'guardian', 1), camp('g3', 'guardian', 2)] });
+    runInAppContext(m.app, `toolsToggleSort()`);
+    runInAppContext(m.app, `
+      const mkTile = (mid) => ({ classList: { add(){}, remove(){} }, style: {}, getBoundingClientRect: () => ({ top: mid - 10, height: 20 }) });
+      window.__tiles = [mkTile(100), mkTile(200), mkTile(300)];
+      const parent = { querySelectorAll: () => window.__tiles };
+      window.__tiles.forEach(t => { t.parentNode = parent; });
+      window.__grip = (i) => ({ closest: () => window.__tiles[i], setPointerCapture(){} });
+      window.__start = (i, y) => { const g = window.__grip(i); g.pointerId = 1; g.clientY = y; const ev = { currentTarget: window.__tiles[i].gripEl = Object.assign(g, { closest: () => window.__tiles[i] }), pointerId: 1, clientY: y, preventDefault(){} }; toolsDragStart(ev, ['g1','g2','g3'][i]); return g; };`);
+    return m;
+  };
+  /* إفلات g1 تحت g2: يصير الترتيب g2,g1,g3 */
+  const a = await setup(); a.log.length = 0;
+  const g = runInAppContext(a.app, `window.__start(0, 100)`);
+  await runInAppContext(a.app, `toolsDragEnd({ clientY: 250 }, true)`);
+  const ups = a.log.filter(l => l.table === 'survey_campaigns' && l.op === 'update');
+  assert.equal(ups.length, 2); ups.forEach(u => assert.equal(u.f.teacher_id, 'u1'));
+  assert.deepEqual(a.db.survey_campaigns.map(c => c.id + ':' + c.sort_order).sort(), ['g1:1', 'g2:0', 'g3:2']);
+  /* إلغاء: لا حفظ */
+  const b = await setup(); b.log.length = 0;
+  runInAppContext(b.app, `window.__start(0, 100)`);
+  await runInAppContext(b.app, `toolsDragEnd({ clientY: 350 }, false)`);
+  assert.equal(b.log.filter(l => l.op === 'update').length, 0);
+  assert.equal(runInAppContext(b.app, `toolsDrag`), null);
+  /* سباق: غادر المعلم الشاشة قبل الإفلات */
+  const c = await setup(); c.log.length = 0;
+  runInAppContext(c.app, `window.__start(0, 100)`);
+  runInAppContext(c.app, `toolsState.token++`);
+  await runInAppContext(c.app, `toolsDragEnd({ clientY: 350 }, true)`);
+  assert.equal(c.log.filter(l => l.op === 'update').length, 0);
+  /* مقبض ثانٍ أثناء سحب قائم لا يبدأ */
+  const d = await setup();
+  runInAppContext(d.app, `window.__start(0, 100)`);
+  const first = runInAppContext(d.app, `toolsDrag.id`);
+  runInAppContext(d.app, `window.__start(1, 200)`);
+  assert.equal(runInAppContext(d.app, `toolsDrag.id`), first);
+});
+
 /* ============ الإنشاء ============ */
 
 const startCreate = async (opts) => {
