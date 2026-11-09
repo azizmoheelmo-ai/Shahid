@@ -124,7 +124,7 @@ const CSS = 'body{font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-ser
   + '.opt span{display:block;min-height:48px;box-sizing:border-box;text-align:center;border:1.5px solid #CFC8B6;border-radius:12px;padding:8px 6px;font-size:.9rem;background:#fff}'
   + '.opt span b{display:block;font-size:1.2rem}.opt input:checked+span{background:#1B3245;border-color:#1B3245;color:#fff}'
   + '.opt input:focus-visible+span{outline:3px solid #f59e0b;outline-offset:2px}'
-  + 'textarea{width:100%;box-sizing:border-box;min-height:90px;border:1px solid #CFC8B6;border-radius:10px;padding:8px;font:inherit}.cnt{display:block;text-align:left;font-size:.8rem;color:#55697a}.opt-tag{font-weight:400;font-size:.85rem;color:#55697a}'
+  + 'textarea{width:100%;box-sizing:border-box;min-height:90px;border:1px solid #CFC8B6;border-radius:10px;padding:8px;font:inherit}.cnt{display:block;direction:ltr;text-align:left;font-size:.8rem;color:#55697a}.opt-tag{font-weight:400;font-size:.85rem;color:#55697a}'
   + 'button{width:100%;margin-top:14px;padding:14px;border:0;border-radius:12px;background:#64748b;color:#fff;font:inherit;font-size:1.05rem;cursor:pointer;scroll-margin-top:64px}'
   + 'button.ready{background:#15803d;font-weight:700;box-shadow:0 4px 14px rgba(21,128,61,.35)}button[disabled]{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid #f59e0b;outline-offset:2px}'
   + '.msg{margin-top:12px;font-weight:600;color:#9a3b1f}.center{text-align:center;padding-top:15vh}[hidden]{display:none!important}';
