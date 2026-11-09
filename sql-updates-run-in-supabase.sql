@@ -424,30 +424,109 @@ end $$;
 create unique index if not exists student_report_shares_short_code_key on public.student_report_shares(short_code) where short_code is not null;
 
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
--- تذكرة شخصية لكل طالب (وحتى تذكرتين: لولي الأمر وللطالب)، وردّ غير مربوط بالاسم ولا بالمستلم:
--- - survey_invites تعرف من ردّ (answered_on، تاريخ بلا وقت) ولا تحمل أي إجابة.
--- - survey_responses تحمل الإجابات بلا student_id ولا invite_id، وبتاريخ بلا وقت، ومعرّف عشوائي (uuid لا تسلسل)
+-- الاستبانة كائن مستقل على مستوى المعلم: عنوان، وجمهور واحد، وشعب مختارة، وأسئلتها هي (نسخة محفوظة بالحملة)،
+-- وترتيب يحدده المعلم، وعتبة عرض نتائج لكل استبانة.
+-- - survey_invites تذكرة لكل مستلم (ولي أمر/طالب) تعرف من ردّ (answered_on، تاريخ بلا وقت) ولا تحمل أي إجابة.
+-- - survey_responses تحمل الإجابات بلا student_id ولا invite_id ولا المستلم، وبتاريخ بلا وقت، ومعرّف عشوائي (uuid لا تسلسل)
 --   فلا يُستنتج صاحب الرد من الترتيب ولا التوقيت.
 -- - كلها بـauth.uid() = teacher_id وبلا سياسة مسؤول (كـstudent_report_shares).
 -- - لا سياسة إدراج/تعديل/حذف على الردود: الكتابة من submit_survey وحدها (لـservice_role فقط عبر api/s.js).
+-- - الأسئلة تتجمّد بعد أول إرسال (تريجر)، فتبقى كل الردود مفهومة بنفس الأسئلة التي أُجيب عنها.
+
+-- ترقية من الشكل الأول (حملة مربوطة بشعبة واحدة وقالب ثابت بالكود): إن كانت الجداول القديمة فارغة تُحذف ويُعاد
+-- إنشاؤها بالشكل الجديد؛ وإن كان فيها أي صف يتوقف التشغيل كله (لا فقد بيانات صامت). يُعرَف الشكل القديم بعمود
+-- section_id في survey_campaigns (من pg_attribute عبر to_regclass، فيعمل كما هو بعد تحويل public. إلى staging.).
+do $$
+declare v_camp regclass := to_regclass('public.survey_campaigns'); v_t regclass; v_rows boolean := false;
+begin
+  if v_camp is not null and exists (select 1 from pg_attribute where attrelid = v_camp and attname = 'section_id' and not attisdropped) then
+    foreach v_t in array array[v_camp, to_regclass('public.survey_invites'), to_regclass('public.survey_responses')] loop
+      if v_t is not null and not v_rows then
+        execute format('select exists (select 1 from %s)', v_t) into v_rows;
+      end if;
+    end loop;
+    if v_rows then
+      raise exception 'جداول الاستبانة بالشكل القديم وفيها بيانات: يلزم ترحيل يدوي قبل تشغيل هذا الجزء (راجع SURVEYS.md). لم يُغيَّر شيء.';
+    end if;
+    drop table if exists public.survey_responses, public.survey_invites, public.survey_campaigns cascade;
+    drop function if exists public.submit_survey(text, jsonb);
+  end if;
+end $$;
+
+-- صحة أسئلة الاستبانة (نفس قواعد surveyValidateQuestions بـsurvey-templates.js): مصفوفة 1..12 كائنًا،
+-- لكل سؤال {id,type,label,required,options?} فقط؛ id بصيغة q<رقم> فريد؛ النوع من الأربعة؛ النص 1..120 حرفًا بعد
+-- btrim وبلا محارف تحكم؛ required منطقي؛ options لسؤال الاختيار وحده: 2..8 نصوص، كل نص 1..40 حرفًا بلا محارف تحكم.
+create or replace function public.survey_questions_ok(q jsonb)
+returns boolean language plpgsql immutable set search_path = '' as $fn$
+declare e jsonb; o jsonb; k text; v_ids text[] := '{}'; v_id text; v_s text;
+  -- محارف التحكم C0 وDEL وC1 (بلا شرطة مائلة: الكتلة تُنسخ حرفيًا داخل نص JavaScript بـapp-07)
+  v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
+begin
+  if q is null or jsonb_typeof(q) <> 'array' then return false; end if;
+  if jsonb_array_length(q) < 1 or jsonb_array_length(q) > 12 then return false; end if;
+  for e in select x from jsonb_array_elements(q) x loop
+    if jsonb_typeof(e) <> 'object' then return false; end if;
+    for k in select jsonb_object_keys(e) loop
+      if k not in ('id', 'type', 'label', 'required', 'options') then return false; end if;
+    end loop;
+    if jsonb_typeof(e->'id') is distinct from 'string' then return false; end if;
+    v_id := e->>'id';
+    if v_id !~ '^q[0-9]{1,2}$' or v_id = any(v_ids) then return false; end if;
+    v_ids := v_ids || v_id;
+    if jsonb_typeof(e->'type') is distinct from 'string' or (e->>'type') not in ('rating', 'truefalse', 'choice', 'text') then return false; end if;
+    if jsonb_typeof(e->'label') is distinct from 'string' then return false; end if;
+    v_s := btrim(e->>'label');
+    if char_length(v_s) < 1 or char_length(v_s) > 120 or v_s ~ v_ctl then return false; end if;
+    if jsonb_typeof(e->'required') is distinct from 'boolean' then return false; end if;
+    if (e->>'type') = 'choice' then
+      if jsonb_typeof(e->'options') is distinct from 'array' or jsonb_array_length(e->'options') < 2 or jsonb_array_length(e->'options') > 8 then return false; end if;
+      for o in select x from jsonb_array_elements(e->'options') x loop
+        if jsonb_typeof(o) <> 'string' then return false; end if;
+        v_s := btrim(o #>> '{}');
+        if char_length(v_s) < 1 or char_length(v_s) > 40 or v_s ~ v_ctl then return false; end if;
+      end loop;
+    elsif e ? 'options' then
+      return false;
+    end if;
+  end loop;
+  return true;
+end
+$fn$;
+
 create table if not exists public.survey_campaigns (
   id uuid primary key default gen_random_uuid(),
   teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  section_id uuid,
-  academic_year text not null check (char_length(btrim(academic_year)) between 1 and 20),
-  semester_label text not null check (char_length(btrim(semester_label)) between 1 and 40),
-  template text not null default 'v1' check (template in ('v1')),
+  title text not null check (char_length(btrim(title)) between 1 and 80),
+  audience text not null check (audience in ('guardian', 'student', 'custom')),
+  -- القالب الجاهز الذي بدأت منه (للمعلومة فقط؛ الأسئلة الحاكمة هي questions المحفوظة هنا)
+  template text not null default 'guardian_v1' check (template in ('guardian_v1', 'student_v1', 'blank')),
+  questions jsonb not null check (public.survey_questions_ok(questions)),
   status text not null default 'open' check (status in ('open', 'closed')),
   closes_at timestamptz not null default (now() + interval '14 days'),
+  sort_order integer not null default 0,
+  min_results smallint not null default 5 check (min_results between 1 and 50),
   created_at timestamptz not null default now(),
-  unique (id, teacher_id),
-  -- حذف الشعبة يفكّ الربط فقط: الحملة وردودها تبقى شاهدًا ثابتًا
-  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete set null (section_id)
+  unique (id, teacher_id)
 );
-create index if not exists survey_campaigns_teacher_section_idx on public.survey_campaigns(teacher_id, section_id);
+create index if not exists survey_campaigns_teacher_order_idx on public.survey_campaigns(teacher_id, sort_order);
 alter table public.survey_campaigns enable row level security;
 drop policy if exists "المعلم يدير حملات استباناته فقط" on public.survey_campaigns;
 create policy "المعلم يدير حملات استباناته فقط" on public.survey_campaigns for all to authenticated
+  using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+
+-- الشعب المختارة للاستبانة (حذف الشعبة أو الاستبانة يحذف الربط فقط)
+create table if not exists public.survey_campaign_sections (
+  campaign_id uuid not null,
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  primary key (campaign_id, section_id),
+  foreign key (campaign_id, teacher_id) references public.survey_campaigns(id, teacher_id) on update cascade on delete cascade,
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists survey_campaign_sections_section_idx on public.survey_campaign_sections(section_id);
+alter table public.survey_campaign_sections enable row level security;
+drop policy if exists "المعلم يدير شعب استباناته فقط" on public.survey_campaign_sections;
+create policy "المعلم يدير شعب استباناته فقط" on public.survey_campaign_sections for all to authenticated
   using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
 
 create table if not exists public.survey_invites (
@@ -478,7 +557,7 @@ create table if not exists public.survey_responses (
   id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null,
   teacher_id uuid not null references auth.users(id) on delete cascade,
-  answers jsonb not null check (jsonb_typeof(answers) = 'object' and octet_length(answers::text) <= 4096),
+  answers jsonb not null check (jsonb_typeof(answers) = 'object' and octet_length(answers::text) <= 16384),
   created_on date not null default current_date,
   -- no action (لا cascade): لا تُحذف حملة فيها ردود؛ وحذف حساب المعلم يحذف الاثنين معًا بنفس الجملة
   foreign key (campaign_id, teacher_id) references public.survey_campaigns(id, teacher_id) on update cascade
@@ -490,54 +569,100 @@ create policy "المعلم يقرأ ردود استباناته فقط" on publ
   using (auth.uid() = teacher_id);
 revoke insert, update, delete on public.survey_responses from anon, authenticated;
 
--- استلام رد عبر التذكرة: ذرّي بمعاملة واحدة. التحديث المشروط (answered_on is null) يقفل الصف، فطلبان
--- متزامنان بنفس الرمز: الثاني ينتظر ثم لا يجد صفًا فيرجع false بلا إدراج. يرجع true فقط إن أُدرج الرد.
--- الرمز الخاطئ والمنتهي والمستخدَم والمغلق وشكل الإجابات الخاطئ كلها false (لا يُكشف السبب).
+-- تجميد الأسئلة والجمهور بعد أول إرسال، ومنع نقل الاستبانة لمعلم آخر، ومنع جمهور يخالف تذاكر قائمة
+create or replace function public.survey_campaign_guard() returns trigger
+language plpgsql set search_path = '' as $fn$
+begin
+  if new.teacher_id is distinct from old.teacher_id then
+    raise exception 'لا يُغيَّر مالك الاستبانة' using errcode = '42501';
+  end if;
+  if (new.questions is distinct from old.questions or new.audience is distinct from old.audience)
+     and exists (select 1 from public.survey_invites i
+                 where i.campaign_id = old.id and (i.sent_at is not null or i.answered_on is not null)) then
+    raise exception 'الأسئلة تتجمّد بعد أول إرسال' using errcode = '55000';
+  end if;
+  if new.audience is distinct from old.audience and new.audience <> 'custom'
+     and exists (select 1 from public.survey_invites i where i.campaign_id = old.id and i.recipient <> new.audience) then
+    raise exception 'توجد تذاكر لمستلم لا يطابق الجمهور الجديد' using errcode = '23514';
+  end if;
+  return new;
+end
+$fn$;
+create or replace trigger trg_survey_campaign_guard before update on public.survey_campaigns
+  for each row execute function public.survey_campaign_guard();
+
+-- مستلم التذكرة يطابق جمهور الاستبانة (guardian ← ولي الأمر فقط، student ← الطالب فقط، custom ← الاثنان)
+create or replace function public.survey_invite_audience_guard() returns trigger
+language plpgsql set search_path = '' as $fn$
+declare v_aud text;
+begin
+  select c.audience into v_aud from public.survey_campaigns c where c.id = new.campaign_id;
+  if v_aud is not null and v_aud <> 'custom' and new.recipient <> v_aud then
+    raise exception 'مستلم التذكرة لا يطابق جمهور الاستبانة' using errcode = '23514';
+  end if;
+  return new;
+end
+$fn$;
+create or replace trigger trg_survey_invite_audience_guard before insert or update of recipient, campaign_id on public.survey_invites
+  for each row execute function public.survey_invite_audience_guard();
+
+-- تنظيف الإجابات وفق أسئلة الاستبانة نفسها (نفس قواعد surveyValidateAnswers بـsurvey-templates.js):
+-- يرجع الكائن المعاد بناؤه من معرّفات الأسئلة وحدها، أو null عند أي خطأ.
+-- rating عدد 1..5 صحيح، truefalse منطقي، choice فهرس صحيح أصغر من عدد الخيارات، text نص بعد btrim ≤300 (الفارغ يُحذف).
+-- المطلوب (required) يجب أن يحضر صالحًا؛ غير المطلوب يُهمل إن غاب أو كان null.
+create or replace function public.survey_answers_clean(p_questions jsonb, p_answers jsonb)
+returns jsonb language plpgsql immutable set search_path = '' as $fn$
+declare e jsonb; v_id text; v_type text; v_req boolean; v_v jsonb; v_s text; v_out jsonb := '{}'::jsonb;
+begin
+  if not public.survey_questions_ok(p_questions) then return null; end if;
+  if p_answers is null or jsonb_typeof(p_answers) <> 'object' then return null; end if;
+  for e in select x from jsonb_array_elements(p_questions) x loop
+    v_id := e->>'id'; v_type := e->>'type'; v_req := (e->>'required')::boolean; v_v := p_answers->v_id;
+    if v_v is null or jsonb_typeof(v_v) = 'null' then
+      if v_req then return null; end if;
+      continue;
+    end if;
+    if v_type = 'rating' then
+      if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[1-5]$' then return null; end if;
+    elsif v_type = 'truefalse' then
+      if jsonb_typeof(v_v) <> 'boolean' then return null; end if;
+    elsif v_type = 'choice' then
+      if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[0-9]{1,2}$' or (v_v::text)::int >= jsonb_array_length(e->'options') then return null; end if;
+    elsif v_type = 'text' then
+      if jsonb_typeof(v_v) <> 'string' then return null; end if;
+      v_s := btrim(v_v #>> '{}');
+      if v_s = '' then
+        if v_req then return null; end if;
+        continue;
+      end if;
+      if char_length(v_s) > 300 then return null; end if;
+      v_v := to_jsonb(v_s);
+    else
+      return null;
+    end if;
+    v_out := v_out || jsonb_build_object(v_id, v_v);
+  end loop;
+  return v_out;
+end
+$fn$;
+revoke execute on function public.survey_answers_clean(jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.survey_answers_clean(jsonb, jsonb) to service_role;
+
+-- استلام رد عبر التذكرة: ذرّي بمعاملة واحدة. الأسئلة تُقرأ من الحملة نفسها (for share يمنع تعديلها حتى نهاية المعاملة)،
+-- ثم التحديث المشروط (answered_on is null) يقفل صف التذكرة، فطلبان متزامنان بنفس الرمز: الثاني ينتظر ثم لا يجد صفًا
+-- فيرجع false بلا إدراج. يرجع true فقط إن أُدرج الرد. كل خطأ آخر false (لا يُكشف السبب).
 create or replace function public.submit_survey(p_code text, p_answers jsonb)
 returns boolean language plpgsql security definer set search_path = '' as $fn$
-declare
-  v_template text; v_spec jsonb; v_q jsonb; v_id text; v_type text; v_v jsonb; v_s text;
-  v_out jsonb := '{}'::jsonb; v_campaign uuid; v_teacher uuid;
+declare v_questions jsonb; v_clean jsonb; v_campaign uuid; v_teacher uuid;
 begin
   if p_code is null or p_code !~ '^[a-z2-9]{8,32}$' then return false; end if;
-  if p_answers is null or jsonb_typeof(p_answers) <> 'object' then return false; end if;
-
-  select c.template into v_template
+  select c.questions into v_questions
     from public.survey_invites i join public.survey_campaigns c on c.id = i.campaign_id and c.teacher_id = i.teacher_id
-    where i.code = p_code;
+    where i.code = p_code
+    for share of c;
   if not found then return false; end if;
-  -- القالب ثابت (نسخة من SURVEY_TEMPLATES بـsurvey-templates.js؛ اختبار يتحقق أن لكل إصدار هناك فرعًا هنا
-  -- بنفس المعرّفات والأنواع وعدد الخيارات، وأن قيد survey_campaigns.template يطابق الإصدارات). إصدار جديد = فرع جديد.
-  -- n = عدد خيارات سؤال الاختيار. النص اختياري ≤300 حرف، وما سواه إلزامي.
-  v_spec := case v_template
-    when 'v1' then '[{"id":"q1","type":"rating"},{"id":"q2","type":"rating"},{"id":"q3","type":"rating"},{"id":"q4","type":"truefalse"},{"id":"q5","type":"truefalse"},{"id":"q6","type":"choice","n":4},{"id":"q7","type":"rating"},{"id":"q8","type":"text"},{"id":"q9","type":"text"}]'::jsonb
-    else null end;
-  if v_spec is null then return false; end if;
-
-  -- تحقق من الشكل بالخادم أيضًا (دفاع متعدد الطبقات)، وبناء الرد من مفاتيح القالب وحدها (أي مفتاح زائد يُهمل)
-  for v_q in select * from jsonb_array_elements(v_spec) loop
-    v_id := v_q->>'id'; v_type := v_q->>'type'; v_v := p_answers->v_id;
-    if v_type = 'text' then
-      if v_v is null or jsonb_typeof(v_v) = 'null' then continue; end if;
-      if jsonb_typeof(v_v) <> 'string' then return false; end if;
-      v_s := nullif(btrim(v_v #>> '{}'), '');
-      if v_s is null then continue; end if;
-      if char_length(v_s) > 300 then return false; end if;
-      v_out := v_out || jsonb_build_object(v_id, v_s);
-    else
-      if v_v is null then return false; end if;
-      if v_type = 'rating' then
-        if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[1-5]$' then return false; end if;
-      elsif v_type = 'truefalse' then
-        if jsonb_typeof(v_v) <> 'boolean' then return false; end if;
-      elsif v_type = 'choice' then
-        if jsonb_typeof(v_v) <> 'number' or v_v::text !~ '^[0-9]{1,2}$' or (v_v::text)::int >= (v_q->>'n')::int then return false; end if;
-      else
-        return false;
-      end if;
-      v_out := v_out || jsonb_build_object(v_id, v_v);
-    end if;
-  end loop;
+  v_clean := public.survey_answers_clean(v_questions, p_answers);
+  if v_clean is null then return false; end if;
 
   update public.survey_invites i set answered_on = current_date
     from public.survey_campaigns c
@@ -548,7 +673,7 @@ begin
   if not found then return false; end if;
 
   insert into public.survey_responses (campaign_id, teacher_id, answers, created_on)
-    values (v_campaign, v_teacher, v_out, current_date);
+    values (v_campaign, v_teacher, v_clean, current_date);
   return true;
 end
 $fn$;

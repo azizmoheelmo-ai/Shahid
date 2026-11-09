@@ -3,9 +3,10 @@
    ------------------------------------------------------------
    GET  يعرض نموذج الاستبانة (لا يستهلك التذكرة؛ معاينة واتساب للرابط آمنة).
    POST يستقبل الرد (JSON) ويمرّره للدالة الذرّية submit_survey بمفتاح service_role.
-   - القالب والتحقق من الإجابات من مصدر واحد: survey-templates.js بجذر المستودع (نفس ملف المتصفح).
-   - الصفحة مبهمة: لا اسم طالب ولا رقم ولا أي بيانات من القاعدة؛ الرمز لا يُطبع فيها (الإرسال لنفس المسار).
-     صياغتها محايدة لأن الرابط قد يصل ولي الأمر أو الطالب نفسه (تذكرتان مستقلتان لكل طالب).
+   - الصفحة تُبنى من الاستبانة نفسها (عنوانها وجمهورها وأسئلتها المحفوظة بالحملة)، والتحقق من الإجابات بمدقق
+     survey-templates.js المشترك (نفس ملف المتصفح ونفس قواعد public.survey_answers_clean بالـSQL).
+   - الصفحة مبهمة: لا اسم طالب ولا رقم ولا معرّفات؛ الرمز لا يُطبع فيها (الإرسال لنفس المسار).
+     نصوص المعلم (العنوان والأسئلة والخيارات) غير موثوقة: مهرَّبة ومعزولة اتجاهيًا.
    - الرمز الخاطئ والمنتهي والمستخدَم والمغلق: الرد نفسه تمامًا (لا يُكشف السبب).
    - التحقق من الصيغة بالخادم لكل نوع سؤال، سقف حجم، المفاتيح الزائدة تُهمل، ثم مرة ثانية داخل الدالة نفسها.
    - محدِّد للمحاولات الفاشلة لكل عنوان IP (انظر createFailureLimiter وحدوده).
@@ -17,40 +18,53 @@ const nodeCrypto = require('crypto');
 /* مسار حرفي ثابت: متتبّع ملفات Vercel يجمع الملف مع الدالة تلقائيًا (لا حاجة لـincludeFiles). */
 const shared = require('../survey-templates.js');
 
-const { SURVEY_TEMPLATES, surveyValidateAnswers, SURVEY_CODE_RE } = shared;
+const { surveyValidateQuestions, surveyValidateAnswers, SURVEY_CODE_RE, SURVEY_RATING_LABELS, SURVEY_LIMITS } = shared;
 const CODE_RE = SURVEY_CODE_RE;
-const SURVEY_TEMPLATE_V1 = SURVEY_TEMPLATES.v1;
-const BODY_MAX_BYTES = 4096;
+const BODY_MAX_BYTES = 16384; /* حتى 12 سؤالًا نصيًا × 300 حرف (عربي/رموز) مع هامش */
 const QUESTION_TYPES = Object.freeze(['rating', 'truefalse', 'choice', 'text']);
 const TRUEFALSE_LABELS = Object.freeze(['صح', 'خطأ']);
+const AUDIENCE_INTRO = Object.freeze({
+  guardian: 'هذه الاستبانة لولي الأمر',
+  student: 'هذه الاستبانة للطالب',
+  custom: 'شكرًا لمشاركتك في هذه الاستبانة'
+});
+const CAMPAIGN_COLS = 'title, audience, questions, status, closes_at, min_results';
 
 function escapeHtml(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function getTemplate(key){
-  return typeof key === 'string' && Object.prototype.hasOwnProperty.call(SURVEY_TEMPLATES, key) ? SURVEY_TEMPLATES[key] : null;
+/* يقرأ التذكرة وحملتها بالرمز وحده (service_role): استعلام واحد بدمج العلاقة (survey_invites → survey_campaigns
+   عبر المفتاح المركّب)، وإن رفضه PostgREST لأي سبب يُعاد باستعلامين بدل أن تصير كل الروابط «غير صالحة». */
+async function loadInviteCampaign(code, supabase){
+  const one = await supabase.from('survey_invites').select(`answered_on, survey_campaigns!inner(${CAMPAIGN_COLS})`).eq('code', code).maybeSingle();
+  if(!one.error){
+    if(!one.data) return null;
+    const c = Array.isArray(one.data.survey_campaigns) ? one.data.survey_campaigns[0] : one.data.survey_campaigns;
+    return { answered_on: one.data.answered_on, campaign: c || null };
+  }
+  const inv = await supabase.from('survey_invites').select('campaign_id, answered_on').eq('code', code).maybeSingle();
+  if(inv.error || !inv.data || !inv.data.campaign_id) return null;
+  const camp = await supabase.from('survey_campaigns').select(CAMPAIGN_COLS).eq('id', inv.data.campaign_id).maybeSingle();
+  if(camp.error) return null;
+  return { answered_on: inv.data.answered_on, campaign: camp.data || null };
 }
 
-/* يرجع { ok: true, template } أو { ok: false }؛ لا يميّز بين الخاطئ والمنتهي والمستخدَم والمغلق.
-   لا يُرجع أي معرّف (لا طالب ولا حملة ولا مستلم). */
+/* يرجع { ok: true, campaign: { title, audience, questions, minResults } } أو { ok: false }؛ لا يميّز بين الخاطئ
+   والمنتهي والمستخدَم والمغلق. لا يُرجع أي معرّف (لا طالب ولا حملة ولا مستلم). الأسئلة هي المحفوظة بالحملة نفسها. */
 async function resolveSurveyCode(code, supabase, now){
   if(typeof code !== 'string' || !CODE_RE.test(code)) return { ok: false };
-  const inv = await supabase.from('survey_invites').select('campaign_id, answered_on').eq('code', code).maybeSingle();
-  if(inv.error || !inv.data || !inv.data.campaign_id || inv.data.answered_on) return { ok: false };
-  const camp = await supabase.from('survey_campaigns').select('status, closes_at, template').eq('id', inv.data.campaign_id).maybeSingle();
-  const c = camp.data;
-  if(camp.error || !c || c.status !== 'open') return { ok: false };
+  const r = await loadInviteCampaign(code, supabase);
+  if(!r || r.answered_on || !r.campaign) return { ok: false };
+  const c = r.campaign;
+  if(c.status !== 'open') return { ok: false };
   const closes = new Date(c.closes_at).getTime();
   if(!(closes > (now || Date.now()))) return { ok: false };
-  if(!getTemplate(c.template)) return { ok: false };
-  return { ok: true, template: c.template };
-}
-
-/* توافق مع الاختبارات السابقة: نفس مدقق الملف المشترك بترتيب وسائط قديم. */
-function validateAnswers(body, templateKey){
-  const r = surveyValidateAnswers(templateKey, body);
-  return r.ok ? { ok: true, answers: r.value } : { ok: false };
+  const qv = surveyValidateQuestions(c.questions);
+  if(!qv.ok || typeof c.title !== 'string') return { ok: false };
+  const audience = Object.prototype.hasOwnProperty.call(AUDIENCE_INTRO, c.audience) ? c.audience : 'custom';
+  const minResults = Number.isInteger(c.min_results) ? c.min_results : 5;
+  return { ok: true, campaign: { title: c.title, audience, questions: qv.value, minResults } };
 }
 
 /* ---------- محدِّد المحاولات الفاشلة (أفضل جهد) ----------
@@ -154,9 +168,9 @@ function len(s){return Array.from(s).length;}
 function answered(fs){return fs.getAttribute('data-t')==='text'?!!fs.querySelector('textarea').value.trim():!!fs.querySelector('input:checked');}
 function go(el){el.scrollIntoView({behavior:calm?'auto':'smooth',block:'center'});}
 function progress(){var n=req.filter(answered).length,all=n===req.length;
-pgt.textContent=n+' من '+req.length+' أسئلة مطلوبة';pgb.value=n;pg.classList.toggle('done',all);b.classList.toggle('ready',all);return all;}
+if(req.length){pgt.textContent=n+' من '+req.length+' أسئلة مطلوبة';pgb.value=n;pg.classList.toggle('done',all);}b.classList.toggle('ready',all);return all;}
 f.querySelectorAll('textarea').forEach(function(t){var c=document.getElementById('c-'+t.name),mx=+t.getAttribute('data-max');
-t.addEventListener('input',function(){if(len(t.value)>mx)t.value=Array.from(t.value).slice(0,mx).join('');c.textContent=len(t.value)+' / '+mx;});});
+t.addEventListener('input',function(){if(len(t.value)>mx)t.value=Array.from(t.value).slice(0,mx).join('');c.textContent=len(t.value)+' / '+mx;progress();});});
 f.addEventListener('change',function(e){var fs=e.target.closest('fieldset');if(!fs)return;fs.classList.remove('miss');progress();
 if(fs.getAttribute('data-req')!=='1'||fs.getAttribute('data-seen')==='1')return;fs.setAttribute('data-seen','1');
 var i=qs.indexOf(fs),next=null;for(var k=i+1;k<qs.length;k++){if(!answered(qs[k])){next=qs[k];break;}}
@@ -165,11 +179,12 @@ progress();
 f.addEventListener('submit',function(e){e.preventDefault();if(busy)return;
 var a={},miss=[];
 qs.forEach(function(fs){var id=fs.getAttribute('data-q'),t=fs.getAttribute('data-t');fs.classList.remove('miss');
-if(t==='text'){var v=fs.querySelector('textarea').value.trim();if(v)a[id]=v;return;}
-var x=fs.querySelector('input:checked');if(!x){miss.push(fs);return;}
+var rq=fs.getAttribute('data-req')==='1';
+if(t==='text'){var v=fs.querySelector('textarea').value.trim();if(v)a[id]=v;else if(rq)miss.push(fs);return;}
+var x=fs.querySelector('input:checked');if(!x){if(rq)miss.push(fs);return;}
 a[id]=t==='truefalse'?x.value==='true':parseInt(x.value,10);});
 if(miss.length){miss.forEach(function(fs){fs.classList.add('miss');});
-say('فضلًا أجب عن جميع الأسئلة المطلوبة (المميَّزة باللون) قبل الإرسال. الأسئلة النصية اختيارية.');
+say('فضلًا أجب عن جميع الأسئلة المطلوبة (المميَّزة باللون) قبل الإرسال. الأسئلة المكتوب بجانبها «اختياري» يمكن تركها.');
 go(miss[0]);var i=miss[0].querySelector('input');if(i)i.focus({preventScroll:true});return;}
 busy=true;b.disabled=true;b.textContent='جارٍ الإرسال…';say('');
 fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(a),credentials:'omit',cache:'no-store'})
@@ -186,28 +201,34 @@ function optionsHtml(name, items, cls){
     `<label class="opt"><input type="radio" name="${escapeHtml(name)}" value="${escapeHtml(it.value)}"><span>${it.html}</span></label>`).join('') + '</div>';
 }
 
-function questionHtml(q, tpl){
+function questionHtml(q){
+  const max = SURVEY_LIMITS.textMax;
   const attrs = `data-q="${escapeHtml(q.id)}" data-t="${escapeHtml(q.type)}" data-req="${q.required ? 1 : 0}"`;
-  const legend = `<legend>${escapeHtml(q.label)}${q.required ? '' : ' <span class="opt-tag">(اختياري)</span>'}</legend>`;
+  const legend = `<legend><bdi>${escapeHtml(q.label)}</bdi>${q.required ? '' : ' <span class="opt-tag">(اختياري)</span>'}</legend>`;
   let body;
-  if(q.type === 'rating') body = optionsHtml(q.id, tpl.scale.map((s, k) => ({ value: String(k + 1), html: `<b>${k + 1}</b>${escapeHtml(s)}` })), 'rate');
+  if(q.type === 'rating') body = optionsHtml(q.id, SURVEY_RATING_LABELS.map((s, k) => ({ value: String(k + 1), html: `<b>${k + 1}</b>${escapeHtml(s)}` })), 'rate');
   else if(q.type === 'truefalse') body = optionsHtml(q.id, [{ value: 'true', html: `<b>${escapeHtml(TRUEFALSE_LABELS[0])}</b>` }, { value: 'false', html: `<b>${escapeHtml(TRUEFALSE_LABELS[1])}</b>` }]);
-  else if(q.type === 'choice') body = optionsHtml(q.id, q.options.map((o, k) => ({ value: String(k), html: escapeHtml(o) })), 'col');
-  else body = `<textarea name="${escapeHtml(q.id)}" maxlength="${tpl.textMax}" data-max="${tpl.textMax}" aria-describedby="c-${escapeHtml(q.id)}" placeholder="اكتب هنا (حتى ${tpl.textMax} حرف)"></textarea>`
-    + `<small class="cnt" id="c-${escapeHtml(q.id)}" aria-live="polite">0 / ${tpl.textMax}</small>`;
+  else if(q.type === 'choice') body = optionsHtml(q.id, q.options.map((o, k) => ({ value: String(k), html: `<bdi>${escapeHtml(o)}</bdi>` })), 'col');
+  else body = `<textarea name="${escapeHtml(q.id)}" maxlength="${max}" data-max="${max}" aria-describedby="c-${escapeHtml(q.id)}" placeholder="اكتب هنا (حتى ${max} حرف)"></textarea>`
+    + `<small class="cnt" id="c-${escapeHtml(q.id)}" aria-live="polite">0 / ${max}</small>`;
   return `<fieldset ${attrs}>${legend}${body}</fieldset>`;
 }
 
-/* نموذج الاستبانة: محتواه كله ثوابت القالب، فلا بيانات من القاعدة ولا من الرابط. */
-function buildSurveyPage(templateKey, nonce){
-  const tpl = SURVEY_TEMPLATES[templateKey];
-  const nReq = tpl.questions.filter(q => q.required).length;
-  return head('استبانة رضا', nonce) + '<body>'
-    + `<div class="prog" id="pg"><span id="pgt" aria-live="polite">0 من ${nReq} أسئلة مطلوبة</span>`
-    + `<progress id="pgb" max="${nReq}" value="0" aria-label="تقدّم الإجابة عن الأسئلة المطلوبة"></progress></div><main>`
-    + '<h1>استبانة رضا عن التعليم</h1>'
-    + '<p class="note">هذه الاستبانة لولي الأمر أو الطالب، وهي قصيرة (دقيقتان). ردّك لا يُربط باسمك: يعرف المعلم أن الرابط استُخدم، ويرى النتائج مجمَّعة فقط بعد اكتمال عدد كافٍ من الردود. الرابط يُستعمل مرة واحدة.</p>'
-    + `<form id="sf" novalidate>${tpl.questions.map(q => questionHtml(q, tpl)).join('')}`
+/* نموذج الاستبانة من أسئلة الحملة نفسها. نصوص المعلم (العنوان والأسئلة والخيارات) غير موثوقة: تُهرَّب دائمًا
+   وتُعزل اتجاهيًا بـ<bdi> فلا تقلب محارف الاتجاه بقية الصفحة. لا بيانات طالب ولا رمز ولا معرّفات. */
+function buildSurveyPage(campaign, nonce){
+  const qs = campaign.questions;
+  const nReq = qs.filter(q => q.required).length;
+  const intro = AUDIENCE_INTRO[campaign.audience] || AUDIENCE_INTRO.custom;
+  const few = campaign.minResults < 5 ? ' العدد قليل وقد يعرف المعلم من أجاب.' : '';
+  const prog = nReq
+    ? `<div class="prog" id="pg"><span id="pgt" aria-live="polite">0 من ${nReq} أسئلة مطلوبة</span>`
+      + `<progress id="pgb" max="${nReq}" value="0" aria-label="تقدّم الإجابة عن الأسئلة المطلوبة"></progress></div>`
+    : '<div class="prog" id="pg"><span id="pgt">كل الأسئلة اختيارية</span></div>';
+  return head(campaign.title, nonce) + '<body>' + prog + '<main>'
+    + `<h1><bdi>${escapeHtml(campaign.title)}</bdi></h1>`
+    + `<p class="note">${escapeHtml(intro)}. ردّك لا يُربط باسمك: يعرف المعلم أن الرابط استُخدم، ويرى النتائج مجمَّعة فقط بعد اكتمال عدد كافٍ من الردود.${few} الرابط يُستعمل مرة واحدة.</p>`
+    + `<form id="sf" novalidate>${qs.map(q => questionHtml(q)).join('')}`
     + '<button type="submit" id="sb">إرسال</button><p class="msg" id="sm" role="alert" hidden></p></form>'
     + '<div id="st" class="center" hidden><h1>شكرًا لك</h1><p>وصل ردّك. يمكنك إغلاق هذه الصفحة.</p></div>'
     + `</main><script nonce="${escapeHtml(nonce)}">${SCRIPT}</script></body></html>`;
@@ -317,9 +338,9 @@ function createHandler(opts){
     if(!found) return isPost ? sendJson(res, 503, { ok: false }) : sendHtml(res, 503, buildMessagePage('الخدمة غير متاحة', 'حاول لاحقًا.', nonce), nonce);
     if(!found.ok) return gone();
 
-    if(!isPost) return sendHtml(res, 200, buildSurveyPage(found.template, nonce), nonce);
+    if(!isPost) return sendHtml(res, 200, buildSurveyPage(found.campaign, nonce), nonce);
 
-    const v = surveyValidateAnswers(found.template, body);
+    const v = surveyValidateAnswers(found.campaign.questions, body);
     if(!v.ok) return sendJson(res, 400, { ok: false });
     let rpc;
     try { rpc = await supabase.rpc('submit_survey', { p_code: code, p_answers: v.value }); } catch(e){ rpc = { error: e }; }
@@ -334,15 +355,12 @@ module.exports.createHandler = createHandler;
 module.exports.createFailureLimiter = createFailureLimiter;
 module.exports.clientIp = clientIp;
 module.exports.resolveSurveyCode = resolveSurveyCode;
-module.exports.validateAnswers = validateAnswers;
 module.exports.buildSurveyPage = buildSurveyPage;
 module.exports.buildMessagePage = buildMessagePage;
-module.exports.SURVEY_TEMPLATES = SURVEY_TEMPLATES;
-module.exports.SURVEY_TEMPLATE_V1 = SURVEY_TEMPLATE_V1;
 module.exports.CODE_RE = CODE_RE;
-module.exports.TEXT_MAX = SURVEY_TEMPLATE_V1.textMax;
 module.exports.QUESTION_TYPES = QUESTION_TYPES;
 module.exports.TRUEFALSE_LABELS = TRUEFALSE_LABELS;
+module.exports.AUDIENCE_INTRO = AUDIENCE_INTRO;
 module.exports.BODY_MAX_BYTES = BODY_MAX_BYTES;
 module.exports.LIMIT_MAX_FAILURES = LIMIT_MAX_FAILURES;
 module.exports.LIMIT_WINDOW_MS = LIMIT_WINDOW_MS;

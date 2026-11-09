@@ -1,35 +1,37 @@
 /* ============================================================
-   استبانة رضا المستفيدين — شاشة المعلم (التصميم: SURVEYS.md)
+   استبانة رضا المستفيدين — تفاصيل الاستبانة: الإرسال والنتائج (التصميم: SURVEYS.md)
    ------------------------------------------------------------
-   - المستفيد: ولي الأمر أو الطالب. لكل رقم جوال محفوظ «تذكرة» خاصة به (رابط قصير /s/<رمز> يخدمه api/s.js)
-     فيصير للطالب حتى تذكرتان: واحدة لرقم ولي الأمر وأخرى لرقمه هو (وإن تطابق الرقمان فتذكرة واحدة).
-     التذكرة تُرسل بواتساب يدويًا وتقبل ردًّا واحدًا؛ والردّ يُحفظ بلا اسم الطالب ولا الجهة.
-   - التطبيق يعمل عن المعلم: يبدأ الاستبانة بنقرة، يولّد التذاكر، ويضيف تلقائيًا من يُضاف للشعبة أو يُضاف رقمه لاحقًا،
-     ويعلّم «أُرسل» عند فتح واتساب، ويُظهر النتائج وحدها بعد 5 ردود.
+   - تُفتح من قائمة الاستبانات بالأدوات (app-45-tools.js) بمعرّف الاستبانة: openSurvey(campaignId).
+   - الاستبانة مستقلة: عنوان، وجهة واحدة (ولي أمر أو طالب)، وشعب مختارة (survey_campaign_sections)،
+     وأسئلتها محفوظة داخلها (survey_campaigns.questions: لقطة لا تتأثر بتعديل القوالب الجاهزة بعد ذلك).
+   - لكل طالب نشط بالشعب المختارة له رقم الجهة: «تذكرة» (رابط قصير /s/<رمز> يخدمه api/s.js) تُرسل بواتساب يدويًا
+     وتقبل ردًّا واحدًا؛ والردّ يُحفظ بلا اسم الطالب ولا رقم التذكرة.
+   - التطبيق يعمل عن المعلم: يولّد التذاكر عند الفتح (ويلتقط الطلاب الجدد والأرقام المضافة لاحقًا)، يعلّم «أُرسل»
+     عند فتح واتساب، ويُظهر النتائج وحدها بعد min_results ردود (الافتراضي 5).
    - المعلم يرى من ردّ ومن لم يردّ (للتذكير) ولا يرى ما كتبه أحد: الإجابات بجدول منفصل بلا مرجع للطالب.
    - كل استعلام هنا بتصفية صريحة .eq('teacher_id') (السياسة وحدها لا تكفي بالشاشات الشخصية).
-   - لا حذف لحملة فيها ردود: «إغلاق» فقط.
-   - الأسئلة ومدقّق الإجابات ومولّد الرمز من ملف واحد مشترك مع الخادم: survey-templates.js (لا نسخة ثانية تنحرف بصمت).
-     والقالب يُقرأ من campaign.template: نسخة مجهولة تُعلَن صراحةً ولا تُقرأ خطأً.
+   - لا حذف لاستبانة فيها ردود: «إغلاق» فقط، ويمكن «إعادة فتح» أو «نسخ».
+   - المدقّق والقوالب ومولّد الرمز من ملف واحد مشترك مع الخادم: survey-templates.js؛ والنتائج تُقرأ بمدقّق الخادم نفسه
+     على أسئلة الاستبانة نفسها: غير المطابق يُعدّ ويُعلَن لا يُسقَط بصمت.
    - الشاشة نافذة ملء الشاشة (ليست «عرضًا رئيسيًا»): لا تمسّ hideAllMainViews ولا تتعارض مع الشاشات.
    ============================================================ */
 
-const SURVEY_MIN_RESULTS = 5;
+const SURVEY_DEFAULT_MIN_RESULTS = 5;
 const SV_WHO = { guardian: 'ولي الأمر', student: 'الطالب' };
+const SV_REOPEN_DAYS = 7;
 
-let svState = null; /* { token, sectionId, campaign, invites, responses, tab, filter, loading, busy, noPhoneOpen } */
+let svState = null; /* { token, campaignId, campaign, sectionIds, invites, responses, tab, filter, secFilter, loading, busy, noPhoneOpen } */
 let svToken = 0;
 let svKeyHandler = null;
 
 /* ============ دوال صرفة ============ */
 
-/* الجهات التي تُرسل إليها تذاكر الطالب: ولي الأمر ثم الطالب؛ وإن تطابق الرقمان فتذكرة واحدة (لولي الأمر) */
-function svRecipientsFor(student){
+/* التذكرة لجهة الاستبانة وحدها: ولي الأمر (جوال ولي الأمر) أو الطالب (جوال الطالب) */
+function svRecipientsFor(student, audience){
   if(!student) return [];
-  const out = [];
-  if(student.guardian_phone) out.push({ recipient: 'guardian', phone: student.guardian_phone });
-  if(student.student_phone && student.student_phone !== student.guardian_phone) out.push({ recipient: 'student', phone: student.student_phone });
-  return out;
+  if(audience === 'guardian' && student.guardian_phone) return [{ recipient: 'guardian', phone: student.guardian_phone }];
+  if(audience === 'student' && student.student_phone) return [{ recipient: 'student', phone: student.student_phone }];
+  return [];
 }
 
 function svPhoneOfInvite(student, invite){
@@ -54,10 +56,10 @@ function svWaMessage(studentName, code, origin, reminder, recipient){
   return `${lead} ${about} (دقيقتان):\n${url}\nالردّ لا يُربط باسمك، وشكرًا لتعاونكم.`;
 }
 
-/* تجميع الإجابات الصالحة حسب القالب. النص يُخلط ترتيبه فلا يدلّ ترتيب الرد على صاحبه. */
-function svAggregate(answersList, template, rand){
+/* تجميع الإجابات الصالحة حسب أسئلة الاستبانة. النص يُخلط ترتيبه فلا يدلّ ترتيب الرد على صاحبه. */
+function svAggregate(answersList, questions, rand){
   const rnd = rand || Math.random;
-  return template.questions.map(q => {
+  return questions.map(q => {
     const vals = answersList.map(a => a ? a[q.id] : undefined).filter(v => v !== undefined && v !== null && v !== '');
     const out = { id: q.id, type: q.type, label: q.label, n: vals.length };
     if(q.type === 'rating'){
@@ -77,17 +79,18 @@ function svAggregate(answersList, template, rand){
   });
 }
 
-/* الردود → { ok, valid, invalid, items } بالمدقّق المشترك نفسه الذي يقبل به الخادم. لا إسقاط صامت: غير الصالح يُعدّ ويُعلَن. */
-function svAnalyze(responses, templateKey, rand){
-  const tpl = typeof SURVEY_TEMPLATES === 'object' && SURVEY_TEMPLATES ? SURVEY_TEMPLATES[templateKey] : null;
-  if(!tpl) return { ok: false, reason: 'unknown-template', valid: 0, invalid: responses.length, items: [] };
+/* الردود → { ok, valid, invalid, items } بالمدقّق المشترك نفسه الذي يقبل به الخادم على أسئلة الاستبانة نفسها.
+   لا إسقاط صامت: غير الصالح يُعدّ ويُعلَن؛ وأسئلة تالفة تُعلَن ولا تُعرض أرقام مضللة. */
+function svAnalyze(responses, questions, rand){
+  const qv = typeof surveyValidateQuestions === 'function' ? surveyValidateQuestions(questions) : { ok: false };
+  if(!qv.ok) return { ok: false, reason: 'bad-questions', valid: 0, invalid: responses.length, items: [] };
   const good = [];
   let invalid = 0;
   responses.forEach(r => {
-    const v = r && r.answers ? surveyValidateAnswers(templateKey, r.answers) : { ok: false };
+    const v = r && r.answers ? surveyValidateAnswers(qv.value, r.answers) : { ok: false };
     if(v.ok) good.push(v.value); else invalid++;
   });
-  return { ok: true, valid: good.length, invalid, items: svAggregate(good, tpl, rand) };
+  return { ok: true, valid: good.length, invalid, items: svAggregate(good, qv.value, rand) };
 }
 
 /* أضعف محور تقييم (إن وُجد أكثر من واحد) */
@@ -95,6 +98,18 @@ function svWeakestRating(items){
   const rs = items.filter(a => a.type === 'rating' && a.avg != null);
   if(rs.length < 2) return null;
   return rs.reduce((m, a) => a.avg < m.avg ? a : m, rs[0]);
+}
+
+/* متوسط كل أسئلة التقييم كنسبة مئوية (بلا افتراض سؤال بعينه: الأسئلة قد تتغيّر) */
+function svOverallPct(items){
+  const rs = items.filter(a => a.type === 'rating' && a.avg != null);
+  if(!rs.length) return null;
+  return Math.round(rs.reduce((s, a) => s + a.avg, 0) / rs.length / 5 * 100);
+}
+
+function svMinResults(c){
+  const n = c && Number(c.min_results);
+  return Number.isInteger(n) && n >= 1 ? n : SURVEY_DEFAULT_MIN_RESULTS;
 }
 
 function svFmtAvg(v){ return v == null ? '—' : v.toFixed(1); }
@@ -105,10 +120,10 @@ function svStillOpen(token){
   return !!svState && svState.token === token && !!document.getElementById('svBack');
 }
 
-async function openSurvey(sectionId){
-  if(!currentUser || !sectionId || typeof sectionId !== 'string') return;
+async function openSurvey(campaignId){
+  if(!currentUser || !campaignId || typeof campaignId !== 'string') return;
   const token = ++svToken;
-  svState = { token, sectionId, campaign: null, invites: [], responses: [], tab: 'send', filter: 'all', loading: true, busy: false, noPhoneOpen: false };
+  svState = { token, campaignId, campaign: null, sectionIds: [], invites: [], responses: [], tab: 'send', filter: 'all', secFilter: 'all', loading: true, busy: false, noPhoneOpen: false };
   svMount();
   svPaint();
   try{
@@ -126,7 +141,7 @@ function svMount(){
   back.className = 'sv-back';
   back.setAttribute('role', 'dialog');
   back.setAttribute('aria-modal', 'true');
-  back.setAttribute('aria-label', 'استبانة رضا المستفيدين');
+  back.setAttribute('aria-label', 'تفاصيل الاستبانة');
   back.innerHTML = '<div class="sv-sheet" id="svSheet"></div>';
   document.body.appendChild(back);
   svKeyHandler = e => { if(e.key === 'Escape' && !document.getElementById('confirmModal').style.display.includes('flex')) closeSurvey(); };
@@ -143,31 +158,36 @@ function closeSurvey(){
   svToken++; /* أي استجابة متأخرة لا ترسم ولا تكتب بعد الإغلاق */
   svState = null;
   svUnmount();
+  if(typeof toolsRefreshIfVisible === 'function') toolsRefreshIfVisible();
 }
 
 /* ============ تحميل ومزامنة ============ */
 
 async function svLoad(token){
   const uid = currentUser.id;
-  const sectionId = svState.sectionId;
-  const { data: camps, error } = await sb.from('survey_campaigns').select('*')
-    .eq('teacher_id', uid).eq('section_id', sectionId).order('created_at', { ascending: false }).limit(1);
-  if(error) throw error;
+  const [camp, secs] = await Promise.all([
+    sb.from('survey_campaigns').select('*').eq('teacher_id', uid).eq('id', svState.campaignId).maybeSingle(),
+    sb.from('survey_campaign_sections').select('section_id').eq('teacher_id', uid).eq('campaign_id', svState.campaignId),
+    toolsEnsureStructure()
+  ]).then(r => [r[0], r[1]]);
+  if(camp.error) throw camp.error;
+  if(secs.error) throw secs.error;
   if(!svStillOpen(token)) return;
-  svState.campaign = camps && camps[0] ? camps[0] : null;
-  if(svState.campaign){
-    await svSyncInvites(token);
-    if(!svStillOpen(token)) return;
-    await svLoadResponses(token);
-    if(!svStillOpen(token)) return;
-  }
+  if(!camp.data) throw new Error('الاستبانة غير موجودة');
+  svState.campaign = camp.data;
+  svState.sectionIds = (secs.data || []).map(r => r.section_id);
+  await svSyncInvites(token);
+  if(!svStillOpen(token)) return;
+  await svLoadResponses(token);
+  if(!svStillOpen(token)) return;
   svState.loading = false;
   svPaint();
 }
 
-/* الطلاب النشطون بالشعبة */
+/* الطلاب النشطون بشعب الاستبانة */
 function svSectionStudents(){
-  return crmStudentsOfSection(svState.sectionId).filter(s => s.is_active !== false);
+  const set = new Set(svState.sectionIds);
+  return crmStudents.filter(s => s.is_active !== false && set.has(s.section_id));
 }
 
 async function svFetchInvites(campaignId){
@@ -178,17 +198,17 @@ async function svFetchInvites(campaignId){
   return data || [];
 }
 
-/* تذكرة لكل (طالب، جهة) له رقمها ولا تذكرة له بعد. تتكرر عند كل فتح فتلتقط الطلاب الجدد والأرقام المضافة لاحقًا تلقائيًا. */
+/* تذكرة لكل طالب له رقم الجهة ولا تذكرة له بعد. تتكرر عند كل فتح فتلتقط الطلاب الجدد والأرقام المضافة لاحقًا تلقائيًا. */
 async function svSyncInvites(token){
   const c = svState.campaign;
   let invites = await svFetchInvites(c.id);
   if(!svStillOpen(token)) return;
-  if(svCampaignOpen(c)){
+  if(svCampaignOpen(c) && (c.audience === 'guardian' || c.audience === 'student')){
     const key = (sid, rec) => sid + '|' + rec;
     const have = new Set(invites.map(i => key(i.student_id, i.recipient)));
     const make = () => {
       const rows = [];
-      svSectionStudents().forEach(s => svRecipientsFor(s).forEach(r => {
+      svSectionStudents().forEach(s => svRecipientsFor(s, c.audience).forEach(r => {
         if(!have.has(key(s.id, r.recipient))) rows.push({ teacher_id: currentUser.id, campaign_id: c.id, student_id: s.id, recipient: r.recipient, code: surveyNewCode() });
       }));
       return rows;
@@ -226,32 +246,6 @@ async function svLoadResponses(token){
 
 /* ============ الإجراءات ============ */
 
-async function svStart(){
-  if(!svState || svState.busy) return;
-  const token = svState.token;
-  const btn = document.getElementById('svStartBtn');
-  svState.busy = true;
-  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ التجهيز…'; }
-  try{
-    const term = crmCurrentTerm();
-    const { data, error } = await sb.from('survey_campaigns').insert({
-      teacher_id: currentUser.id, section_id: svState.sectionId,
-      academic_year: String(term.year || '').slice(0, 20) || getCycleYear(),
-      semester_label: term.semester === 2 ? 'الفصل الثاني' : 'الفصل الأول'
-    }).select('*').single();
-    if(error) throw error;
-    if(!svStillOpen(token)) return;
-    svState.campaign = data;
-    svState.tab = 'send'; svState.filter = 'all'; svState.responses = [];
-    await svSyncInvites(token);
-    if(!svStillOpen(token)) return;
-  } catch(err){
-    showToast('تعذّر بدء الاستبانة: ' + (err && err.message ? err.message : 'خطأ'), 'error');
-  } finally {
-    if(svState && svState.token === token){ svState.busy = false; svPaint(); }
-  }
-}
-
 /* فتح واتساب يعلّم «أُرسل» (مرة واحدة)؛ النقرة نفسها رابط حقيقي فلا يحجبها المتصفح */
 async function svMarkSent(inviteId){
   if(!svState) return;
@@ -275,7 +269,7 @@ async function svClose(){
   if(!svState || svState.busy || !svState.campaign) return;
   const token = svState.token;
   const campaignId = svState.campaign.id;
-  const ok = await showConfirm('إغلاق الاستبانة؟ ستتوقف الروابط عن العمل ولا يستطيع أحد الرد بعدها، وتبقى النتائج محفوظة.');
+  const ok = await showConfirm('إغلاق الاستبانة؟ ستتوقف الروابط عن العمل ولا يستطيع أحد الرد بعدها، وتبقى النتائج محفوظة، ويمكنك إعادة فتحها لاحقًا.');
   if(!ok || !svStillOpen(token)) return;
   svState.busy = true; svPaint();
   try{
@@ -291,18 +285,71 @@ async function svClose(){
   }
 }
 
+/* إعادة فتح مغلقة (أو منتهية) لمدة SV_REOPEN_DAYS: الروابط القديمة تعمل ثانية، ويُكمَّل الناقص من التذاكر */
+async function svReopen(){
+  if(!svState || svState.busy || !svState.campaign) return;
+  const token = svState.token;
+  const campaignId = svState.campaign.id;
+  svState.busy = true; svPaint();
+  try{
+    const closesAt = new Date(Date.now() + SV_REOPEN_DAYS * 86400000).toISOString();
+    const { error } = await sb.from('survey_campaigns').update({ status: 'open', closes_at: closesAt })
+      .eq('teacher_id', currentUser.id).eq('id', campaignId);
+    if(error) throw error;
+    if(!svStillOpen(token)) return;
+    svState.campaign.status = 'open';
+    svState.campaign.closes_at = closesAt;
+    await svSyncInvites(token);
+    showToast('أُعيد فتح الاستبانة', 'ok');
+  } catch(err){
+    showToast('تعذّر إعادة الفتح: ' + (err && err.message ? err.message : 'خطأ'), 'error');
+  } finally {
+    if(svStillOpen(token)){ svState.busy = false; svPaint(); }
+  }
+}
+
+/* نسخ الاستبانة: عنوان جديد بالأسئلة والجهة والشعب نفسها، بلا إرسال ولا ردود، وتتصدّر تصنيفها */
+async function svCopy(){
+  if(!svState || svState.busy || !svState.campaign) return;
+  const token = svState.token;
+  const src = svState.campaign;
+  const sectionIds = svState.sectionIds.slice();
+  const uid = currentUser.id;
+  svState.busy = true; svPaint();
+  let createdId = null;
+  try{
+    const title = (src.title + ' (نسخة)').slice(0, SURVEY_LIMITS.maxTitle);
+    const { data, error } = await sb.from('survey_campaigns').insert({
+      teacher_id: uid, title, audience: src.audience, template: src.template,
+      questions: JSON.parse(JSON.stringify(src.questions)), min_results: src.min_results,
+      closes_at: new Date(Date.now() + 14 * 86400000).toISOString(),
+      sort_order: -Math.floor(Date.now() / 60000)
+    }).select('id').single();
+    if(error) throw error;
+    createdId = data.id;
+    if(sectionIds.length){
+      const ins = await sb.from('survey_campaign_sections').insert(sectionIds.map(sid => ({ teacher_id: uid, campaign_id: createdId, section_id: sid })));
+      if(ins.error) throw ins.error;
+    }
+  } catch(err){
+    if(createdId) await sb.from('survey_campaigns').delete().eq('teacher_id', uid).eq('id', createdId);
+    showToast('تعذّر نسخ الاستبانة: ' + (err && err.message ? err.message : 'خطأ'), 'error');
+    if(svStillOpen(token)){ svState.busy = false; svPaint(); }
+    return;
+  }
+  if(!svStillOpen(token)) return;
+  showToast('نُسخت الاستبانة', 'ok');
+  openSurvey(createdId); /* يستبدل هذه النافذة بالنسخة الجديدة (نفس النافذة، رمز جديد) */
+}
+
 function svSetTab(tab){ if(!svState) return; svState.tab = tab === 'results' ? 'results' : 'send'; svPaint(); }
 function svSetFilter(f){ if(!svState) return; svState.filter = f === 'remind' ? 'remind' : 'all'; svPaint(); }
+function svSetSecFilter(id){ if(!svState) return; svState.secFilter = id === 'all' || svState.sectionIds.indexOf(id) >= 0 ? id : 'all'; svPaint(); }
 function svToggleNoPhone(){ if(!svState) return; svState.noPhoneOpen = !svState.noPhoneOpen; svPaint(); }
 
 /* ============ الرسم ============ */
 
-function svSectionTitle(){
-  const sec = crmSectionById(svState.sectionId);
-  return sec ? crmSectionOptionLabel(sec) : 'الشعبة';
-}
-
-/* التذاكر التي يتعامل معها المعلم الآن: لطلاب نشطين بالشعبة (من غادر لا يُحسب عليه إرسال ناقص) */
+/* التذاكر التي يتعامل معها المعلم الآن: لطلاب نشطين بشعب الاستبانة (من غادر لا يُحسب عليه إرسال ناقص) */
 function svVisibleInvites(){
   const ids = new Set(svSectionStudents().map(s => s.id));
   return svState.invites.filter(i => ids.has(i.student_id));
@@ -317,7 +364,9 @@ function svHeaderHtml(counts){
     progress = `<div class="sv-progress" role="img" aria-label="ردّ ${counts.answered} وأُرسل ${counts.sent} ولم يُرسل ${counts.unsent}"><i class="sv-p-done" style="width:${a}%"></i><i class="sv-p-sent" style="width:${s}%"></i></div>
       <div class="sv-legend"><span>ردّ ${counts.answered}</span><span>أُرسل ${counts.sent}</span><span>لم يُرسل ${counts.unsent}</span></div>`;
   }
-  return `<div class="sv-head"><div class="sv-head-row"><button type="button" class="sv-back-btn" aria-label="رجوع" onclick="closeSurvey()">→</button><b class="sv-title">استبانة الرضا — ${escapeHtml(svSectionTitle())}</b></div>${progress}</div>`;
+  const aud = c && TOOLS_AUDIENCES[c.audience] ? TOOLS_AUDIENCES[c.audience].group : '';
+  const sub = c ? `${aud}${svCampaignOpen(c) ? ' · تنتهي ' + svDateAr(c.closes_at) : ''}` : '';
+  return `<div class="sv-head"><div class="sv-head-row"><button type="button" class="sv-back-btn" aria-label="رجوع إلى الاستبانات" onclick="closeSurvey()">→</button><span class="sv-title-box"><b class="sv-title">${escapeHtml(c ? c.title : 'الاستبانة')}</b>${sub ? `<small class="sv-sub">${escapeHtml(sub)}</small>` : ''}</span></div>${progress}</div>`;
 }
 
 function svPaint(){
@@ -328,7 +377,10 @@ function svPaint(){
     sheet.innerHTML = svHeaderHtml({ total: 0 }) + '<div class="sv-body"><div class="sv-empty">جارٍ التحميل…</div></div>';
     return;
   }
-  if(!st.campaign){ sheet.innerHTML = svHeaderHtml({ total: 0 }) + svStartHtml(); return; }
+  if(!st.campaign){
+    sheet.innerHTML = svHeaderHtml({ total: 0 }) + '<div class="sv-body"><div class="sv-card sv-center"><h2>الاستبانة غير موجودة</h2><p>ربما حُذفت من جهاز آخر. ارجع إلى قائمة الاستبانات.</p></div></div>';
+    return;
+  }
   const counts = svCounts(svVisibleInvites());
   const open = svCampaignOpen(st.campaign);
   const tabs = `<div class="sv-tabs" role="tablist">
@@ -337,8 +389,8 @@ function svPaint(){
   </div>`;
   const body = st.tab === 'results' ? svResultsHtml(counts) : svSendHtml(counts, open);
   const foot = open
-    ? `<div class="sv-foot"><button type="button" class="sv-ghost" id="svCloseBtn" onclick="svClose()"${st.busy ? ' disabled' : ''}>إغلاق الاستبانة</button><small>تنتهي ${escapeHtml(svDateAr(st.campaign.closes_at))}</small></div>`
-    : `<div class="sv-foot"><span class="sv-closed-note">مغلقة</span><button type="button" class="sv-primary-sm" id="svStartBtn" onclick="svStart()"${st.busy ? ' disabled' : ''}>استبانة جديدة</button></div>`;
+    ? `<div class="sv-foot"><button type="button" class="sv-ghost" id="svCloseBtn" onclick="svClose()"${st.busy ? ' disabled' : ''}>إغلاق الاستبانة</button></div>`
+    : '';
   sheet.innerHTML = svHeaderHtml(counts) + tabs + body + foot;
 }
 
@@ -346,92 +398,87 @@ function svDateAr(iso){
   try{ return new Date(iso).toLocaleDateString('ar-SA', { day: 'numeric', month: 'long' }); } catch(e){ return ''; }
 }
 
-function svStartHtml(){
-  const students = svSectionStudents();
-  const withPhone = students.filter(s => svRecipientsFor(s).length).length;
-  const noPhone = students.length - withPhone;
-  let guardians = 0, pupils = 0;
-  students.forEach(s => svRecipientsFor(s).forEach(r => { if(r.recipient === 'guardian') guardians++; else pupils++; }));
-  if(!students.length) return '<div class="sv-body"><div class="sv-empty">لا طلاب في هذه الشعبة بعد.</div></div>';
-  if(!withPhone) return `<div class="sv-body"><div class="sv-card sv-center"><h2>أضف أرقام الجوال أولًا</h2><p>تُرسل الاستبانة بواتساب إلى ولي الأمر أو الطالب. افتح ملف أي طالب وأضف رقمه من بطاقة «التواصل».</p></div></div>`;
-  return `<div class="sv-body">
-    <div class="sv-card sv-center">
-      <div class="sv-ico" aria-hidden="true">★</div>
-      <h2>استبانة رضا المستفيدين</h2>
-      <p>نرسل لولي أمر كل طالب وللطالب نفسه رابطًا خاصًّا بكلٍّ منهما عبر واتساب، فيجيب في دقيقتين، وتصلك النتائج تلقائيًا.</p>
-    </div>
-    <div class="sv-card sv-facts">
-      <div><span>روابط ولي الأمر</span><b>${guardians}</b></div>
-      <div><span>روابط الطالب</span><b>${pupils}</b></div>
-      <div><span>ينتهي الرابط بعد</span><b>14 يومًا</b></div>
-    </div>
-    ${noPhone ? `<p class="sv-note">${noPhone} ${noPhone === 1 ? 'طالب' : 'طلاب'} بلا رقم جوال — أضف رقمه لاحقًا وسيُضاف تلقائيًا.</p>` : ''}
-    <button type="button" class="sv-primary" id="svStartBtn" onclick="svStart()"${svState.busy ? ' disabled' : ''}>ابدأ الاستبانة</button>
-    <p class="sv-note sv-center-t">الردّ لا يُربط باسم صاحبه، وتظهر النتائج بعد ${SURVEY_MIN_RESULTS} ردود على الأقل.</p>
-  </div>`;
+/* حالة «مغلقة»: تقول ما حدث وتعطي بلاطتين: إعادة فتح ونسخ */
+function svClosedHtml(){
+  const st = svState;
+  const c = st.campaign;
+  const why = c.status === 'closed' ? 'أُغلقت هذه الاستبانة' : 'انتهت مدة هذه الاستبانة';
+  return `<div class="sv-card sv-closed"><b>${why}</b><p>الروابط التي أُرسلت لم تعد تقبل ردودًا، ونتائجها محفوظة في قائمتك.</p></div>
+    <div class="sv-tiles2">
+      <button type="button" class="sv-tile2" onclick="svReopen()"${st.busy ? ' disabled' : ''}><b>إعادة فتح</b><small>لمدة ${SV_REOPEN_DAYS} أيام، وتعمل الروابط القديمة مجددًا</small></button>
+      <button type="button" class="sv-tile2" onclick="svCopy()"${st.busy ? ' disabled' : ''}><b>نسخ الاستبانة</b><small>استبانة جديدة بالأسئلة نفسها دون ردود</small></button>
+    </div>`;
 }
 
 function svSendHtml(counts, open){
   const st = svState;
+  const c = st.campaign;
+  if(c.audience !== 'guardian' && c.audience !== 'student'){
+    return `<div class="sv-body"><div class="sv-card sv-center"><h2>الاستبانات المخصّصة</h2><p>هذا النوع يُضاف في تحديث قادم.</p></div></div>`;
+  }
+  if(!st.sectionIds.length) return `<div class="sv-body">${open ? '' : svClosedHtml()}<div class="sv-card sv-center"><h2>لا شعب لهذه الاستبانة</h2><p>الشعب التي أُنشئت لها حُذفت. انسخ الاستبانة واختر شعبًا جديدة.</p></div></div>`;
   const rows = [];
   const noPhone = [];
   svSectionStudents().forEach(s => {
-    const invs = st.invites.filter(i => i.student_id === s.id).sort((a, b) => (a.recipient === 'guardian' ? 0 : 1) - (b.recipient === 'guardian' ? 0 : 1));
-    if(!invs.length){ if(!svRecipientsFor(s).length) noPhone.push(s); return; }
-    rows.push({ s, invs });
+    if(st.secFilter !== 'all' && s.section_id !== st.secFilter) return;
+    const inv = st.invites.find(i => i.student_id === s.id);
+    if(!inv){ if(!svRecipientsFor(s, c.audience).length) noPhone.push(s); return; }
+    rows.push({ s, inv });
   });
   rows.sort((a, b) => crmByArabic(a.s.full_name, b.s.full_name));
-  /* ما بقي من عمل يتصدّر القائمة: من عنده تذكرة لم تُرسل، ثم من أُرسلت له، ثم من ردّ كله */
-  const rank = r => Math.min(...r.invs.map(i => i.answered_on ? 2 : (i.sent_at ? 1 : 0)));
+  /* ما بقي من عمل يتصدّر القائمة: من لم يُرسل له، ثم من أُرسل له، ثم من ردّ */
+  const rank = r => r.inv.answered_on ? 2 : (r.inv.sent_at ? 1 : 0);
   rows.sort((a, b) => rank(a) - rank(b));
   const remind = st.filter === 'remind';
-  const shown = remind ? rows.filter(r => r.invs.some(i => i.sent_at && !i.answered_on)) : rows;
-  const filters = `<div class="sv-filters"><button type="button" class="sv-chip${!remind ? ' is-on' : ''}" onclick="svSetFilter('all')">كل الطلاب</button><button type="button" class="sv-chip${remind ? ' is-on' : ''}" onclick="svSetFilter('remind')">ذكّر من لم يرد (${counts.sent})</button></div>`;
-  const list = shown.length ? shown.map(r => svRowHtml(r.s, remind ? r.invs.filter(i => i.sent_at && !i.answered_on) : r.invs, open)).join('')
-    : `<div class="sv-empty">${remind ? 'لا أحد بانتظار التذكير.' : 'لا طلاب بأرقام جوال.'}</div>`;
-  const nop = noPhone.length ? `<div class="sv-nophone"><button type="button" class="sv-np-btn" aria-expanded="${st.noPhoneOpen}" onclick="svToggleNoPhone()">${noPhone.length} ${noPhone.length === 1 ? 'طالب' : 'طلاب'} بلا رقم جوال <span aria-hidden="true">${st.noPhoneOpen ? '▴' : '▾'}</span></button>${st.noPhoneOpen ? `<div class="sv-np-list">${noPhone.map(s => `<span>${escapeHtml(s.full_name)}</span>`).join('')}</div><small>أضف الرقم من ملف الطالب (بطاقة «التواصل») وسيُضاف هنا تلقائيًا.</small>` : ''}</div>` : '';
-  return `<div class="sv-body">${filters}<div class="sv-list">${list}</div>${nop}</div>`;
+  const shown = remind ? rows.filter(r => r.inv.sent_at && !r.inv.answered_on) : rows;
+  const secChips = st.sectionIds.length > 1
+    ? `<div class="sv-chips">${[['all', 'كل الشعب']].concat(st.sectionIds.map(id => [id, crmSectionLabel(id)])).map(x => `<button type="button" class="sv-chip2${st.secFilter === x[0] ? ' is-on' : ''}" onclick="svSetSecFilter('${escapeHtml(x[0])}')">${escapeHtml(x[1])}</button>`).join('')}</div>`
+    : '';
+  const filters = open ? `<button type="button" class="sv-chip${remind ? ' is-on' : ''}" onclick="svSetFilter('${remind ? 'all' : 'remind'}')">${remind ? 'عرض كل الطلاب' : `ذكّر من لم يرد (${counts.sent})`}</button>` : '';
+  const list = shown.length ? shown.map(r => svRowHtml(r.s, r.inv, open)).join('')
+    : (open || remind ? `<div class="sv-empty">${remind ? 'لا أحد بانتظار التذكير.' : 'لا طلاب بأرقام جوال.'}</div>` : '');
+  const noPhoneWord = c.audience === 'guardian' ? 'رقم ولي أمر' : 'رقم جوال';
+  const nop = noPhone.length ? `<div class="sv-nophone"><button type="button" class="sv-np-btn" aria-expanded="${st.noPhoneOpen}" onclick="svToggleNoPhone()">${noPhone.length} ${noPhone.length === 1 ? 'طالب' : 'طلاب'} بلا ${noPhoneWord} <span aria-hidden="true">${st.noPhoneOpen ? '▴' : '▾'}</span></button>${st.noPhoneOpen ? `<div class="sv-np-list">${noPhone.map(s => `<span>${escapeHtml(s.full_name)}</span>`).join('')}</div><small>أضف الرقم من ملف الطالب (بطاقة «التواصل») وسيُضاف هنا تلقائيًا عند فتح الاستبانة.</small>` : ''}</div>` : '';
+  return `<div class="sv-body">${open ? '' : svClosedHtml()}${secChips}${filters}<div class="sv-list">${list}</div>${nop}</div>`;
 }
 
-/* زر واحد لكل جهة: واتساب (لم يُرسل) / أعد الإرسال (أُرسل) / ✓ ردّ */
+/* زر واحد لكل طالب: واتساب (لم يُرسل) / أعد الإرسال (أُرسل) / ✓ ردّ */
 function svActionHtml(s, inv, open){
-  const who = SV_WHO[inv.recipient] || '';
-  if(inv.answered_on) return `<span class="sv-act sv-act-done">${who} ✓ ردّ</span>`;
+  if(inv.answered_on) return `<span class="sv-act sv-act-done">✓ ردّ</span>`;
   if(!open || !inv.code) return '';
   const phone = svPhoneOfInvite(s, inv);
   const reminder = !!inv.sent_at;
   const wa = phone ? waChatUrl(phone, svWaMessage(s.full_name, inv.code, location.origin, reminder, inv.recipient)) : '';
-  if(!wa) return `<span class="sv-act sv-act-none">${who} · بلا رقم</span>`;
-  return `<a class="${reminder ? 'sv-act sv-wa sv-wa-again' : 'sv-act sv-wa'}" href="${escapeHtml(wa)}" target="_blank" rel="noopener" onclick="svMarkSent('${escapeHtml(inv.id)}')">${who} · ${reminder ? 'أعد الإرسال' : 'واتساب'}</a>`;
+  if(!wa) return `<span class="sv-act sv-act-none">بلا رقم</span>`;
+  return `<a class="${reminder ? 'sv-act sv-wa sv-wa-again' : 'sv-act sv-wa'}" href="${escapeHtml(wa)}" target="_blank" rel="noopener" onclick="svMarkSent('${escapeHtml(inv.id)}')">${reminder ? 'أعد الإرسال' : 'واتساب'}</a>`;
 }
 
-function svRowHtml(s, invs, open){
-  const acts = invs.map(i => svActionHtml(s, i, open)).join('');
-  const done = invs.length && invs.every(i => i.answered_on);
-  const none = !invs.some(i => i.sent_at || i.answered_on);
-  const hint = done ? '<small class="sv-st sv-st-done">✓ ردّوا جميعًا</small>' : (none ? '<small class="sv-st">لم يُرسل بعد</small>' : '');
-  return `<div class="sv-row"><div class="sv-row-top"><b>${escapeHtml(s.full_name)}</b>${hint}</div><div class="sv-acts">${acts}</div></div>`;
+function svRowHtml(s, inv, open){
+  const state = inv.answered_on ? ['ردّ', 'sv-st-done'] : (inv.sent_at ? ['أُرسل — بانتظار الرد', 'sv-st-sent'] : ['لم يُرسل بعد', '']);
+  const sec = s.section_id ? crmSectionLabel(s.section_id) : '';
+  return `<div class="sv-row"><span class="sv-row-main"><b>${escapeHtml(s.full_name)}</b><small class="sv-st ${state[1]}">${escapeHtml(sec)}${sec ? ' · ' : ''}${state[0]}</small></span><div class="sv-acts">${svActionHtml(s, inv, open)}</div></div>`;
 }
 
 function svResultsHtml(counts){
   const st = svState;
-  const tplKey = st.campaign.template;
-  const an = svAnalyze(st.responses, tplKey);
+  const c = st.campaign;
+  const an = svAnalyze(st.responses, c.questions);
   if(!an.ok){
-    return `<div class="sv-body"><div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">!</div><h2>نسخة أسئلة غير مدعومة</h2><p>هذه الاستبانة بنسخة أسئلة («${escapeHtml(tplKey || 'غير معروفة')}») لا يعرفها هذا الإصدار من التطبيق. حدّث التطبيق ثم أعد المحاولة، ولن تُعرض نتائج مضللة.</p></div></div>`;
+    return `<div class="sv-body"><div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">!</div><h2>أسئلة الاستبانة غير صالحة</h2><p>لا يمكن قراءة أسئلة هذه الاستبانة، فلن تُعرض نتائج مضللة. أرسل لنا ذلك عبر «تواصل معنا».</p></div></div>`;
   }
+  const min = svMinResults(c);
   const n = an.valid;
   const warn = an.invalid ? `<div class="sv-weak sv-warn"><b>تنبيه:</b> ${an.invalid} ${an.invalid === 1 ? 'رد' : 'ردود'} لا يطابق صيغة الأسئلة فاستُبعد من الحساب.</div>` : '';
-  if(n < SURVEY_MIN_RESULTS){
-    const left = SURVEY_MIN_RESULTS - n;
+  if(n < min){
+    const left = min - n;
     return `<div class="sv-body">${warn}<div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">⏳</div><h2>ننتظر ردودًا أكثر</h2>
-      <p>تظهر النتائج بعد ${SURVEY_MIN_RESULTS} ردود على الأقل حمايةً لخصوصية المستفيدين. وصلك حتى الآن ${n} ${n === 1 ? 'رد' : 'ردود'}${left > 0 ? `، وبقي ${left}` : ''}.</p>
-      <div class="sv-meter" role="img" aria-label="${n} من ${SURVEY_MIN_RESULTS}"><i style="width:${Math.min(100, Math.round(100 * n / SURVEY_MIN_RESULTS))}%"></i></div></div></div>`;
+      <p>تظهر النتائج بعد ${min} ${min === 1 ? 'رد' : 'ردود'} على الأقل حمايةً لخصوصية المستفيدين. وصلك حتى الآن ${n} ${n === 1 ? 'رد' : 'ردود'}${left > 0 ? `، وبقي ${left}` : ''}.</p>
+      <div class="sv-meter" role="img" aria-label="${n} من ${min}"><i style="width:${Math.min(100, Math.round(100 * n / min))}%"></i></div></div></div>`;
   }
   const rate = counts.total ? Math.min(100, Math.round(100 * n / counts.total)) : 0;
-  const overall = an.items.find(a => a.id === 'q7');
-  const weak = svWeakestRating(an.items.filter(a => a.id !== 'q7'));
-  const head = `<div class="sv-card sv-bigstat"><b>${overall && overall.avg != null ? Math.round(overall.avg / 5 * 100) + '%' : '—'}</b><span>نسبة الرضا العام<br><small>من ${n} ${n === 1 ? 'رد' : 'ردود'} (${rate}% من الروابط)</small></span></div>`;
+  const pct = svOverallPct(an.items);
+  const weak = svWeakestRating(an.items);
+  const head = pct == null ? '' : `<div class="sv-card sv-bigstat"><b>${pct}%</b><span>متوسط التقييمات<br><small>من ${n} ${n === 1 ? 'رد' : 'ردود'} (${rate}% من الروابط)</small></span></div>`;
   const weakNote = weak ? `<div class="sv-weak"><b>أضعف محور:</b> ${escapeHtml(weak.label)} (${svFmtAvg(weak.avg)} من 5)</div>` : '';
   const blocks = an.items.map(a => svAggBlockHtml(a, weak)).join('');
   return `<div class="sv-body">${warn}${head}${weakNote}${blocks}</div>`;
