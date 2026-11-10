@@ -781,60 +781,22 @@ async function renderCrmFollowups(){
   box.innerHTML = '<div class="loading-state">جارٍ التحميل...</div>';
   const [cache, openRes, closedRes] = await Promise.all([
     getAttentionFresh(),
-    sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, review_date, created_at').eq('teacher_id', currentUser.id).eq('status', 'open').order('review_date', { ascending: true }),
+    sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, review_date, created_at, agreement').eq('teacher_id', currentUser.id).eq('status', 'open').order('review_date', { ascending: true }),
     sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, outcome, next_step, closed_at').eq('teacher_id', currentUser.id).eq('status', 'closed').order('closed_at', { ascending: false }).limit(60)
   ]);
   if(token !== crmFollowupsToken) return;
   /* متابعات أداة مخفية (الحضور/السلوك) لا تظهر — بياناتها باقية */
   if(openRes.data) openRes.data = openRes.data.filter(followupVisible);
   if(closedRes.data) closedRes.data = closedRes.data.filter(followupVisible);
-  const todayIso = localIsoDate();
-  let html = '';
-
-  if(ATTENTION_ALERTS_ON){
-    html += '<div class="crm-today-card"><div class="crm-today-title">يحتاج انتباهي' + (cache ? ` (${cache.cards.length})` : '') + '</div>';
-    if(!cache) html += '<div class="crm-today-empty">تعذّر الفحص الآن. <a href="#" onclick="event.preventDefault();renderCrmFollowups()">إعادة المحاولة</a></div>';
-    else if(!cache.cards.length) html += '<div class="crm-today-empty">لا شيء يستدعي انتباهك الآن ✓ — تظهر هنا البطاقات عند غياب أو تأخر متكرر، أو خطاب معلّق، أو متابعة حان موعدها.</div>';
-    else html += cache.cards.map(attentionCardHtml).join('');
-    html += '</div>';
-  }
-
-  html += '<div class="crm-today-card"><div class="crm-today-title">متابعات مفتوحة</div>';
-  if(openRes.error) html += '<div class="crm-today-empty">تعذّر التحميل.</div>';
-  else if(!(openRes.data || []).length) html += '<div class="crm-today-empty">لا متابعات مفتوحة. افتحها من بطاقة انتباه أو من ملف الطالب.</div>';
-  else html += collapseFollowupGroups(openRes.data).map(f => {
-    const due = f.review_date <= todayIso;
-    if(f.members){
-      return `<div class="crm-lesson-row">
-        <span>👥 ${escapeHtml(f.reason_text)} · ${arabicCountPhrase(f.members.length, CRM_STUDENT_COUNT_FORMS)}${f.section_id ? ' · ' + escapeHtml(crmSectionLabel(f.section_id)) : ''}
-          <span style="font-size:11px;color:${due ? '#8A2C2C' : 'var(--muted)'};"> — المراجعة ${shortDateAr(f.review_date)}</span></span>
-        <button class="btn ${due ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmGroupReviewModal('${f.group_id}')">مراجعة</button>
-      </div>`;
-    }
-    const st = cache && cache.data.students.find(x => x.id === f.student_id);
-    const gone = st && st.is_active === false ? ' <span style="font-size:11px;color:var(--muted);">(نُقل خارج المدرسة)</span>' : '';
-    return `<div class="crm-lesson-row">
-      <span><a href="#" onclick="event.preventDefault();openCrmStudentProfile('${f.student_id}', { type: 'tab', tab: 'followups' })">${escapeHtml(attentionStudentName(f.student_id))}</a>${gone} · ${escapeHtml(f.reason_text)}
-        <span style="font-size:11px;color:${due ? '#8A2C2C' : 'var(--muted)'};"> — المراجعة ${shortDateAr(f.review_date)}</span></span>
-      <button class="btn ${due ? 'btn-primary' : 'btn-outline'} crm-mini-btn" onclick="openCrmReviewModal('${f.id}')">مراجعة</button>
-    </div>`;
-  }).join('');
-  html += '</div>';
-
-  html += '<div class="crm-today-card"><div class="crm-today-title">مغلقة (آخر 20)</div>';
-  if(!(closedRes.data || []).length) html += '<div class="crm-today-empty">لا متابعات مغلقة بعد.</div>';
-  else html += collapseFollowupGroups(closedRes.data).slice(0, 20).map(f => f.members ? `<div class="crm-lesson-row">
-      <span>👥 ${escapeHtml(f.reason_text)} · ${arabicCountPhrase(f.members.length, CRM_STUDENT_COUNT_FORMS)}</span>
-      <span class="crm-tl-meta">${escapeHtml(groupOutcomeSummary(f.members))}</span>
-    </div>` : `<div class="crm-lesson-row">
-      <span>${escapeHtml(attentionStudentName(f.student_id))} · ${escapeHtml(f.reason_text)}</span>
-      <span class="crm-tl-meta">${FOLLOWUP_OUTCOMES[f.outcome] || ''}${f.next_step ? ' ← ' + FOLLOWUP_NEXT_STEPS[f.next_step] : ''}</span>
-    </div>`).join('');
-  html += '</div>';
-
-  if(ACADEMIC_ON) html += `<div style="margin-top:6px;"><a href="#" style="font-size:12px;" onclick="event.preventDefault();showAcademicTracking()">الإحالات الأكاديمية (الشاشة السابقة) ←</a></div>`;
-  box.innerHTML = html;
+  /* العرض (بحث، فصول، تصنيف بالحالة) في app-48: fuTabPaint يعيد الرسم من هذه البيانات بلا جلب جديد */
+  crmFuTab = {
+    cache, openError: !!openRes.error,
+    open: collapseFollowupGroups(openRes.data || []),
+    closed: collapseFollowupGroups(closedRes.data || []).slice(0, 20)
+  };
+  fuTabPaint();
 }
+let crmFuTab = null; /* { cache, openError, open, closed } — آخر ما جُلب لتبويب المتابعة */
 
 /* ============================================================
    نافذة فتح متابعة
