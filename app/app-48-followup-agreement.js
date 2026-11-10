@@ -37,6 +37,19 @@ const FA_LIBRARY = {
     commitments: ['أنتبه لطريقة كلامي في الحصة', 'أستأذن قبل الكلام', 'أبقى في مكاني أثناء الشرح'],
     supports: ['أن تغيّر مكان جلوسي', 'أن تنبّهني بإشارة هادئة', FA_NO_SUPPORT]
   },
+  /* متابعات التحصيل المقترحة من الدرجات (app-49): مكتبة بحسب نوع الضعف (baseline.focus) */
+  grades_homework: {
+    commitments: ['أسلّم كل واجب في موعده', 'أكتب مواعيد الواجبات في دفتري', 'أسألك قبل الموعد إن لم أفهم الواجب'],
+    supports: ['أن تذكّرني قبل موعد التسليم', 'أن تشرح لي الواجب إن صعب عليّ', FA_NO_SUPPORT]
+  },
+  grades_tahsili: {
+    commitments: ['أراجع الدرس عشر دقائق كل يوم', 'أحلّ التدريبات التي تعطيني إياها', 'أسأل عمّا لا أفهمه أثناء الحصة'],
+    supports: ['أن تعيد لي شرح ما فاتني', 'أن تعطيني تدريبات قبل الاختبار', FA_NO_SUPPORT]
+  },
+  grades_participation: {
+    commitments: ['أشارك في الحصة مرة على الأقل', 'أرفع يدي حين أعرف الإجابة', 'أجهّز سؤالًا عن الدرس كل حصة'],
+    supports: ['أن تسألني سؤالًا سهلًا لأبدأ', 'أن تشجّعني حين أشارك', FA_NO_SUPPORT]
+  },
   other: {
     commitments: ['أحافظ على هدوئي وانتباهي في الحصة', 'أشارك في الحصة مرة على الأقل', 'أتواصل معك إن واجهتني صعوبة'],
     supports: ['أن نتحدث على انفراد', 'أن تتابعني بلطف', FA_NO_SUPPORT]
@@ -47,15 +60,16 @@ const FA_LIBRARY = {
    دوال صرفة
    ============================================================ */
 
-function faLibraryFor(reasonType){
+function faLibraryFor(reasonType, focus){
+  if(reasonType === 'grades' && focus && FA_LIBRARY['grades_' + focus]) return FA_LIBRARY['grades_' + focus];
   return FA_LIBRARY[reasonType] || FA_LIBRARY.other;
 }
 
 /* يبني الاتفاق المحفوظ، أو null إن كان المُدخل غير صالح.
    input: { status: 'agreed' | 'wants_talk', commit: فهرس|null, support: فهرس|null }
    "أوافق" يتطلب الاختيارين معًا؛ "أريد أن أتحدث أولًا" يحفظ ما اختير حتى الآن (قد يكون لا شيء). */
-function faBuildAgreement(reasonType, input, todayIso){
-  const lib = faLibraryFor(reasonType);
+function faBuildAgreement(reasonType, input, todayIso, focus){
+  const lib = faLibraryFor(reasonType, focus);
   const i = input || {};
   if(i.status !== 'agreed' && i.status !== 'wants_talk') return null;
   const pick = (list, idx) => (Number.isInteger(idx) && idx >= 0 && idx < list.length) ? list[idx] : null;
@@ -87,7 +101,7 @@ let faDraft = null; /* { followupId, studentId, reasonType, reasonText, reviewDa
 async function openFollowupAgreement(followupId){
   /* إعادة قراءة المتابعة من القاعدة: قد تكون أُغلقت من جهاز/تبويب آخر قبل فتح الشاشة */
   const { data: f, error } = await sb.from('classroom_followups')
-    .select('id, student_id, reason_type, reason_text, review_date, status, group_id, agreement')
+    .select('id, student_id, reason_type, reason_text, review_date, status, group_id, agreement, baseline')
     .eq('teacher_id', currentUser.id).eq('id', followupId).maybeSingle();
   if(error || !f){ showToast('تعذّر تحميل المتابعة', 'error'); return; }
   if(f.status !== 'open'){ showToast('هذه المتابعة مُغلقة', 'error'); return; }
@@ -95,6 +109,7 @@ async function openFollowupAgreement(followupId){
   faDraft = {
     followupId: f.id, studentId: f.student_id, reasonType: f.reason_type, reasonText: f.reason_text,
     reviewDate: f.review_date, name: faFirstName(attentionStudentName(f.student_id)),
+    focus: (f.baseline && typeof f.baseline.focus === 'string') ? f.baseline.focus : null,
     step: 1, commit: null, support: null, saving: false
   };
   showInfoModal('<div id="faRoot" class="fa-wrap"></div>', '460px');
@@ -111,7 +126,7 @@ function faPaint(){
   const d = faDraft;
   const root = document.getElementById('faRoot');
   if(!d || !root) return;
-  const lib = faLibraryFor(d.reasonType);
+  const lib = faLibraryFor(d.reasonType, d.focus);
   const card = (kind, list, selected) => list.map((t, i) =>
     `<button type="button" class="fa-card${selected === i ? ' fa-sel' : ''}" onclick="faPick('${kind}', ${i})">${escapeHtml(t)}</button>`).join('');
   const dots = `<div class="fa-top"><span class="fa-dots" aria-label="الخطوة ${d.step} من 3">${[1, 2, 3].map(n => `<i class="${n <= d.step ? 'on' : ''}"></i>`).join('')}</span><button type="button" class="fa-link fa-exit" onclick="faExit()">خروج</button></div>`;
@@ -165,7 +180,7 @@ function faBack(){
 async function faSave(status){
   const d = faDraft;
   if(!d || d.saving) return;
-  const agreement = faBuildAgreement(d.reasonType, { status, commit: d.commit, support: d.support }, localIsoDate());
+  const agreement = faBuildAgreement(d.reasonType, { status, commit: d.commit, support: d.support }, localIsoDate(), d.focus);
   if(!agreement){ showToast('أكمل الاختيار أولًا', 'error'); return; }
   d.saving = true;
   document.querySelectorAll('#faRoot button').forEach(b => { b.disabled = true; });
@@ -350,7 +365,18 @@ function fuTabPaint(){
     else html += t.cache.cards.map(attentionCardHtml).join('');
     html += '</div>';
   }
-  html += `<div class="fu-h"><b>أتابعهم الآن (${t.open.length})</b><button type="button" class="btn btn-outline crm-mini-btn fu-new" onclick="fuNewFollowup()">+ متابعة جديدة</button></div>`;
+  /* «أتابعهم الآن» أو «مقترحون من الدرجات» (app-49) */
+  const mode = s.mode === 'suggest' && typeof gsBodyHtml === 'function' ? 'suggest' : 'open';
+  const gc = typeof gsCount === 'function' ? gsCount() : null;
+  html += `<div class="fu-modes"><button type="button" class="fu-f${mode === 'open' ? ' fu-on' : ''}" onclick="fuTabSet('mode', 'open')">أتابعهم الآن (${t.open.length})</button>${
+    typeof gsBodyHtml === 'function' ? `<button type="button" class="fu-f${mode === 'suggest' ? ' fu-on' : ''}" onclick="fuTabSet('mode', 'suggest')">مقترحون من الدرجات${gc === null ? '' : ` (${gc})`}</button>` : ''}</div>`;
+  if(mode === 'suggest'){
+    html += `<div id="gsBody">${gsBodyHtml()}</div>`;
+    box.innerHTML = html;
+    gsEnsureLoaded();
+    return;
+  }
+  html += `<div class="fu-h"><span></span><button type="button" class="btn btn-outline crm-mini-btn fu-new" onclick="fuNewFollowup()">+ متابعة جديدة</button></div>`;
   if(t.open.length > 3) html += `<input type="search" class="fu-search" id="fuTabSearch" maxlength="60" placeholder="🔍 ابحث باسم الطالب" value="${escapeHtml(s.q)}" oninput="fuTabSearch(this.value)">`;
   if(sections.length > 1){
     html += `<div class="fu-chips"><button type="button" class="fu-f${s.section ? '' : ' fu-on'}" onclick="fuTabSet('section', '')">كل الفصول</button>${
@@ -368,7 +394,7 @@ function fuTabSearch(value){
 }
 
 function fuTabSet(key, value){
-  if(!['section', 'more', 'closed'].includes(key)) return;
+  if(!['section', 'more', 'closed', 'mode'].includes(key)) return;
   fuTabState[key] = value;
   fuTabPaint();
 }

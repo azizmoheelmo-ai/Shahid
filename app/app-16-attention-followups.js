@@ -433,7 +433,9 @@ function gradeFollowupBaseline(columns, scores, studentId, category){
 function computeGradeFollowupResult(followup, columns, scores){
   const cat = followup.baseline && followup.baseline.category;
   if(!cat) return { sufficient: false };
-  const colById = new Map((columns || []).filter(c => c.category === cat).map(c => [c.id, c]));
+  /* متابعة مقترحة من الدرجات (app-49): القياس على البند الضعيف نفسه (columnIds) لا الفئة كلها */
+  const focusIds = Array.isArray(followup.baseline.columnIds) && followup.baseline.columnIds.length ? new Set(followup.baseline.columnIds) : null;
+  const colById = new Map((columns || []).filter(c => focusIds ? focusIds.has(c.id) : c.category === cat).map(c => [c.id, c]));
   const opened = new Date(followup.created_at).getTime();
   const after = (scores || []).filter(g => g.student_id === followup.student_id && colById.has(g.column_id) &&
     new Date(g.updated_at).getTime() > opened);
@@ -828,7 +830,7 @@ function openCrmFollowupModal(studentId, prefill){
   const reasonType = p.reasonType || 'other';
   crmFollowupDraft = { studentId, baseline: p.baseline || null, prefillReason: reasonType, saving: false };
   const reasonOptions = Object.keys(FOLLOWUP_REASONS).map(k => `<option value="${k}"${k === reasonType ? ' selected' : ''}>${FOLLOWUP_REASONS[k]}</option>`).join('');
-  const actionOptions = Object.keys(FOLLOWUP_ACTIONS).map(k => `<option value="${k}">${FOLLOWUP_ACTIONS[k]}</option>`).join('');
+  const actionOptions = Object.keys(FOLLOWUP_ACTIONS).map(k => `<option value="${k}"${k === p.actionType ? ' selected' : ''}>${FOLLOWUP_ACTIONS[k]}</option>`).join('');
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">فتح متابعة</h3>
@@ -838,7 +840,7 @@ function openCrmFollowupModal(studentId, prefill){
       <input class="goal-input" id="crmFuText" maxlength="500" value="${escapeHtml(p.reasonText || '')}" placeholder="الوقائع باختصار (مثال: غاب 3 من آخر 8 حصص)" style="margin-bottom:8px;">
       <label class="crm-field-label">الإجراء الأول</label>
       <select class="goal-input" id="crmFuAction" style="margin-bottom:6px;">${actionOptions}</select>
-      <input class="goal-input" id="crmFuNote" maxlength="500" placeholder="ملاحظة على الإجراء (اختياري)" style="margin-bottom:8px;">
+      <input class="goal-input" id="crmFuNote" maxlength="500" value="${escapeHtml(p.note || '')}" placeholder="ملاحظة على الإجراء (اختياري)" style="margin-bottom:8px;">
       <label class="crm-field-label">موعد المراجعة</label>
       <input type="date" class="goal-input" id="crmFuReview" value="${defaultReviewDate(localIsoDate())}" min="${localIsoDate()}" style="margin-bottom:10px;">
       <button class="btn btn-primary" id="crmFuSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmFollowup()">فتح المتابعة</button>
@@ -878,6 +880,7 @@ async function saveCrmFollowup(){
     showToast(aErr ? 'فُتحت المتابعة، لكن تعذّر حفظ الإجراء — أضفه من "مراجعة"' : 'فُتحت المتابعة ✓', aErr ? 'error' : 'ok');
     await refreshAttentionViews();
     if(crmProfile && crmProfile.studentId === d.studentId) renderCrmStudentProfile();
+    if(typeof gsInvalidate === 'function') gsInvalidate();
     if(typeof faOfferAfterOpen === 'function') faOfferAfterOpen(fu.id);
   } catch(e){
     showToast('تعذّر فتح المتابعة: ' + (e.message || ''), 'error');
@@ -946,7 +949,7 @@ async function openCrmReviewModal(followupId){
   } else if(f.reason_type === 'behavior'){
     beforeAfter = `<div class="crm-ba-row"><span>بعد الفتح</span><b>${result.recurred ? `تكررت المخالفة ${result.recurred} مرة` : 'لم تتكرر المخالفة'}</b></div>`;
   } else if(f.reason_type === 'grades' && base.category){
-    beforeAfter = `<div class="crm-ba-row"><span>قبل (وقت الفتح)</span><b>${GRADE_CATEGORY_SHORT[base.category]} ${base.pct}% مما رُصد</b></div>
+    beforeAfter = `<div class="crm-ba-row"><span>قبل (وقت الفتح)</span><b>${escapeHtml(base.label || GRADE_CATEGORY_SHORT[base.category])} ${base.pct}% مما رُصد</b></div>
       <div class="crm-ba-row"><span>بعد الفتح</span><b>${gradeAfterText(result)}</b></div>`;
   } else {
     beforeAfter = '<div class="crm-ba-row"><span>القياس</span><b>بحكمك (لا مؤشر رقمي لهذا السبب)</b></div>';
