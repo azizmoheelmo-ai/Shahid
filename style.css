@@ -2907,3 +2907,17 @@ button.bt-cell{cursor:pointer;}
 .tq-other{background:#fff;border:1px solid var(--line);padding:6px 6px 6px 10px;display:flex;align-items:center;gap:8px;margin-top:8px;}
 .tq-other span{flex:1;display:flex;flex-direction:column;line-height:1.7;}
 .tq-other small{font-size:12px;color:var(--muted);text-align:right;}
+
+/* اتفاق المتابعة مع الطالب (app-48): بطاقات كبيرة قليلة، تُناول الشاشة للطالب */
+.fa-wrap{text-align:right;}
+.fa-prog{font-size:12px;color:var(--muted);margin-bottom:4px;}
+.fa-q{font-size:20px;font-weight:700;color:var(--navy);line-height:1.7;margin:0 0 14px;}
+.fa-card{display:block;width:100%;min-height:58px;text-align:right;font-family:inherit;font-size:17px;line-height:1.6;padding:14px 16px;margin-bottom:10px;border:2px solid var(--line);border-radius:14px;background:#fff;color:var(--navy);cursor:pointer;}
+.fa-card:active,.fa-card.fa-sel{border-color:var(--navy);background:#EEF3FB;}
+.fa-card:disabled{opacity:.6;}
+.fa-sum{background:#FAF8F3;border:1px solid var(--line);border-radius:14px;padding:14px 16px;font-size:17px;line-height:1.9;margin-bottom:14px;}
+.fa-when{font-size:13px;color:var(--muted);margin-top:4px;}
+.fa-agree{width:100%;border-radius:14px;justify-content:center;min-height:56px;font-size:18px;}
+.fa-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;}
+.fa-link{background:none;border:0;padding:8px 4px;font-family:inherit;font-size:13px;color:var(--muted);text-decoration:underline;cursor:pointer;}
+.fa-line{font-size:12.5px;line-height:1.7;color:var(--navy);margin:4px 0 6px;}
