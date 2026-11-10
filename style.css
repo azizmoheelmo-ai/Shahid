@@ -2921,3 +2921,47 @@ button.bt-cell{cursor:pointer;}
 .fa-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;}
 .fa-link{background:none;border:0;padding:8px 4px;font-family:inherit;font-size:13px;color:var(--muted);text-decoration:underline;cursor:pointer;}
 .fa-line{font-size:12.5px;line-height:1.7;color:var(--navy);margin:4px 0 6px;}
+
+/* تبويب «متابعة» (app-48): بحث + فصول + تصنيف بالحالة، سطر لكل طالب وزر واحد */
+.fu-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 2px 8px;}
+.fu-h b{font-size:15px;color:var(--navy);}
+.fu-new{border-radius:10px;}
+.fu-search{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:11px;padding:10px 12px;font-family:inherit;font-size:16px;background:#fff;margin-bottom:8px;}
+.fu-chips{display:flex;gap:6px;overflow-x:auto;margin-bottom:12px;padding-bottom:2px;}
+.fu-f{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px;font-family:inherit;color:#4A4539;white-space:nowrap;cursor:pointer;}
+.fu-f.fu-on{background:var(--navy);color:#fff;border-color:var(--navy);}
+.fu-grp{font-size:12.5px;font-weight:800;color:#8A2C2C;margin:6px 2px;}
+.fu-grp.fu-calm{color:var(--muted);}
+.fu-box{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden;}
+.fu-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #EEE9DF;}
+.fu-row:last-child{border-bottom:0;}
+.fu-main{min-width:0;}
+.fu-name{font-size:14.5px;font-weight:800;color:var(--navy);line-height:1.6;}
+.fu-name-link,.fu-name-link:visited{color:var(--navy);text-decoration:none;}
+.fu-sec{font-size:11px;font-weight:600;color:var(--muted);}
+.fu-fact{font-size:12.5px;color:#4A4539;line-height:1.7;}
+.fu-side{display:flex;flex-direction:column;align-items:flex-start;gap:4px;flex:none;}
+.fu-chip{font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 8px;white-space:nowrap;}
+.fu-late{background:#FBE9E7;color:#8A2C2C;}
+.fu-soon{background:#EEF3FB;color:var(--navy);}
+.fu-b{border-radius:9px;min-height:34px;padding:4px 10px;font-size:12px;}
+.fu-out{flex:none;font-size:12px;color:var(--muted);}
+.fu-more{display:block;width:100%;border:0;border-top:1px solid #EEE9DF;background:none;font-family:inherit;font-size:12.5px;color:var(--muted);padding:10px;cursor:pointer;}
+.fu-closed{display:flex;justify-content:space-between;width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;color:var(--muted);padding:12px 14px;background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:10px;cursor:pointer;}
+.fu-pick{max-height:320px;overflow-y:auto;}
+.fu-pick-row{display:block;width:100%;text-align:right;border:0;border-bottom:1px solid #EEE9DF;background:#fff;font-family:inherit;font-size:14.5px;color:var(--navy);padding:11px 12px;cursor:pointer;}
+.fu-pick-row:last-child{border-bottom:0;}
+
+/* شاشة الاتفاق: نقاط التقدّم بدل الأرقام، وخروج خافت */
+.fa-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.fa-dots{display:inline-flex;gap:6px;}
+.fa-dots i{width:9px;height:9px;border-radius:50%;background:#D9D3C5;display:inline-block;}
+.fa-dots i.on{background:var(--navy);}
+.fa-exit{font-size:12px;padding:4px;}
+/* نافذة مراجعة المتابعة: قرار واحد */
+.rv-q{font-size:15px;font-weight:800;color:var(--navy);margin:14px 0 8px;}
+.rv-outs{display:flex;gap:6px;}
+.rv-out,.rv-next{flex:1;justify-content:center;min-height:46px;border-radius:11px;font-size:14px;}
+.rv-out small{font-weight:500;font-size:10.5px;}
+.rv-more{margin-top:10px;border-top:1px solid #EEE9DF;padding-top:8px;}
+.rv-more summary{font-size:12.5px;color:var(--muted);cursor:pointer;}
