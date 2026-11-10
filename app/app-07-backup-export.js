@@ -1738,6 +1738,16 @@ do $$ begin
   end if;
 end $$;
 
+-- اتفاق المتابعة مع الطالب (FOLLOWUP-AGREEMENT.md، المرحلة 1): عمود واحد على المتابعة نفسها بلا جدول جديد،
+-- فيرث تلقائيًا RLS المالك وسلة المحذوفات والنسخ الاحتياطي وسياسة تعطيل الحساب. إضافي وآمن التكرار.
+alter table public.classroom_followups add column if not exists agreement jsonb;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_followups_agreement_chk' and conrelid = 'public.classroom_followups'::regclass) then
+    alter table public.classroom_followups add constraint classroom_followups_agreement_chk
+      check (agreement is null or (jsonb_typeof(agreement) = 'object' and agreement->>'status' in ('agreed', 'wants_talk') and octet_length(agreement::text) <= 1500));
+  end if;
+end $$;
+
 create table if not exists public.classroom_followup_actions (
   id uuid primary key default gen_random_uuid(),
   followup_id uuid not null,

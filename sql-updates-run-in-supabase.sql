@@ -423,6 +423,16 @@ do $$ begin
 end $$;
 create unique index if not exists student_report_shares_short_code_key on public.student_report_shares(short_code) where short_code is not null;
 
+-- اتفاق المتابعة مع الطالب (FOLLOWUP-AGREEMENT.md، المرحلة 1): عمود واحد على المتابعة نفسها بلا جدول جديد،
+-- فيرث تلقائيًا RLS المالك وسلة المحذوفات والنسخ الاحتياطي وسياسة تعطيل الحساب. إضافي وآمن التكرار.
+alter table public.classroom_followups add column if not exists agreement jsonb;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_followups_agreement_chk' and conrelid = 'public.classroom_followups'::regclass) then
+    alter table public.classroom_followups add constraint classroom_followups_agreement_chk
+      check (agreement is null or (jsonb_typeof(agreement) = 'object' and agreement->>'status' in ('agreed', 'wants_talk') and octet_length(agreement::text) <= 1500));
+  end if;
+end $$;
+
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
 -- الاستبانة كائن مستقل على مستوى المعلم: عنوان، وجمهور واحد، وشعب مختارة، وأسئلتها هي (نسخة محفوظة بالحملة)،
 -- وترتيب يحدده المعلم، وعتبة عرض نتائج لكل استبانة.

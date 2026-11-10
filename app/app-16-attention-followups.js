@@ -1001,6 +1001,7 @@ async function openCrmReviewModal(followupId){
         <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">الأرقام تُظهر ما تغيّر بعد التدخل، لا أنه سبب التغيّر.</div></div>
       <div class="crm-field-label" style="margin-top:8px;">الإجراءات</div>
       ${actionsHtml}
+      ${typeof faInlineHtml === 'function' && !f.group_id ? `<div class="crm-field-label" style="margin-top:10px;">اتفاق مع الطالب</div>${faInlineHtml(f)}` : ''}
       <div class="crm-field-label" style="margin-top:10px;">النتيجة</div>
       <div style="display:flex;gap:6px;margin-bottom:6px;">${outcomeBtns}</div>
       <div id="crmNextStepBox" style="display:none;margin-bottom:8px;">
