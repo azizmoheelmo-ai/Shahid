@@ -1370,6 +1370,79 @@ $fn$;
 revoke execute on function public.delete_survey(uuid) from public, anon;
 grant execute on function public.delete_survey(uuid) to authenticated;
 
+-- ============================================================
+-- النسخة الاحتياطية الشاملة للمسؤول (app-07: exportFullBackup)
+-- سياسات الجداول تمنع المسؤول من قراءة بيانات المعلمين في أغلب جداول إدارة الصف (خصوصية مقصودة للشاشات)،
+-- فكانت «النسخة الشاملة» تحمل بيانات المسؤول وحده في تلك الجداول بصمت. هذه الدوال تقرأ كل الجداول كاملة
+-- لغرض النسخ فقط، وللمسؤول وحده (is_admin)، ولا تغيّر صلاحيات أي شاشة.
+-- - قائمة بيضاء ثابتة: لا اسم جدول من الطلب يُنفَّذ إلا إن كان فيها. خارجها عمدًا: رموز الموصل (personal_access_tokens)
+--   ومحاولات الدخول وروابط التقارير المؤقتة (student_report_shares) — لا قيمة لاستعادتها.
+-- - روابط الاستبانة تُصدَّر بلا رمز (code = null)، فلا تُحيي النسخةُ المستعادة روابطَ قديمة (SURVEYS.md).
+-- - كل نسخة تُسجَّل في audit_log بأعداد الجداول.
+-- ============================================================
+create or replace function public.admin_backup_tables()
+returns text[] language sql immutable set search_path = '' as $fn$
+  select array[
+    'profiles', 'admins', 'performance_elements', 'audit_log',
+    'shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'shahid_drafts', 'tasks',
+    'activity_programs', 'program_sections', 'support_messages', 'deleted_items', 'user_app_settings',
+    'academic_calendar_weeks', 'academic_calendar_holidays', 'academic_cases',
+    'classroom_grade_levels', 'classroom_sections', 'classroom_students', 'classroom_incident_types', 'classroom_incidents',
+    'classroom_letter_counters', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance',
+    'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions',
+    'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_custom_tools', 'classroom_grade_columns',
+    'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_tool_marks',
+    'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes',
+    'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students',
+    'survey_campaigns', 'survey_campaign_sections', 'survey_invites', 'survey_responses'
+  ]::text[]
+$fn$;
+
+-- أعداد الصفوف الفعلية لكل جدول (تُقارَن بما جُلب، فيُكشف أي نقص) + تسجيل النسخة في سجل النشاط
+create or replace function public.admin_backup_counts()
+returns jsonb language plpgsql security definer set search_path = '' as $fn$
+declare v_uid uuid := auth.uid(); v_t text; v_n bigint; v_res jsonb := '{}'::jsonb;
+begin
+  if v_uid is null or not public.is_admin(v_uid) then raise exception 'forbidden'; end if;
+  foreach v_t in array public.admin_backup_tables() loop
+    if to_regclass(format('public.%I', v_t)) is null then continue; end if; -- جدول غير منشأ بعد: يغيب من الأعداد فيُعلَن ناقصًا
+    execute format('select count(*) from public.%I', v_t) into v_n;
+    v_res := v_res || jsonb_build_object(v_t, v_n);
+  end loop;
+  insert into public.audit_log (action, table_name, performed_by, performed_by_email, details)
+    values ('full_backup', 'all', v_uid, (select u.email from auth.users u where u.id = v_uid), jsonb_build_object('counts', v_res));
+  return v_res;
+end
+$fn$;
+
+-- صفحة صفوف من جدول (بترتيب المفتاح الأساسي، فالصفحات المتتالية لا تُسقط ولا تكرّر صفًا)
+create or replace function public.admin_backup_rows(p_table text, p_offset integer, p_limit integer)
+returns jsonb language plpgsql security definer set search_path = '' as $fn$
+declare v_uid uuid := auth.uid(); v_order text; v_rows jsonb;
+begin
+  if v_uid is null or not public.is_admin(v_uid) then raise exception 'forbidden'; end if;
+  if p_table is null or not (p_table = any(public.admin_backup_tables())) then raise exception 'unknown table'; end if;
+  if p_offset is null or p_offset < 0 or p_limit is null or p_limit < 1 or p_limit > 1000 then raise exception 'bad range'; end if;
+  select string_agg(format('t.%I', a.attname), ', ' order by array_position(i.indkey::int2[], a.attnum)) into v_order
+    from pg_catalog.pg_index i
+    join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+    where i.indrelid = format('public.%I', p_table)::regclass and i.indisprimary;
+  if v_order is null then raise exception 'no primary key: %', p_table; end if;
+  execute format('select coalesce(jsonb_agg(to_jsonb(t) order by %s), ''[]''::jsonb) from (select * from public.%I t order by %s offset $1 limit $2) t',
+    v_order, p_table, v_order) into v_rows using p_offset, p_limit;
+  if p_table = 'survey_invites' then
+    select coalesce(jsonb_agg(x.e || jsonb_build_object('code', null) order by x.n), '[]'::jsonb) into v_rows
+      from jsonb_array_elements(v_rows) with ordinality x(e, n);
+  end if;
+  return v_rows;
+end
+$fn$;
+
+revoke execute on function public.admin_backup_counts() from public, anon;
+revoke execute on function public.admin_backup_rows(text, integer, integer) from public, anon;
+grant execute on function public.admin_backup_counts() to authenticated;
+grant execute on function public.admin_backup_rows(text, integer, integer) to authenticated;
+
 
 
 -- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:
@@ -2681,6 +2754,20 @@ function updateBackupProgress(pct, msg){
   document.getElementById('fullBackupMsg').textContent = msg;
 }
 
+/* صفحة النسخة الشاملة: يطابق الحد الأقصى في admin_backup_rows */
+const FULL_BACKUP_PAGE = 1000;
+
+/* دالة صرفة: يقارن ما جُلب بالأعداد الفعلية. جدول غائب من الأعداد (غير منشأ بالقاعدة) يُعدّ ناقصًا لا مكتملًا */
+function fullBackupCompleteness(tables, expected, data){
+  const mismatches = [];
+  tables.forEach(t => {
+    const got = (data[t] || []).length;
+    const exp = expected && Object.prototype.hasOwnProperty.call(expected, t) ? Number(expected[t]) : null;
+    if(exp === null || exp !== got) mismatches.push({ table: t, got, expected: exp });
+  });
+  return { ok: mismatches.length === 0, mismatches };
+}
+
 async function exportFullBackup(){
   if(!isAdmin){
     showToast('هذه الميزة مخصصة للمسؤول فقط.', 'error');
@@ -2700,23 +2787,30 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes', 'lesson_plans', 'shahid_drafts', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items'];
-    /* عمود ترتيب ثابت لكل جدول — ضروري لصحّة fetchAllRows: بدون ORDER BY
-       صريح لا يضمن Postgres نفس ترتيب الصفوف بين طلبات range() منفصلة، ما
-       قد يُسقط أو يكرّر صفوفًا بصمت لجدول كبير. أغلب الجداول لها عمود id،
-       والثلاثة المستثناة (مفتاحها الأساسي مركّب/بدون id) لا تتجاوز عمليًا
-       صفًا واحدًا لكل معلم فلن تحتاج أكثر من صفحة واحدة أصلًا. */
-    const orderColumns = { plan_header: 'cycle_year', admins: 'added_at', classroom_letter_counters: 'updated_at' };
-    const data = {};
-    for(const t of tables){
-      try{
-        /* نسخة احتياطية كاملة يجب ألا تفقد صفوفًا بصمت لو تجاوز جدول ما حد
-           الصفوف الافتراضي للاستعلام الواحد (1000) — نجلبها صفحات متتالية */
-        const orderCol = orderColumns[t] || 'id';
-        const { data: rows } = await fetchAllRows((from, to) => sb.from(t).select('*').order(orderCol, { ascending: true }).range(from, to));
-        data[t] = rows || [];
-      } catch(e){ data[t] = []; }
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes', 'lesson_plans', 'shahid_drafts', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items', 'survey_campaigns', 'survey_campaign_sections', 'survey_invites', 'survey_responses'];
+    /* سياسات الجداول تمنع المسؤول من قراءة بيانات المعلمين في أغلب جداول إدارة الصف (خصوصية الشاشات)، فالقراءة
+       المباشرة كانت تُرجع بيانات المسؤول وحده في تلك الجداول بصمت. النسخ يمرّ بدالتي المسؤول admin_backup_counts/
+       admin_backup_rows (sql-updates-run-in-supabase.sql): كل الجداول كاملة بترتيب المفتاح الأساسي، للمسؤول وحده.
+       أي فشل يوقف النسخة (نسخة ناقصة بصمت أسوأ من عدمها)، والأعداد الفعلية تُقارَن بما جُلب وتُكتب في الملف. */
+    const { data: expected, error: cntErr } = await sb.rpc('admin_backup_counts');
+    if(cntErr || !expected || typeof expected !== 'object'){
+      const missing = cntErr && (cntErr.code === 'PGRST202' || /admin_backup_counts/.test(cntErr.message || ''));
+      throw new Error(missing ? 'دالة النسخة الشاملة غير مثبّتة في قاعدة البيانات بعد (شغّل تحديث SQL الأخير)' : ('تعذّر قراءة أعداد الجداول: ' + ((cntErr && cntErr.message) || 'خطأ')));
     }
+    const data = {};
+    for(let ti = 0; ti < tables.length; ti++){
+      const t = tables[ti];
+      updateBackupProgress(10 + Math.round(14 * ti / tables.length), 'جارٍ سحب البيانات: ' + t);
+      const rows = [];
+      for(let off = 0; ; off += FULL_BACKUP_PAGE){
+        const { data: page, error } = await sb.rpc('admin_backup_rows', { p_table: t, p_offset: off, p_limit: FULL_BACKUP_PAGE });
+        if(error || !Array.isArray(page)) throw new Error('تعذّر جلب جدول ' + t + (error && error.message ? ' (' + error.message + ')' : '') + '، فأُوقفت النسخة حتى لا تكون ناقصة. حاول مرة أخرى');
+        page.forEach(r => rows.push(r));
+        if(page.length < FULL_BACKUP_PAGE) break;
+      }
+      data[t] = rows;
+    }
+    const completeness = fullBackupCompleteness(tables, expected, data);
 
     /* 2) ملف JSON شامل */
     updateBackupProgress(25, 'جارٍ تجهيز ملفات البيانات...');
@@ -2726,6 +2820,9 @@ async function exportFullBackup(){
       exported_by: { name: meta.full_name || '', email: currentUser.email },
       cycle_year: getCycleYear(),
       counts: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v.length])),
+      expected_counts: expected,
+      complete: completeness.ok,
+      mismatches: completeness.mismatches,
       tables: data
     };
     zip.file('backup-full.json', JSON.stringify(backup, null, 2));
@@ -2819,6 +2916,10 @@ async function exportFullBackup(){
       '     43. classroom_rubric_criteria.csv (اختبار بسلّم تقدير — لازم بعد classroom_grade_columns)',
       '     44. classroom_rubric_marks.csv (لازم بعد classroom_rubric_criteria وclassroom_students)',
       '     45. classroom_rubric_notes.csv (لازم بعد classroom_grade_columns وclassroom_students)',
+      '     46. survey_campaigns.csv (استبانات الرضا — لازم بعد profiles)',
+      '     47. survey_campaign_sections.csv (لازم بعد survey_campaigns وclassroom_sections)',
+      '     48. survey_invites.csv (لازم بعد survey_campaigns وclassroom_students؛ بلا رموز الروابط عمدًا فلا تعود روابط قديمة صالحة)',
+      '     49. survey_responses.csv (لازم بعد survey_campaigns)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',
@@ -2851,7 +2952,9 @@ async function exportFullBackup(){
       '  • csv/                    ملفات Excel مقروءة لكل جدول',
       '  • photos/                 الصور الفعلية مرتبة حسب المعلم',
       '',
-      'هذه النسخة مكتملة: تحتوي على البنية والبيانات والصور معًا.',
+      completeness.ok
+        ? 'فحص الاكتمال: كل الجداول مطابقة لأعدادها الفعلية في قاعدة البيانات لحظة التصدير.'
+        : 'تنبيه — فحص الاكتمال: جداول لا تطابق أعدادها الفعلية (غالبًا تعديل حدث أثناء التصدير؛ أعد التصدير): ' + completeness.mismatches.map(m => m.table + ' (' + m.got + ' من ' + m.expected + ')').join('، '),
       'ما لا تحتويه: كلمات مرور الحسابات (لأسباب أمنية).'
     ].join('\n');
     zip.file('README.txt', '\uFEFF' + summary);
@@ -2932,7 +3035,8 @@ async function exportFullBackup(){
 
     const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
     updateBackupProgress(100, `تم بنجاح — ${data.shawahid.length} شاهد، ${allPhotos.length - failed} صورة، الحجم ${sizeMb} ميجابايت${failed ? ` (تعذّر تحميل ${failed} صورة)` : ''}`);
-    showToast('تم تنزيل النسخة الاحتياطية الشاملة', 'ok');
+    if(completeness.ok) showToast('تم تنزيل النسخة الاحتياطية الشاملة (كل الجداول مكتملة)', 'ok');
+    else showToast('نُزّلت النسخة لكن ' + completeness.mismatches.length + ' جدول لا يطابق عدده الفعلي (تفاصيله في README.txt) — أعد التصدير', 'error');
   } catch(err){
     updateBackupProgress(0, 'تعذّر إنشاء النسخة: ' + err.message);
     showToast('تعذّر إنشاء النسخة الاحتياطية', 'error');

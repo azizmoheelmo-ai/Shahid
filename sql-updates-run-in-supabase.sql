@@ -737,3 +737,76 @@ end
 $fn$;
 revoke execute on function public.delete_survey(uuid) from public, anon;
 grant execute on function public.delete_survey(uuid) to authenticated;
+
+-- ============================================================
+-- النسخة الاحتياطية الشاملة للمسؤول (app-07: exportFullBackup)
+-- سياسات الجداول تمنع المسؤول من قراءة بيانات المعلمين في أغلب جداول إدارة الصف (خصوصية مقصودة للشاشات)،
+-- فكانت «النسخة الشاملة» تحمل بيانات المسؤول وحده في تلك الجداول بصمت. هذه الدوال تقرأ كل الجداول كاملة
+-- لغرض النسخ فقط، وللمسؤول وحده (is_admin)، ولا تغيّر صلاحيات أي شاشة.
+-- - قائمة بيضاء ثابتة: لا اسم جدول من الطلب يُنفَّذ إلا إن كان فيها. خارجها عمدًا: رموز الموصل (personal_access_tokens)
+--   ومحاولات الدخول وروابط التقارير المؤقتة (student_report_shares) — لا قيمة لاستعادتها.
+-- - روابط الاستبانة تُصدَّر بلا رمز (code = null)، فلا تُحيي النسخةُ المستعادة روابطَ قديمة (SURVEYS.md).
+-- - كل نسخة تُسجَّل في audit_log بأعداد الجداول.
+-- ============================================================
+create or replace function public.admin_backup_tables()
+returns text[] language sql immutable set search_path = '' as $fn$
+  select array[
+    'profiles', 'admins', 'performance_elements', 'audit_log',
+    'shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'shahid_drafts', 'tasks',
+    'activity_programs', 'program_sections', 'support_messages', 'deleted_items', 'user_app_settings',
+    'academic_calendar_weeks', 'academic_calendar_holidays', 'academic_cases',
+    'classroom_grade_levels', 'classroom_sections', 'classroom_students', 'classroom_incident_types', 'classroom_incidents',
+    'classroom_letter_counters', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance',
+    'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions',
+    'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_custom_tools', 'classroom_grade_columns',
+    'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_tool_marks',
+    'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes',
+    'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students',
+    'survey_campaigns', 'survey_campaign_sections', 'survey_invites', 'survey_responses'
+  ]::text[]
+$fn$;
+
+-- أعداد الصفوف الفعلية لكل جدول (تُقارَن بما جُلب، فيُكشف أي نقص) + تسجيل النسخة في سجل النشاط
+create or replace function public.admin_backup_counts()
+returns jsonb language plpgsql security definer set search_path = '' as $fn$
+declare v_uid uuid := auth.uid(); v_t text; v_n bigint; v_res jsonb := '{}'::jsonb;
+begin
+  if v_uid is null or not public.is_admin(v_uid) then raise exception 'forbidden'; end if;
+  foreach v_t in array public.admin_backup_tables() loop
+    if to_regclass(format('public.%I', v_t)) is null then continue; end if; -- جدول غير منشأ بعد: يغيب من الأعداد فيُعلَن ناقصًا
+    execute format('select count(*) from public.%I', v_t) into v_n;
+    v_res := v_res || jsonb_build_object(v_t, v_n);
+  end loop;
+  insert into public.audit_log (action, table_name, performed_by, performed_by_email, details)
+    values ('full_backup', 'all', v_uid, (select u.email from auth.users u where u.id = v_uid), jsonb_build_object('counts', v_res));
+  return v_res;
+end
+$fn$;
+
+-- صفحة صفوف من جدول (بترتيب المفتاح الأساسي، فالصفحات المتتالية لا تُسقط ولا تكرّر صفًا)
+create or replace function public.admin_backup_rows(p_table text, p_offset integer, p_limit integer)
+returns jsonb language plpgsql security definer set search_path = '' as $fn$
+declare v_uid uuid := auth.uid(); v_order text; v_rows jsonb;
+begin
+  if v_uid is null or not public.is_admin(v_uid) then raise exception 'forbidden'; end if;
+  if p_table is null or not (p_table = any(public.admin_backup_tables())) then raise exception 'unknown table'; end if;
+  if p_offset is null or p_offset < 0 or p_limit is null or p_limit < 1 or p_limit > 1000 then raise exception 'bad range'; end if;
+  select string_agg(format('t.%I', a.attname), ', ' order by array_position(i.indkey::int2[], a.attnum)) into v_order
+    from pg_catalog.pg_index i
+    join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+    where i.indrelid = format('public.%I', p_table)::regclass and i.indisprimary;
+  if v_order is null then raise exception 'no primary key: %', p_table; end if;
+  execute format('select coalesce(jsonb_agg(to_jsonb(t) order by %s), ''[]''::jsonb) from (select * from public.%I t order by %s offset $1 limit $2) t',
+    v_order, p_table, v_order) into v_rows using p_offset, p_limit;
+  if p_table = 'survey_invites' then
+    select coalesce(jsonb_agg(x.e || jsonb_build_object('code', null) order by x.n), '[]'::jsonb) into v_rows
+      from jsonb_array_elements(v_rows) with ordinality x(e, n);
+  end if;
+  return v_rows;
+end
+$fn$;
+
+revoke execute on function public.admin_backup_counts() from public, anon;
+revoke execute on function public.admin_backup_rows(text, integer, integer) from public, anon;
+grant execute on function public.admin_backup_counts() to authenticated;
+grant execute on function public.admin_backup_rows(text, integer, integer) to authenticated;

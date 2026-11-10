@@ -142,7 +142,9 @@ test('البنية: السجل والحاوية بلا سياسة مسؤول، �
   assert.doesNotMatch(src, /\.sr tr[,'`]/, 'لا «.sr tr» العامة (رأس الجدول)');
   assert.match(src, /area\.style\.width = '700px'/, 'عرض 700px كالطباعة');
   const sql = fs.readFileSync(path.join(root, 'sql-updates-run-in-supabase.sql'), 'utf8');
-  const block = sql.slice(sql.indexOf("'report-shares'"));
+  /* حتى كتلة دوال النسخة الشاملة (للمسؤول بطبيعتها، ولا تشمل جدول الروابط ولا حاويته) */
+  const bEnd = sql.indexOf('-- النسخة الاحتياطية الشاملة للمسؤول');
+  const block = sql.slice(sql.indexOf("'report-shares'"), bEnd > 0 ? bEnd : undefined);
   assert.doesNotMatch(block, /is_admin/, 'لا سياسة مسؤول على الحاوية ولا السجل');
   assert.match(block, /public.*false|array\['application\/pdf'\]/s);
   assert.match(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), /app\/app-43-report-share\.js/);
