@@ -63,6 +63,14 @@ test('فحص الاكتمال: المطابق مكتمل، والناقص وال
   assert.deepEqual(J(app.fullBackupCompleteness(['a', 'b'], { a: 3 }, { a: [1, 2], b: [] })), { ok: false, mismatches: [{ table: 'a', got: 2, expected: 3 }, { table: 'b', got: 0, expected: null }] });
 });
 
+test('سجل النشاط: زيادته أثناء التصدير (سطر النسخة نفسها) ليست نقصًا، ونقصه نقص', () => {
+  const app = loadApp({});
+  /* حالة حقيقية: عُدّ 2269 ثم سجّلت الدالة سطر النسخة فجُلب 2270 */
+  assert.equal(app.fullBackupCompleteness(['audit_log'], { audit_log: 2269 }, { audit_log: new Array(2270) }).ok, true);
+  assert.equal(app.fullBackupCompleteness(['audit_log'], { audit_log: 2269 }, { audit_log: new Array(2268) }).ok, false);
+  assert.equal(app.fullBackupCompleteness(['shawahid'], { shawahid: 101 }, { shawahid: new Array(102) }).ok, false, 'غيره يبقى مطابقة تامة');
+});
+
 /* ============ مسار التصدير ============ */
 
 async function run(rpcImpl){

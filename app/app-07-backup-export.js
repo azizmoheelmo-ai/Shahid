@@ -2757,13 +2757,17 @@ function updateBackupProgress(pct, msg){
 /* صفحة النسخة الشاملة: يطابق الحد الأقصى في admin_backup_rows */
 const FULL_BACKUP_PAGE = 1000;
 
+/* سجل النشاط إضافة فقط: يزيد أثناء التصدير بطبيعته (أولها سطر هذه النسخة نفسها، يُكتب بعد العدّ)، فالزيادة فيه ليست نقصًا */
+const FULL_BACKUP_APPEND_ONLY = ['audit_log'];
+
 /* دالة صرفة: يقارن ما جُلب بالأعداد الفعلية. جدول غائب من الأعداد (غير منشأ بالقاعدة) يُعدّ ناقصًا لا مكتملًا */
 function fullBackupCompleteness(tables, expected, data){
   const mismatches = [];
   tables.forEach(t => {
     const got = (data[t] || []).length;
     const exp = expected && Object.prototype.hasOwnProperty.call(expected, t) ? Number(expected[t]) : null;
-    if(exp === null || exp !== got) mismatches.push({ table: t, got, expected: exp });
+    const ok = exp !== null && (got === exp || (FULL_BACKUP_APPEND_ONLY.includes(t) && got > exp));
+    if(!ok) mismatches.push({ table: t, got, expected: exp });
   });
   return { ok: mismatches.length === 0, mismatches };
 }
