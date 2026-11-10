@@ -77,6 +77,12 @@ const TOKEN_RE = /^shahid_(pat|rw)_[A-Za-z0-9_-]{20,}$/;
 /* نوع الرمز يُستنتج من بادئته: shahid_pat_ = قراءة فقط، shahid_rw_ = قراءة وتعديل.
    البادئة جزء من النص المُجزَّأ (SHA-256) فلا يمكن ترقية رمز قراءة لتعديل. */
 const WRITE_TOKEN_PREFIX = 'shahid_rw_';
+
+/* رموز رابط التقويم (api/calendar-feed.js) بنفس شكل رمز القراءة shahid_pat_، فيميّزها التصنيف وحده.
+   رابط التقويم يُعطى لتطبيقات تقويم خارجية (جوجل/آبل) ويُحفظ عندها كرابط قليل الحساسية،
+   فلا يجوز أن يفتح بيانات الطلاب عبر الموصل: يُرفض هنا كأنه رمز غير موجود.
+   يجب أن يطابق CALENDAR_FEED_TOKEN_LABEL في api/calendar-feed.js وapp/app-12-calendar.js (اختبار يتحقق). */
+const CALENDAR_FEED_TOKEN_LABEL = 'رابط تقويم ICS';
 const canWriteToken = raw => typeof raw === 'string' && raw.startsWith(WRITE_TOKEN_PREFIX);
 function tokenFrom(req){
   const header = (req.headers && req.headers['authorization']) || '';
@@ -101,10 +107,10 @@ async function authenticate(req, supabase){
 
   const { data, error } = await supabase
     .from('personal_access_tokens')
-    .select('id, user_id, revoked_at, expires_at')
+    .select('id, user_id, label, revoked_at, expires_at')
     .eq('token_hash', hashToken(raw))
     .maybeSingle();
-  if(error || !data) return { userId: null, reason: 'invalid_token' };
+  if(error || !data || data.label === CALENDAR_FEED_TOKEN_LABEL) return { userId: null, reason: 'invalid_token' };
   if(data.revoked_at) return { userId: null, reason: 'revoked_token', ownerId: data.user_id };
   if(data.expires_at && new Date(data.expires_at).getTime() < Date.now()){
     return { userId: null, reason: 'expired_token', ownerId: data.user_id };
@@ -796,4 +802,5 @@ module.exports.hashToken = hashToken;
 module.exports.authenticate = authenticate;
 module.exports.tokenFrom = tokenFrom;
 module.exports.canWriteToken = canWriteToken;
+module.exports.CALENDAR_FEED_TOKEN_LABEL = CALENDAR_FEED_TOKEN_LABEL;
 module.exports.buildServer = buildServer;
