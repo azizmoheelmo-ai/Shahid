@@ -18,7 +18,11 @@ const {
 function makeFakeSupabase(seedByTable){
   function chain(table){
     const filters = [];
-    const matchingRows = () => (seedByTable[table] || []).filter(r => filters.every(([c, v]) => r[c] === v));
+    /* profiles غير مزروع = كل حساب مفعَّل (التعطيل يُختبر بزرع profiles صراحة؛ وprofiles: [] = بلا ملف ← يُرفض) */
+    const tableRows = t => (t === 'profiles' && !seedByTable.profiles)
+      ? [{ id: (filters.find(f => f[0] === 'id') || [])[1], disabled: false }]
+      : (seedByTable[t] || []);
+    const matchingRows = () => tableRows(table).filter(r => filters.every(([c, v]) => r[c] === v));
     const api = {
       select(){ return api; },
       eq(col, val){ filters.push([col, val]); return api; },
@@ -38,6 +42,16 @@ function makeFakeSupabase(seedByTable){
 }
 
 describe('authenticateFeedToken', () => {
+  test('حساب معطَّل → رابط التقويم مرفوض (disabled_account)', async () => {
+    const raw = 'shahid_pat_' + 'd'.repeat(30);
+    const seed = disabled => ({ personal_access_tokens: [{ id: 'td', user_id: 'ud', label: CALENDAR_FEED_TOKEN_LABEL, token_hash: hashToken(raw), revoked_at: null, expires_at: null }], profiles: [{ id: 'ud', disabled }] });
+    const off = await authenticateFeedToken(raw, makeFakeSupabase(seed(true)));
+    assert.equal(off.userId, null);
+    assert.equal(off.reason, 'disabled_account');
+    const on = await authenticateFeedToken(raw, makeFakeSupabase(seed(false)));
+    assert.equal(on.userId, 'ud');
+  });
+
   test('رمز غير موجود بالقاعدة يُرفَض', async () => {
     const sb = makeFakeSupabase({ personal_access_tokens: [] });
     const result = await authenticateFeedToken('raw-token', sb);

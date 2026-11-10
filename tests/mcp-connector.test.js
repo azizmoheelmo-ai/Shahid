@@ -24,7 +24,11 @@ function makeFakeSupabase(seedByTable){
     let orderBy = null;
     let selectOpts = null;
     let rangeArgs = null;
-    const matchingRows = () => (seedByTable[table] || []).filter(r => filters.every(([c, v, fn]) => fn ? fn(r) : r[c] === v));
+    /* profiles غير مزروع = كل حساب مفعَّل (التعطيل يُختبر بزرع profiles صراحة؛ وprofiles: [] = بلا ملف ← يُرفض) */
+    const tableRows = t => (t === 'profiles' && !seedByTable.profiles)
+      ? [{ id: (filters.find(f => f[0] === 'id') || [])[1], disabled: false }]
+      : (seedByTable[t] || []);
+    const matchingRows = () => tableRows(table).filter(r => filters.every(([c, v, fn]) => fn ? fn(r) : r[c] === v));
     const rowsFor = () => {
       let rows = matchingRows();
       if(orderBy){
@@ -169,6 +173,17 @@ describe('authenticate — يرفض أي شيء غير رمز صحيح وغير 
     const supabase = makeFakeSupabase(seedWith({ label: 'موصل الذكاء الاصطناعي' }));
     const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
     assert.equal(result.userId, 'u1');
+  });
+
+  test('حساب معطَّل من لوحة المسؤول → الموصل يرفض (403)، وبلا ملف شخصي يُرفض كذلك', async () => {
+    const off = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, makeFakeSupabase(Object.assign(seedWith(), { profiles: [{ id: 'u1', disabled: true }] })));
+    assert.equal(off.userId, null);
+    assert.equal(off.reason, 'disabled_account');
+    const none = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, makeFakeSupabase(Object.assign(seedWith(), { profiles: [] })));
+    assert.equal(none.userId, null, 'تعذّر معرفة الحالة = رفض');
+    const on = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, makeFakeSupabase(Object.assign(seedWith(), { profiles: [{ id: 'u1', disabled: false }] })));
+    assert.equal(on.userId, 'u1');
+    assert.match(require('fs').readFileSync(require('path').join(__dirname, '..', 'api', 'mcp.js'), 'utf8'), /auth\.reason === 'disabled_account' \? 403/);
   });
 
   test('رمز صحيح لكن مُلغى (revoked_at) → مرفوض', async () => {
