@@ -98,8 +98,12 @@ async function openFollowupAgreement(followupId){
     step: 1, commit: null, support: null, saving: false
   };
   showInfoModal('<div id="faRoot" class="fa-wrap"></div>', '460px');
+  /* زر «إغلاق» العام يُخفى: الشاشة للطالب وخياراتها هي المقصودة؛ الخروج برابط خافت «خروج» */
   const cancelBtn = document.getElementById('confirmCancelBtn');
-  if(cancelBtn) cancelBtn.addEventListener('click', () => { faDraft = null; }, { once: true });
+  if(cancelBtn){
+    cancelBtn.style.display = 'none';
+    cancelBtn.addEventListener('click', () => { faDraft = null; }, { once: true });
+  }
   faPaint();
 }
 
@@ -110,21 +114,22 @@ function faPaint(){
   const lib = faLibraryFor(d.reasonType);
   const card = (kind, list, selected) => list.map((t, i) =>
     `<button type="button" class="fa-card${selected === i ? ' fa-sel' : ''}" onclick="faPick('${kind}', ${i})">${escapeHtml(t)}</button>`).join('');
+  const dots = `<div class="fa-top"><span class="fa-dots" aria-label="الخطوة ${d.step} من 3">${[1, 2, 3].map(n => `<i class="${n <= d.step ? 'on' : ''}"></i>`).join('')}</span><button type="button" class="fa-link fa-exit" onclick="faExit()">خروج</button></div>`;
   const back = d.step > 1 ? '<button type="button" class="fa-link" onclick="faBack()">رجوع</button>' : '';
   const talk = '<button type="button" class="fa-link" onclick="faSave(\'wants_talk\')">أريد أن أتحدث مع معلمي أولًا</button>';
   let inner;
   if(d.step === 1){
-    inner = `<div class="fa-prog">١ من ٣</div>
+    inner = `${dots}
       <div class="fa-q">${d.name ? escapeHtml(d.name) + '، ' : ''}ما الخطوة التي ستلتزم بها؟</div>
       ${card('commit', lib.commitments, d.commit)}
       <div class="fa-foot">${talk}</div>`;
   } else if(d.step === 2){
-    inner = `<div class="fa-prog">٢ من ٣</div>
+    inner = `${dots}
       <div class="fa-q">وما الذي تحتاجه من معلمك ليساعدك؟</div>
       ${card('support', lib.supports, d.support)}
       <div class="fa-foot">${back}${talk}</div>`;
   } else {
-    inner = `<div class="fa-prog">٣ من ٣</div>
+    inner = `${dots}
       <div class="fa-q">هذا اتفاقنا</div>
       <div class="fa-sum"><div><b>أنا:</b> ${escapeHtml(lib.commitments[d.commit])}</div>
         <div><b>معلمي:</b> ${escapeHtml(lib.supports[d.support])}</div>
@@ -133,6 +138,13 @@ function faPaint(){
       <div class="fa-foot">${back}${talk}</div>`;
   }
   root.innerHTML = inner;
+}
+
+function faExit(){
+  const d = faDraft;
+  if(d && d.saving) return;
+  faDraft = null;
+  closeFollowupModal();
 }
 
 function faPick(kind, i){

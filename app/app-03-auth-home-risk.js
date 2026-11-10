@@ -887,6 +887,7 @@ function finishOnboarding(){
 
 function showInfoModal(bodyHtml, maxWidth){
   document.getElementById('confirmMsg').innerHTML = bodyHtml;
+  document.getElementById('confirmCancelBtn').style.display = ''; /* بعض النوافذ (اتفاق المتابعة) تخفي زر الإغلاق */
   document.getElementById('confirmOkBtn').style.display = 'none';
   document.getElementById('confirmCancelBtn').textContent = 'إغلاق';
   document.getElementById('confirmModal').style.display = 'flex';
