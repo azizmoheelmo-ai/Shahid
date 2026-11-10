@@ -434,14 +434,45 @@ function computeGradeFollowupResult(followup, columns, scores){
   const cat = followup.baseline && followup.baseline.category;
   if(!cat) return { sufficient: false };
   /* متابعة مقترحة من الدرجات (app-49): القياس على البند الضعيف نفسه (columnIds) لا الفئة كلها */
-  const focusIds = Array.isArray(followup.baseline.columnIds) && followup.baseline.columnIds.length ? new Set(followup.baseline.columnIds) : null;
-  const colById = new Map((columns || []).filter(c => focusIds ? focusIds.has(c.id) : c.category === cat).map(c => [c.id, c]));
+  const tahsili = followup.baseline.measure === 'tahsili'; /* الاختبار القديم لا تُعاد درجته: يُقاس كل تحصيلي رُصد بعد الفتح */
+  const focusIds = !tahsili && Array.isArray(followup.baseline.columnIds) && followup.baseline.columnIds.length ? new Set(followup.baseline.columnIds) : null;
+  const colById = new Map((columns || []).filter(c => tahsili ? (c.category === 'tests' || c.kind === 'task')
+    : focusIds ? focusIds.has(c.id) : c.category === cat).map(c => [c.id, c]));
   const opened = new Date(followup.created_at).getTime();
   const after = (scores || []).filter(g => g.student_id === followup.student_id && colById.has(g.column_id) &&
     new Date(g.updated_at).getTime() > opened);
   if(!after.length) return { sufficient: false, of: 0 };
   const max = after.reduce((s, g) => s + Number(colById.get(g.column_id).max_score), 0);
-  return { sufficient: true, pct: Math.round(100 * after.reduce((s, g) => s + Number(g.score), 0) / max), of: after.length };
+  return { sufficient: true, pct: Math.round(100 * after.reduce((s, g) => s + Number(g.score), 0) / max), of: after.length, ...(focusIds ? { current: true } : {}) };
+}
+
+/* الواجبات: ما انقضى موعده (أو بدأ رصده) بعد فتح المتابعة فقط — لا نسبة الفصل التراكمية */
+function computeHomeworkFollowupResult(followup, hw, todayIso){
+  const opened = localIsoDate(new Date(followup.created_at));
+  const counted = countedHomework(hw.homeworks, hw.statusRows, todayIso).filter(h => h.due_date > opened);
+  if(!counted.length) return { sufficient: false, kind: 'homework', of: 0 };
+  const idx = homeworkStatusIndex(hw.statusRows);
+  const submitted = counted.filter(h => (idx.get(h.id) && idx.get(h.id).get(followup.student_id)) === 'submitted').length;
+  return { sufficient: true, kind: 'homework', pct: Math.round(homeworkScoreFor(counted, idx, followup.student_id, 100)), of: counted.length, submitted };
+}
+
+/* خط أساس متابعة جديدة (بعد «لم يتحسّن») بنفس البند ونوع القياس، وبأرقام اليوم */
+function refreshGradeBaseline(base, columns, scores, studentId){
+  if(!base || !base.category) return null;
+  const ids = Array.isArray(base.columnIds) ? base.columnIds : [];
+  const cols = (columns || []).filter(c => base.measure === 'tahsili' ? (c.category === 'tests' || c.kind === 'task')
+    : ids.length ? ids.includes(c.id) : c.category === base.category);
+  const colById = new Map(cols.map(c => [c.id, c]));
+  let sum = 0, max = 0;
+  (scores || []).forEach(s => {
+    if(s.student_id !== studentId || !colById.has(s.column_id)) return;
+    sum += Number(s.score); max += Number(colById.get(s.column_id).max_score);
+  });
+  if(!(max > 0)) return null;
+  const out = Object.assign({}, base, { pct: Math.round(100 * sum / max), sum, max });
+  delete out.hw;
+  if(base.measure === 'tahsili' && cols.length > 1) out.label = 'الاختبارات والمهام';
+  return out;
 }
 
 function groupOutcomeSummary(members){
@@ -932,6 +963,8 @@ async function openCrmReviewModal(followupId){
     } else if(f.reason_type === 'behavior'){
       const { data: inc } = await sb.from('classroom_incidents').select('incident_type_id, incident_date').eq('teacher_id', uid).eq('student_id', f.student_id);
       result = computeFollowupResult(f, [], [], inc || []);
+    } else if(f.reason_type === 'grades' && f.baseline && f.baseline.focus === 'homework' && f.section_id){
+      result = computeHomeworkFollowupResult(f, await loadSectionHomework(f.section_id, crmCurrentTerm()), localIsoDate());
     } else if(f.reason_type === 'grades'){
       const g = await loadStudentsGradeData([f.student_id]);
       result = computeGradeFollowupResult(f, g.columns, g.scores);
@@ -949,7 +982,7 @@ async function openCrmReviewModal(followupId){
   } else if(f.reason_type === 'behavior'){
     beforeAfter = `<div class="crm-ba-row"><span>بعد الفتح</span><b>${result.recurred ? `تكررت المخالفة ${result.recurred} مرة` : 'لم تتكرر المخالفة'}</b></div>`;
   } else if(f.reason_type === 'grades' && base.category){
-    beforeAfter = `<div class="crm-ba-row"><span>قبل (وقت الفتح)</span><b>${escapeHtml(base.label || GRADE_CATEGORY_SHORT[base.category])} ${base.pct}% مما رُصد</b></div>
+    beforeAfter = `<div class="crm-ba-row"><span>قبل (وقت الفتح)</span><b>${escapeHtml(gradeBeforeText(base))}</b></div>
       <div class="crm-ba-row"><span>بعد الفتح</span><b>${gradeAfterText(result)}</b></div>`;
   } else {
     beforeAfter = '<div class="crm-ba-row"><span>القياس</span><b>بحكمك (لا مؤشر رقمي لهذا السبب)</b></div>';
@@ -1010,7 +1043,12 @@ async function closeCrmFollowup(outcome, confirmedNext, nextStepKey){
   if(outcome === 'improved'){
     offerShahidFromFollowups([f.id], null);
   } else if(nextStep === 'new_followup'){
-    openCrmFollowupModal(f.student_id, { reasonType: f.reason_type, reasonText: f.reason_text });
+    /* التحصيل: المتابعة التالية على البند نفسه ونوع القياس نفسه (ومكتبة الاتفاق نفسها)، بأرقام اليوم */
+    let baseline = null;
+    if(f.reason_type === 'grades' && f.baseline && (f.baseline.measure || f.baseline.columnIds || f.baseline.focus)){
+      try{ const g = await loadStudentsGradeData([f.student_id]); baseline = refreshGradeBaseline(f.baseline, g.columns, g.scores, f.student_id); } catch(e){ baseline = null; }
+    }
+    openCrmFollowupModal(f.student_id, { reasonType: f.reason_type, reasonText: f.reason_text, baseline });
   } else if(nextStep === 'escalate'){
     showToast('للتصعيد: سجّل موقفًا رسميًا أو إحالة من ملف الطالب', 'ok');
   }
@@ -1072,8 +1110,17 @@ async function deleteCrmFollowup(followupId){
   });
 }
 
+function gradeBeforeText(base){
+  if(base.hw && base.hw.total) return `سلّم ${base.hw.submitted} من ${base.hw.total} واجبات (${base.pct}%)`;
+  return `${base.label || GRADE_CATEGORY_SHORT[base.category]} ${base.pct}% مما رُصد`;
+}
+
 function gradeAfterText(result){
-  if(!result || !result.sufficient) return 'لا بيانات كافية بعد (لا درجة جديدة في الفئة منذ الفتح)';
+  if(result && result.kind === 'homework'){
+    return result.sufficient ? `سلّم ${result.submitted} من ${result.of} واجبات منذ الفتح (${result.pct}%)` : 'لا واجب انقضى موعده منذ الفتح بعد';
+  }
+  if(result && result.sufficient && result.current) return `${result.pct}% (نسبته الآن في البند)`;
+  if(!result || !result.sufficient) return 'لا بيانات كافية بعد (لا درجة جديدة منذ الفتح)';
   return `${result.pct}% (من ${result.of === 1 ? 'عمود واحد' : result.of === 2 ? 'عمودين' : result.of + ' أعمدة'} رُصد بعد الفتح)`;
 }
 
@@ -1202,8 +1249,14 @@ async function openCrmGroupReviewModal(groupId){
     .eq('teacher_id', uid).eq('followup_id', members[0].id).order('action_date', { ascending: true });
   let g = { columns: [], scores: [] };
   try{ g = await loadStudentsGradeData(members.map(m => m.student_id)); } catch(e){}
+  const hwBySection = new Map();
+  for(const sid of [...new Set(members.filter(m => m.baseline && m.baseline.focus === 'homework' && m.section_id).map(m => m.section_id))]){
+    try{ hwBySection.set(sid, await loadSectionHomework(sid, crmCurrentTerm())); } catch(e){}
+  }
   const rows = members.map(f => {
-    const result = f.reason_type === 'grades' ? computeGradeFollowupResult(f, g.columns, g.scores) : { sufficient: false };
+    const result = f.reason_type !== 'grades' ? { sufficient: false }
+      : (f.baseline && f.baseline.focus === 'homework' && hwBySection.has(f.section_id)) ? computeHomeworkFollowupResult(f, hwBySection.get(f.section_id), localIsoDate())
+      : computeGradeFollowupResult(f, g.columns, g.scores);
     return { followup: f, result, suggested: suggestFollowupOutcome(f, result) };
   }).sort((a, b) => attentionStudentName(a.followup.student_id).localeCompare(attentionStudentName(b.followup.student_id), 'ar'));
   crmGroupReview = { groupId, rows, saving: false };
@@ -1331,7 +1384,7 @@ function followupBeforeAfter(f){
   }
   if(f.reason_type === 'grades'){
     return {
-      before: base.category ? `${GRADE_CATEGORY_SHORT[base.category]} ${base.pct}%` : null,
+      before: base.category ? gradeBeforeText(base).replace(' مما رُصد', '') : null,
       after: res.sufficient ? `${res.pct}%` : null
     };
   }
