@@ -51,12 +51,17 @@ test('fuTabGroups: المستحق أولًا ثم بلا اتفاق، والجا
   assert.deepEqual(plain(app.fuSectionCounts(ROWS, info)), [{ id: 'A', n: 2 }, { id: 'B', n: 2 }]);
 });
 
-test('fuPickStudents: النشطون فقط، ضمن الفصل، بالاسم، وبحدّ', () => {
+test('fuPickStudents: بلا بحث ولا فصل لا شيء؛ الفصل يعرض كل طلابه بلا حد؛ البحث في كل الفصول بحد معلَن', () => {
   const app = loadApp();
   const st = [{ id: '1', full_name: 'أحمد', section_id: 'A' }, { id: '2', full_name: 'أحمد منقول', section_id: 'A', is_active: false }, { id: '3', full_name: 'أحمد ب', section_id: 'B' }];
-  assert.deepEqual(plain(app.fuPickStudents(st, 'احمد', '', 25).map(x => x.id)), ['1', '3']);
-  assert.deepEqual(plain(app.fuPickStudents(st, '', 'B', 25).map(x => x.id)), ['3']);
-  assert.equal(app.fuPickStudents(st, '', '', 1).length, 1);
+  assert.deepEqual(plain(app.fuPickStudents(st, '', '')), { rows: [], more: 0 });
+  assert.deepEqual(plain(app.fuPickStudents(st, 'احمد', 'A').rows.map(x => x.id)), ['1', '3'], 'البحث يتجاهل الفصل المختار');
+  assert.deepEqual(plain(app.fuPickStudents(st, '', 'B').rows.map(x => x.id)), ['3']);
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: 'x' + i, full_name: (i < 30 ? 'إبراهيم ' : 'يوسف ') + i, section_id: 'A' }));
+  assert.equal(app.fuPickStudents(many, '', 'A').rows.length, 60, 'انحدار: كانت القائمة تُقصّ بصمت لأول 25 أبجديًا');
+  const s = app.fuPickStudents(many, 'ي', '', 10);
+  assert.deepEqual([s.rows.length, s.more], [10, 50]);
+  assert.deepEqual(plain(app.fuPickSections([{ id: 'A' }, { id: 'B' }, { id: 'C' }], st)), [{ id: 'A', n: 1 }, { id: 'B', n: 1 }]);
 });
 
 function appWithTab(open, closed){

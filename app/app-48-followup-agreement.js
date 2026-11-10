@@ -374,29 +374,67 @@ function fuTabSet(key, value){
 }
 
 /* «+ متابعة جديدة»: اختيار الطالب بالبحث (ضمن الفصل المختار إن وُجد) ثم نافذة فتح المتابعة المعتادة */
+/* اختيار الطالب: الفصل أولًا (يظهر كل طلابه)، أو البحث بالاسم في كل الطلاب.
+   لا قصّ صامت: إن زادت نتائج البحث عن الحد يُقال ذلك صراحةً. */
+const FU_PICK_SEARCH_LIMIT = 40;
+let fuPick = { q: '', section: '' };
+
 function fuNewFollowup(){
+  fuPick = { q: '', section: fuTabState.section || '' };
   showInfoModal(`<div class="fa-wrap">
     <h3 style="margin:0 0 8px;font-size:15px;color:var(--navy);">متابعة جديدة — اختر الطالب</h3>
-    <input type="search" class="fu-search" id="fuPickSearch" maxlength="60" placeholder="🔍 ابحث باسم الطالب" oninput="fuPickPaint(this.value)">
-    <div id="fuPickList"></div></div>`, '440px');
-  fuPickPaint('');
+    <input type="search" class="fu-search" id="fuPickSearch" maxlength="60" placeholder="🔍 ابحث باسم الطالب في كل الفصول" oninput="fuPickSearch(this.value)">
+    <div id="fuPickBody"></div></div>`, '440px');
+  fuPickPaint();
 }
 
+/* { rows, more }: البحث يشمل كل الطلاب النشطين (بحد معلَن)؛ وبلا بحث: كل طلاب الفصل المختار بلا حد */
 function fuPickStudents(students, q, sectionId, limit){
   const query = fuNorm(q);
-  return (students || [])
-    .filter(st => st.is_active !== false && (!sectionId || st.section_id === sectionId) && (!query || fuNorm(st.full_name).includes(query)))
-    .sort((a, b) => String(a.full_name).localeCompare(String(b.full_name), 'ar'))
-    .slice(0, limit || 25);
+  if(!query && !sectionId) return { rows: [], more: 0 };
+  const all = (students || [])
+    .filter(st => st.is_active !== false && (query ? fuNorm(st.full_name).includes(query) : st.section_id === sectionId))
+    .sort((a, b) => String(a.full_name).localeCompare(String(b.full_name), 'ar'));
+  if(!query) return { rows: all, more: 0 };
+  const max = limit || FU_PICK_SEARCH_LIMIT;
+  return { rows: all.slice(0, max), more: Math.max(0, all.length - max) };
 }
 
-function fuPickPaint(q){
-  const list = document.getElementById('fuPickList');
-  if(!list) return;
-  const rows = fuPickStudents(crmStudents, q, fuTabState.section, 25);
-  list.innerHTML = rows.length
-    ? `<div class="fu-box fu-pick">${rows.map(st => `<button type="button" class="fu-pick-row" onclick="openCrmFollowupModal('${escapeHtml(st.id)}')">${escapeHtml(st.full_name)} <bdi class="fu-sec">${escapeHtml(fuShortSection(st.section_id))}</bdi></button>`).join('')}</div>`
-    : '<div class="crm-today-empty">لا طالب بهذا الاسم.</div>';
+/* الفصول التي فيها طلاب نشطون، بعدد كل فصل، بترتيب الفصول نفسه */
+function fuPickSections(sections, students){
+  const n = new Map();
+  (students || []).forEach(st => { if(st.is_active !== false && st.section_id) n.set(st.section_id, (n.get(st.section_id) || 0) + 1); });
+  return (sections || []).filter(sec => n.has(sec.id)).map(sec => ({ id: sec.id, n: n.get(sec.id) }));
+}
+
+function fuPickSearch(value){
+  fuPick.q = String(value || '');
+  fuPickPaint();
+}
+
+function fuPickSection(id){
+  fuPick.section = fuPick.section === id ? '' : id;
+  fuPickPaint();
+}
+
+function fuPickPaint(){
+  const body = document.getElementById('fuPickBody');
+  if(!body) return;
+  const searching = !!fuNorm(fuPick.q);
+  let html = '';
+  if(!searching){
+    const secs = fuPickSections(crmSections, crmStudents);
+    html += `<div class="crm-field-label">أو اختر الفصل</div><div class="fu-chips fu-wrap">${secs.map(x =>
+      `<button type="button" class="fu-f${fuPick.section === x.id ? ' fu-on' : ''}" onclick="fuPickSection('${escapeHtml(x.id)}')"><bdi>${escapeHtml(fuShortSection(x.id) || 'شعبة')}</bdi> (${x.n})</button>`).join('')}</div>`;
+  }
+  const r = fuPickStudents(crmStudents, fuPick.q, searching ? '' : fuPick.section);
+  if(!searching && !fuPick.section) html += '<div class="crm-today-empty">اختر فصلًا ليظهر كل طلابه، أو اكتب جزءًا من اسم الطالب.</div>';
+  else if(!r.rows.length) html += '<div class="crm-today-empty">لا طالب بهذا الاسم.</div>';
+  else {
+    html += `<div class="fu-box fu-pick">${r.rows.map(st => `<button type="button" class="fu-pick-row" onclick="openCrmFollowupModal('${escapeHtml(st.id)}')">${escapeHtml(st.full_name)} <bdi class="fu-sec">${escapeHtml(fuShortSection(st.section_id))}</bdi></button>`).join('')}</div>`;
+    if(r.more) html += `<div class="fu-pick-more">و${r.more} آخرون — اكتب جزءًا أطول من الاسم</div>`;
+  }
+  body.innerHTML = html;
 }
 
 /* سطر الاتفاق داخل نافذة المراجعة: مضغوط، برابط تعديل/بدء صغير بدل زر كبير */
