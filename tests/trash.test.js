@@ -387,7 +387,7 @@ test('حارس: كل .delete() لجدول محمي داخل دالة تستدع�
   const dir = path.join(__dirname, '..', 'app');
   const PROTECTED = ['classroom_students', 'shawahid', 'activity_programs', 'performance_goals', 'tasks', 'academic_cases', 'classroom_incidents',
     'classroom_positive_notes', 'classroom_private_notes', 'classroom_grade_columns', 'classroom_custom_tools', 'classroom_tasks',
-    'classroom_homework', 'classroom_lessons'];
+    'classroom_homework', 'classroom_lessons', 'classroom_followups'];
   /* مستثنى عمدًا (الدالة : السبب) */
   const EXEMPT = {
     offerCrmIncidentUndo: 'تراجع عن تسجيل مخالفة أُنشئت قبل ثوانٍ، لا حذف لبيانات قديمة',

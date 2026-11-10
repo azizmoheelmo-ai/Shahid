@@ -2961,7 +2961,19 @@ button.bt-cell{cursor:pointer;}
 /* نافذة مراجعة المتابعة: قرار واحد */
 .rv-q{font-size:15px;font-weight:800;color:var(--navy);margin:14px 0 8px;}
 .rv-outs{display:flex;gap:6px;}
-.rv-out,.rv-next{flex:1;justify-content:center;min-height:46px;border-radius:11px;font-size:14px;}
-.rv-out small{font-weight:500;font-size:10.5px;}
+.rv-out,.rv-next{flex:1;min-width:0;justify-content:center;min-height:46px;border-radius:11px;font-size:14px;white-space:nowrap;padding-left:6px;padding-right:6px;}
+.rv-next{font-size:12.5px;}
 .rv-more{margin-top:10px;border-top:1px solid #EEE9DF;padding-top:8px;}
 .rv-more summary{font-size:12.5px;color:var(--muted);cursor:pointer;}
+
+/* نافذة المراجعة: رأس واضح، سطر اتفاق مضغوط، تلميح المقترح، وحذف خافت */
+.rv-head{display:flex;flex-direction:column;gap:2px;margin-bottom:10px;}
+.rv-name{font-size:17px;font-weight:800;color:var(--navy);}
+.rv-sub{font-size:12.5px;color:var(--muted);line-height:1.7;}
+.rv-ag{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;background:#FAF8F3;border:1px solid var(--line);border-radius:11px;font-size:13px;line-height:1.7;color:var(--navy);}
+.rv-ag-none{color:var(--muted);}
+.rv-link{flex:none;background:none;border:0;padding:4px 2px;font-family:inherit;font-size:12.5px;font-weight:700;color:var(--navy);text-decoration:underline;cursor:pointer;}
+.rv-hint{font-size:11.5px;color:var(--muted);margin-top:6px;}
+.rv-del-row{margin-top:12px;text-align:left;}
+.rv-del{background:none;border:0;padding:6px 2px;font-family:inherit;font-size:12.5px;color:#A33A3A;text-decoration:underline;cursor:pointer;}
+.crm-ba-row > span:first-child{white-space:nowrap;}

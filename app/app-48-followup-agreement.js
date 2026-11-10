@@ -398,3 +398,13 @@ function fuPickPaint(q){
     ? `<div class="fu-box fu-pick">${rows.map(st => `<button type="button" class="fu-pick-row" onclick="openCrmFollowupModal('${escapeHtml(st.id)}')">${escapeHtml(st.full_name)} <bdi class="fu-sec">${escapeHtml(fuShortSection(st.section_id))}</bdi></button>`).join('')}</div>`
     : '<div class="crm-today-empty">لا طالب بهذا الاسم.</div>';
 }
+
+/* سطر الاتفاق داخل نافذة المراجعة: مضغوط، برابط تعديل/بدء صغير بدل زر كبير */
+function faReviewLineHtml(f){
+  if(!f || f.status !== 'open' || f.group_id) return '';
+  const line = faSummaryLine(f.agreement);
+  const id = escapeHtml(f.id);
+  return line
+    ? `<div class="rv-ag"><span>🤝 ${escapeHtml(line)}</span><button type="button" class="rv-link" onclick="openFollowupAgreement('${id}')">تعديل</button></div>`
+    : `<div class="rv-ag rv-ag-none"><span>لم يتم اتفاق مع الطالب بعد</span><button type="button" class="rv-link" onclick="openFollowupAgreement('${id}')">🤝 اتفاق الآن</button></div>`;
+}
