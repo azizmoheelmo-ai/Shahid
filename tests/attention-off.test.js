@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { loadApp, runInAppContext } = require('./load-app');
 
-test('التنبيهات موقوفة: لا قسم، ولا شارة، ولا تحميل بيانات الفحص', async () => {
+test('التنبيهات موقوفة: لا قسم، ولا بطاقات، ولا تحميل بيانات الفحص (الشارة لمواعيد المتابعات وحدها، 3.42)', async () => {
   const calls = [];
   const client = { from(t){ calls.push(t); const a = { select: () => a, eq: () => a, in: () => a, gte: () => a, lte: () => a, order: () => a, limit: () => a, then: (r) => Promise.resolve({ data: [], error: null }).then(r) }; return a; },
     rpc(){ return Promise.resolve({ data: null, error: null }); },
@@ -17,8 +17,9 @@ test('التنبيهات موقوفة: لا قسم، ولا شارة، ولا ت
   runInAppContext(app, `window.__badge = { style: { display: 'block' }, textContent: '9+' }; const _g = document.getElementById; document.getElementById = id => id === 'classroomNavBadge' ? window.__badge : _g(id);`);
   assert.equal(await app.refreshAttention(), null);
   assert.equal(await app.getAttentionFresh(), null);
-  assert.equal(runInAppContext(app, 'window.__badge.style.display'), 'none', 'الشارة تُخفى');
-  assert.equal(calls.length, 0, 'لا قراءة لبيانات الفحص');
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(runInAppContext(app, 'window.__badge.style.display'), 'none', 'لا متابعة حان موعدها: الشارة تُخفى');
+  assert.deepEqual([...new Set(calls)], ['classroom_followups'], 'لا قراءة لبيانات الفحص (حضور، مواقف، درجات…) — المتابعات المفتوحة وحدها للشارة');
 });
 
 test('تبويب اليوم — بلا "حضور لم يُرصد" ولا "شعبي"، و"خططي" لمن فعّل الشواهد فقط', async () => {

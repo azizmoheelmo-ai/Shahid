@@ -163,8 +163,9 @@ test('الاستعلامات: ملف الطالب يجلب agreement، والم�
   assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), /app-48-followup-agreement\.js/);
   const src = fs.readFileSync(path.join(root, 'app/app-48-followup-agreement.js'), 'utf8');
   const froms = src.match(/sb\.from\('classroom_followups'\)[\s\S]*?(?=\n\s*\n|;\n)/g) || [];
-  assert.equal(froms.length, 2);
-  froms.forEach(q => assert.match(q, /\.eq\('teacher_id', currentUser\.id\)/));
+  assert.equal(froms.length, 3); /* فتح الاتفاق، حفظه، شارة التذكير */
+  froms.forEach(q => assert.match(q, /\.eq\('teacher_id', (currentUser\.id|uid)\)/));
+  assert.match(src, /const uid = currentUser\.id;\n  const \{ data, error \} = await sb\.from\('classroom_followups'\)/, 'uid = معرّف المعلم الحالي');
 });
 
 test('بعد فتح متابعة: عرض مباشر للاتفاق (القسم مطويّ بملف الطالب)', () => {

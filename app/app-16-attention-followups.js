@@ -590,7 +590,11 @@ function followupsOn(){ return FOLLOWUPS_ON; }
    كاذبة بناءً على فحص فاشل */
 async function refreshAttention(){
   if(!currentUser) return null;
-  if(!ATTENTION_ALERTS_ON){ renderAttentionBadge([]); return null; }
+  if(!ATTENTION_ALERTS_ON){
+    /* التنبيهات موقوفة: الشارة تذكّر بمواعيد المتابعات وحدها (app-48) */
+    if(typeof fuRefreshBadge === 'function') fuRefreshBadge(); else renderAttentionBadge([]);
+    return null;
+  }
   if(typeof STANDALONE_ROLES !== 'undefined' && STANDALONE_ROLES.includes(dutyType)) return null;
   if(!appSectionOn('classroom')) return null; /* إدارة الصف مخفية */
   /* تحميل جارٍ بدأ قبل آخر تعديل قد يقرأ بيانات ما قبل التعديل — لا نعيد
