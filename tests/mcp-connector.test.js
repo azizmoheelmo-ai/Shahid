@@ -147,6 +147,30 @@ describe('authenticate — يرفض أي شيء غير رمز صحيح وغير 
     assert.equal(result.reason, 'ok');
   });
 
+  test('رمز رابط التقويم (نفس شكل shahid_pat_) لا يفتح الموصل → مرفوض كغير موجود', async () => {
+    const { CALENDAR_FEED_TOKEN_LABEL } = require('../api/mcp.js');
+    const supabase = makeFakeSupabase(seedWith({ label: CALENDAR_FEED_TOKEN_LABEL }));
+    const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
+    assert.equal(result.userId, null);
+    assert.equal(result.reason, 'invalid_token');
+    /* وعبر ?key= بالرابط كذلك */
+    const viaUrl = await authenticate({ headers: {}, url: '/api/mcp?key=' + rawToken }, makeFakeSupabase(seedWith({ label: CALENDAR_FEED_TOKEN_LABEL })));
+    assert.equal(viaUrl.userId, null);
+  });
+
+  test('تصنيف رابط التقويم واحد في الموصل وخادم التقويم والتطبيق', () => {
+    const fs = require('node:fs'); const path = require('node:path');
+    const { CALENDAR_FEED_TOKEN_LABEL } = require('../api/mcp.js');
+    assert.equal(require('../api/calendar-feed.js').CALENDAR_FEED_TOKEN_LABEL, CALENDAR_FEED_TOKEN_LABEL);
+    assert.ok(fs.readFileSync(path.join(__dirname, '..', 'app', 'app-12-calendar.js'), 'utf8').includes(`const CALENDAR_FEED_TOKEN_LABEL = '${CALENDAR_FEED_TOKEN_LABEL}';`));
+  });
+
+  test('رمز موصل عادي بتصنيفه المعتاد يبقى مقبولًا', async () => {
+    const supabase = makeFakeSupabase(seedWith({ label: 'موصل الذكاء الاصطناعي' }));
+    const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
+    assert.equal(result.userId, 'u1');
+  });
+
   test('رمز صحيح لكن مُلغى (revoked_at) → مرفوض', async () => {
     const supabase = makeFakeSupabase(seedWith({ revoked_at: '2026-01-01T00:00:00Z' }));
     const result = await authenticate({ headers: { authorization: `Bearer ${rawToken}` } }, supabase);
