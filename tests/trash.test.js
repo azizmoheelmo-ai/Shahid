@@ -437,7 +437,7 @@ test('SQL: جدول deleted_items وRLS ودالة الاسترجاع موجود
 
 test('النسخ الاحتياطي يشمل deleted_items (الشاملة والشخصية) ودليل الاستعادة', () => {
   const root = path.join(__dirname, '..', 'app');
-  assert.match(fs.readFileSync(path.join(root, 'app-07-backup-export.js'), 'utf8'), /'classroom_tool_marks', 'deleted_items'\]/);
+  assert.match(fs.readFileSync(path.join(root, 'app-07-backup-export.js'), 'utf8'), /'classroom_tool_marks', 'deleted_items'[,\]]/);
   assert.match(fs.readFileSync(path.join(root, 'app-07-backup-export.js'), 'utf8'), /41\. deleted_items\.csv/);
   const a08 = fs.readFileSync(path.join(root, 'app-08-admin.js'), 'utf8');
   assert.match(a08, /sb\.from\('deleted_items'\)\.select\('\*'\)\.eq\('teacher_id', uid\)/);
