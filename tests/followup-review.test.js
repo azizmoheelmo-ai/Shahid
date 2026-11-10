@@ -210,3 +210,50 @@ test('الإغلاق يحفظ إجابتي الالتزام مع النتيجة�
   await app.closeCrmFollowup('partial');
   assert.deepEqual(JSON.parse(JSON.stringify(log.updates[0].payload.result.commitment)), { student: 'partial', teacher: 'no' });
 });
+
+/* ===== حدّ «تحسّن» بيد المعلم، والتغيّر بالنقاط ولو قليلًا (3.44) ===== */
+test('gradeDelta/gradeDeltaText: الفرق يُذكر ولو قليلًا، وبصيغة عربية صحيحة', () => {
+  const app = loadApp();
+  const f = { baseline: { pct: 12 } };
+  assert.equal(app.gradeDelta(f, { sufficient: true, pct: 30 }), 18);
+  assert.equal(app.gradeDeltaText(18), 'ارتفع 18 نقطة ↑');
+  assert.equal(app.gradeDeltaText(3), 'ارتفع 3 نقاط ↑');
+  assert.equal(app.gradeDeltaText(2), 'ارتفع نقطتين ↑');
+  assert.equal(app.gradeDeltaText(-5), 'انخفض 5 نقاط ↓');
+  assert.equal(app.gradeDeltaText(1), 'ارتفع نقطة واحدة ↑');
+  assert.equal(app.gradeDeltaText(0), 'لم يتغيّر');
+  assert.equal(app.gradeDelta(f, { sufficient: false }), null);
+  assert.equal(app.gradeDelta({ baseline: {} }, { sufficient: true, pct: 30 }), null);
+});
+
+test('حدّ المعلم يغيّر المقترح: 12%← 30% (+18) تحسّن بحدّ 15، وجزئي بحدّ 20', () => {
+  const app = loadApp();
+  const f = { reason_type: 'grades', baseline: { pct: 12 } };
+  const r = { sufficient: true, pct: 30 };
+  runInAppContext(app, 'appFeatures = { fuImprove: 15 }');
+  assert.equal(app.suggestFollowupOutcome(f, r), 'improved', 'دون 50% ومع ذلك تحسّن بحدّ المعلم');
+  runInAppContext(app, 'appFeatures = { fuImprove: 20 }');
+  assert.equal(app.suggestFollowupOutcome(f, r), 'partial');
+  runInAppContext(app, 'appFeatures = { fuImprove: 7 }');
+  assert.equal(app.fuImproveNow(), 10, 'قيمة خارج الخيارات = الافتراضي');
+});
+
+test('normalizeFeatures: fuImprove يُقبل من الخيارات فقط، والافتراضي لا يُخزَّن', () => {
+  const app = loadApp();
+  assert.equal(app.normalizeFeatures({ fuImprove: 15 }).fuImprove, 15);
+  assert.equal(app.normalizeFeatures({ fuImprove: 10 }).fuImprove, undefined);
+  assert.equal(app.normalizeFeatures({ fuImprove: 99 }).fuImprove, undefined);
+  assert.equal(app.normalizeFeatures({ fuImprove: '15' }).fuImprove, undefined);
+});
+
+test('نافذة المراجعة (تحصيل): سطر «التغيّر» وخيار الحدّ 5/10/15/20', async () => {
+  const { app } = make({ ...ROW, reason_type: 'grades', baseline: { category: 'tests', pct: 12, label: 'اختبارات' } });
+  runInAppContext(app, `loadStudentsGradeData = async () => ({ columns: [{ id: 't', category: 'tests', max_score: 10 }], scores: [{ column_id: 't', student_id: 's1', score: 3, updated_at: '2026-11-05T00:00:00Z' }] });`);
+  await app.openCrmReviewModal('f1');
+  const h = msg(app);
+  assert.match(h, /التغيّر<\/span><b class="rv-up">ارتفع 18 نقطة ↑/);
+  assert.match(h, /«تحسّن» عندي من:/);
+  assert.equal((h.match(/fuSetImprove\(/g) || []).length, 4);
+  assert.match(h, /class="rv-c on"[^>]*>10\+</);
+  assert.match(h, /المقترح بحسب الأرقام: تحسّن/);
+});

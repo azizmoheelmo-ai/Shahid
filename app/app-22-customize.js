@@ -82,6 +82,8 @@ function normalizeFeatures(raw){
   /* حدود تحليل الدرجات (app-31) */
   const ar = typeof normalizeGradeRules === 'function' ? normalizeGradeRules(raw && raw.analysisRules) : null;
   if(ar) out.analysisRules = ar;
+  /* حدّ «تحسّن» في مراجعة متابعة التحصيل (app-16): نقاط ارتفاع يختارها المعلم؛ الافتراضي لا يُخزَّن */
+  if(raw && typeof FU_IMPROVE_OPTIONS !== 'undefined' && FU_IMPROVE_OPTIONS.includes(raw.fuImprove) && raw.fuImprove !== FU_IMPROVE_DEFAULT) out.fuImprove = raw.fuImprove;
   /* خيارات تقارير الدرجات: المدرسة والمعلم والوكيل وما يُطبع (app-34) */
   const rp = typeof normalizeReportPrefs === 'function' ? normalizeReportPrefs(raw && raw.reportPrefs) : null;
   if(rp) out.reportPrefs = rp;

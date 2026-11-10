@@ -416,8 +416,10 @@ test('computeGradeFollowupResult — "بعد" = ما رُصد بعد الفتح 
     assert.deepEqual({ ...r }, { sufficient: true, pct: 70, of: 1 });
     assert.equal(app.suggestFollowupOutcome(f, r), 'improved');
   });
-  await t.test('اقتراح: أعلى من قبل لكن تحت النصف = جزئي؛ لم يرتفع = لم يتحسّن', () => {
-    assert.equal(app.suggestFollowupOutcome(f, { sufficient: true, pct: 45, of: 1 }), 'partial');
+  await t.test('اقتراح (3.44): بالنقاط عن خط الأساس وبحدّ المعلم (الافتراضي 10)، لا بلوغ 50%', () => {
+    assert.equal(app.suggestFollowupOutcome(f, { sufficient: true, pct: 45, of: 1 }), 'improved', '+10 = الحدّ: تحسّن ولو دون النصف');
+    assert.equal(app.suggestFollowupOutcome(f, { sufficient: true, pct: 38, of: 1 }), 'partial', 'ارتفاع قليل (+3) يُذكر جزئيًا لا «لم يتحسّن»');
+    assert.equal(app.suggestFollowupOutcome(f, { sufficient: true, pct: 35, of: 1 }), 'not_improved');
     assert.equal(app.suggestFollowupOutcome(f, { sufficient: true, pct: 30, of: 1 }), 'not_improved');
   });
 });

@@ -484,13 +484,37 @@ function groupOutcomeSummary(members){
   return t;
 }
 
+/* حدّ «تحسّن» للتحصيل: نقاط ارتفاع عن خط الأساس يختارها المعلم (لا بلوغ 50%) — أي ارتفاع دونه «تحسّن جزئي» */
+const FU_IMPROVE_DEFAULT = 10;
+const FU_IMPROVE_OPTIONS = [5, 10, 15, 20];
+function fuImproveNow(){
+  const v = typeof appFeatures !== 'undefined' && appFeatures ? appFeatures.fuImprove : null;
+  return FU_IMPROVE_OPTIONS.includes(v) ? v : FU_IMPROVE_DEFAULT;
+}
+
+/* الفرق بالنقاط بين «قبل» و«بعد» (null إن تعذّر) — يُعرض دائمًا ولو كان قليلًا */
+function gradeDelta(followup, result){
+  const before = followup && followup.baseline ? followup.baseline.pct : null;
+  if(!result || !result.sufficient || before === null || before === undefined || !Number.isFinite(Number(before))) return null;
+  return Math.round(Number(result.pct) - Number(before));
+}
+
+function gradeDeltaText(d){
+  if(d === null) return '';
+  if(d === 0) return 'لم يتغيّر';
+  const n = Math.abs(d);
+  const amount = n === 1 ? 'نقطة واحدة' : n === 2 ? 'نقطتين' : n <= 10 ? n + ' نقاط' : n + ' نقطة';
+  return d > 0 ? `ارتفع ${amount} ↑` : `انخفض ${amount} ↓`;
+}
+
 /* اقتراح نتيجة (المعلم يقرر دائمًا) */
 function suggestFollowupOutcome(followup, result){
   if(!result || !result.sufficient) return null;
   if(followup.reason_type === 'grades'){
-    const before = followup.baseline && followup.baseline.pct;
-    if(result.pct >= ATTENTION_RULES.gradeLowPct) return 'improved';
-    if(before !== null && before !== undefined && result.pct > before) return 'partial';
+    const d = gradeDelta(followup, result);
+    if(d === null) return result.pct >= ATTENTION_RULES.gradeLowPct ? 'improved' : 'not_improved'; /* بلا خط أساس رقمي */
+    if(d >= fuImproveNow()) return 'improved';
+    if(d > 0) return 'partial'; /* ارتفاع ولو قليل يُذكر ولا يُعدّ «لم يتحسّن» */
     return 'not_improved';
   }
   if(followup.reason_type === 'behavior') return result.recurred ? 'not_improved' : 'improved';
@@ -996,7 +1020,8 @@ async function openCrmReviewModal(followupId){
     beforeAfter = `<div class="crm-ba-row"><span>بعد الفتح</span><b>${result.recurred ? `تكررت المخالفة ${result.recurred} مرة` : 'لم تتكرر المخالفة'}</b></div>`;
   } else if(f.reason_type === 'grades' && base.category){
     beforeAfter = `<div class="crm-ba-row"><span>قبل (وقت الفتح)</span><b>${escapeHtml(gradeBeforeText(base))}</b></div>
-      <div class="crm-ba-row"><span>بعد الفتح</span><b>${gradeAfterText(result)}</b></div>`;
+      <div class="crm-ba-row"><span>بعد الفتح</span><b>${gradeAfterText(result)}</b></div>
+      ${gradeDelta(f, result) !== null ? `<div class="crm-ba-row"><span>التغيّر</span><b class="${gradeDelta(f, result) > 0 ? 'rv-up' : gradeDelta(f, result) < 0 ? 'rv-down' : ''}">${gradeDeltaText(gradeDelta(f, result))}</b></div>` : ''}`;
   } else {
     beforeAfter = '<div class="crm-ba-row"><span>القياس</span><b>بحكمك (لا مؤشر رقمي لهذا السبب)</b></div>';
   }
@@ -1017,6 +1042,8 @@ async function openCrmReviewModal(followupId){
       <div class="rv-q">ما نتيجة المتابعة؟</div>
       <div class="rv-outs">${outcomeBtns}</div>
       ${suggested ? `<div class="rv-hint">المقترح بحسب الأرقام: ${FOLLOWUP_OUTCOMES[suggested]} — القرار لك</div>` : ''}
+      ${f.reason_type === 'grades' && gradeDelta(f, result) !== null ? `<div class="rv-thr"><span>«تحسّن» عندي من:</span><span class="rv-chips">${
+        FU_IMPROVE_OPTIONS.map(n => `<button type="button" class="rv-c${n === fuImproveNow() ? ' on' : ''}" onclick="fuSetImprove(${n}, '${escapeHtml(f.id)}')">${n}+</button>`).join('')}</span><span>نقاط</span></div>` : ''}
       <div id="crmNextStepBox" style="display:none;margin-top:8px;">
         <div class="crm-field-label">لم يتحسّن — ما القرار التالي؟</div>
         <div class="rv-outs">${nextBtns}</div>
@@ -1033,6 +1060,24 @@ async function openCrmReviewModal(followupId){
       </details>
       <div class="rv-del-row"><button type="button" class="rv-del" onclick="deleteCrmFollowup('${escapeHtml(f.id)}')">حذف هذه المتابعة</button></div>
     </div>`, '460px');
+}
+
+/* المعلم يختار حدّ «تحسّن» من نافذة المراجعة نفسها؛ يُحفظ في إعداداته ويُعاد الاقتراح فورًا */
+let fuImproveSaving = false;
+async function fuSetImprove(n, followupId){
+  if(fuImproveSaving || !FU_IMPROVE_OPTIONS.includes(n) || n === fuImproveNow() || !currentUser) return;
+  fuImproveSaving = true;
+  const uid = currentUser.id;
+  try{
+    const next = normalizeFeatures(appFeatures);
+    if(n === FU_IMPROVE_DEFAULT) delete next.fuImprove; else next.fuImprove = n;
+    appFeatures = next;
+    await saveAppFeatures();
+    if(!currentUser || currentUser.id !== uid) return;
+    if((appFeaturesSaved.fuImprove || FU_IMPROVE_DEFAULT) !== n){ showToast('تعذّر حفظ الحدّ', 'error'); return; }
+    showToast(`يُعدّ تحسّنًا من ${n} نقاط فأكثر`, 'ok');
+    if(crmReview && crmReview.followup && crmReview.followup.id === followupId) openCrmReviewModal(followupId);
+  } finally { fuImproveSaving = false; }
 }
 
 async function closeCrmFollowup(outcome, confirmedNext, nextStepKey){
