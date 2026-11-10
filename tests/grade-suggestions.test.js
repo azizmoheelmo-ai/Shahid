@@ -99,7 +99,7 @@ test('نتيجة المتابعة تُقاس على البند الضعيف نف
   const cols = [{ id: 'h', category: 'performance', max_score: 10 }, { id: 'p', category: 'performance', max_score: 10 }];
   const fu = { student_id: 's', created_at: '2026-11-01T00:00:00Z', baseline: { category: 'performance', columnIds: ['h'] } };
   const sc = [{ column_id: 'h', student_id: 's', score: 8, updated_at: '2026-11-05T00:00:00Z' }, { column_id: 'p', student_id: 's', score: 0, updated_at: '2026-11-05T00:00:00Z' }];
-  assert.deepEqual(J(app.computeGradeFollowupResult(fu, cols, sc)), { sufficient: true, pct: 80, of: 1 });
+  assert.deepEqual(J(app.computeGradeFollowupResult(fu, cols, sc)), { sufficient: true, pct: 80, of: 1, current: true });
   const old = { ...fu, baseline: { category: 'performance' } };
   assert.equal(app.computeGradeFollowupResult(old, cols, sc).pct, 40, 'المتابعات القديمة بلا columnIds كما كانت');
 });
@@ -216,4 +216,58 @@ test('تغيّر الفصل الدراسي يلغي المقترحات المح�
     __t = { year: '1448', semester: 'الثاني' };`);
   await app.gsEnsureLoaded();
   assert.equal(runInAppContext(app, 'gsState.bySection.size'), 0);
+});
+
+/* ===== إصلاحات المراجعة الشاملة (3.41) ===== */
+
+test('إصلاح: متابعة الاختبارات تُقاس بكل تحصيلي رُصد بعد الفتح (الاختبار القديم لا تُعاد درجته)', () => {
+  const app = loadApp();
+  const cols = [{ id: 't1', category: 'tests', max_score: 10 }, { id: 't2', category: 'tests', max_score: 10 }, { id: 'k', category: 'performance', kind: 'task', max_score: 20 }, { id: 'h', category: 'performance', kind: 'homework', max_score: 10 }];
+  const base = app.gsBaseline(cols, [{ column_id: 't1', student_id: 's', score: 3 }], 's', ['t1'], 'tahsili');
+  assert.equal(base.measure, 'tahsili');
+  const fu = { student_id: 's', created_at: '2026-11-01T00:00:00Z', baseline: base };
+  const sc = [
+    { column_id: 't1', student_id: 's', score: 3, updated_at: '2026-10-20T00:00:00Z' },  /* الاختبار الضعيف القديم */
+    { column_id: 't2', student_id: 's', score: 8, updated_at: '2026-11-05T00:00:00Z' },  /* اختبار جديد بعد الفتح */
+    { column_id: 'k', student_id: 's', score: 14, updated_at: '2026-11-06T00:00:00Z' },  /* مهمة أدائية */
+    { column_id: 'h', student_id: 's', score: 0, updated_at: '2026-11-06T00:00:00Z' }    /* الواجبات ليست تحصيلًا */
+  ];
+  const r = J(app.computeGradeFollowupResult(fu, cols, sc));
+  assert.deepEqual(r, { sufficient: true, pct: 73, of: 2 }, 'كان قبل الإصلاح: «لا بيانات كافية» دائمًا');
+  assert.equal(app.suggestFollowupOutcome({ reason_type: 'grades', baseline: base }, r), 'improved');
+});
+
+test('إصلاح: الواجبات تُقاس بما انقضى موعده منذ الفتح فقط، و«قبل» بالعدد', () => {
+  const app = loadApp();
+  const fu = { student_id: 's', created_at: '2026-11-01T09:00:00Z', baseline: { category: 'performance', focus: 'homework', pct: 40, hw: { submitted: 4, total: 9 } } };
+  const hw = { homeworks: [{ id: 'old', due_date: '2026-10-20' }, { id: 'w1', due_date: '2026-11-03' }, { id: 'w2', due_date: '2026-11-06' }, { id: 'future', due_date: '2099-01-01' }],
+    statusRows: [{ homework_id: 'w1', student_id: 's', status: 'submitted' }, { homework_id: 'old', student_id: 's', status: 'submitted' }] };
+  const r = J(app.computeHomeworkFollowupResult(fu, hw, '2026-11-10'));
+  assert.deepEqual([r.sufficient, r.of, r.submitted], [true, 2, 1]);
+  assert.match(app.gradeAfterText(r), /سلّم 1 من 2 واجبات منذ الفتح/);
+  assert.match(app.gradeBeforeText(fu.baseline), /سلّم 4 من 9 واجبات/);
+  const notYet = { homeworks: hw.homeworks, statusRows: [{ homework_id: 'old', student_id: 's', status: 'submitted' }] };
+  assert.equal(app.computeHomeworkFollowupResult(fu, notYet, '2026-11-02').sufficient, false, 'لا واجب انقضى (أو بدأ رصده) بعد الفتح');
+});
+
+test('إصلاح: «يريد الحديث معك» يبقى في «تحتاجك الآن»', () => {
+  const app = loadApp();
+  const st = J(app.fuRowState({ review_date: '2026-11-30', agreement: { status: 'wants_talk' } }, '2026-11-10'));
+  assert.deepEqual(st, { need: true, due: false, chip: 'يريد الحديث معك', action: 'agree' });
+  assert.equal(app.fuRowState({ review_date: '2026-11-30', agreement: { status: 'agreed' } }, '2026-11-10').need, false);
+});
+
+test('إصلاح: المتابعة التالية بعد «لم يتحسّن» تحمل البند ونوع القياس ومكتبة الاتفاق بأرقام اليوم', () => {
+  const app = loadApp();
+  const cols = [{ id: 'h', category: 'performance', kind: 'homework', max_score: 10 }, { id: 'p', category: 'performance', max_score: 10 }];
+  const old = { category: 'performance', columnIds: ['h'], focus: 'homework', label: 'واجبات', pct: 30, hw: { submitted: 3, total: 10 } };
+  const nb = J(app.refreshGradeBaseline(old, cols, [{ column_id: 'h', student_id: 's', score: 5 }, { column_id: 'p', student_id: 's', score: 0 }], 's'));
+  assert.deepEqual(nb, { category: 'performance', columnIds: ['h'], focus: 'homework', label: 'واجبات', pct: 50, sum: 5, max: 10 });
+  const t = J(app.refreshGradeBaseline({ category: 'tests', measure: 'tahsili', focus: 'tahsili', columnIds: ['t1'], label: 'ق', pct: 20 },
+    [{ id: 't1', category: 'tests', max_score: 10 }, { id: 't2', category: 'tests', max_score: 10 }], [{ column_id: 't1', student_id: 's', score: 2 }, { column_id: 't2', student_id: 's', score: 8 }], 's'));
+  assert.deepEqual([t.pct, t.measure, t.label], [50, 'tahsili', 'الاختبارات والمهام']);
+  assert.equal(app.refreshGradeBaseline(old, cols, [], 's'), null);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app/app-16-attention-followups.js'), 'utf8');
+  assert.match(src, /baseline = refreshGradeBaseline\(f\.baseline, g\.columns, g\.scores, f\.student_id\)/);
+  assert.match(src, /openCrmFollowupModal\(f\.student_id, \{ reasonType: f\.reason_type, reasonText: f\.reason_text, baseline \}\)/);
 });

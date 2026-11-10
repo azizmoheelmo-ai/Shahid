@@ -116,8 +116,19 @@ function gsBaseline(columns, scores, studentId, columnIds, focus){
   if(!(max > 0)) return null;
   const cats = [...new Set(cols.map(c => c.category))];
   const label = cols.length === 1 ? cols[0].name : (GS_FOCUS_LABELS[focus] || 'التحصيل');
-  return { category: cats.length === 1 ? cats[0] : 'tests', columnIds: cols.map(c => c.id), label, focus: focus || null,
+  const out = { category: cats.length === 1 ? cats[0] : 'tests', columnIds: cols.map(c => c.id), label, focus: focus || null,
     pct: Math.round(100 * sum / max), sum, max };
+  /* اختبارات ومهام: «بعد» = كل تحصيلي يُرصد بعد الفتح (الاختبار القديم لا تُعاد درجته) */
+  if(focus === 'tahsili') out.measure = 'tahsili';
+  return out;
+}
+
+/* الواجبات: عدّاد التسليم وقت الفتح (يُعرض «قبل» بالعدد لا بالنسبة وحدها) */
+function gsAttachHomework(baseline, sectionRes, studentId){
+  if(!baseline || baseline.focus !== 'homework') return baseline;
+  const e = ((sectionRes && sectionRes.entries) || []).find(x => x.studentId === studentId);
+  if(e && e.homework && e.homework.total) baseline.hw = { submitted: e.homework.submitted || 0, total: e.homework.total };
+  return baseline;
 }
 
 function gsActionFor(focus, parent){
@@ -173,7 +184,7 @@ async function gsLoadSection(sectionId, rules, openGrades, dismissals){
       homework = srHomeworkCountsFrom(hw, st.id, today);
     }
     const dx = srDiagnose({ rows: gr.rows, rules, homework, lessonsHeld: lessonsHeld || 0, overall: gr.overall, testGroups });
-    entries.push({ studentId: st.id, rows: gr.rows, dx });
+    entries.push({ studentId: st.id, rows: gr.rows, dx, homework });
   }
   const res = gsSuggestionsFor(entries, { rules, openGrades, dismissals, sectionId, nameOf: attentionStudentName });
   return Object.assign(res, { g, entries });
@@ -292,6 +303,7 @@ function gsStart(sectionId, studentId){
   const p = f.p;
   const baseline = gsBaseline(f.r.g.columns, f.r.g.scores, studentId, p.focusRowIds, p.focus)
     || gradeFollowupBaseline(f.r.g.columns, f.r.g.scores, studentId, null);
+  gsAttachHomework(baseline, f.r, studentId);
   openCrmFollowupModal(studentId, {
     reasonType: 'grades', reasonText: String(p.evidence.join(' · ')).slice(0, 500), baseline,
     actionType: gsActionFor(p.focus, p.parent), note: String(p.action || '').slice(0, 500)
@@ -410,7 +422,7 @@ async function gsGroupSave(){
     const rows = ids.map(sid => ({
       teacher_id: currentUser.id, student_id: sid, section_id: g.sectionId, group_id: groupId,
       reason_type: 'grades', reason_text: `دون الحد في «${g.name}»`.slice(0, 500), review_date: reviewDate,
-      baseline: gsBaseline(f.r.g.columns, f.r.g.scores, sid, [g.itemId], focus)
+      baseline: gsAttachHomework(gsBaseline(f.r.g.columns, f.r.g.scores, sid, [g.itemId], focus), f.r, sid)
     }));
     const { data: created, error } = await sb.from('classroom_followups').insert(rows).select('id');
     if(error) throw error;

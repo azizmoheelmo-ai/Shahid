@@ -253,7 +253,9 @@ function fuDaysPhrase(n){
 function fuRowState(f, todayIso){
   const due = f.review_date <= todayIso;
   const noAgreement = !f.members && !f.agreement;
+  const wantsTalk = !f.members && f.agreement && f.agreement.status === 'wants_talk';
   if(due) return { need: true, due: true, chip: 'حان وقت المراجعة', action: 'review' };
+  if(wantsTalk) return { need: true, due: false, chip: 'يريد الحديث معك', action: 'agree' };
   if(noAgreement) return { need: true, due: false, chip: 'بلا اتفاق بعد', action: 'agree' };
   return { need: false, due: false, chip: fuDaysPhrase(daysBetweenIso(todayIso, f.review_date)), action: 'open' };
 }
