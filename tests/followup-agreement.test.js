@@ -166,3 +166,14 @@ test('الاستعلامات: ملف الطالب يجلب agreement، والم�
   assert.equal(froms.length, 2);
   froms.forEach(q => assert.match(q, /\.eq\('teacher_id', currentUser\.id\)/));
 });
+
+test('بعد فتح متابعة: عرض مباشر للاتفاق (القسم مطويّ بملف الطالب)', () => {
+  const src = fs.readFileSync(path.join(root, 'app/app-16-attention-followups.js'), 'utf8');
+  assert.match(src, /if\(typeof faOfferAfterOpen === 'function'\) faOfferAfterOpen\(fu\.id\);/);
+  const app = loadApp();
+  runInAppContext(app, `window.__m = ''; showInfoModal = (h) => { window.__m = h; };`);
+  app.faOfferAfterOpen("x'\"<b>");
+  const h = runInAppContext(app, 'window.__m');
+  assert.match(h, /اتفاق مع الطالب الآن/);
+  assert.doesNotMatch(h, /<b>/);
+});

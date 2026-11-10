@@ -1,7 +1,7 @@
 'use strict';
 /* ============================================================
    بطلب صاحب التطبيق:
-   - المتابعات مخفية حتى إشعار آخر (FOLLOWUPS_ON) — البيانات باقية.
+   - المتابعات ظاهرة (FOLLOWUPS_ON = true منذ 3.34، لتظهر ميزة «اتفاق المتابعة»)؛ وعند إيقافها يُخفى كل أثرها (اختبار الإيقاف أدناه).
    - حصة رُصد حضورها: "الحضور ✓" و"أكمل الرصد ←" بدل "تعديل".
    - الحفظ (حضورًا أو أداءً) يُبقي المعلم في مكانه — لا تُغلق الورقة.
    ============================================================ */
@@ -19,9 +19,20 @@ function client(tables, rpcLog){
 }
 const get = (app, e) => runInAppContext(app, e);
 
-test('المتابعات مخفية: التبويب يُخفى، والانتقال إليه يفتح "اليوم"', async () => {
+test('المتابعات ظاهرة افتراضيًا: التبويب يظهر والانتقال إليه يفتح المتابعات', async () => {
   const app = loadApp({ supabaseClient: client(), currentUser: { id: 'u1' } });
-  assert.equal(get(app, 'FOLLOWUPS_ON'), false);
+  assert.equal(get(app, 'FOLLOWUPS_ON'), true);
+  runInAppContext(app, `appFeatures = { sections: {}, tools: {} }; dutyType = 'none';
+    window.__rendered = []; renderCrmToday = () => window.__rendered.push('today'); renderCrmFollowups = () => window.__rendered.push('followups');`);
+  app.applyAppFeatures();
+  assert.notEqual(get(app, `document.getElementById('crmTabBtnFollowups').style.display`), 'none');
+  app.switchCrmTab('followups');
+  assert.ok([...get(app, 'window.__rendered')].includes('followups'));
+});
+
+test('المتابعات موقوفة (المفتاح false): التبويب يُخفى، والانتقال إليه يفتح "اليوم"', async () => {
+  const app = loadApp({ supabaseClient: client(), currentUser: { id: 'u1' } });
+  runInAppContext(app, 'followupsOn = () => false;');
   runInAppContext(app, `appFeatures = { sections: {}, tools: {} }; dutyType = 'none';
     window.__rendered = []; renderCrmToday = () => window.__rendered.push('today'); renderCrmFollowups = () => window.__rendered.push('followups');`);
   app.applyAppFeatures();
@@ -73,8 +84,9 @@ test('حفظ الحضور يُبقي الورقة مفتوحة على الحضو
   assert.equal(rpcLog.filter(l => l.name === 'save_lesson_attendance').length, 2, 'حفظ ثانٍ ممكن');
 });
 
-test('ملف الطالب — بلا "فتح متابعة" ولا قسم/سطر المتابعات (ولو للطالب متابعات محفوظة)', async () => {
+async function profileHtml(extra){
   const app = loadApp({ supabaseClient: client(), currentUser: { id: 'u1' } });
+  if(extra) runInAppContext(app, extra);
   runInAppContext(app, `
     crmSections = [{ id: 'S', name: '٦', grade_level_id: 'g' }]; crmGradeLevels = [{ id: 'g', name: 'ثاني' }];
     crmStudents = [{ id: 'a', full_name: 'أحمد', section_id: 'S', is_active: true }]; crmIncidentTypes = [{ id: 't' }];
@@ -84,10 +96,25 @@ test('ملف الطالب — بلا "فتح متابعة" ولا قسم/سطر 
     window.__body = { innerHTML: '', dataset: {} }; const _g = document.getElementById; document.getElementById = id => id === 'crmStudentProfileBody' ? window.__body : _g(id);
     crmProfile = { studentId: 'a', token: 1 };`);
   await app.renderCrmStudentProfile();
-  const html = get(app, 'window.__body.innerHTML');
+  return get(app, 'window.__body.innerHTML');
+}
+
+test('ملف الطالب — يظهر «فتح متابعة» وقسم المتابعات وزر «اتفاق مع الطالب» للمتابعة المفتوحة', async () => {
+  const html = await profileHtml();
+  assert.match(html, /أحمد/);
+  assert.match(html, /فتح متابعة/);
+  assert.match(html, /غياب متكرر/);
+  assert.match(html, />المتابعات</);
+  assert.match(html, /crm-status-key">المتابعة/);
+  assert.match(html, /openFollowupAgreement\('f1'\)[^>]*>اتفاق مع الطالب</);
+});
+
+test('ملف الطالب — المتابعات موقوفة (المفتاح false): بلا زر ولا قسم ولا سطر ولا اتفاق', async () => {
+  const html = await profileHtml('followupsOn = () => false;');
   assert.match(html, /أحمد/);
   assert.doesNotMatch(html, /فتح متابعة/);
   assert.doesNotMatch(html, /غياب متكرر/);
   assert.doesNotMatch(html, />المتابعات</);
   assert.doesNotMatch(html, /crm-status-key">المتابعة/);
+  assert.doesNotMatch(html, /اتفاق مع الطالب/);
 });

@@ -511,14 +511,14 @@ function e2e(setup){
   return app;
 }
 
-test('الافتراضي (المتابعات والمتابعة الأكاديمية موقوفتان بالمنتج): لا تظهران ولا يُقرأ جدول الحالات', async () => {
-  const app = e2e('appToolOn = () => true;');
+test('عند إيقاف المتابعات (المفتاح) والمتابعة الأكاديمية (موقوفة بالمنتج): لا تظهران ولا يُقرأ جدول الحالات', async () => {
+  const app = e2e('appToolOn = () => true; followupsOn = () => false;');
   const out = await app.__p;
   assert.match(out.html, /الحضور/);
   assert.match(out.html, /<td class="n"><bdi dir="ltr">4<\/bdi><\/td><td class="n"><bdi dir="ltr">0<\/bdi><\/td><td class="n"><bdi dir="ltr">1<\/bdi>/, 'حاضر 4 = 5 حصص − غياب 1');
   assert.match(out.html, /المواقف السلوكية/);
   assert.match(out.html, /الملاحظات الإيجابية/);
-  assert.doesNotMatch(out.html, /المتابعات المسجلة|متابعة س/, 'FOLLOWUPS_ON = false');
+  assert.doesNotMatch(out.html, /المتابعات المسجلة|متابعة س/, 'المتابعات موقوفة');
   assert.doesNotMatch(out.html, /حالات المتابعة الأكاديمية/, 'ACADEMIC_ON = false');
   assert.equal(app.__cases, 0, 'جدول academic_cases لا يُقرأ');
   assert.doesNotMatch(out.html, /سر المعلم/);
