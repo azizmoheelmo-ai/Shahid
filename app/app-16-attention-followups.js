@@ -550,7 +550,7 @@ const ATTENTION_ALERTS_ON = false;
 
 /* المتابعات (التبويب، وقسمها وزرّها في ملف الطالب وتقريره، وأثرها في ملخص الشعبة)
    مخفية حتى إشعار آخر بطلب صاحب التطبيق — البيانات باقية، وإعادتها = true هنا */
-const FOLLOWUPS_ON = false;
+const FOLLOWUPS_ON = true;
 function followupsOn(){ return FOLLOWUPS_ON; }
 
 /* يحسب البطاقات ويحدّث الشارة. null عند الفشل — المستدعي لا يعرض "لا شيء ✓"
@@ -916,6 +916,7 @@ async function saveCrmFollowup(){
     showToast(aErr ? 'فُتحت المتابعة، لكن تعذّر حفظ الإجراء — أضفه من "مراجعة"' : 'فُتحت المتابعة ✓', aErr ? 'error' : 'ok');
     await refreshAttentionViews();
     if(crmProfile && crmProfile.studentId === d.studentId) renderCrmStudentProfile();
+    if(typeof faOfferAfterOpen === 'function') faOfferAfterOpen(fu.id);
   } catch(e){
     showToast('تعذّر فتح المتابعة: ' + (e.message || ''), 'error');
     d.saving = false;

@@ -180,3 +180,14 @@ function faInlineHtml(f){
   return `${line ? `<div class="fa-line">🤝 ${escapeHtml(line)}</div>` : ''}
     <button type="button" class="btn btn-outline crm-mini-btn" onclick="openFollowupAgreement('${escapeHtml(f.id)}')">${f.agreement ? 'تعديل الاتفاق' : 'اتفاق مع الطالب'}</button>`;
 }
+
+/* بعد فتح متابعة فردية: عرض مباشر للاتفاق (قسم المتابعات بملف الطالب مطويّ فلا يُكتشف الزر وحده) */
+function faOfferAfterOpen(followupId){
+  showInfoModal(`<div class="fa-wrap">
+    <div class="fa-q">فُتحت المتابعة ✓</div>
+    <div style="font-size:14px;color:var(--muted);line-height:1.8;margin-bottom:12px;">هل الطالب معك الآن؟ يمكنك أن تتفق معه على خطوة بنفسه خلال دقيقة، أو تفعل ذلك لاحقًا من ملفه.</div>
+    <button type="button" class="btn btn-primary fa-agree" onclick="openFollowupAgreement('${escapeHtml(followupId)}')">اتفاق مع الطالب الآن</button>
+  </div>`, '420px');
+  const cancelBtn = document.getElementById('confirmCancelBtn');
+  if(cancelBtn) cancelBtn.textContent = 'لاحقًا';
+}
