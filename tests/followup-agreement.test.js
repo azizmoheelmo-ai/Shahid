@@ -158,7 +158,7 @@ test('SQL: العمود وقيده في ملف التحديثات ومرآة bui
 });
 
 test('الاستعلامات: ملف الطالب يجلب agreement، والملف مسجَّل بالصفحة والكاش، وكل استعلام مقيَّد بالمعلم', () => {
-  assert.match(fs.readFileSync(path.join(root, 'app/app-15-student-profile.js'), 'utf8'), /closed_at, created_at, agreement'\)/);
+  assert.match(fs.readFileSync(path.join(root, 'app/app-15-student-profile.js'), 'utf8'), /closed_at, created_at, agreement, result'\)/);
   assert.match(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), /app\/app-48-followup-agreement\.js/);
   assert.match(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), /app-48-followup-agreement\.js/);
   const src = fs.readFileSync(path.join(root, 'app/app-48-followup-agreement.js'), 'utf8');

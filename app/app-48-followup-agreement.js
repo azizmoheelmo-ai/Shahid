@@ -252,7 +252,7 @@ function fuDaysPhrase(n){
 /* حالة الصف: هل يحتاج المعلم الآن، وشارته، وزره الوحيد (review | agree | open) */
 function fuRowState(f, todayIso){
   const due = f.review_date <= todayIso;
-  const noAgreement = !f.members && !f.agreement;
+  const noAgreement = !f.members && !f.agreement && !f.noAgreement;
   const wantsTalk = !f.members && f.agreement && f.agreement.status === 'wants_talk';
   if(due) return { need: true, due: true, chip: 'حان وقت المراجعة', action: 'review' };
   if(wantsTalk) return { need: true, due: false, chip: 'يريد الحديث معك', action: 'agree' };
@@ -312,7 +312,8 @@ function fuRowHtml(item){
       : `<button type="button" class="btn ${st.due ? 'btn-primary' : 'btn-outline'} crm-mini-btn fu-b" onclick="openCrmReviewModal('${escapeHtml(f.id)}')">${st.due ? 'مراجعة' : 'فتح'}</button>`;
   return `<div class="fu-row">
     <div class="fu-main"><div class="fu-name">${name}${sec ? ` <bdi class="fu-sec">${escapeHtml(sec)}</bdi>` : ''}${meta.gone ? ' <span class="fu-sec">(نُقل)</span>' : ''}${f.agreement && f.agreement.status === 'agreed' ? ' <span title="تم الاتفاق مع الطالب">🤝</span>' : ''}</div>
-      <div class="fu-fact">${escapeHtml(fuShortFact(f))}</div></div>
+      <div class="fu-fact">${escapeHtml(fuShortFact(f))}</div>
+      ${st.chip === 'بلا اتفاق بعد' ? `<button type="button" class="gs-skip" onclick="fuSkipAgreement('${escapeHtml(f.id)}')">لا تحتاج اتفاقًا</button>` : ''}</div>
     <div class="fu-side"><span class="fu-chip ${st.need ? 'fu-late' : 'fu-soon'}">${escapeHtml(st.chip)}</span>${btn}</div>
   </div>`;
 }
@@ -518,4 +519,69 @@ async function fuRefreshBadge(){
   const n = fuDueCount((data || []).filter(followupVisible), localIsoDate());
   fuRenderBadge(n);
   return n;
+}
+
+/* ============================================================
+   «لا تحتاج اتفاقًا»: متابعة لا ينوي المعلم فيها اتفاقًا لا تبقى في «تحتاجك الآن».
+   يُحفظ بجدول classroom_attention_dismissals القائم (rule_key ثابت، subject_key = معرّف المتابعة) — بلا SQL.
+   يبقى «🤝 اتفاق» متاحًا من نافذة المراجعة متى أراد.
+   ============================================================ */
+const FU_NO_AGREEMENT_RULE = 'fu_no_agreement';
+let fuSkipping = false;
+
+async function fuSkipAgreement(followupId){
+  if(fuSkipping || !currentUser) return;
+  fuSkipping = true;
+  try{
+    const { error } = await sb.from('classroom_attention_dismissals').upsert(
+      { teacher_id: currentUser.id, rule_key: FU_NO_AGREEMENT_RULE, subject_key: followupId, dismissed_at: new Date().toISOString() },
+      { onConflict: 'teacher_id,rule_key,subject_key' });
+    if(error){ showToast('تعذّر الحفظ: ' + (error.message || ''), 'error'); return; }
+    if(crmFuTab) crmFuTab.open.forEach(f => { if(f.id === followupId) f.noAgreement = true; });
+    showToast('نُقلت إلى «جارية» — الاتفاق متاح من «فتح» متى أردت', 'ok');
+    fuTabPaint();
+  } finally { fuSkipping = false; }
+}
+
+/* ============================================================
+   سؤالا الالتزام عند المراجعة (اتفاق «أوافق» فقط): هل التزم الطالب؟ وهل قدّمت ما طلبه؟
+   اختياريان (م8)، ويُحفظان مع النتيجة في result.commitment عند الإغلاق — الاتفاق محاسبة للطرفين.
+   ============================================================ */
+const FA_COMMIT_STUDENT = { yes: 'نعم', partial: 'جزئيًا', no: 'لا' };
+const FA_COMMIT_TEACHER = { yes: 'نعم', no: 'لا' };
+
+function faCommitQuestionsHtml(f){
+  const a = f && f.agreement;
+  if(!a || a.status !== 'agreed' || f.status !== 'open') return '';
+  const chips = (k, opts) => Object.keys(opts).map(v =>
+    `<button type="button" class="rv-c" data-k="${k}" data-v="${v}" onclick="faCommitSet('${k}', '${v}')">${opts[v]}</button>`).join('');
+  const needSupport = a.support && a.support !== FA_NO_SUPPORT;
+  return `<div class="rv-commit" id="rvCommit">
+    <div class="rv-cq"><span>هل التزم بخطوته؟</span><span class="rv-chips">${chips('student', FA_COMMIT_STUDENT)}</span></div>
+    ${needSupport ? `<div class="rv-cq"><span>هل قدّمت له «${escapeHtml(a.support)}»؟</span><span class="rv-chips">${chips('teacher', FA_COMMIT_TEACHER)}</span></div>` : ''}
+  </div>`;
+}
+
+function faCommitSet(k, v){
+  if(typeof crmReview === 'undefined' || !crmReview || crmReview.saving || !crmReview.commit) return;
+  if(!['student', 'teacher'].includes(k)) return;
+  const valid = k === 'student' ? FA_COMMIT_STUDENT : FA_COMMIT_TEACHER;
+  if(!Object.prototype.hasOwnProperty.call(valid, v)) return;
+  crmReview.commit[k] = crmReview.commit[k] === v ? null : v; /* نقرة ثانية تلغي */
+  document.querySelectorAll('#rvCommit .rv-c').forEach(b => {
+    b.classList.toggle('on', crmReview.commit[b.dataset.k] === b.dataset.v);
+  });
+}
+
+/* النتيجة المحفوظة عند الإغلاق: نتيجة الأرقام كما هي + الالتزام إن أُجيب عن أحد السؤالين */
+function faCommitResult(result, commit){
+  if(!commit || (!commit.student && !commit.teacher)) return result;
+  return Object.assign({}, result || {}, { commitment: { student: commit.student || null, teacher: commit.teacher || null } });
+}
+
+/* سطر قصير للمتابعة المغلقة (ملف الطالب): «التزم: جزئيًا · دعمك: نعم» */
+function faCommitSummary(result){
+  const c = result && result.commitment;
+  if(!c) return '';
+  return [c.student ? 'التزم: ' + FA_COMMIT_STUDENT[c.student] : '', c.teacher ? 'دعمك: ' + FA_COMMIT_TEACHER[c.teacher] : ''].filter(Boolean).join(' · ');
 }

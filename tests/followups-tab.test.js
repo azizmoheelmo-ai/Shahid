@@ -183,3 +183,45 @@ test('fuRefreshBadge: فشل الفحص لا يُظهر «0» كاذبة ولا 
   assert.equal(await app.fuRefreshBadge(), null);
   assert.equal(runInAppContext(app, 'window.__badge.textContent'), '3');
 });
+
+/* ===== «لا تحتاج اتفاقًا» وسؤالا الالتزام (3.43) ===== */
+test('«لا تحتاج اتفاقًا»: تخرج من «تحتاجك الآن»؛ ويبقى «يريد الحديث» فيها', () => {
+  const app = loadApp();
+  assert.equal(app.fuRowState({ review_date: '2026-11-30', agreement: null, noAgreement: true }, TODAY).need, false);
+  assert.equal(app.fuRowState({ review_date: '2026-11-30', agreement: null }, TODAY).chip, 'بلا اتفاق بعد');
+  assert.equal(app.fuRowState({ review_date: TODAY, agreement: null, noAgreement: true }, TODAY).action, 'review', 'الموعد يبقى موعدًا');
+});
+
+test('«لا تحتاج اتفاقًا»: حفظ بالمعلم ومفتاح ثابت، والرابط يظهر لـ«بلا اتفاق بعد» وحده', async () => {
+  const ups = [];
+  const client = {
+    from(){ const a = { select: () => a, eq: () => a, upsert(p){ ups.push(p); return a; }, then: (r) => Promise.resolve({ data: null, error: null }).then(r) }; return a; },
+    rpc(){ return Promise.resolve({ data: null, error: null }); },
+    auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }, storage: { from: () => ({}) }
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, `fuTabPaint = () => {}; crmFuTab = { open: [{ id: 'f9', student_id: 's', review_date: '2026-12-01', agreement: null }], closed: [] };`);
+  await Promise.all([app.fuSkipAgreement('f9'), app.fuSkipAgreement('f9')]);
+  assert.equal(ups.length, 1, 'نقرة مزدوجة = حفظ واحد');
+  assert.deepEqual([ups[0].teacher_id, ups[0].rule_key, ups[0].subject_key], ['u1', 'fu_no_agreement', 'f9']);
+  assert.equal(runInAppContext(app, 'crmFuTab.open[0].noAgreement'), true);
+  const row = st => app.fuRowHtml({ f: { id: 'f9', student_id: 's', review_date: '2026-12-01', reason_type: 'other', reason_text: 'x' }, st, meta: { names: ['س'], sectionId: '' } });
+  assert.match(row(app.fuRowState({ review_date: '2026-12-01', agreement: null }, TODAY)), /fuSkipAgreement\('f9'\)/);
+  assert.doesNotMatch(row(app.fuRowState({ review_date: '2026-12-01', agreement: { status: 'wants_talk' } }, TODAY)), /fuSkipAgreement/);
+});
+
+test('سؤالا الالتزام: يظهران لاتفاق «أوافق» فقط، والدعم فقط إن طُلب، والنتيجة تُحفظ مع الأرقام', () => {
+  const app = loadApp();
+  const f = a => ({ id: 'f', status: 'open', agreement: a });
+  assert.equal(app.faCommitQuestionsHtml(f(null)), '');
+  assert.equal(app.faCommitQuestionsHtml(f({ status: 'wants_talk' })), '');
+  const h = app.faCommitQuestionsHtml(f({ status: 'agreed', commitment: 'أ', support: '<b>أن تعيد</b>' }));
+  assert.match(h, /هل التزم بخطوته؟/);
+  assert.match(h, /هل قدّمت له «&lt;b&gt;أن تعيد&lt;\/b&gt;»؟/);
+  assert.doesNotMatch(app.faCommitQuestionsHtml(f({ status: 'agreed', commitment: 'أ', support: 'لا أحتاج شيئًا الآن' })), /هل قدّمت/);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.faCommitResult({ sufficient: true, pct: 60 }, { student: 'partial', teacher: 'yes' }))),
+    { sufficient: true, pct: 60, commitment: { student: 'partial', teacher: 'yes' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(app.faCommitResult({ sufficient: false }, { student: null, teacher: null }))), { sufficient: false }, 'بلا إجابة: لا شيء يُضاف');
+  assert.equal(app.faCommitSummary({ commitment: { student: 'partial', teacher: 'yes' } }), 'التزم: جزئيًا · دعمك: نعم');
+  assert.equal(app.faCommitSummary(null), '');
+});

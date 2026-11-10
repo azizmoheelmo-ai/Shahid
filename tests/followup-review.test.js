@@ -150,7 +150,8 @@ function makeTrash(opts){
 test('حذف المتابعة: لقطة (المتابعة وإجراءات المعلم وحده) قبل الحذف، والحذف مقيَّد بالمعلم، وعرض «تراجع»', async () => {
   const { app, ev } = makeTrash();
   await app.deleteCrmFollowup('f1');
-  assert.deepEqual(ev.map(e => e.k), ['snapshot', 'delete']);
+  assert.deepEqual(ev.map(e => e.k + (e.table ? ':' + e.table : '')), ['snapshot', 'delete:classroom_followups', 'delete:classroom_attention_dismissals']);
+  assert.deepEqual(JSON.parse(JSON.stringify(ev[2].f)), [['teacher_id', 'u1'], ['rule_key', 'fu_no_agreement'], ['subject_key', 'f1']], 'علامة «بلا اتفاق» لا تبقى يتيمة');
   const snap = ev[0].values;
   assert.equal(snap.kind, 'followup');
   assert.equal(snap.teacher_id, 'u1');
@@ -167,11 +168,11 @@ test('حذف المتابعة: إلغاء التأكيد لا يغيّر شيئ�
 
   const d = makeTrash();
   await Promise.all([d.app.deleteCrmFollowup('f1'), d.app.deleteCrmFollowup('f1')]);
-  assert.equal(d.ev.filter(e => e.k === 'delete').length, 1);
+  assert.equal(d.ev.filter(e => e.k === 'delete' && e.table === 'classroom_followups').length, 1);
 
   const f = makeTrash({ failDelete: true });
   await f.app.deleteCrmFollowup('f1');
-  assert.deepEqual(f.ev.map(e => e.k), ['snapshot', 'delete', 'discard']);
+  assert.deepEqual(f.ev.map(e => e.k), ['snapshot', 'delete', 'discard'], 'فشل الحذف: لا تنظيف للعلامة');
   assert.ok(runInAppContext(f.app, 'window.__toasts').some(x => /تعذّر الحذف/.test(x)));
 });
 
@@ -195,4 +196,17 @@ test('انحدار: تأكيد فوق نافذة معلومات يعرض زرّ�
   assert.notEqual(app.document.getElementById('confirmOkBtn').style.display, 'none');
   assert.equal(app.document.getElementById('confirmCancelBtn').textContent, 'إلغاء');
   void p;
+});
+
+test('الإغلاق يحفظ إجابتي الالتزام مع النتيجة، والقيمة غير المعروفة تُهمل', async () => {
+  const { app, log } = make({ ...ROW, agreement: { status: 'agreed', commitment: 'أ', support: 'أن تعيد لي الشرح' } });
+  await app.openCrmReviewModal('f1');
+  assert.match(msg(app), /هل التزم بخطوته؟/);
+  app.faCommitSet('student', 'partial');
+  app.faCommitSet('teacher', 'bogus');
+  app.faCommitSet('teacher', 'yes');
+  app.faCommitSet('teacher', 'yes'); /* نقرة ثانية تلغي */
+  app.faCommitSet('teacher', 'no');
+  await app.closeCrmFollowup('partial');
+  assert.deepEqual(JSON.parse(JSON.stringify(log.updates[0].payload.result.commitment)), { student: 'partial', teacher: 'no' });
 });

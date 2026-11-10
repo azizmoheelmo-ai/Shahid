@@ -826,6 +826,15 @@ async function renderCrmFollowups(){
   if(openRes.data) openRes.data = openRes.data.filter(followupVisible);
   if(closedRes.data) closedRes.data = closedRes.data.filter(followupVisible);
   /* العرض (بحث، فصول، تصنيف بالحالة) في app-48: fuTabPaint يعيد الرسم من هذه البيانات بلا جلب جديد */
+  /* «بلا اتفاق» بقرار المعلم (app-48: fuSkipAgreement) — فشل قراءتها لا يمنع العرض */
+  let skipped = new Set();
+  try{
+    const { data: sk } = await sb.from('classroom_attention_dismissals').select('subject_key')
+      .eq('teacher_id', currentUser.id).eq('rule_key', FU_NO_AGREEMENT_RULE);
+    skipped = new Set((sk || []).map(r => r.subject_key));
+  } catch(e){ /* غير حرج */ }
+  if(token !== crmFollowupsToken) return;
+  (openRes.data || []).forEach(f => { if(skipped.has(f.id)) f.noAgreement = true; });
   crmFuTab = {
     cache, openError: !!openRes.error,
     open: collapseFollowupGroups(openRes.data || []),
@@ -976,7 +985,7 @@ async function openCrmReviewModal(followupId){
   } catch(e){ result = { sufficient: false }; }
 
   const suggested = suggestFollowupOutcome(f, result);
-  crmReview = { followup: f, result, saving: false };
+  crmReview = { followup: f, result, saving: false, commit: { student: null, teacher: null } };
   const base = f.baseline || {};
   let beforeAfter = '';
   if(['absence', 'lateness', 'exits'].includes(f.reason_type)){
@@ -1004,6 +1013,7 @@ async function openCrmReviewModal(followupId){
       <div class="crm-ba-box">${beforeAfter}
         <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">الأرقام تُظهر ما تغيّر بعد التدخل، لا أنه سبب التغيّر.</div></div>
       ${typeof faReviewLineHtml === 'function' && !f.group_id ? faReviewLineHtml(f) : ''}
+      ${typeof faCommitQuestionsHtml === 'function' && !f.group_id ? faCommitQuestionsHtml(f) : ''}
       <div class="rv-q">ما نتيجة المتابعة؟</div>
       <div class="rv-outs">${outcomeBtns}</div>
       ${suggested ? `<div class="rv-hint">المقترح بحسب الأرقام: ${FOLLOWUP_OUTCOMES[suggested]} — القرار لك</div>` : ''}
@@ -1037,7 +1047,8 @@ async function closeCrmFollowup(outcome, confirmedNext, nextStepKey){
   rv.saving = true;
   const f = rv.followup;
   const { error } = await sb.from('classroom_followups').update({
-    status: 'closed', outcome, next_step: nextStep, result: rv.result || null, closed_at: new Date().toISOString()
+    status: 'closed', outcome, next_step: nextStep, closed_at: new Date().toISOString(),
+    result: (typeof faCommitResult === 'function' ? faCommitResult(rv.result, rv.commit) : rv.result) || null
   }).eq('teacher_id', currentUser.id).eq('id', f.id).eq('status', 'open');
   if(error){ showToast('تعذّر الإغلاق: ' + error.message, 'error'); rv.saving = false; return; }
   closeFollowupModal();
@@ -1103,6 +1114,8 @@ async function deleteCrmFollowup(followupId){
     const { error } = await sb.from('classroom_followups').delete().eq('id', followupId).eq('teacher_id', uid);
     if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
     crmReview = null;
+    /* علامة «لا تحتاج اتفاقًا» تخص هذه المتابعة وحدها: لا تبقى يتيمة (غير حرج إن فشل) */
+    try{ await sb.from('classroom_attention_dismissals').delete().eq('teacher_id', uid).eq('rule_key', 'fu_no_agreement').eq('subject_key', followupId); } catch(e){}
     const studentId = (f && f.student_id) || (prot.cap && prot.cap.tables[0].rows[0].student_id);
     const refresh = async () => {
       await refreshAttentionViews();
