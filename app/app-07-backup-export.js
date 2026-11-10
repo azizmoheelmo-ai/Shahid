@@ -1443,6 +1443,51 @@ revoke execute on function public.admin_backup_rows(text, integer, integer) from
 grant execute on function public.admin_backup_counts() to authenticated;
 grant execute on function public.admin_backup_rows(text, integer, integer) to authenticated;
 
+-- ============================================================
+-- فرض «تعطيل الحساب» من القاعدة نفسها (لوحة المسؤول ← تعطيل)
+-- كان التعطيل تفرضه الواجهة وحدها (app-03 يقرأ profiles.disabled عند الدخول)، فالمعلم المعطَّل يبقى قادرًا،
+-- بنداء مباشر لواجهة Supabase، على قراءة بياناته وتعديلها. هنا سياسة «مقيِّدة» (restrictive) على كل جدول بيانات معلم:
+-- تُضاف شرطًا إلزاميًا فوق السياسات الحالية (لا تحلّ محلها ولا توسّعها)، فالمعطَّل لا يقرأ ولا يكتب شيئًا.
+-- - profiles مستثنى عمدًا: التطبيق يقرأ منه حالة التعطيل ليُظهر للمعلم سبب منعه، والمسؤول يعيد التفعيل منه.
+-- - admins مستثنى: صلاحيات المسؤول تُدار هناك وحده.
+-- - حاويتا الصور وتقارير الطلاب كذلك (رفع وقراءة وحذف).
+-- - الموصل ورابط التقويم (api/mcp.js وapi/calendar-feed.js) يفحصان التعطيل بأنفسهما (مفتاح الخدمة يتجاوز RLS).
+-- آمن التكرار: يحذف السياسة ثم ينشئها.
+-- ============================================================
+create or replace function public.am_disabled()
+returns boolean language sql stable security definer set search_path = '' as $fn$
+  select coalesce((select p.disabled from public.profiles p where p.id = auth.uid()), false)
+$fn$;
+revoke execute on function public.am_disabled() from public, anon;
+grant execute on function public.am_disabled() to authenticated;
+
+do $do$
+declare v_t text;
+begin
+  foreach v_t in array array[
+    'academic_cases', 'activity_programs', 'classroom_attendance', 'classroom_attention_dismissals', 'classroom_custom_tools',
+    'classroom_followup_actions', 'classroom_followups', 'classroom_grade_columns', 'classroom_grade_levels',
+    'classroom_grade_period_scores', 'classroom_grade_scores', 'classroom_homework', 'classroom_homework_status',
+    'classroom_incidents', 'classroom_lesson_skips', 'classroom_lessons', 'classroom_letter_counters',
+    'classroom_positive_notes', 'classroom_private_notes', 'classroom_rubric_criteria', 'classroom_rubric_marks',
+    'classroom_rubric_notes', 'classroom_sections', 'classroom_students', 'classroom_task_students', 'classroom_tasks',
+    'classroom_timetable_slots', 'classroom_tool_marks', 'deleted_items', 'lesson_plans', 'performance_goals',
+    'personal_access_tokens', 'plan_header', 'program_sections', 'self_assessment', 'shahid_drafts', 'shawahid',
+    'student_report_shares', 'support_messages', 'survey_campaign_sections', 'survey_campaigns', 'survey_invites',
+    'survey_responses', 'tasks', 'user_app_settings'
+  ] loop
+    if to_regclass(format('public.%I', v_t)) is null then continue; end if;
+    execute format('drop policy if exists %I on public.%I', 'block_disabled_accounts', v_t);
+    execute format('create policy %I on public.%I as restrictive for all to authenticated using (not (select public.am_disabled())) with check (not (select public.am_disabled()))', 'block_disabled_accounts', v_t);
+  end loop;
+end
+$do$;
+
+drop policy if exists "block_disabled_accounts" on storage.objects;
+create policy "block_disabled_accounts" on storage.objects as restrictive for all to authenticated
+  using (bucket_id not in ('shawahid-photos', 'report-shares') or not (select public.am_disabled()))
+  with check (bucket_id not in ('shawahid-photos', 'report-shares') or not (select public.am_disabled()));
+
 
 
 -- ربط برامج الأنشطة بالشُعب (اختياري، تعدد-لتعدد) — استخدام فعلي للتخطيط:

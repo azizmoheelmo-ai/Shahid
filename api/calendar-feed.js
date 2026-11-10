@@ -58,6 +58,11 @@ async function authenticateFeedToken(rawToken, supabase){
   if(data.expires_at && new Date(data.expires_at).getTime() < Date.now()){
     return { userId: null, reason: 'expired_token', ownerId: data.user_id };
   }
+  /* الحساب المعطَّل من لوحة المسؤول: لا تقويم (تعذّر قراءة الحالة = رفض) */
+  {
+    const { data: prof, error: pErr } = await supabase.from('profiles').select('disabled').eq('id', data.user_id).maybeSingle();
+    if(pErr || !prof || prof.disabled === true) return { userId: null, reason: 'disabled_account', ownerId: data.user_id };
+  }
 
   const { data: allowed, error: rlError } = await supabase.rpc('check_mcp_rate_limit', {
     p_token_id: data.id,
@@ -225,6 +230,7 @@ const AUTH_FAILURE_MESSAGES = {
   expired_token: 'انتهت صلاحية هذا الرابط — ولّد رابطًا جديدًا من إعدادات شاهد.',
   rate_limited: 'محاولات كثيرة جدًا خلال وقت قصير — حاول لاحقًا.',
   rate_limit_error: 'تعذّر التحقق من حد الاستخدام حاليًا.',
+  disabled_account: 'هذا الحساب معطَّل.',
 };
 
 async function handler(req, res){
@@ -253,7 +259,7 @@ async function handler(req, res){
   }).then(() => {}, () => {});
 
   if(!auth.userId){
-    res.statusCode = auth.reason === 'rate_limited' ? 429 : 401;
+    res.statusCode = auth.reason === 'rate_limited' ? 429 : auth.reason === 'disabled_account' ? 403 : 401;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.end(AUTH_FAILURE_MESSAGES[auth.reason] || AUTH_FAILURE_MESSAGES.invalid_token);
     return;

@@ -63,6 +63,13 @@ function computeEffectiveElements(rawElements, forDutyType){
     });
 }
 
+/* هل عطّل المسؤول هذا الحساب؟ (profiles.disabled) — أي خطأ يُعدّ «معطَّل» فيُرفض الطلب */
+async function accountDisabled(supabase, userId){
+  const { data, error } = await supabase.from('profiles').select('disabled').eq('id', userId).maybeSingle();
+  if(error || !data) return true;
+  return data.disabled === true;
+}
+
 function hashToken(raw){
   return crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
 }
@@ -115,6 +122,9 @@ async function authenticate(req, supabase){
   if(data.expires_at && new Date(data.expires_at).getTime() < Date.now()){
     return { userId: null, reason: 'expired_token', ownerId: data.user_id };
   }
+  /* الحساب المعطَّل من لوحة المسؤول لا يصل لبياناته عبر الموصل (مفتاح الخدمة يتجاوز سياسة التعطيل بالقاعدة).
+     تعذّر قراءة الحالة = رفض: لا نفتح البيانات ونحن لا نعرف. */
+  if(await accountDisabled(supabase, data.user_id)) return { userId: null, reason: 'disabled_account', ownerId: data.user_id };
 
   const { data: allowed, error: rlError } = await supabase.rpc('check_mcp_rate_limit', {
     p_token_id: data.id,
@@ -154,7 +164,8 @@ const AUTH_FAILURE_MESSAGES = {
   revoked_token: 'هذا الرمز مُلغى — ولّد رمزًا جديدًا من إعدادات شاهد',
   expired_token: 'هذا الرمز منتهي الصلاحية — ولّد رمزًا جديدًا من إعدادات شاهد',
   rate_limited: 'تجاوزت الحد المسموح من الطلبات لهذا الرمز — حاول بعد قليل',
-  rate_limit_error: 'تعذّر التحقق من حد الاستخدام — حاول مرة أخرى'
+  rate_limit_error: 'تعذّر التحقق من حد الاستخدام — حاول مرة أخرى',
+  disabled_account: 'هذا الحساب معطَّل — راجع مسؤول التطبيق'
 };
 
 function textResult(obj){
@@ -778,7 +789,7 @@ async function handler(req, res){
   logMcpAccess(supabase, req, auth);
 
   if(!auth.userId){
-    const status = auth.reason === 'rate_limited' ? 429 : 401;
+    const status = auth.reason === 'rate_limited' ? 429 : auth.reason === 'disabled_account' ? 403 : 401;
     jsonRpcError(res, status, AUTH_FAILURE_MESSAGES[auth.reason] || AUTH_FAILURE_MESSAGES.invalid_token);
     return;
   }
@@ -803,4 +814,5 @@ module.exports.authenticate = authenticate;
 module.exports.tokenFrom = tokenFrom;
 module.exports.canWriteToken = canWriteToken;
 module.exports.CALENDAR_FEED_TOKEN_LABEL = CALENDAR_FEED_TOKEN_LABEL;
+module.exports.accountDisabled = accountDisabled;
 module.exports.buildServer = buildServer;
