@@ -542,8 +542,12 @@ function srStudentById(id){
 
 /* عدّاد حالات واجبات الطالب المحسوبة (انقضى موعدها أو بدأ رصدها) */
 async function srHomeworkCounts(sectionId, term, studentId){
-  const hw = await loadSectionHomework(sectionId, term);
-  const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
+  return srHomeworkCountsFrom(await loadSectionHomework(sectionId, term), studentId, localIsoDate());
+}
+
+/* صرفة: نفس العدّاد من واجبات شعبة محمَّلة مرة واحدة (للمقترحات: طالب بعد طالب بلا تحميل متكرر) */
+function srHomeworkCountsFrom(hw, studentId, todayIso){
+  const counted = countedHomework(hw.homeworks, hw.statusRows, todayIso);
   const idx = homeworkStatusIndex(hw.statusRows);
   const c = { total: counted.length, submitted: 0, partial: 0, late: 0, missing: 0 };
   counted.forEach(h => {
@@ -551,6 +555,30 @@ async function srHomeworkCounts(sectionId, term, studentId){
     c[st] = (c[st] || 0) + 1;
   });
   return c;
+}
+
+/* صفوف البنود ومجموع الطالب من كشف محمَّل — مشتركة بين التقرير ومقترحات المتابعة (app-49)،
+   فما يُقترح للمتابعة هو ما يشخّصه التقرير حرفيًا. { rows: [], overall: {} } إن لم يُرصد له شيء */
+function srGradeRowsFor(g, studentId, term){
+  const d = gradeReportStudentData(g, studentId);
+  if(!d || d.pts === null) return { rows: [], overall: {} };
+  const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
+  const testsOn = appToolOn('tests');
+  const res = studentGradeResult(g.columns, g.scores, studentId, caps);
+  const adm = new Set(gradeAdministeredColumns(g.columns, g.scores, testsOn).map(c => c.id));
+  const meas = new Map(g.columns.map(c => [c.id, c.measures || null]));
+  const items = res.performance.parts.map(x => Object.assign({}, x, { category: 'performance' }))
+    .concat(testsOn ? res.tests.list.map(x => Object.assign({}, x, { category: 'tests' })) : [])
+    .map(x => Object.assign({}, x, { measures: meas.get(x.id) || null }))
+    .filter(x => x.score !== null || adm.has(x.id));
+  const classPctOf = id => {
+    const col = g.columns.find(c => c.id === id);
+    const list = (g.scores || []).filter(s => s.column_id === id);
+    return col && list.length && Number(col.max_score) > 0 ? 100 * list.reduce((a, s) => a + Number(s.score), 0) / list.length / Number(col.max_score) : null;
+  };
+  const rows = srBuildRows(items, studentId, g.breakdown || null, x => periodCfg(term, periodCompKeyOfColumn(x)), classPctOf, srToolTypeOf).rows;
+  const overall = { pts: d.pts, max: d.max, pct: d.pct, incomplete: d.incomplete, classPts: d.classPts };
+  return { rows, overall };
 }
 
 /* حالات المتابعة الأكاديمية للطالب — فلترة teacher_id صريحة */
@@ -578,27 +606,10 @@ async function srBuildReport(studentId, version, to, opts){
     if(g && g.error) throw g.error;
   }
   const term = g ? { year: g.year, semester: g.semester } : crmCurrentTerm();
-  const d = g ? gradeReportStudentData(g, studentId) : null;
-  let rows = [], overall = {}, homework = null;
-  if(d && d.pts !== null){
-    const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
-    const testsOn = appToolOn('tests');
-    const res = studentGradeResult(g.columns, g.scores, studentId, caps);
-    const adm = new Set(gradeAdministeredColumns(g.columns, g.scores, testsOn).map(c => c.id));
-    const meas = new Map(g.columns.map(c => [c.id, c.measures || null]));
-    const items = res.performance.parts.map(x => Object.assign({}, x, { category: 'performance' }))
-      .concat(testsOn ? res.tests.list.map(x => Object.assign({}, x, { category: 'tests' })) : [])
-      .map(x => Object.assign({}, x, { measures: meas.get(x.id) || null }))
-      .filter(x => x.score !== null || adm.has(x.id));
-    const classPctOf = id => {
-      const col = g.columns.find(c => c.id === id);
-      const list = (g.scores || []).filter(s => s.column_id === id);
-      return col && list.length && Number(col.max_score) > 0 ? 100 * list.reduce((a, s) => a + Number(s.score), 0) / list.length / Number(col.max_score) : null;
-    };
-    rows = srBuildRows(items, studentId, g.breakdown || null, x => periodCfg(term, periodCompKeyOfColumn(x)), classPctOf, srToolTypeOf).rows;
-    overall = { pts: d.pts, max: d.max, pct: d.pct, incomplete: d.incomplete, classPts: d.classPts };
-    if(analytic && rows.some(r => r.kind === 'homework')) homework = await srHomeworkCounts(g.sectionId, term, studentId);
-  }
+  const gr = g ? srGradeRowsFor(g, studentId, term) : { rows: [], overall: {} };
+  const rows = gr.rows, overall = gr.overall;
+  let homework = null;
+  if(analytic && rows.some(r => r.kind === 'homework')) homework = await srHomeworkCounts(g.sectionId, term, studentId);
   let extra = { attendance: null, incidents: [], positives: [], followups: [], tasks: [], cases: [] };
   let lessonsHeld = 0;
   if(analytic){
