@@ -2977,3 +2977,5 @@ button.bt-cell{cursor:pointer;}
 .rv-del-row{margin-top:12px;text-align:left;}
 .rv-del{background:none;border:0;padding:6px 2px;font-family:inherit;font-size:12.5px;color:#A33A3A;text-decoration:underline;cursor:pointer;}
 .crm-ba-row > span:first-child{white-space:nowrap;}
+.fu-chips.fu-wrap{flex-wrap:wrap;overflow-x:visible;}
+.fu-pick-more{font-size:12px;color:var(--muted);text-align:center;margin-top:6px;}
