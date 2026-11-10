@@ -180,6 +180,10 @@ function showConfirm(message){
 
     const okBtn = document.getElementById('confirmOkBtn');
     const cancelBtn = document.getElementById('confirmCancelBtn');
+    /* الإطار نفسه تستعمله showInfoModal (تخفي «موافق» وتسمّي الإلغاء «إغلاق»): تأكيد يُفتح فوقها يجب أن يعرض زرّيه دائمًا */
+    okBtn.style.display = '';
+    cancelBtn.style.display = '';
+    cancelBtn.textContent = 'إلغاء';
 
     function cleanup(result){
       overlay.style.display = 'none';

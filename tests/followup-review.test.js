@@ -186,3 +186,13 @@ test('نافذة المراجعة: رأس بالاسم والسبب المختص
   assert.match(h, /لم يتم اتفاق مع الطالب بعد/);
   assert.match(h, /deleteCrmFollowup\('f1'\)/);
 });
+
+test('انحدار: تأكيد فوق نافذة معلومات يعرض زرّيه (كان يظهر «إغلاق» وحده فيستحيل الحذف)', async () => {
+  const app = loadApp();
+  app.showInfoModal('نافذة مراجعة');
+  assert.equal(app.document.getElementById('confirmOkBtn').style.display, 'none');
+  const p = app.showConfirm('حذف؟');
+  assert.notEqual(app.document.getElementById('confirmOkBtn').style.display, 'none');
+  assert.equal(app.document.getElementById('confirmCancelBtn').textContent, 'إلغاء');
+  void p;
+});

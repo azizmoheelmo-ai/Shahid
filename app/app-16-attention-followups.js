@@ -1050,6 +1050,7 @@ async function deleteCrmFollowup(followupId){
     if(!currentUser) return;
     const uid = currentUser.id;
     const f = crmReview && crmReview.followup && crmReview.followup.id === followupId ? crmReview.followup : null;
+    closeFollowupModal(); /* السؤال في نافذة مستقلة نظيفة، لا فوق نافذة المراجعة */
     const ok = await showConfirm('حذف هذه المتابعة؟ تُحذف معها إجراءاتها واتفاق الطالب. تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعها.');
     if(!ok) return;
     const prot = await trashProtect(() => trashCaptureFollowup(followupId, uid));
