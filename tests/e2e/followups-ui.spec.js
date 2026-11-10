@@ -137,3 +137,11 @@ test('تأكيد يُفتح فوق نافذة معلومات يعرض زرّيه
   await page.locator('#confirmOkBtn').click();
   expect(await page.evaluate(() => window.__ans)).toBe(true);
 });
+
+test('شارة التذكير: العدد على تبويب «متابعة» وأيقونة إدارة الصف (حان موعده + يريد الحديث)', async ({ page }) => {
+  await boot(page);
+  const n = await page.evaluate(() => { followupVisible = () => true; return fuRefreshBadge(); });
+  expect(n).toBe(2); /* f1 موعده اليوم، وf2 طلب الطالب الحديث */
+  await expect(page.locator('#crmTabBtnFollowups .fu-tab-badge')).toHaveText('2');
+  await expect(page.locator('#classroomNavBadge')).toHaveText('2');
+});

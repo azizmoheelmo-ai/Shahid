@@ -474,3 +474,48 @@ function faReviewLineHtml(f){
     ? `<div class="rv-ag"><span>🤝 ${escapeHtml(line)}</span><button type="button" class="rv-link" onclick="openFollowupAgreement('${id}')">تعديل</button></div>`
     : `<div class="rv-ag rv-ag-none"><span>لم يتم اتفاق مع الطالب بعد</span><button type="button" class="rv-link" onclick="openFollowupAgreement('${id}')">🤝 اتفاق الآن</button></div>`;
 }
+
+/* ============================================================
+   شارة التذكير (والتنبيهات موقوفة): عدد ما يحتاجك فعلًا — حان موعد مراجعته، أو طلب الطالب الحديث معك.
+   لا تعدّ «بلا اتفاق بعد» (تملأ الشارة بمتابعات قديمة لا تنوي فيها اتفاقًا). المجموعة الجماعية = واحدة.
+   تظهر على أيقونة «إدارة الصف» وعلى زر تبويب «متابعة». الاستعلام مقيَّد بـteacher_id.
+   ============================================================ */
+function fuDueCount(rows, todayIso){
+  const seenGroups = new Set();
+  let n = 0;
+  (rows || []).forEach(f => {
+    if(f.group_id){
+      if(seenGroups.has(f.group_id)) return;
+      seenGroups.add(f.group_id);
+      if(f.review_date <= todayIso) n++;
+      return;
+    }
+    if(f.review_date <= todayIso || (f.agreement && f.agreement.status === 'wants_talk')) n++;
+  });
+  return n;
+}
+
+function fuRenderBadge(n){
+  const badge = document.getElementById('classroomNavBadge');
+  if(badge){
+    badge.style.display = n ? 'block' : 'none';
+    badge.textContent = n > 9 ? '9+' : String(n);
+  }
+  const tab = document.getElementById('crmTabBtnFollowups');
+  if(tab) tab.innerHTML = 'متابعة' + (n ? `<span class="fu-tab-badge">${n > 9 ? '9+' : Number(n)}</span>` : '');
+}
+
+let fuBadgeToken = 0;
+async function fuRefreshBadge(){
+  const token = ++fuBadgeToken;
+  if(!currentUser || !followupsOn() || (typeof STANDALONE_ROLES !== 'undefined' && STANDALONE_ROLES.includes(dutyType)) ||
+    (typeof appSectionOn === 'function' && !appSectionOn('classroom'))){ fuRenderBadge(0); return 0; }
+  const uid = currentUser.id;
+  const { data, error } = await sb.from('classroom_followups').select('id, group_id, reason_type, review_date, agreement')
+    .eq('teacher_id', uid).eq('status', 'open');
+  if(token !== fuBadgeToken || !currentUser || currentUser.id !== uid) return null; /* أحدث منه جارٍ، أو تغيّر المستخدم */
+  if(error) return null; /* فشل الفحص: لا نُظهر «0» كاذبة ولا نمسح الموجودة */
+  const n = fuDueCount((data || []).filter(followupVisible), localIsoDate());
+  fuRenderBadge(n);
+  return n;
+}

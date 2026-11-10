@@ -138,3 +138,48 @@ test('اسم التبويب «متابعة» (نص ظاهر فقط؛ المعر�
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   assert.match(html, /id="crmTabBtnFollowups" onclick="switchCrmTab\('followups'\)">متابعة</);
 });
+
+/* ===== شارة التذكير (3.42) ===== */
+test('fuDueCount: ما حان موعده + من طلب الحديث؛ لا «بلا اتفاق»؛ المجموعة واحدة', () => {
+  const app = loadApp();
+  const rows = [
+    { id: '1', review_date: '2026-11-10', agreement: null },                                  /* حان اليوم */
+    { id: '2', review_date: '2026-10-21', agreement: { status: 'agreed' } },                  /* متأخر */
+    { id: '3', review_date: '2026-11-30', agreement: { status: 'wants_talk' } },              /* يريد الحديث */
+    { id: '4', review_date: '2026-11-30', agreement: null },                                  /* بلا اتفاق: لا يُعدّ */
+    { id: '5', group_id: 'G', review_date: '2026-11-01' }, { id: '6', group_id: 'G', review_date: '2026-11-01' }, /* مجموعة = 1 */
+    { id: '7', group_id: 'H', review_date: '2026-12-01', agreement: { status: 'wants_talk' } } /* جماعية لم يحن موعدها */
+  ];
+  assert.equal(app.fuDueCount(rows, TODAY), 4);
+  assert.equal(app.fuDueCount([], TODAY), 0);
+});
+
+test('fuRefreshBadge: يقرأ المتابعات المفتوحة للمعلم وحده، ويضع العدد على الأيقونة والتبويب', async () => {
+  const calls = [];
+  const client = {
+    from(t){ const f = []; const a = { select: () => a, eq(c, v){ f.push([c, v]); return a; },
+      then: (r) => { calls.push({ t, f }); return Promise.resolve({ data: [{ id: '1', review_date: '2000-01-01', reason_type: 'grades' }, { id: '2', review_date: '2999-01-01', reason_type: 'grades', agreement: { status: 'wants_talk' } }], error: null }).then(r); } }; return a; },
+    rpc(){ return Promise.resolve({ data: null, error: null }); },
+    auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }, storage: { from: () => ({}) }
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, `window.__badge = { style: {}, textContent: '' }; window.__tab = { innerHTML: '' }; followupVisible = () => true;
+    const _g = document.getElementById; document.getElementById = id => id === 'classroomNavBadge' ? window.__badge : id === 'crmTabBtnFollowups' ? window.__tab : _g(id);`);
+  assert.equal(await app.fuRefreshBadge(), 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].f)), [['teacher_id', 'u1'], ['status', 'open']]);
+  assert.equal(runInAppContext(app, 'window.__badge.textContent'), '2');
+  assert.match(runInAppContext(app, 'window.__tab.innerHTML'), /^متابعة<span class="fu-tab-badge">2<\/span>$/);
+});
+
+test('fuRefreshBadge: فشل الفحص لا يُظهر «0» كاذبة ولا يمسح الشارة الموجودة', async () => {
+  const client = {
+    from(){ const a = { select: () => a, eq: () => a, then: (r) => Promise.resolve({ data: null, error: { message: 'x' } }).then(r) }; return a; },
+    rpc(){ return Promise.resolve({ data: null, error: null }); },
+    auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }, storage: { from: () => ({}) }
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, `window.__badge = { style: { display: 'block' }, textContent: '3' };
+    const _g = document.getElementById; document.getElementById = id => id === 'classroomNavBadge' ? window.__badge : _g(id);`);
+  assert.equal(await app.fuRefreshBadge(), null);
+  assert.equal(runInAppContext(app, 'window.__badge.textContent'), '3');
+});
