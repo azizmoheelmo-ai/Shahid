@@ -951,21 +951,22 @@ async function openCrmReviewModal(followupId){
   } else {
     beforeAfter = '<div class="crm-ba-row"><span>القياس</span><b>بحكمك (لا مؤشر رقمي لهذا السبب)</b></div>';
   }
-  const actionsHtml = (actions || []).map(a => `<div class="crm-tl-row"><span>${FOLLOWUP_ACTIONS[a.action_type] || ''}${a.note ? ' — ' + escapeHtml(a.note) : ''}</span><span class="crm-tl-meta">${a.action_date}</span></div>`).join('') || '<div class="crm-today-empty">لا إجراءات مسجلة.</div>';
-  const outcomeBtns = Object.keys(FOLLOWUP_OUTCOMES).map(k => `<button class="btn ${k === suggested ? 'btn-primary' : 'btn-outline'} rv-out" onclick="closeCrmFollowup('${k}')">${FOLLOWUP_OUTCOMES[k]}${k === suggested ? ' <small>(مقترحة)</small>' : ''}</button>`).join('');
+  const actionsHtml = (actions || []).map(a => `<div class="crm-tl-row"><span>${FOLLOWUP_ACTIONS[a.action_type] || ''}${a.note ? ' — ' + escapeHtml(a.note) : ''}</span><span class="crm-tl-meta">${escapeHtml(shortDateAr(a.action_date))}</span></div>`).join('') || '<div class="crm-today-empty">لا إجراءات مسجلة.</div>';
+  const outcomeBtns = Object.keys(FOLLOWUP_OUTCOMES).map(k => `<button class="btn ${k === suggested ? 'btn-primary' : 'btn-outline'} rv-out" onclick="closeCrmFollowup('${k}')">${FOLLOWUP_OUTCOMES[k]}</button>`).join('');
   const actionOptions = Object.keys(FOLLOWUP_ACTIONS).map(k => `<option value="${k}">${FOLLOWUP_ACTIONS[k]}</option>`).join('');
   const nextBtns = Object.keys(FOLLOWUP_NEXT_STEPS).map(k => `<button type="button" class="btn btn-outline rv-next" onclick="closeCrmFollowup('not_improved', true, '${k}')">${FOLLOWUP_NEXT_STEPS[k]}</button>`).join('');
 
   /* نافذة بقرار واحد: ما نتيجة المتابعة؟ — والتمديد وسجل الإجراءات مطويان */
   showInfoModal(`
     <div style="text-align:right;">
-      <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">مراجعة متابعة</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${escapeHtml(attentionStudentName(f.student_id))} · ${escapeHtml(f.reason_text)} · فُتحت ${localIsoDate(new Date(f.created_at))}</div>
+      <div class="rv-head"><span class="rv-name">${escapeHtml(attentionStudentName(f.student_id))}</span>
+        <span class="rv-sub">${escapeHtml(typeof fuShortFact === 'function' ? fuShortFact(f) : f.reason_text)} · فُتحت ${escapeHtml(shortDateAr(localIsoDate(new Date(f.created_at))))}</span></div>
       <div class="crm-ba-box">${beforeAfter}
         <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">الأرقام تُظهر ما تغيّر بعد التدخل، لا أنه سبب التغيّر.</div></div>
-      ${typeof faInlineHtml === 'function' && !f.group_id ? `<div style="margin-top:8px;">${faInlineHtml(f)}</div>` : ''}
+      ${typeof faReviewLineHtml === 'function' && !f.group_id ? faReviewLineHtml(f) : ''}
       <div class="rv-q">ما نتيجة المتابعة؟</div>
       <div class="rv-outs">${outcomeBtns}</div>
+      ${suggested ? `<div class="rv-hint">المقترح بحسب الأرقام: ${FOLLOWUP_OUTCOMES[suggested]} — القرار لك</div>` : ''}
       <div id="crmNextStepBox" style="display:none;margin-top:8px;">
         <div class="crm-field-label">لم يتحسّن — ما القرار التالي؟</div>
         <div class="rv-outs">${nextBtns}</div>
@@ -980,6 +981,7 @@ async function openCrmReviewModal(followupId){
         <input class="goal-input" id="crmRvNote" maxlength="500" placeholder="ملاحظة (اختياري)" style="margin-bottom:6px;">
         <button class="btn btn-outline crm-mini-btn" style="width:100%;justify-content:center;" onclick="addCrmFollowupAction()">إضافة إجراء</button>
       </details>
+      <div class="rv-del-row"><button type="button" class="rv-del" onclick="deleteCrmFollowup('${escapeHtml(f.id)}')">حذف هذه المتابعة</button></div>
     </div>`, '460px');
 }
 
@@ -1039,6 +1041,31 @@ async function addCrmFollowupAction(){
   if(error){ showToast('تعذّر الحفظ: ' + (error.message || ''), 'error'); rv.saving = false; return; }
   showToast('أُضيف الإجراء', 'ok');
   openCrmReviewModal(f.id);
+}
+
+/* حذف متابعة (فُتحت بالخطأ أو لم تعد لازمة): يمرّ بسلة المحذوفات (DELETE-POLICY.md) — معها إجراءاتها واتفاقها،
+   والاسترجاع يعيدها كلها. الشاهد المرتبط بها (إن وُجد) لا يُمس. */
+async function deleteCrmFollowup(followupId){
+  return trashRunOnce('followup:' + followupId, async () => {
+    if(!currentUser) return;
+    const uid = currentUser.id;
+    const f = crmReview && crmReview.followup && crmReview.followup.id === followupId ? crmReview.followup : null;
+    const ok = await showConfirm('حذف هذه المتابعة؟ تُحذف معها إجراءاتها واتفاق الطالب. تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعها.');
+    if(!ok) return;
+    const prot = await trashProtect(() => trashCaptureFollowup(followupId, uid));
+    if(!prot) return;
+    const { error } = await sb.from('classroom_followups').delete().eq('id', followupId).eq('teacher_id', uid);
+    if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+    crmReview = null;
+    const studentId = (f && f.student_id) || (prot.cap && prot.cap.tables[0].rows[0].student_id);
+    const refresh = async () => {
+      await refreshAttentionViews();
+      if(crmProfile && crmProfile.studentId === studentId) renderCrmStudentProfile();
+      if(typeof crmActiveTab === 'function' && crmActiveTab() === 'followups') renderCrmFollowups();
+    };
+    await refresh();
+    trashOfferUndo('حُذفت المتابعة', prot.id, refresh);
+  });
 }
 
 function gradeAfterText(result){

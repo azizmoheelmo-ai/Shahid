@@ -109,3 +109,80 @@ test('شاشة الاتفاق: بلا زر «إغلاق» العام، بنقا�
   app.showInfoModal('x');
   assert.equal(app.document.getElementById('confirmCancelBtn').style.display, '');
 });
+
+/* ===== حذف المتابعة عبر سلة المحذوفات ===== */
+function makeTrash(opts){
+  opts = opts || {};
+  const ev = [];
+  const seed = {
+    classroom_followups: [{ ...ROW }, { ...ROW, id: 'other', teacher_id: 'u2' }],
+    classroom_followup_actions: [{ id: 'a1', followup_id: 'f1', teacher_id: 'u1' }, { id: 'a9', followup_id: 'f1', teacher_id: 'u2' }]
+  };
+  const client = {
+    from(table){
+      const f = []; let op = 'select', values = null, single = false;
+      const run = () => {
+        if(table === 'deleted_items' && op === 'insert'){ ev.push({ k: 'snapshot', values }); return { data: { id: 'T1' }, error: null }; }
+        if(table === 'deleted_items' && op === 'delete'){ ev.push({ k: 'discard' }); return { data: null, error: null }; }
+        if(op === 'delete'){ ev.push({ k: 'delete', table, f: f.slice() }); return opts.failDelete ? { data: null, error: { message: 'boom' } } : { data: null, error: null }; }
+        const rows = (seed[table] || []).filter(r => f.every(([c, v]) => r[c] === v));
+        return { data: single ? rows[0] || null : rows, error: null };
+      };
+      const api = {
+        select(){ return api; }, order(){ return api; }, limit(){ return api; }, range(){ return api; }, in(){ return api; },
+        eq(c, v){ f.push([c, v]); return api; },
+        insert(v){ op = 'insert'; values = v; return api; }, delete(){ op = 'delete'; return api; },
+        single(){ single = true; return Promise.resolve(run()); }, maybeSingle(){ single = true; return Promise.resolve(run()); },
+        then(res){ return Promise.resolve(run()).then(res); }
+      };
+      return api;
+    },
+    rpc(){ return Promise.resolve({ data: null, error: null }); },
+    auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }, storage: { from: () => ({}) }
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, `window.__toasts = []; showToast = (m, k) => window.__toasts.push(k + ':' + m); refreshAttentionViews = async () => {};
+    showConfirm = async () => ${opts.cancel ? 'false' : 'true'}; window.__undo = []; trashOfferUndo = (m, id) => window.__undo.push(id);
+    crmStudents = [{ id: 's1', full_name: 'سالم' }];`);
+  return { app, ev };
+}
+
+test('حذف المتابعة: لقطة (المتابعة وإجراءات المعلم وحده) قبل الحذف، والحذف مقيَّد بالمعلم، وعرض «تراجع»', async () => {
+  const { app, ev } = makeTrash();
+  await app.deleteCrmFollowup('f1');
+  assert.deepEqual(ev.map(e => e.k), ['snapshot', 'delete']);
+  const snap = ev[0].values;
+  assert.equal(snap.kind, 'followup');
+  assert.equal(snap.teacher_id, 'u1');
+  const t = Object.fromEntries(snap.payload.tables.map(x => [x.t, x.rows.map(r => r.id)]));
+  assert.deepEqual(JSON.parse(JSON.stringify(t)), { classroom_followups: ['f1'], classroom_followup_actions: ['a1'] });
+  assert.deepEqual(JSON.parse(JSON.stringify(ev[1].f)), [['id', 'f1'], ['teacher_id', 'u1']]);
+  assert.deepEqual([...runInAppContext(app, 'window.__undo')], ['T1']);
+});
+
+test('حذف المتابعة: إلغاء التأكيد لا يغيّر شيئًا، والنقرة المزدوجة حذف واحد، وفشل الحذف يزيل اللقطة', async () => {
+  const c = makeTrash({ cancel: true });
+  await c.app.deleteCrmFollowup('f1');
+  assert.equal(c.ev.length, 0);
+
+  const d = makeTrash();
+  await Promise.all([d.app.deleteCrmFollowup('f1'), d.app.deleteCrmFollowup('f1')]);
+  assert.equal(d.ev.filter(e => e.k === 'delete').length, 1);
+
+  const f = makeTrash({ failDelete: true });
+  await f.app.deleteCrmFollowup('f1');
+  assert.deepEqual(f.ev.map(e => e.k), ['snapshot', 'delete', 'discard']);
+  assert.ok(runInAppContext(f.app, 'window.__toasts').some(x => /تعذّر الحذف/.test(x)));
+});
+
+test('نافذة المراجعة: رأس بالاسم والسبب المختصر، سطر اتفاق مضغوط، المقترح تلميح لا داخل الزر، وزر حذف', async () => {
+  const { app } = make({ ...ROW, reason_type: 'absence', reason_text: 'غاب 3 من آخر 8 حصص: الاثنين 28/9' });
+  await app.openCrmReviewModal('f1');
+  const h = msg(app);
+  assert.match(h, /class="rv-name">سالم بن أحمد</);
+  assert.match(h, /غياب · غاب 3 من آخر 8 حصص · فُتحت/);
+  assert.doesNotMatch(h, /الاثنين 28\/9/, 'قائمة التواريخ لا تظهر في الرأس');
+  assert.doesNotMatch(h, /\(مقترحة\)/);
+  assert.match(h, /لم يتم اتفاق مع الطالب بعد/);
+  assert.match(h, /deleteCrmFollowup\('f1'\)/);
+});

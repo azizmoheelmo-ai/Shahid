@@ -21,7 +21,8 @@ const TRASH_IN_CHUNK = 100; /* حد آمن لطول رابط الطلب عند i
 const TRASH_KIND_LABELS = {
   student: 'طالب', shahid: 'شاهد', program: 'برنامج', goal: 'هدف', task: 'مهمة (مهامّي)',
   academic_case: 'حالة أكاديمية', incident: 'حادثة', positive_note: 'ملاحظة إيجابية', private_note: 'ملاحظة خاصة',
-  grade_columns: 'عمود/اختبار درجات', custom_tool: 'أداة مخصصة', perf_task: 'مهمة أدائية', homework: 'واجب', lesson: 'رصد حصة'
+  grade_columns: 'عمود/اختبار درجات', custom_tool: 'أداة مخصصة', perf_task: 'مهمة أدائية', homework: 'واجب', lesson: 'رصد حصة',
+  followup: 'متابعة'
 };
 
 function trashKindLabel(kind){ return TRASH_KIND_LABELS[kind] || kind || 'عنصر'; }
@@ -146,6 +147,18 @@ async function trashCaptureGoal(goalId, ownerId){
   if(shw.length) relinks.push({ t: 'shawahid', col: 'goal_id', ids: trashIds(shw), val: goalId });
   if(tks.length) relinks.push({ t: 'tasks', col: 'linked_goal_id', ids: trashIds(tks), val: goalId });
   return { kind: 'goal', label: rows[0].goal_name || rows[0].element_label || 'هدف', ownerId, tables: [{ t: 'performance_goals', rows }], relinks };
+}
+
+/* متابعة واحدة + إجراءاتها (الاتفاق عمود فيها فيُحفظ معها) */
+async function trashCaptureFollowup(followupId, ownerId){
+  const rows = await trashRows('classroom_followups', [['eq', 'id', followupId], ['eq', 'teacher_id', ownerId]]);
+  if(!rows.length) return null;
+  const actions = await trashRows('classroom_followup_actions', [['eq', 'teacher_id', ownerId], ['eq', 'followup_id', followupId]]);
+  const name = typeof attentionStudentName === 'function' ? attentionStudentName(rows[0].student_id) : '';
+  return {
+    kind: 'followup', label: (name ? name + ' — ' : '') + (rows[0].reason_text || 'متابعة'), ownerId,
+    tables: [{ t: 'classroom_followups', rows }, { t: 'classroom_followup_actions', rows: actions }]
+  };
 }
 
 /* سجل واحد بلا توابع: المهمة الشخصية، الحالة الأكاديمية، الحادثة، الملاحظات */
