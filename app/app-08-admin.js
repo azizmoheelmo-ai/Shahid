@@ -631,6 +631,15 @@ async function exportBackup(evt){
       fetchAllRows((from, to) => sb.from('classroom_attention_dismissals').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
     ]);
 
+    /* نسخة ناقصة بصمت أسوأ من نسخة لم تُنشأ: أي جدول تعذّر جلبه (انقطاع شبكة مثلًا) يوقف النسخة بدل أن يُكتب فارغًا،
+       فيظن المعلم أن بياناته محفوظة وهي ليست كذلك. */
+    const backupFetches = { shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes };
+    const backupFailed = Object.keys(backupFetches).filter(k => !backupFetches[k] || backupFetches[k].error);
+    if(backupFailed.length){
+      console.error('backup fetch failed:', backupFailed.join(', '));
+      throw new Error('تعذّر جلب بعض بياناتك (' + backupFailed.length + ' جدول)، فأُوقفت النسخة حتى لا تكون ناقصة. تأكد من الاتصال وحاول مرة أخرى، وإن تكرر راسلنا عبر «تواصل معنا»');
+    }
+
     const shawahid = shRes.data || [];
     const goals = goalsRes.data || [];
     const selfAssess = selfRes.data || [];
