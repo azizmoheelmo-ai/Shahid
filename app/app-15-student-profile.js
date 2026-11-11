@@ -160,7 +160,7 @@ async function loadCrmStudentProfileData(student){
       .eq('teacher_id', uid).eq('student_id', student.id),
     sb.from('classroom_positive_notes').select('id, note_date, note_text').eq('teacher_id', uid).eq('student_id', student.id),
     sb.from('classroom_private_notes').select('id, body, created_at, updated_at').eq('teacher_id', uid).eq('student_id', student.id).order('created_at', { ascending: false }),
-    sb.from('classroom_followups').select('id, group_id, reason_type, reason_text, review_date, status, outcome, next_step, closed_at, created_at, agreement').eq('teacher_id', uid).eq('student_id', student.id),
+    sb.from('classroom_followups').select('id, group_id, reason_type, reason_text, review_date, status, outcome, next_step, closed_at, created_at, agreement, result').eq('teacher_id', uid).eq('student_id', student.id),
     student.section_id
       ? sb.from('classroom_lessons').select('id', { count: 'exact', head: true }).eq('teacher_id', uid).eq('section_id', student.section_id)
       : Promise.resolve({ count: 0, error: null })
@@ -277,7 +277,7 @@ async function renderCrmStudentProfile(){
     <div class="crm-tl-row"><span>${f.group_id ? '👥 ' : ''}${escapeHtml(f.reason_text)}</span>
       <span class="crm-tl-meta">${f.status === 'open'
         ? `مفتوحة · المراجعة ${f.review_date} <button class="btn btn-outline crm-mini-btn" style="min-height:28px;padding:2px 8px;" onclick="openCrmReviewModal('${f.id}')">مراجعة</button>`
-        : (outcomeLabels[f.outcome] || '')}</span></div>
+        : escapeHtml((outcomeLabels[f.outcome] || '') + (typeof faCommitSummary === 'function' && faCommitSummary(f.result) ? ' · ' + faCommitSummary(f.result) : ''))}</span></div>
     ${typeof faInlineHtml === 'function' ? faInlineHtml(f) : ''}`).join('') || '<div class="crm-today-empty">لا متابعات لهذا الطالب.</div>';
 
   const privateRows = data.privateNotes.map(n => `<div class="crm-private-note">

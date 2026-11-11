@@ -84,7 +84,7 @@ test('حذف متابعة من نافذة المراجعة: تأكيد بزرّ�
   await expect(page.locator('#confirmOkBtn')).toBeVisible();          /* كان مخفيًا قبل 3.38 */
   await expect(page.locator('#confirmCancelBtn')).toHaveText('إلغاء');
   await page.locator('#confirmOkBtn').click();
-  await expect.poll(() => page.evaluate(() => window.__writes.map(w => w.op + ':' + w.table))).toEqual(['insert:deleted_items', 'delete:classroom_followups']);
+  await expect.poll(() => page.evaluate(() => window.__writes.map(w => w.op + ':' + w.table))).toEqual(['insert:deleted_items', 'delete:classroom_followups', 'delete:classroom_attention_dismissals']);
   const del = await page.evaluate(() => window.__writes[1].filters);
   expect(del).toEqual([['id', 'f1'], ['teacher_id', 'u1']]);
 });

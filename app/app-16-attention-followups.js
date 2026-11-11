@@ -484,13 +484,37 @@ function groupOutcomeSummary(members){
   return t;
 }
 
+/* حدّ «تحسّن» للتحصيل: نقاط ارتفاع عن خط الأساس يختارها المعلم (لا بلوغ 50%) — أي ارتفاع دونه «تحسّن جزئي» */
+const FU_IMPROVE_DEFAULT = 10;
+const FU_IMPROVE_OPTIONS = [5, 10, 15, 20];
+function fuImproveNow(){
+  const v = typeof appFeatures !== 'undefined' && appFeatures ? appFeatures.fuImprove : null;
+  return FU_IMPROVE_OPTIONS.includes(v) ? v : FU_IMPROVE_DEFAULT;
+}
+
+/* الفرق بالنقاط بين «قبل» و«بعد» (null إن تعذّر) — يُعرض دائمًا ولو كان قليلًا */
+function gradeDelta(followup, result){
+  const before = followup && followup.baseline ? followup.baseline.pct : null;
+  if(!result || !result.sufficient || before === null || before === undefined || !Number.isFinite(Number(before))) return null;
+  return Math.round(Number(result.pct) - Number(before));
+}
+
+function gradeDeltaText(d){
+  if(d === null) return '';
+  if(d === 0) return 'لم يتغيّر';
+  const n = Math.abs(d);
+  const amount = n === 1 ? 'نقطة واحدة' : n === 2 ? 'نقطتين' : n <= 10 ? n + ' نقاط' : n + ' نقطة';
+  return d > 0 ? `ارتفع ${amount} ↑` : `انخفض ${amount} ↓`;
+}
+
 /* اقتراح نتيجة (المعلم يقرر دائمًا) */
 function suggestFollowupOutcome(followup, result){
   if(!result || !result.sufficient) return null;
   if(followup.reason_type === 'grades'){
-    const before = followup.baseline && followup.baseline.pct;
-    if(result.pct >= ATTENTION_RULES.gradeLowPct) return 'improved';
-    if(before !== null && before !== undefined && result.pct > before) return 'partial';
+    const d = gradeDelta(followup, result);
+    if(d === null) return result.pct >= ATTENTION_RULES.gradeLowPct ? 'improved' : 'not_improved'; /* بلا خط أساس رقمي */
+    if(d >= fuImproveNow()) return 'improved';
+    if(d > 0) return 'partial'; /* ارتفاع ولو قليل يُذكر ولا يُعدّ «لم يتحسّن» */
     return 'not_improved';
   }
   if(followup.reason_type === 'behavior') return result.recurred ? 'not_improved' : 'improved';
@@ -826,6 +850,15 @@ async function renderCrmFollowups(){
   if(openRes.data) openRes.data = openRes.data.filter(followupVisible);
   if(closedRes.data) closedRes.data = closedRes.data.filter(followupVisible);
   /* العرض (بحث، فصول، تصنيف بالحالة) في app-48: fuTabPaint يعيد الرسم من هذه البيانات بلا جلب جديد */
+  /* «بلا اتفاق» بقرار المعلم (app-48: fuSkipAgreement) — فشل قراءتها لا يمنع العرض */
+  let skipped = new Set();
+  try{
+    const { data: sk } = await sb.from('classroom_attention_dismissals').select('subject_key')
+      .eq('teacher_id', currentUser.id).eq('rule_key', FU_NO_AGREEMENT_RULE);
+    skipped = new Set((sk || []).map(r => r.subject_key));
+  } catch(e){ /* غير حرج */ }
+  if(token !== crmFollowupsToken) return;
+  (openRes.data || []).forEach(f => { if(skipped.has(f.id)) f.noAgreement = true; });
   crmFuTab = {
     cache, openError: !!openRes.error,
     open: collapseFollowupGroups(openRes.data || []),
@@ -976,7 +1009,7 @@ async function openCrmReviewModal(followupId){
   } catch(e){ result = { sufficient: false }; }
 
   const suggested = suggestFollowupOutcome(f, result);
-  crmReview = { followup: f, result, saving: false };
+  crmReview = { followup: f, result, saving: false, commit: { student: null, teacher: null } };
   const base = f.baseline || {};
   let beforeAfter = '';
   if(['absence', 'lateness', 'exits'].includes(f.reason_type)){
@@ -987,7 +1020,8 @@ async function openCrmReviewModal(followupId){
     beforeAfter = `<div class="crm-ba-row"><span>بعد الفتح</span><b>${result.recurred ? `تكررت المخالفة ${result.recurred} مرة` : 'لم تتكرر المخالفة'}</b></div>`;
   } else if(f.reason_type === 'grades' && base.category){
     beforeAfter = `<div class="crm-ba-row"><span>قبل (وقت الفتح)</span><b>${escapeHtml(gradeBeforeText(base))}</b></div>
-      <div class="crm-ba-row"><span>بعد الفتح</span><b>${gradeAfterText(result)}</b></div>`;
+      <div class="crm-ba-row"><span>بعد الفتح</span><b>${gradeAfterText(result)}</b></div>
+      ${gradeDelta(f, result) !== null ? `<div class="crm-ba-row"><span>التغيّر</span><b class="${gradeDelta(f, result) > 0 ? 'rv-up' : gradeDelta(f, result) < 0 ? 'rv-down' : ''}">${gradeDeltaText(gradeDelta(f, result))}</b></div>` : ''}`;
   } else {
     beforeAfter = '<div class="crm-ba-row"><span>القياس</span><b>بحكمك (لا مؤشر رقمي لهذا السبب)</b></div>';
   }
@@ -1004,9 +1038,12 @@ async function openCrmReviewModal(followupId){
       <div class="crm-ba-box">${beforeAfter}
         <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">الأرقام تُظهر ما تغيّر بعد التدخل، لا أنه سبب التغيّر.</div></div>
       ${typeof faReviewLineHtml === 'function' && !f.group_id ? faReviewLineHtml(f) : ''}
+      ${typeof faCommitQuestionsHtml === 'function' && !f.group_id ? faCommitQuestionsHtml(f) : ''}
       <div class="rv-q">ما نتيجة المتابعة؟</div>
       <div class="rv-outs">${outcomeBtns}</div>
       ${suggested ? `<div class="rv-hint">المقترح بحسب الأرقام: ${FOLLOWUP_OUTCOMES[suggested]} — القرار لك</div>` : ''}
+      ${f.reason_type === 'grades' && gradeDelta(f, result) !== null ? `<div class="rv-thr"><span>«تحسّن» عندي من:</span><span class="rv-chips">${
+        FU_IMPROVE_OPTIONS.map(n => `<button type="button" class="rv-c${n === fuImproveNow() ? ' on' : ''}" onclick="fuSetImprove(${n}, '${escapeHtml(f.id)}')">${n}+</button>`).join('')}</span><span>نقاط</span></div>` : ''}
       <div id="crmNextStepBox" style="display:none;margin-top:8px;">
         <div class="crm-field-label">لم يتحسّن — ما القرار التالي؟</div>
         <div class="rv-outs">${nextBtns}</div>
@@ -1025,6 +1062,24 @@ async function openCrmReviewModal(followupId){
     </div>`, '460px');
 }
 
+/* المعلم يختار حدّ «تحسّن» من نافذة المراجعة نفسها؛ يُحفظ في إعداداته ويُعاد الاقتراح فورًا */
+let fuImproveSaving = false;
+async function fuSetImprove(n, followupId){
+  if(fuImproveSaving || !FU_IMPROVE_OPTIONS.includes(n) || n === fuImproveNow() || !currentUser) return;
+  fuImproveSaving = true;
+  const uid = currentUser.id;
+  try{
+    const next = normalizeFeatures(appFeatures);
+    if(n === FU_IMPROVE_DEFAULT) delete next.fuImprove; else next.fuImprove = n;
+    appFeatures = next;
+    await saveAppFeatures();
+    if(!currentUser || currentUser.id !== uid) return;
+    if((appFeaturesSaved.fuImprove || FU_IMPROVE_DEFAULT) !== n){ showToast('تعذّر حفظ الحدّ', 'error'); return; }
+    showToast(`يُعدّ تحسّنًا من ${n} نقاط فأكثر`, 'ok');
+    if(crmReview && crmReview.followup && crmReview.followup.id === followupId) openCrmReviewModal(followupId);
+  } finally { fuImproveSaving = false; }
+}
+
 async function closeCrmFollowup(outcome, confirmedNext, nextStepKey){
   const rv = crmReview;
   if(!rv || rv.saving) return;
@@ -1037,7 +1092,8 @@ async function closeCrmFollowup(outcome, confirmedNext, nextStepKey){
   rv.saving = true;
   const f = rv.followup;
   const { error } = await sb.from('classroom_followups').update({
-    status: 'closed', outcome, next_step: nextStep, result: rv.result || null, closed_at: new Date().toISOString()
+    status: 'closed', outcome, next_step: nextStep, closed_at: new Date().toISOString(),
+    result: (typeof faCommitResult === 'function' ? faCommitResult(rv.result, rv.commit) : rv.result) || null
   }).eq('teacher_id', currentUser.id).eq('id', f.id).eq('status', 'open');
   if(error){ showToast('تعذّر الإغلاق: ' + error.message, 'error'); rv.saving = false; return; }
   closeFollowupModal();
@@ -1103,6 +1159,8 @@ async function deleteCrmFollowup(followupId){
     const { error } = await sb.from('classroom_followups').delete().eq('id', followupId).eq('teacher_id', uid);
     if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
     crmReview = null;
+    /* علامة «لا تحتاج اتفاقًا» تخص هذه المتابعة وحدها: لا تبقى يتيمة (غير حرج إن فشل) */
+    try{ await sb.from('classroom_attention_dismissals').delete().eq('teacher_id', uid).eq('rule_key', 'fu_no_agreement').eq('subject_key', followupId); } catch(e){}
     const studentId = (f && f.student_id) || (prot.cap && prot.cap.tables[0].rows[0].student_id);
     const refresh = async () => {
       await refreshAttentionViews();
