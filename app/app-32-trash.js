@@ -161,6 +161,17 @@ async function trashCaptureFollowup(followupId, ownerId){
   };
 }
 
+/* متابعة جماعية: أعضاؤها المفتوحون + إجراءاتهم في لقطة واحدة */
+async function trashCaptureFollowupGroup(groupId, ownerId){
+  const rows = await trashRows('classroom_followups', [['eq', 'teacher_id', ownerId], ['eq', 'group_id', groupId], ['eq', 'status', 'open']]);
+  if(!rows.length) return null;
+  const actions = await trashRows('classroom_followup_actions', [['eq', 'teacher_id', ownerId], ['in', 'followup_id', trashIds(rows)]]);
+  return {
+    kind: 'followup', label: '👥 ' + rows.length + ' — ' + (rows[0].reason_text || 'متابعة جماعية'), ownerId,
+    tables: [{ t: 'classroom_followups', rows }, { t: 'classroom_followup_actions', rows: actions }]
+  };
+}
+
 /* سجل واحد بلا توابع: المهمة الشخصية، الحالة الأكاديمية، الحادثة، الملاحظات */
 async function trashCaptureSingle(kind, table, ownColumn, id, ownerId, labelFn){
   const rows = await trashRows(table, [['eq', 'id', id], ['eq', ownColumn, ownerId]]);

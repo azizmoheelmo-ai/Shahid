@@ -257,3 +257,37 @@ test('نافذة المراجعة (تحصيل): سطر «التغيّر» وخي
   assert.match(h, /class="rv-c on"[^>]*>10\+</);
   assert.match(h, /المقترح بحسب الأرقام: تحسّن/);
 });
+
+/* ===== حذف المتابعة الجماعية (3.44) ===== */
+test('حذف المتابعة الجماعية: لقطة واحدة لأعضائها المفتوحين وإجراءاتهم، وحذف مقيَّد بالمعلم والمجموعة والمفتوحة', async () => {
+  const ev = [];
+  const seed = {
+    classroom_followups: [{ id: 'g1', teacher_id: 'u1', group_id: 'G', status: 'open', reason_text: 'ق' }, { id: 'g2', teacher_id: 'u1', group_id: 'G', status: 'open', reason_text: 'ق' },
+      { id: 'g3', teacher_id: 'u1', group_id: 'G', status: 'closed' }, { id: 'x', teacher_id: 'u2', group_id: 'G', status: 'open' }],
+    classroom_followup_actions: [{ id: 'a1', followup_id: 'g1', teacher_id: 'u1' }, { id: 'a3', followup_id: 'g3', teacher_id: 'u1' }]
+  };
+  const client = {
+    from(table){
+      const f = []; let op = 'select', values = null, single = false;
+      const run = () => {
+        if(table === 'deleted_items' && op === 'insert'){ ev.push({ k: 'snapshot', values }); return { data: { id: 'T1' }, error: null }; }
+        if(op === 'delete'){ ev.push({ k: 'delete', table, f: f.slice() }); return { data: null, error: null }; }
+        const rows = (seed[table] || []).filter(r => f.every(([c, v]) => Array.isArray(v) ? v.includes(r[c]) : r[c] === v));
+        return { data: single ? rows[0] || null : rows, error: null };
+      };
+      const api = { select: () => api, order: () => api, limit: () => api, range: () => api, eq(c, v){ f.push([c, v]); return api; }, in(c, v){ f.push([c, v]); return api; },
+        insert(v){ op = 'insert'; values = v; return api; }, delete(){ op = 'delete'; return api; },
+        single(){ single = true; return Promise.resolve(run()); }, then(res){ return Promise.resolve(run()).then(res); } };
+      return api;
+    },
+    rpc(){ return Promise.resolve({ data: null, error: null }); },
+    auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }, storage: { from: () => ({}) }
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, `showToast = () => {}; refreshAttentionViews = async () => {}; showConfirm = async () => true; trashOfferUndo = () => {};`);
+  await Promise.all([app.deleteCrmGroupFollowup('G'), app.deleteCrmGroupFollowup('G')]);
+  assert.deepEqual(ev.map(e => e.k), ['snapshot', 'delete'], 'نقرة مزدوجة = حذف واحد');
+  const t = Object.fromEntries(ev[0].values.payload.tables.map(x => [x.t, x.rows.map(r => r.id)]));
+  assert.deepEqual(JSON.parse(JSON.stringify(t)), { classroom_followups: ['g1', 'g2'], classroom_followup_actions: ['a1'] }, 'المغلق ومعلم آخر خارج اللقطة');
+  assert.deepEqual(JSON.parse(JSON.stringify(ev[1].f)), [['teacher_id', 'u1'], ['group_id', 'G'], ['status', 'open']]);
+});

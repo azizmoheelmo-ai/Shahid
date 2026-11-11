@@ -3015,3 +3015,11 @@ button.bt-cell{cursor:pointer;}
 .rv-up{color:#1E7A4C;}
 .rv-down{color:#A33A3A;}
 .rv-thr{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-top:6px;}
+/* تحسينات 3.44: أسماء المتابعة الجماعية، روابط سطر المقترح */
+.fu-members{font-size:11.5px;color:var(--muted);line-height:1.6;}
+.gs-links{display:flex;gap:12px;flex-wrap:wrap;}
+.gs-wa{color:#1E7A4C;}
+/* شريط التبويبات على الجوال: العرض بحسب طول الاسم (لا تساوٍ يقطع «المخالفات»)، والشارة فوق الزر لا بجانب النص */
+#crmTabsBar .crm-tab-btn{flex:1 1 auto;position:relative;}
+#crmTabsBar .fu-tab-badge{position:absolute;top:1px;left:3px;margin:0;min-width:15px;height:15px;line-height:15px;font-size:9px;padding:0 3px;}
+@media (max-width:480px){ #crmTabsBar{margin-left:4px;margin-right:4px;} }

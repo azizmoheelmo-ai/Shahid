@@ -225,3 +225,12 @@ test('سؤالا الالتزام: يظهران لاتفاق «أوافق» فق
   assert.equal(app.faCommitSummary({ commitment: { student: 'partial', teacher: 'yes' } }), 'التزم: جزئيًا · دعمك: نعم');
   assert.equal(app.faCommitSummary(null), '');
 });
+
+test('المتابعة الجماعية في التبويب: أسماء أعضائها الأولى (حتى 4 ثم +ن)، مهرَّبة', () => {
+  const app = loadApp();
+  assert.equal(app.fuGroupNames(['أوس الوادعي', 'بدر علي', 'تركي', 'ثامر', 'جابر', 'حسن']), 'أوس، بدر، تركي، ثامر +2');
+  assert.equal(app.fuGroupNames(['أوس']), 'أوس');
+  const h = app.fuRowHtml({ f: { id: 'm', group_id: 'G', members: [{}, {}], review_date: '2026-12-01', reason_type: 'grades', reason_text: 'ق' },
+    st: app.fuRowState({ review_date: '2026-12-01', members: [{}, {}] }, TODAY), meta: { names: ['<i>أوس</i> س', 'بدر'], sectionId: '' } });
+  assert.match(h, /class="fu-members">&lt;i&gt;أوس&lt;\/i&gt;، بدر</);
+});

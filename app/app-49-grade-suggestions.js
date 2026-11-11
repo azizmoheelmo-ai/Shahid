@@ -203,10 +203,13 @@ async function gsEnsureLoaded(){
     const [dismissals, openGrades] = await Promise.all([gsLoadDismissals(), gsLoadOpenGrades()]);
     if(token !== gsState.token) return;
     gsState.dismissals = dismissals;
+    gsState.failed = [];
     for(const sec of sections){
-      const res = await gsLoadSection(sec.id, rules, openGrades, dismissals);
-      if(token !== gsState.token) return; /* أُلغي (فُتحت متابعة/تغيّر الفصل) أثناء التحميل */
-      gsState.bySection.set(sec.id, res);
+      let res = null;
+      /* فشل كشف شعبة واحدة لا يُسقط البقية: تُذكر باسمها مع «إعادة المحاولة» */
+      try{ res = await gsLoadSection(sec.id, rules, openGrades, dismissals); } catch(e){ res = null; }
+      if(token !== gsState.token) return; /* أُلغي (تغيّر الفصل/أُعيد التحميل) أثناء التحميل */
+      if(res) gsState.bySection.set(sec.id, res); else gsState.failed.push(sec.id);
       gsState.done++;
       gsRepaint();
     }
@@ -241,8 +244,9 @@ function gsPersonRowHtml(p, sectionId){
   const sec = typeof fuShortSection === 'function' ? fuShortSection(sectionId) : '';
   return `<div class="fu-row">
     <div class="fu-main"><div class="fu-name">${escapeHtml(name)}${sec ? ` <bdi class="fu-sec">${escapeHtml(sec)}</bdi>` : ''}</div>
-      <div class="fu-fact">${escapeHtml(p.evidence[0] || '')}${p.evidence.length > 1 ? ` <span class="fu-sec">(+${p.evidence.length - 1})</span>` : ''}</div>
-      <button type="button" class="gs-skip" onclick="gsDismiss('${GS_RULE}', '${escapeHtml(p.studentId)}')">ليس الآن</button></div>
+      ${p.evidence.map(t => `<div class="fu-fact">${escapeHtml(t)}</div>`).join('')}
+      <span class="gs-links"><button type="button" class="gs-skip" onclick="gsDismiss('${GS_RULE}', '${escapeHtml(p.studentId)}')">ليس الآن</button>${
+        p.parent && gsGuardianPhone(p.studentId) ? `<button type="button" class="gs-skip gs-wa" onclick="gsWaGuardian('${escapeHtml(p.studentId)}')">واتساب ولي الأمر</button>` : ''}</span></div>
     <div class="fu-side"><span class="fu-chip ${p.parent ? 'fu-late' : 'fu-soon'}">${escapeHtml(GS_TAGS[p.tag])}</span>
       <button type="button" class="btn btn-primary crm-mini-btn fu-b" onclick="gsStart('${escapeHtml(sectionId)}', '${escapeHtml(p.studentId)}')">ابدأ متابعة</button></div>
   </div>`;
@@ -262,9 +266,10 @@ function gsBodyHtml(){
   if(s.status === 'error') return `<div class="crm-today-empty">تعذّر قراءة الكشوف: ${escapeHtml(s.error)} <a href="#" onclick="event.preventDefault();gsInvalidate();gsEnsureLoaded()">إعادة المحاولة</a></div>`;
   if(s.status === 'loading') return `<div class="loading-state">جارٍ قراءة كشوف الشعب (${s.done} من ${s.total})...</div>`;
   const all = [...s.bySection.entries()].filter(([, r]) => r.people.length || r.groups.length);
-  if(!all.length) return `<div class="crm-today-empty">لا ضعف مثبت يستدعي متابعة الآن ✓ — بحسب تشخيص التقرير التحليلي وحدودك.</div>${gsSourceHtml()}`;
+  const failedHtml = (s.failed || []).length ? `<div class="crm-today-empty">تعذّرت قراءة ${s.failed.map(id => '<bdi>' + escapeHtml(fuShortSection(id) || 'شعبة') + '</bdi>').join('، ')} — <a href="#" onclick="event.preventDefault();gsInvalidate();gsEnsureLoaded()">إعادة المحاولة</a></div>` : '';
+  if(!all.length) return `${failedHtml}${(s.failed || []).length ? '' : '<div class="crm-today-empty">لا ضعف مثبت يستدعي متابعة الآن ✓ — بحسب تشخيص التقرير التحليلي وحدودك.</div>'}${gsSourceHtml()}`;
   if(s.section && !all.some(([id]) => id === s.section)) s.section = '';
-  let html = '';
+  let html = failedHtml;
   if(all.length > 1){
     html += `<div class="fu-chips"><button type="button" class="fu-f${s.section ? '' : ' fu-on'}" onclick="gsSetSection('')">كل الفصول</button>${
       all.map(([id, r]) => `<button type="button" class="fu-f${s.section === id ? ' fu-on' : ''}" onclick="gsSetSection('${escapeHtml(id)}')"><bdi>${escapeHtml(fuShortSection(id) || 'شعبة')}</bdi> (${r.people.length + r.groups.length})</button>`).join('')}</div>`;
@@ -318,15 +323,62 @@ async function gsDismiss(rule, key){
       { teacher_id: currentUser.id, rule_key: rule, subject_key: key, dismissed_at: new Date().toISOString() },
       { onConflict: 'teacher_id,rule_key,subject_key' });
     if(error){ showToast('تعذّر الحفظ: ' + (error.message || ''), 'error'); return; }
-    /* إزالة محلية فورية بلا إعادة قراءة الكشوف */
+    /* إزالة محلية فورية بلا إعادة قراءة الكشوف (تُحفظ نسخة للتراجع) */
     gsState.dismissals.push({ rule_key: rule, subject_key: key, dismissed_at: new Date().toISOString() });
-    gsState.bySection.forEach(r => {
-      if(rule === GS_RULE) r.people = r.people.filter(p => p.studentId !== key);
-      else r.groups = r.groups.filter(g => g.key !== key);
-    });
-    showToast('أُخفي 14 يومًا', 'ok');
+    const removed = gsRemoveLocal(rule, key);
     if(typeof fuTabPaint === 'function') fuTabPaint();
+    gsOfferDismissUndo(rule, key, removed, gsState.token);
   } finally { gsState.dismissing = false; }
+}
+
+/* يزيل الاقتراح من القائمة المحمَّلة ويعيد ما أُزيل (لإرجاعه عند التراجع) */
+function gsRemoveLocal(rule, key){
+  const removed = [];
+  gsState.bySection.forEach((r, sectionId) => {
+    if(rule === GS_RULE){
+      const i = r.people.findIndex(p => p.studentId === key);
+      if(i > -1) removed.push({ sectionId, kind: 'people', index: i, item: r.people.splice(i, 1)[0] });
+    } else {
+      const i = r.groups.findIndex(g => g.key === key);
+      if(i > -1) removed.push({ sectionId, kind: 'groups', index: i, item: r.groups.splice(i, 1)[0] });
+    }
+  });
+  return removed;
+}
+
+/* «ليس الآن» بنقرة خاطئة: تراجع يحذف علامة الإخفاء ويعيد الاقتراح مكانه */
+function gsOfferDismissUndo(rule, key, removed, token){
+  const uid = currentUser && currentUser.id;
+  Promise.resolve(showUndoToast('أُخفي 14 يومًا', 6)).then(async (finalize) => {
+    if(finalize || !currentUser || currentUser.id !== uid) return;
+    const { error } = await sb.from('classroom_attention_dismissals').delete()
+      .eq('teacher_id', uid).eq('rule_key', rule).eq('subject_key', key);
+    if(error){ showToast('تعذّر التراجع: ' + (error.message || ''), 'error'); return; }
+    if(token !== gsState.token) return; /* أُعيد التحميل: القائمة الجديدة تحمله أصلًا */
+    gsState.dismissals = gsState.dismissals.filter(d => !(d.rule_key === rule && d.subject_key === key));
+    removed.forEach(x => { const r = gsState.bySection.get(x.sectionId); if(r) r[x.kind].splice(Math.min(x.index, r[x.kind].length), 0, x.item); });
+    if(typeof fuTabPaint === 'function') fuTabPaint();
+  }).catch(() => {});
+}
+
+/* A) فُتحت متابعة تحصيل لطالب: يُزال من المقترحات محليًا (بلا إعادة قراءة كشوف كل الشعب) */
+function gsAfterOpen(studentId, reasonType){
+  if(reasonType !== 'grades' || gsState.status !== 'ready') return;
+  gsRemoveLocal(GS_RULE, studentId);
+  gsState.bySection.forEach(r => r.groups.forEach(g => g.members.forEach(m => { if(m.studentId === studentId) m.open = true; })));
+}
+
+function gsGuardianPhone(studentId){
+  const st = crmStudents.find(x => x.id === studentId);
+  return (st && st.guardian_phone) || '';
+}
+
+/* رسالة لولي الأمر: مسودة عامة بلا أرقام (المعلم يعدّلها ويرسلها بنفسه؛ لا يُحفظ شيء) */
+function gsWaGuardian(studentId){
+  const st = crmStudents.find(x => x.id === studentId);
+  if(!st) return;
+  const first = String(st.full_name || '').trim().split(/\s+/)[0] || '';
+  openCrmWaNote(studentId, 'guardian', `السلام عليكم ورحمة الله، ولي أمر الطالب ${first} الكريم.\nأودّ التواصل معكم بخصوص مستواه الدراسي لنتعاون على دعمه. متى يناسبكم؟`);
 }
 
 /* ============================================================
