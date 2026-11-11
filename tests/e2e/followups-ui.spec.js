@@ -145,3 +145,18 @@ test('شارة التذكير: العدد على تبويب «متابعة» و�
   await expect(page.locator('#crmTabBtnFollowups .fu-tab-badge')).toHaveText('2');
   await expect(page.locator('#classroomNavBadge')).toHaveText('2');
 });
+
+test('شريط التبويبات على الجوال: لا اسم مقطوع مع الشارة (360 و390)', async ({ page }) => {
+  for(const width of [360, 390]){
+    await page.setViewportSize({ width, height: 740 });
+    await boot(page);
+    const cut = await page.evaluate(() => {
+      let p = document.getElementById('classroomView');
+      while(p){ p.style.display = 'block'; p = p.parentElement; }
+      document.getElementById('crmTabBtnRecord').style.display = '';
+      fuRenderBadge(3);
+      return [...document.querySelectorAll('#crmTabsBar .crm-tab-btn')].filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent);
+    });
+    expect(cut, 'عرض ' + width).toEqual([]);
+  }
+});

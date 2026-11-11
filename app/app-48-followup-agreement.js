@@ -299,6 +299,12 @@ function fuShortSection(id){
   return (grade ? grade.name + '/' : '') + crmDigits(sec.name);
 }
 
+/* أسماء أعضاء المتابعة الجماعية: الأول من كل اسم، حتى أربعة ثم «+ن» */
+function fuGroupNames(names){
+  const first = (names || []).map(n => String(n || '').trim().split(/\s+/)[0]).filter(Boolean);
+  return first.slice(0, 4).join('، ') + (first.length > 4 ? ` +${first.length - 4}` : '');
+}
+
 function fuRowHtml(item){
   const { f, st, meta } = item;
   const sec = fuShortSection(meta.sectionId);
@@ -313,6 +319,7 @@ function fuRowHtml(item){
   return `<div class="fu-row">
     <div class="fu-main"><div class="fu-name">${name}${sec ? ` <bdi class="fu-sec">${escapeHtml(sec)}</bdi>` : ''}${meta.gone ? ' <span class="fu-sec">(نُقل)</span>' : ''}${f.agreement && f.agreement.status === 'agreed' ? ' <span title="تم الاتفاق مع الطالب">🤝</span>' : ''}</div>
       <div class="fu-fact">${escapeHtml(fuShortFact(f))}</div>
+      ${f.members ? `<div class="fu-members">${escapeHtml(fuGroupNames(meta.names))}</div>` : ''}
       ${st.chip === 'بلا اتفاق بعد' ? `<button type="button" class="gs-skip" onclick="fuSkipAgreement('${escapeHtml(f.id)}')">لا تحتاج اتفاقًا</button>` : ''}</div>
     <div class="fu-side"><span class="fu-chip ${st.need ? 'fu-late' : 'fu-soon'}">${escapeHtml(st.chip)}</span>${btn}</div>
   </div>`;

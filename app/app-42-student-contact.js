@@ -108,7 +108,7 @@ async function saveCrmStudentContact(studentId){
 }
 
 /* ============ ملاحظة سريعة بواتساب ============ */
-function openCrmWaNote(studentId, who){
+function openCrmWaNote(studentId, who, draft){
   const st = crmStudents.find(x => x.id === studentId) || (typeof crmArchivedStudents !== 'undefined' ? crmArchivedStudents.find(x => x.id === studentId) : null);
   if(!st) return;
   const has = { guardian: !!st.guardian_phone, student: !!st.student_phone };
@@ -119,7 +119,7 @@ function openCrmWaNote(studentId, who){
     <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">ملاحظة سريعة — ${escapeHtml(st.full_name)}</h3>
     <div class="crm-ct-picks">${radio('guardian', 'ولي الأمر')}${radio('student', 'الطالب')}</div>
     <div id="crmWaTo" dir="ltr" style="text-align:right;font-size:12px;color:var(--muted);margin:6px 0;"></div>
-    <textarea class="goal-input" id="crmWaText" rows="5" maxlength="${CRM_WA_NOTE_MAX}" placeholder="اكتب الملاحظة…" style="margin-bottom:6px;"></textarea>
+    <textarea class="goal-input" id="crmWaText" rows="5" maxlength="${CRM_WA_NOTE_MAX}" placeholder="اكتب الملاحظة…" style="margin-bottom:6px;">${escapeHtml(String(draft || '').slice(0, CRM_WA_NOTE_MAX))}</textarea>
     <p style="font-size:11.5px;color:var(--muted);margin:0 0 10px;line-height:1.7;">تُفتح محادثة واتساب مع الرقم والنص جاهز، وتضغط إرسال بنفسك. لا يُحفظ شيء في التطبيق.</p>
     <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="sendCrmWaNote('${escapeHtml(st.id)}')">فتح واتساب ←</button>
   </div>`, '380px');

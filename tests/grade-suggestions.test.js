@@ -271,3 +271,93 @@ test('إصلاح: المتابعة التالية بعد «لم يتحسّن» �
   assert.match(src, /baseline = refreshGradeBaseline\(f\.baseline, g\.columns, g\.scores, f\.student_id\)/);
   assert.match(src, /openCrmFollowupModal\(f\.student_id, \{ reasonType: f\.reason_type, reasonText: f\.reason_text, baseline \}\)/);
 });
+
+/* ===== تحسينات 3.44 ===== */
+function gsApp(){
+  const log = { deletes: [], upserts: [] };
+  const client = {
+    from(table){
+      let op = 'select'; const f = [];
+      const api = { select: () => api, in: () => api, order: () => api, eq(c, v){ f.push([c, v]); return api; },
+        upsert(p){ op = 'upsert'; log.upserts.push(p); return api; }, delete(){ op = 'delete'; return api; },
+        then(res){ if(op === 'delete') log.deletes.push({ table, f: f.slice() }); return Promise.resolve({ data: [], error: null }).then(res); } };
+      return api;
+    },
+    rpc(){ return Promise.resolve({ data: null, error: null }); },
+    auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }, storage: { from: () => ({}) }
+  };
+  const app = loadApp({ supabaseClient: client, currentUser: { id: 'u1' } });
+  runInAppContext(app, `fuTabPaint = () => {}; window.__undo = null; showUndoToast = () => new Promise(r => { window.__undo = r; });
+    crmGradeLevels = [{ id: 'g', name: 'ثاني' }]; crmSections = [{ id: 'S', name: '6', grade_level_id: 'g' }];
+    crmStudents = [{ id: 'a', full_name: 'أوس الوادعي', section_id: 'S', guardian_phone: '966500000000' }, { id: 'b', full_name: 'بدر', section_id: 'S' }];
+    gsState.status = 'ready';
+    gsState.bySection = new Map([['S', { groups: [{ key: 'S|q', sectionId: 'S', itemId: 'q', name: 'ق', members: [{ studentId: 'a', pct: 20, open: false }, { studentId: 'b', pct: 30, open: false }], classPct: 40, recorded: 5 }],
+      people: [{ studentId: 'a', parent: true, tag: 'parent', evidence: ['دليل أول', '<b>دليل ثانٍ</b>'], focus: 'tahsili', focusRowIds: [], weakRowIds: [] },
+               { studentId: 'b', parent: false, tag: 'tahsili', evidence: ['د'], focus: 'tahsili', focusRowIds: [], weakRowIds: [] }], g: { columns: [], scores: [] } }]]);`);
+  return { app, log };
+}
+
+test('فتح متابعة تحصيل يزيل الطالب محليًا بلا إعادة قراءة الكشوف، ويعلّمه في البطاقة الجماعية', () => {
+  const { app } = gsApp();
+  const token = runInAppContext(app, 'gsState.token');
+  app.gsAfterOpen('a', 'absence');
+  assert.equal(runInAppContext(app, `gsState.bySection.get('S').people.length`), 2, 'سبب غير التحصيل لا يمسّ المقترحات');
+  app.gsAfterOpen('a', 'grades');
+  assert.deepEqual(J(runInAppContext(app, `gsState.bySection.get('S').people.map(p => p.studentId)`)), ['b']);
+  assert.equal(runInAppContext(app, `gsState.bySection.get('S').groups[0].members[0].open`), true);
+  assert.equal(runInAppContext(app, 'gsState.status'), 'ready');
+  assert.equal(runInAppContext(app, 'gsState.token'), token, 'لا إعادة تحميل');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app/app-16-attention-followups.js'), 'utf8');
+  assert.match(src, /gsAfterOpen\(d\.studentId, reasonType\)/);
+  assert.match(src, /if\(f\.reason_type === 'grades' && typeof gsInvalidate === 'function'\) gsInvalidate\(\);/, 'الإغلاق يعيد حساب المقترحات');
+});
+
+test('سطر المقترح: كل الأدلة ظاهرة ومهرَّبة، وواتساب ولي الأمر لمن يستدعيه وله رقم فقط', () => {
+  const { app } = gsApp();
+  const h = app.gsBodyHtml();
+  assert.match(h, /دليل أول/);
+  assert.match(h, /&lt;b&gt;دليل ثانٍ&lt;\/b&gt;/);
+  assert.doesNotMatch(h, /\(\+1\)/);
+  assert.equal((h.match(/gsWaGuardian\(/g) || []).length, 1);
+  assert.match(h, /gsWaGuardian\('a'\)/);
+});
+
+test('واتساب ولي الأمر: مسودة بالاسم الأول وبلا أي رقم أو درجة', () => {
+  const { app } = gsApp();
+  runInAppContext(app, `window.__wa = null; openCrmWaNote = (id, who, draft) => { window.__wa = { id, who, draft }; };`);
+  app.gsWaGuardian('a');
+  const wa = J(runInAppContext(app, 'window.__wa'));
+  assert.deepEqual([wa.id, wa.who], ['a', 'guardian']);
+  assert.match(wa.draft, /ولي أمر الطالب أوس الكريم/);
+  assert.doesNotMatch(wa.draft, /\d|%|الوادعي/);
+});
+
+test('«ليس الآن» ثم «تراجع»: تُحذف علامة الإخفاء للمعلم وحده ويعود الاقتراح مكانه', async () => {
+  const { app, log } = gsApp();
+  await app.gsDismiss('grade_suggest', 'a');
+  assert.deepEqual(J(runInAppContext(app, `gsState.bySection.get('S').people.map(p => p.studentId)`)), ['b']);
+  runInAppContext(app, 'window.__undo(false)'); /* ضغط «تراجع» */
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(J(log.deletes[0]), { table: 'classroom_attention_dismissals', f: [['teacher_id', 'u1'], ['rule_key', 'grade_suggest'], ['subject_key', 'a']] });
+  assert.deepEqual(J(runInAppContext(app, `gsState.bySection.get('S').people.map(p => p.studentId)`)), ['a', 'b'], 'يعود في موضعه');
+  assert.equal(runInAppContext(app, 'gsState.dismissals.length'), 0);
+  await app.gsDismiss('grade_suggest', 'b');
+  runInAppContext(app, 'window.__undo(true)'); /* انتهت المهلة بلا تراجع */
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(log.deletes.length, 1);
+});
+
+test('فشل قراءة كشف شعبة لا يُسقط البقية ويُذكر مع إعادة المحاولة', async () => {
+  const { app } = gsApp();
+  runInAppContext(app, `crmSections = [{ id: 'S', name: '6', grade_level_id: 'g' }, { id: 'T', name: '7', grade_level_id: 'g' }];
+    crmStudents.push({ id: 'c', full_name: 'ج', section_id: 'T' });
+    gsLoadDismissals = async () => []; gsLoadOpenGrades = async () => new Set();
+    gsLoadSection = async (id) => { if(id === 'T') throw new Error('x'); return { people: [{ studentId: 'b', parent: false, tag: 'tahsili', evidence: ['د'] }], groups: [] }; };
+    gsInvalidate();`);
+  await app.gsEnsureLoaded();
+  assert.equal(runInAppContext(app, 'gsState.status'), 'ready');
+  assert.deepEqual(J(runInAppContext(app, 'gsState.failed')), ['T']);
+  const h = app.gsBodyHtml();
+  assert.match(h, /تعذّرت قراءة <bdi>ثاني\/7<\/bdi>/);
+  assert.match(h, /ضعف مثبت \(1\)/);
+});

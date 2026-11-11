@@ -948,7 +948,7 @@ async function saveCrmFollowup(){
     showToast(aErr ? 'فُتحت المتابعة، لكن تعذّر حفظ الإجراء — أضفه من "مراجعة"' : 'فُتحت المتابعة ✓', aErr ? 'error' : 'ok');
     await refreshAttentionViews();
     if(crmProfile && crmProfile.studentId === d.studentId) renderCrmStudentProfile();
-    if(typeof gsInvalidate === 'function') gsInvalidate();
+    if(typeof gsAfterOpen === 'function') gsAfterOpen(d.studentId, reasonType);
     if(typeof faOfferAfterOpen === 'function') faOfferAfterOpen(fu.id);
   } catch(e){
     showToast('تعذّر فتح المتابعة: ' + (e.message || ''), 'error');
@@ -1097,6 +1097,7 @@ async function closeCrmFollowup(outcome, confirmedNext, nextStepKey){
   }).eq('teacher_id', currentUser.id).eq('id', f.id).eq('status', 'open');
   if(error){ showToast('تعذّر الإغلاق: ' + error.message, 'error'); rv.saving = false; return; }
   closeFollowupModal();
+  if(f.reason_type === 'grades' && typeof gsInvalidate === 'function') gsInvalidate(); /* قد يعود مقترحًا */
   showToast('أُغلقت المتابعة: ' + FOLLOWUP_OUTCOMES[outcome], 'ok');
   await refreshAttentionViews();
   if(crmProfile && crmProfile.studentId === f.student_id) renderCrmStudentProfile();
@@ -1144,6 +1145,31 @@ async function addCrmFollowupAction(){
   openCrmReviewModal(f.id);
 }
 
+/* حذف متابعة جماعية مفتوحة كلها (فُتحت بالخطأ): لقطة واحدة في السلة لكل أعضائها المفتوحين وإجراءاتهم.
+   من أُغلق من أعضائها سابقًا يبقى سجله كما هو. */
+async function deleteCrmGroupFollowup(groupId){
+  return trashRunOnce('followup-group:' + groupId, async () => {
+    if(!currentUser) return;
+    const uid = currentUser.id;
+    closeFollowupModal();
+    const ok = await showConfirm('حذف هذه المتابعة الجماعية لكل طلابها؟ تُحذف معها إجراءاتها. تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا فتستطيع استرجاعها.');
+    if(!ok) return;
+    const prot = await trashProtect(() => trashCaptureFollowupGroup(groupId, uid));
+    if(!prot) return;
+    if(prot.gone){ showToast('لا أعضاء مفتوحون في هذه المتابعة', 'ok'); await refreshAttentionViews(); return; }
+    const { error } = await sb.from('classroom_followups').delete().eq('teacher_id', uid).eq('group_id', groupId).eq('status', 'open');
+    if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
+    crmGroupReview = null;
+    if(typeof gsInvalidate === 'function') gsInvalidate();
+    const refresh = async () => {
+      await refreshAttentionViews();
+      if(typeof crmActiveTab === 'function' && crmActiveTab() === 'followups') renderCrmFollowups();
+    };
+    await refresh();
+    trashOfferUndo('حُذفت المتابعة الجماعية', prot.id, refresh);
+  });
+}
+
 /* حذف متابعة (فُتحت بالخطأ أو لم تعد لازمة): يمرّ بسلة المحذوفات (DELETE-POLICY.md) — معها إجراءاتها واتفاقها،
    والاسترجاع يعيدها كلها. الشاهد المرتبط بها (إن وُجد) لا يُمس. */
 async function deleteCrmFollowup(followupId){
@@ -1159,6 +1185,7 @@ async function deleteCrmFollowup(followupId){
     const { error } = await sb.from('classroom_followups').delete().eq('id', followupId).eq('teacher_id', uid);
     if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
     crmReview = null;
+    if(typeof gsInvalidate === 'function') gsInvalidate(); /* متابعة تحصيل حُذفت: صاحبها قد يعود مقترحًا */
     /* علامة «لا تحتاج اتفاقًا» تخص هذه المتابعة وحدها: لا تبقى يتيمة (غير حرج إن فشل) */
     try{ await sb.from('classroom_attention_dismissals').delete().eq('teacher_id', uid).eq('rule_key', 'fu_no_agreement').eq('subject_key', followupId); } catch(e){}
     const studentId = (f && f.student_id) || (prot.cap && prot.cap.tables[0].rows[0].student_id);
@@ -1330,14 +1357,14 @@ async function openCrmGroupReviewModal(groupId){
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">👥 مراجعة متابعة جماعية</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${escapeHtml(f0.reason_text)} · ${arabicCountPhrase(rows.length, CRM_STUDENT_COUNT_FORMS)} · فُتحت ${localIsoDate(new Date(f0.created_at))}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${escapeHtml(f0.reason_text)} · ${arabicCountPhrase(rows.length, CRM_STUDENT_COUNT_FORMS)} · فُتحت ${escapeHtml(shortDateAr(localIsoDate(new Date(f0.created_at))))}</div>
       ${suggestedAll.length ? `<div class="crm-ba-box" style="margin-bottom:8px;"><b>مقترح من البيانات: ${escapeHtml(groupOutcomeSummary(suggestedAll.map(r => ({ outcome: r.suggested }))))}</b>${suggestedAll.length < rows.length ? `<div style="font-size:11px;color:var(--muted);">${rows.length - suggestedAll.length} بلا بيانات كافية بعد — قرارهم لك</div>` : ''}
         <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">الأرقام تُظهر ما تغيّر بعد التدخل، لا أنه سبب التغيّر.</div></div>` : ''}
       ${rows.map((r, i) => {
         const base = r.followup.baseline || {};
         return `<div class="crm-group-row">
           <div><b>${escapeHtml(attentionStudentName(r.followup.student_id))}</b>
-            <div class="crm-tl-meta">قبل ${base.pct !== undefined ? base.pct + '%' : '—'} ← بعد ${r.result.sufficient ? r.result.pct + '%' : 'لا بيانات كافية'}</div></div>
+            <div class="crm-tl-meta">قبل ${base.pct !== undefined ? base.pct + '%' : '—'} ← بعد ${r.result.sufficient ? r.result.pct + '%' : 'لا بيانات كافية'}${gradeDelta(r.followup, r.result) !== null ? ` · <span class="${gradeDelta(r.followup, r.result) > 0 ? 'rv-up' : gradeDelta(r.followup, r.result) < 0 ? 'rv-down' : ''}">${gradeDeltaText(gradeDelta(r.followup, r.result))}</span>` : ''}</div></div>
           <select class="goal-input crm-group-outcome" data-index="${i}" onchange="onCrmGroupOutcomeChange()">${outcomeOpts(r.suggested)}</select>
         </div>`;
       }).join('')}
@@ -1355,6 +1382,7 @@ async function openCrmGroupReviewModal(groupId){
         <input type="date" class="goal-input" id="crmGrpRvDate" value="${defaultReviewDate(localIsoDate())}" min="${localIsoDate()}" style="margin-bottom:6px;">
         <button class="btn btn-outline crm-mini-btn" style="width:100%;justify-content:center;" onclick="extendCrmGroupFollowup()">حفظ الإجراء والتمديد</button>
       </details>
+      <div class="rv-del-row"><button type="button" class="rv-del" onclick="deleteCrmGroupFollowup('${escapeHtml(groupId)}')">حذف المتابعة الجماعية</button></div>
     </div>`, '480px');
   onCrmGroupOutcomeChange();
 }
