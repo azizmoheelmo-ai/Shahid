@@ -7,11 +7,15 @@
     {
       "source": "/s/:code",
       "destination": "/api/s?c=:code"
+    },
+    {
+      "source": "/f/:code",
+      "destination": "/api/f?c=:code"
     }
   ],
   "headers": [
     {
-      "source": "/((?!s/).*)",
+      "source": "/((?!s/|f/).*)",
       "headers": [
         {
           "key": "X-Frame-Options",

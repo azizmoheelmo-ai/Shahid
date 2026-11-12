@@ -46,7 +46,7 @@ test('الدوال: للمسؤول وحده، مسار بحث فارغ، بلا 
   assert.match(blk, /not \(p_table = any\(public\.admin_backup_tables\(\)\)\) then raise exception 'unknown table'/);
   assert.match(blk, /p_limit > 1000 then raise exception 'bad range'/);
   assert.match(blk, /public\.%I/);
-  assert.match(blk, /if p_table = 'survey_invites' then[\s\S]*?jsonb_build_object\('code', null\)/);
+  assert.match(blk, /if p_table in \('survey_invites', 'leader_followups'\) then[\s\S]*?jsonb_build_object\('code', null\)/);
 });
 
 test('مرآة buildSchemaSql: نفس كتلة الدوال حرفيًا (الاستعادة على مشروع جديد تشمل النسخ)', () => {
