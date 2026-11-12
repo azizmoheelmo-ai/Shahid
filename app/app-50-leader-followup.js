@@ -154,6 +154,7 @@ function lfOpen(id){
   const r = lfState.list && lfState.list.find(x => x.id === id);
   if(!r) return;
   lfState.sel = id;
+  lfState.allInds = false;
   toolsGo('ldetail');
   lfMarkSeen(id);
 }
@@ -200,68 +201,108 @@ function lfRender(screen){
   else { toolsSetTitle('متابعة المؤشرات'); body.innerHTML = lfListHtml(); }
 }
 
+/* الشارة بلون الحالة (هوية الأدوات: tlx-pill) */
+const LF_STATUS_TONES = { answered: 'is-ok', sent: 'is-gold', ready: 'is-blue', expired: 'is-red', revoked: 'is-red' };
+const LF_ANSWER_TONES = { done: 'is-ok', wip: 'is-gold', no: 'is-red' };
+
 function lfChip(status){
-  return `<span class="lf-chip lf-${status}">${escapeHtml(LF_STATUS_LABELS[status])}</span>`;
+  return `<span class="tlx-pill ${LF_STATUS_TONES[status] || ''}">${escapeHtml(LF_STATUS_LABELS[status])}</span>`;
+}
+
+function lfCrumb(label, target){
+  return `<button type="button" class="tlx-crumb" onclick="toolsGo('${target}')"><span aria-hidden="true">›</span> ${escapeHtml(label)}</button>`;
+}
+
+/* هل يحتاج الطلب تدخّل المعلم الآن؟ إجابة لم تُشاهَد، أو موعد لقاء لم يُحسم بعد الإجابة */
+function lfNeedsYou(r, list){
+  if(!r.answered_at) return false;
+  if(list.some(x => x.series_id === r.series_id && x.answered_at && !x.seen_at)) return true;
+  return !!((r.slots || []).length || r.proposed_slot) && (!r.chosen_slot || r.chosen_slot === 'none');
+}
+
+/* تجميع القائمة بالأولوية: تحتاجك الآن، بانتظار الإجابة، مكتملة، منتهية (أحدث دورة لكل مسؤول) */
+function lfListGroups(list){
+  const g = { needs: [], waiting: [], done: [], ended: [] };
+  lfGroupSeries(list).forEach(s => {
+    const r = s.items[0], st = lfStatus(r);
+    if(st === 'answered') (lfNeedsYou(r, list) ? g.needs : g.done).push(s);
+    else if(st === 'ready' || st === 'sent') g.waiting.push(s);
+    else g.ended.push(s);
+  });
+  return g;
+}
+
+function lfListRowHtml(s, list){
+  const r = s.items[0], st = lfStatus(r);
+  const fresh = list.some(x => x.series_id === s.id && x.answered_at && !x.seen_at);
+  const c = lfCounts(r);
+  const dp = lfDraftProgress(r);
+  let meta, bar = '';
+  if(st === 'answered'){
+    meta = `${c.done} منفذ · ${c.wip} قيد التنفيذ · ${c.no} لم ينفذ` + (r.chosen_slot === 'none' ? (r.proposed_slot ? ' · اقترح موعدًا' : ' · بلا موعد') : '');
+    const tot = (c.done + c.wip + c.no) || 1;
+    bar = `<span class="tlx-mini" aria-hidden="true"><i class="m-ok" style="width:${(c.done / tot * 100).toFixed(1)}%"></i><i class="m-wip" style="width:${(c.wip / tot * 100).toFixed(1)}%"></i><i class="m-no" style="width:${(c.no / tot * 100).toFixed(1)}%"></i></span>`;
+  } else if(dp) meta = `بدأ الإجابة: ${dp.done} من ${dp.total} (لم يُسلِّم بعد)`;
+  else if(st === 'ready' || st === 'sent') meta = (r.indicators || []).length + ' مؤشرًا · ' + (s.items.length > 1 ? 'الدورة الحالية بانتظار الإجابة' : 'بانتظار الإجابة');
+  else meta = st === 'expired' ? 'انتهت مدة الرابط قبل الإجابة' : 'أُلغي الرابط';
+  return `<button type="button" class="tlx-row" onclick="lfOpen('${escapeHtml(r.id)}')"><span class="tlx-row-main"><b>${escapeHtml(lfLeaderTitle(r))}${fresh ? '<span class="tlx-pill is-new">جديد</span>' : ''}</b><small>${escapeHtml(r.cycle_label)} · ${escapeHtml(meta)}</small>${bar}</span>${lfChip(st)}<span class="tlx-chev" aria-hidden="true">‹</span></button>`;
 }
 
 function lfListHtml(){
-  if(lfState.loading && !lfState.list) return toolsBackLink('الأدوات', 'home') + '<div class="sv-empty">جارٍ التحميل…</div>';
+  if(lfState.loading && !lfState.list) return lfCrumb('الأدوات', 'home') + '<div class="sv-empty">جارٍ التحميل…</div>';
   const list = lfState.list || [];
-  let body;
+  const head = `<div class="tlx-head"><b>طلباتي</b><button type="button" class="tlx-new" onclick="lfStartCreate(null)">＋ طلب جديد</button></div>`;
   if(!list.length){
-    body = `<div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">★</div><h2>لا توجد طلبات متابعة بعد</h2><p>أنشئ طلبًا لمدير المدرسة أو أحد الوكلاء بمؤشراتك، وأرسل له رابطًا يجيب منه مرة واحدة ويختار موعد اللقاء.</p></div>`;
-  } else {
-    body = lfGroupSeries(list).map(s => {
-      const r = s.items[0], st = lfStatus(r);
-      const fresh = list.some(x => x.series_id === s.id && x.answered_at && !x.seen_at);
-      const c = lfCounts(r);
-      const meta = st === 'answered'
-        ? `${c.done} منفذ · ${c.wip} قيد التنفيذ · ${c.no} لم ينفذ` + (r.chosen_slot === 'none' ? (r.proposed_slot ? ' · اقترح موعدًا' : ' · بلا موعد') : '')
-        : (lfDraftProgress(r) ? `بدأ الإجابة: ${lfDraftProgress(r).done} من ${lfDraftProgress(r).total} (لم يُسلِّم بعد)` : (s.items.length > 1 ? 'الدورة الحالية بانتظار الإجابة' : 'بانتظار الإجابة'));
-      return `<button type="button" class="tl-tile" style="border-right-color:#876A25" onclick="lfOpen('${escapeHtml(r.id)}')"><span class="tl-tile-main"><b>${escapeHtml(lfLeaderTitle(r))}${fresh ? ' <span class="lf-new">جديد</span>' : ''}</b><small>${escapeHtml(r.cycle_label)} · ${escapeHtml(meta)}</small></span>${lfChip(st)}<span class="tl-chev" aria-hidden="true">‹</span></button>`;
-    }).join('');
+    return `${lfCrumb('الأدوات', 'home')}${head}<div class="tlx-box tlx-empty"><span class="tlx-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span><b>لا توجد طلبات متابعة بعد</b><small>أنشئ طلبًا لمدير المدرسة أو أحد الوكلاء بمؤشراتك، وأرسل له رابطًا يجيب منه مرة واحدة ويختار موعد اللقاء.</small></div>`;
   }
-  return `${toolsBackLink('الأدوات', 'home')}${body}
-    <div class="tl-actions"><button type="button" class="btn btn-primary tl-new" onclick="lfStartCreate(null)">＋ طلب متابعة جديد</button></div>`;
+  const g = lfListGroups(list);
+  const sect = (items, title, calm) => items.length ? `<div class="tlx-grp${calm ? ' is-calm' : ''}">${title} (${items.length})</div><div class="tlx-box">${items.map(s => lfListRowHtml(s, list)).join('')}</div>` : '';
+  return `${lfCrumb('الأدوات', 'home')}${head}${sect(g.needs, 'تحتاجك الآن')}${sect(g.waiting, 'بانتظار الإجابة', true)}${sect(g.done, 'مكتملة', true)}${sect(g.ended, 'منتهية', true)}`;
 }
 
-/* «ابدأ من…»: القوالب الجاهزة ثم قوالبي ثم الطلبات السابقة، بقيم r:/t:/f: (المعرّفات مهرَّبة) */
+/* «ابدأ من…»: القوالب (الجاهزة ثم قوالبي) كبسولات، والطلبات السابقة قائمة منسدلة. القيم r:/t:/f: (المعرّفات مهرَّبة) */
 function lfStartFromHtml(c){
   if(c.mode === 'edit' || c.mode === 'next') return '';
-  const ready = LEADER_READY_TEMPLATES.map(t => `<option value="r:${escapeHtml(t.key)}">${escapeHtml(t.name + ' (' + t.indicators.length + ')')}</option>`).join('');
-  const mine = (lfState.templates || []).map(t => `<option value="t:${escapeHtml(t.id)}"${c.tplSel === 't:' + t.id ? ' selected' : ''}>${escapeHtml(t.name + ' (' + (t.indicators || []).length + ')')}</option>`).join('');
-  const prev = (lfState.list || []).map(r => `<option value="f:${escapeHtml(r.id)}">${escapeHtml(lfLeaderTitle(r) + ' · ' + r.cycle_label)}</option>`).join('');
-  const delBtn = c.tplSel && c.tplSel.indexOf('t:') === 0 ? `<button type="button" class="btn btn-outline lf-full lf-del" onclick="lfDeleteTemplate('${escapeHtml(c.tplSel.slice(2))}')"${lfState.busy ? ' disabled' : ''}>حذف هذا القالب</button>` : '';
-  return `<div class="tl-field"><label for="lfStartFrom">ابدأ من قالب أو طلب سابق (اختياري)</label><select id="lfStartFrom" class="goal-input" onchange="lfStartFrom(this.value)"><option value="">—</option>`
-    + `<optgroup label="قوالب جاهزة">${ready}</optgroup>${mine ? `<optgroup label="قوالبي">${mine}</optgroup>` : ''}${prev ? `<optgroup label="طلبات سابقة">${prev}</optgroup>` : ''}</select>${delBtn}</div>`;
+  const chip = (v, label) => `<button type="button" class="tlx-chip${c.tplSel === v ? ' is-on' : ''}" aria-pressed="${c.tplSel === v}" onclick="lfStartFrom('${escapeHtml(v)}')">${escapeHtml(label)}</button>`;
+  const ready = LEADER_READY_TEMPLATES.map(t => chip('r:' + t.key, t.name + ' (' + t.indicators.length + ')')).join('');
+  const mine = (lfState.templates || []).map(t => chip('t:' + t.id, t.name + ' (' + (t.indicators || []).length + ')')).join('');
+  const prev = (lfState.list || []).map(r => `<option value="f:${escapeHtml(r.id)}"${c.tplSel === 'f:' + r.id ? ' selected' : ''}>${escapeHtml(lfLeaderTitle(r) + ' · ' + r.cycle_label)}</option>`).join('');
+  const delBtn = c.tplSel && c.tplSel.indexOf('t:') === 0 ? `<button type="button" class="tlx-link-text" onclick="lfDeleteTemplate('${escapeHtml(c.tplSel.slice(2))}')"${lfState.busy ? ' disabled' : ''}>حذف هذا القالب</button>` : '';
+  return `<div class="tlx-lbl">ابدأ من قالب (اختياري)</div><div class="tlx-chips">${ready}${mine}</div>${delBtn}`
+    + (prev ? `<label class="tlx-lbl" for="lfStartFrom">أو انسخ مؤشرات طلب سابق</label><select id="lfStartFrom" class="tlx-inp" onchange="lfStartFrom(this.value)"><option value="">—</option>${prev}</select>` : '');
 }
 
 function lfCreateHtml(){
   const c = lfState.create;
-  if(!c) return toolsBackLink('المتابعة', 'leaders');
+  if(!c) return lfCrumb('المتابعة', 'leaders');
   const edit = c.mode === 'edit';
-  const roles = Object.keys(LEADER_ROLES).map(k => `<button type="button" class="tl-chip-btn${c.role === k ? ' is-on' : ''}" aria-pressed="${c.role === k}" onclick="lfPickRole('${k}')">${escapeHtml(LEADER_ROLES[k])}</button>`).join('');
+  const roles = Object.keys(LEADER_ROLES).map(k => `<button type="button" class="tlx-chip${c.role === k ? ' is-on' : ''}" aria-pressed="${c.role === k}" onclick="lfPickRole('${k}')">${escapeHtml(LEADER_ROLES[k])}</button>`).join('');
   const inds = c.indicators.map((t, i) => {
     const locked = c.ids[i] && c.locked.indexOf(c.ids[i]) >= 0;
-    return `<div class="lf-row"><input class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxLabel}" aria-label="المؤشر ${i + 1}" value="${escapeHtml(t)}" placeholder="نص المؤشر" oninput="lfSetInd(${i}, this.value)"><button type="button" class="tl-mv" aria-label="${locked ? 'بدأ المسؤول إجابته: لا يُحذف' : 'حذف المؤشر'}" onclick="lfRemoveInd(${i})"${c.indicators.length < 2 || locked ? ' disabled' : ''}>✕</button></div>`;
+    return `<div class="tlx-ind"><span class="tlx-n">${i + 1}</span><input type="text" maxlength="${LEADER_LIMITS.maxLabel}" aria-label="المؤشر ${i + 1}" value="${escapeHtml(t)}" placeholder="اكتب المؤشر…" oninput="lfSetInd(${i}, this.value)"><button type="button" class="tlx-x" aria-label="${locked ? 'بدأ المسؤول إجابته: لا يُحذف' : 'حذف المؤشر'}" onclick="lfRemoveInd(${i})"${c.indicators.length < 2 || locked ? ' disabled' : ''}>✕</button></div>`;
   }).join('');
-  const slots = c.slots.map((t, i) => `<div class="lf-row"><input class="goal-input" type="datetime-local" aria-label="الموعد ${i + 1}" value="${escapeHtml(t)}" oninput="lfSetSlot(${i}, this.value)"><button type="button" class="tl-mv" aria-label="حذف الموعد" onclick="lfRemoveSlot(${i})">✕</button></div>`).join('');
-  const days = LF_DAYS.map(d => `<button type="button" class="tl-day${c.days === d ? ' is-on' : ''}" aria-pressed="${c.days === d}" onclick="lfPickDays(${d})">${d === 7 ? '7 أيام' : d + ' يومًا'}</button>`).join('');
-  const back = edit || c.mode === 'next' ? toolsBackLink('الطلب', 'ldetail') : toolsBackLink('المتابعة', 'leaders');
-  const lockNote = edit && c.locked.length ? `<div class="tl-info lf-draft"><b>بدأ المسؤول الإجابة (حفظ ${c.locked.length})</b><small>تقدر تضيف مؤشرات وتصحّح النصوص وتغيّر المواعيد، لكن لا تحذف مؤشرًا أجاب عنه. الرابط نفسه يبقى صالحًا ويرى التعديل عند فتحه.</small></div>` : '';
-  const tplSave = c.tplName === null
-    ? `<button type="button" class="btn btn-outline lf-full" onclick="lfTemplateNameStart()">حفظ هذه المؤشرات كقالب</button>`
-    : `<div class="lf-row"><input id="lfTplName" class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxTemplate}" placeholder="اسم القالب (مثل: سجلات وكيل الطلاب)" value="${escapeHtml(c.tplName)}" oninput="lfState.create.tplName = this.value"><button type="button" class="btn btn-primary" onclick="lfSaveTemplate()"${lfState.busy ? ' disabled' : ''}>حفظ</button></div>`;
+  const slots = c.slots.map((t, i) => `<div class="tlx-ind"><span class="tlx-n">${i + 1}</span><input type="datetime-local" aria-label="الموعد ${i + 1}" value="${escapeHtml(t)}" oninput="lfSetSlot(${i}, this.value)"><button type="button" class="tlx-x" aria-label="حذف الموعد" onclick="lfRemoveSlot(${i})">✕</button></div>`).join('');
+  const days = LF_DAYS.map(d => `<button type="button" class="${c.days === d ? 'is-on' : ''}" aria-pressed="${c.days === d}" onclick="lfPickDays(${d})">${d === 7 ? '7 أيام' : d + ' يومًا'}</button>`).join('');
+  const back = edit || c.mode === 'next' ? lfCrumb('الطلب', 'ldetail') : lfCrumb('المتابعة', 'leaders');
+  const lockNote = edit && c.locked.length ? `<div class="tlx-note"><b>بدأ المسؤول الإجابة (حفظ ${c.locked.length})</b>تقدر تضيف مؤشرات وتصحّح النصوص وتغيّر المواعيد، لكن لا تحذف مؤشرًا أجاب عنه. الرابط نفسه يبقى صالحًا ويرى التعديل عند فتحه.</div>` : '';
+  const addInd = `<button type="button" onclick="lfAddInd()"${c.indicators.length >= LEADER_LIMITS.maxIndicators ? ' disabled' : ''}>＋ مؤشر</button>`;
+  const tools = edit ? `<div class="tlx-add">${addInd}</div>`
+    : c.tplName === null
+      ? `<div class="tlx-add">${addInd}<button type="button" onclick="lfTemplateNameStart()">حفظ كقالب</button></div>`
+      : `<div class="tlx-add"><input id="lfTplName" type="text" maxlength="${LEADER_LIMITS.maxTemplate}" placeholder="اسم القالب (مثل: سجلات وكيل الطلاب)" value="${escapeHtml(c.tplName)}" oninput="lfState.create.tplName = this.value"><button type="button" class="is-save" onclick="lfSaveTemplate()"${lfState.busy ? ' disabled' : ''}>حفظ</button></div>`;
+  const filled = c.indicators.filter(x => String(x).trim()).length;
   return `${back}${lockNote}
-    <div class="tl-field"><span class="tl-label">المسؤول</span><div class="tl-chips">${roles}</div></div>
-    <div class="tl-field"><label for="lfName">اسمه (اختياري)</label><input id="lfName" class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxName}" value="${escapeHtml(c.name)}" oninput="lfSetField('name', this.value)"></div>
-    <div class="tl-field"><label for="lfCycle">الدورة</label><input id="lfCycle" class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxCycle}" placeholder="مثل: الفصل الدراسي الأول" value="${escapeHtml(c.cycle)}" oninput="lfSetField('cycle', this.value)"></div>
+    <div class="tlx-lbl">المسؤول</div><div class="tlx-chips">${roles}</div>
+    <div class="tlx-two"><div><label class="tlx-lbl" for="lfName">اسمه (اختياري)</label><input id="lfName" class="tlx-inp" type="text" maxlength="${LEADER_LIMITS.maxName}" placeholder="أ. …" value="${escapeHtml(c.name)}" oninput="lfSetField('name', this.value)"></div>
+      <div><label class="tlx-lbl" for="lfCycle">الدورة</label><input id="lfCycle" class="tlx-inp" type="text" maxlength="${LEADER_LIMITS.maxCycle}" placeholder="الفصل الأول" value="${escapeHtml(c.cycle)}" oninput="lfSetField('cycle', this.value)"></div></div>
     ${lfStartFromHtml(c)}
-    <div class="tl-field"><span class="tl-label">المؤشرات (${c.indicators.filter(x => String(x).trim()).length} من ${LEADER_LIMITS.maxIndicators})</span>${inds}<button type="button" class="btn btn-outline lf-full" onclick="lfAddInd()"${c.indicators.length >= LEADER_LIMITS.maxIndicators ? ' disabled' : ''}>＋ مؤشر</button>${edit ? '' : tplSave}</div>
-    <div class="tl-field"><span class="tl-label">أوقات مقترحة للقاء (يختار منها أو يقترح غيرها)</span>${slots}<button type="button" class="btn btn-outline lf-full" onclick="lfAddSlot()"${c.slots.length >= LEADER_LIMITS.maxSlots ? ' disabled' : ''}>＋ موعد</button></div>
-    ${edit ? '' : `<div class="tl-field"><span class="tl-label">ينتهي الرابط بعد</span><div class="tl-days">${days}</div></div>`}
-    <button type="button" class="btn btn-primary tl-create" id="lfCreateBtn" onclick="lfCreate()"${lfCreateReady(c) ? '' : ' disabled'}>${edit ? 'حفظ التعديل' : 'إنشاء الطلب وتجهيز الرابط'}</button>
-    <p class="tl-note">${edit ? 'يبقى الرابط نفسه؛ لا تحتاج إعادة إرسال.' : 'لا يُرسل شيء حتى تضغط واتساب أو نسخ الرابط بنفسك. تقدر تعدّل الطلب لاحقًا ما دام المسؤول لم يُرسل إجابته.'}</p>`;
+    <div class="tlx-lbl">المؤشرات <small>${filled} من ${LEADER_LIMITS.maxIndicators}</small></div>
+    <div class="tlx-box">${inds}${tools}</div>
+    <div class="tlx-lbl">أوقات مقترحة للقاء <small>يختار منها أو يقترح غيرها</small></div>
+    <div class="tlx-box">${slots}<div class="tlx-add"><button type="button" onclick="lfAddSlot()"${c.slots.length >= LEADER_LIMITS.maxSlots ? ' disabled' : ''}>＋ موعد</button></div></div>
+    ${edit ? '' : `<div class="tlx-lbl">ينتهي الرابط بعد</div><div class="tlx-seg" role="group" aria-label="مدة الرابط">${days}</div>`}
+    <p class="tlx-foot">${edit ? 'يبقى الرابط نفسه؛ لا تحتاج إعادة إرسال.' : 'لا يُرسل شيء حتى تضغط واتساب أو نسخ الرابط بنفسك. تقدر تعدّل الطلب لاحقًا ما دام المسؤول لم يُرسل إجابته.'}</p>
+    <div class="tlx-cta"><button type="button" class="tlx-btn is-navy" id="lfCreateBtn" onclick="lfCreate()"${lfCreateReady(c) ? '' : ' disabled'}>${edit ? 'حفظ التعديل' : 'إنشاء الطلب وتجهيز الرابط'}</button></div>`;
 }
 
 function lfAnswersHtml(r){
@@ -270,45 +311,72 @@ function lfAnswersHtml(r){
   const rows = (r.indicators || []).map(ind => {
     const x = a[ind.id] || {};
     const was = prev[ind.label];
-    const trend = was && was !== x.s ? `<small class="lf-trend">الدورة السابقة: ${escapeHtml(LEADER_ANSWER_STATES[was] || '')}</small>` : '';
-    return `<div class="lf-ans"><div class="lf-ans-head"><span>${escapeHtml(ind.label)}</span><span class="lf-chip lf-s-${escapeHtml(x.s || 'none')}">${escapeHtml(LEADER_ANSWER_STATES[x.s] || '—')}</span></div>${x.r ? `<small>${escapeHtml(x.r)}</small>` : ''}${trend}</div>`;
+    const trend = was && was !== x.s ? `<small class="tlx-trend">الدورة السابقة: ${escapeHtml(LEADER_ANSWER_STATES[was] || '')}</small>` : '';
+    return `<div class="tlx-ans"><div class="tlx-ans-top"><span>${escapeHtml(ind.label)}</span><span class="tlx-pill ${LF_ANSWER_TONES[x.s] || ''}">${escapeHtml(LEADER_ANSWER_STATES[x.s] || '—')}</span></div>${x.r ? `<small>${escapeHtml(x.r)}</small>` : ''}${trend}</div>`;
   }).join('');
-  const c = lfCounts(r);
-  return `<div class="lf-sum"><div><b class="lf-ok">${c.done}</b><small>منفذ</small></div><div><b class="lf-wip">${c.wip}</b><small>قيد التنفيذ</small></div><div><b class="lf-no">${c.no}</b><small>لم ينفذ</small></div></div>
-    ${lfMeetingHtml(r)}${rows}`;
+  return `${lfMeetingHtml(r)}<div class="tlx-sec">الإجابات (${(r.indicators || []).length})</div><div class="tlx-box">${rows}</div>`;
 }
+
+/* عنصر بقائمة الإجراءات */
+function lfMenuItem(label, icon, onclick, opts){
+  const o = opts || {};
+  return `<button type="button" class="tlx-mi${o.danger ? ' is-danger' : ''}" onclick="${onclick}"${lfState.busy ? ' disabled' : ''}><i aria-hidden="true">${icon}</i><span>${escapeHtml(label)}</span>${o.chev ? '<span class="tlx-chev" aria-hidden="true">‹</span>' : ''}</button>`;
+}
+
+function lfToggleAllInds(){ lfState.allInds = !lfState.allInds; renderTools(); }
 
 function lfDetailHtml(){
   const r = lfState.list && lfState.list.find(x => x.id === lfState.sel);
-  if(!r) return toolsBackLink('المتابعة', 'leaders') + '<div class="sv-empty">الطلب غير موجود.</div>';
+  if(!r) return lfCrumb('المتابعة', 'leaders') + '<div class="sv-empty">الطلب غير موجود.</div>';
   const st = lfStatus(r), busy = lfState.busy ? ' disabled' : '';
-  const history = lfGroupSeries(lfState.list).find(s => s.id === r.series_id).items.filter(x => x.id !== r.id)
-    .map(x => `<button type="button" class="tl-tile" style="border-right-color:#D8D2C4" onclick="lfOpen('${escapeHtml(x.id)}')"><span class="tl-tile-main"><b>${escapeHtml(x.cycle_label)}</b></span>${lfChip(lfStatus(x))}<span class="tl-chev" aria-hidden="true">‹</span></button>`).join('');
-  let main;
-  const del = `<button type="button" class="btn btn-outline lf-full lf-del" onclick="lfDelete('${escapeHtml(r.id)}')"${busy}>حذف الطلب</button>`;
+  const id = escapeHtml(r.id);
+  const live = st === 'ready' || st === 'sent';
+  const closes = new Date(r.closes_at);
+  const closesTxt = live && !isNaN(closes) ? ' · ينتهي ' + closes.toLocaleDateString('ar', { day: 'numeric', month: 'long' }) : '';
+  let heroBody = '';
   if(st === 'answered'){
-    main = lfAnswersHtml(r) + del;
-  } else {
-    const live = st === 'ready' || st === 'sent';
+    const c = lfCounts(r);
+    heroBody = `<div class="tlx-strip"><span>منفذ<b class="lf-ok">${c.done}</b></span><span>قيد التنفيذ<b class="lf-wip">${c.wip}</b></span><span>لم ينفذ<b class="lf-no">${c.no}</b></span></div>`;
+  } else if(live){
     const link = r.code ? lfLink(r.code, location.origin) : '';
-    const closes = new Date(r.closes_at);
-    const linkBox = live ? `<div class="tl-info"><small>رابط شخصي يقبل إجابة واحدة${r.sent_at ? ' · أُرسل' : ''}</small><div class="lf-link" dir="ltr">${escapeHtml(link)}</div></div>
-      <a class="btn btn-primary lf-wa lf-full" href="${escapeHtml('https://wa.me/?text=' + encodeURIComponent(lfWaText(r, link)))}" target="_blank" rel="noopener" onclick="lfMarkSent('${escapeHtml(r.id)}')">إرسال عبر واتساب</a>
-      <button type="button" class="btn btn-outline lf-full" onclick="lfCopyLink('${escapeHtml(r.id)}')"${busy}>نسخ الرابط</button>
-      <div class="lf-btns"><button type="button" class="btn btn-outline" onclick="lfExtend('${escapeHtml(r.id)}')"${busy}>تمديد 7 أيام</button><button type="button" class="btn btn-outline" onclick="lfRevoke('${escapeHtml(r.id)}')"${busy}>إلغاء الرابط</button></div>` : `<div class="tl-info"><b>${st === 'expired' ? 'انتهت مدة الرابط' : 'أُلغي الرابط'}</b><small>أصدر رابطًا جديدًا إن أردت إرساله مرة أخرى.</small></div>
-      <button type="button" class="btn btn-primary lf-full" onclick="lfReissue('${escapeHtml(r.id)}')"${busy}>إصدار رابط جديد (7 أيام)</button>`;
-    const inds = `<div class="tl-info"><b>المؤشرات (${(r.indicators || []).length})</b><small>${(r.indicators || []).map(i => escapeHtml(i.label)).join('<br>')}</small></div>`;
-    const slots = (r.slots || []).length ? `<div class="tl-info"><b>أوقات اللقاء المقترحة</b><small>${r.slots.map(s => escapeHtml(leaderSlotLabel(s))).join('<br>')}</small></div>` : '';
-    const dp = lfDraftProgress(r);
-    const draft = dp ? `<div class="tl-info lf-draft"><b>بدأ المسؤول الإجابة ولم يُسلِّم بعد</b><small>حدّد ${dp.done} من ${dp.total} مؤشرات${r.draft_saved_at ? ' · آخر حفظ ' + escapeHtml(leaderDateLabel(r.draft_saved_at)) : ''}. تصلك النتيجة عند التسليم.</small></div>` : '';
-    const editBtn = `<button type="button" class="btn btn-outline lf-full" onclick="lfStartEdit('${escapeHtml(r.id)}')"${busy}>تعديل الطلب (المؤشرات والمواعيد)</button>`;
-    main = `${draft}${inds}${slots}${editBtn}${linkBox}<small class="tl-note">ينتهي ${escapeHtml(isNaN(closes) ? '' : closes.toLocaleDateString('ar', { day: 'numeric', month: 'long' }))}</small>${del}`;
+    heroBody = `<div class="tlx-link"><span dir="ltr" title="رابط شخصي يقبل إجابة واحدة">${escapeHtml(link)}</span><button type="button" onclick="lfCopyLink('${id}')"${busy}>نسخ</button></div>
+      <a class="tlx-btn is-wa" href="${escapeHtml('https://wa.me/?text=' + encodeURIComponent(lfWaText(r, link)))}" target="_blank" rel="noopener" onclick="lfMarkSent('${id}')">إرسال عبر واتساب</a>`;
+  } else {
+    heroBody = `<div class="tlx-note"><b>${st === 'expired' ? 'انتهت مدة الرابط' : 'أُلغي الرابط'}</b>أصدر رابطًا جديدًا إن أردت إرساله مرة أخرى.</div>
+      <button type="button" class="tlx-btn is-navy" onclick="lfReissue('${id}')"${busy}>إصدار رابط جديد (7 أيام)</button>`;
   }
-  return `${toolsBackLink('المتابعة', 'leaders')}
-    <div class="tl-info lf-head"><b>${escapeHtml(lfLeaderTitle(r))}</b><small>${escapeHtml(r.cycle_label)}</small>${lfChip(st)}</div>
-    ${main}
-    <div class="lf-btns"><button type="button" class="btn btn-outline" onclick="lfStartCreate('${escapeHtml(r.id)}', 'next')">الدورة التالية لنفس المسؤول</button><button type="button" class="btn btn-outline" onclick="lfStartCreate('${escapeHtml(r.id)}', 'copy')">نسخ لمسؤول آخر</button></div>
-    ${history ? `<div class="tl-group"><div class="tl-group-head">الدورات الأخرى</div>${history}</div>` : ''}`;
+  const hero = `<div class="tlx-hero"><div class="tlx-hero-top"><div><b>${escapeHtml(lfLeaderTitle(r))}</b><small>${escapeHtml(r.cycle_label)}${escapeHtml(closesTxt)}</small></div>${lfChip(st)}</div>${heroBody}</div>`;
+
+  let main = '';
+  if(st === 'answered'){
+    main = lfAnswersHtml(r);
+  } else {
+    const dp = lfDraftProgress(r);
+    const draft = dp ? `<div class="tlx-note"><b>بدأ المسؤول الإجابة ولم يُسلِّم بعد</b>حدّد ${dp.done} من ${dp.total} مؤشرات${r.draft_saved_at ? ' · آخر حفظ ' + escapeHtml(leaderDateLabel(r.draft_saved_at)) : ''}. تصلك النتيجة عند التسليم.</div>` : '';
+    const all = r.indicators || [];
+    const LIMIT = 4;
+    const shown = lfState.allInds || all.length <= LIMIT + 1 ? all : all.slice(0, LIMIT);
+    const more = shown.length < all.length ? `<button type="button" class="tlx-more" onclick="lfToggleAllInds()">عرض الكل (${all.length}) ▾</button>`
+      : (all.length > LIMIT + 1 ? `<button type="button" class="tlx-more" onclick="lfToggleAllInds()">عرض أقل ▴</button>` : '');
+    const inds = `<div class="tlx-sec">المؤشرات (${all.length})</div><div class="tlx-box">${shown.map((i, n) => `<div class="tlx-ind"><span class="tlx-n">${n + 1}</span><span>${escapeHtml(i.label)}</span></div>`).join('')}${more}</div>`;
+    const slots = (r.slots || []).length ? `<div class="tlx-sec">أوقات اللقاء المقترحة</div><div class="tlx-box">${r.slots.map(s => `<div class="tlx-ind"><span>${escapeHtml(leaderSlotLabel(s))}</span></div>`).join('')}</div>` : '';
+    main = draft + inds + slots;
+  }
+
+  const acts = [];
+  if(st !== 'answered') acts.push(lfMenuItem('تعديل الطلب (المؤشرات والمواعيد)', '✎', `lfStartEdit('${id}')`, { chev: true }));
+  if(live) acts.push(lfMenuItem('تمديد 7 أيام', '⟳', `lfExtend('${id}')`));
+  acts.push(lfMenuItem('الدورة التالية لنفس المسؤول', '↻', `lfStartCreate('${id}', 'next')`, { chev: true }));
+  acts.push(lfMenuItem('نسخ لمسؤول آخر', '⧉', `lfStartCreate('${id}', 'copy')`, { chev: true }));
+  if(live) acts.push(lfMenuItem('إلغاء الرابط', '⊘', `lfRevoke('${id}')`, { danger: true }));
+  acts.push(lfMenuItem('حذف الطلب', '✕', `lfDelete('${id}')`, { danger: true }));
+
+  const history = lfGroupSeries(lfState.list).find(s => s.id === r.series_id).items.filter(x => x.id !== r.id)
+    .map(x => `<button type="button" class="tlx-row" onclick="lfOpen('${escapeHtml(x.id)}')"><span class="tlx-row-main"><b>${escapeHtml(x.cycle_label)}</b></span>${lfChip(lfStatus(x))}<span class="tlx-chev" aria-hidden="true">‹</span></button>`).join('');
+
+  return `${lfCrumb('المتابعة', 'leaders')}${hero}${main}
+    <div class="tlx-sec">إجراءات</div><div class="tlx-box">${acts.join('')}</div>
+    ${history ? `<div class="tlx-sec">الدورات الأخرى</div><div class="tlx-box">${history}</div>` : ''}`;
 }
 
 /* ============ تحرير نموذج الإنشاء (بلا إعادة رسم أثناء الكتابة حتى لا يفقد الحقل تركيزه) ============ */
@@ -502,19 +570,19 @@ function lfMeetingHtml(r){
   else if(r.proposed_slot) head = `<b>اقترح المسؤول موعدًا آخر: ${escapeHtml(leaderSlotLabel(r.proposed_slot))}</b>${r.proposed_note ? `<small>«${escapeHtml(r.proposed_note)}»</small>` : ''}`;
   else head = `<b>لم يناسبه أي موعد من المقترحة</b>${r.proposed_note ? `<small>«${escapeHtml(r.proposed_note)}»</small>` : ''}<small>حدّد معه موعدًا ثم ثبّته هنا.</small>`;
   const conf = lfState.confirmed && lfState.confirmed.id === r.id
-    ? `<a class="btn btn-primary lf-wa lf-full" href="${escapeHtml(lfWaUrl(lfMeetWaText(r, lfState.confirmed.slot, 'confirm')))}" target="_blank" rel="noopener">أرسل له التأكيد عبر واتساب</a>` : '';
+    ? `<a class="tlx-btn is-wa" href="${escapeHtml(lfWaUrl(lfMeetWaText(r, lfState.confirmed.slot, 'confirm')))}" target="_blank" rel="noopener">أرسل له التأكيد عبر واتساب</a>` : '';
   let actions = '';
   if(lfState.meet && lfState.meet.id === r.id){
-    actions = `<div class="tl-info lf-meet"><label for="lfMeetInput"><b>موعد آخر</b></label><input id="lfMeetInput" class="goal-input" type="datetime-local" value="${escapeHtml(lfState.meet.value)}" oninput="lfMeetInput(this.value)">
-      <a id="lfMeetWa" class="btn btn-outline lf-full" href="#" target="_blank" rel="noopener" style="pointer-events:none;opacity:.5" aria-disabled="true">اقترحه عليه عبر واتساب</a>
-      <button id="lfMeetSet" type="button" class="btn btn-primary lf-full" onclick="lfSetMeeting('${escapeHtml(r.id)}', lfState.meet && lfState.meet.value)" disabled>ثبّت هذا الموعد (بعد اتفاقكما)</button>
-      <button type="button" class="tl-back" onclick="lfMeetClose()">إلغاء</button></div>`;
+    actions = `<label class="tlx-lbl" for="lfMeetInput">موعد آخر</label><input id="lfMeetInput" class="tlx-inp" type="datetime-local" value="${escapeHtml(lfState.meet.value)}" oninput="lfMeetInput(this.value)">
+      <a id="lfMeetWa" class="tlx-btn is-ghost" href="#" target="_blank" rel="noopener" style="pointer-events:none;opacity:.5" aria-disabled="true">اقترحه عليه عبر واتساب</a>
+      <button id="lfMeetSet" type="button" class="tlx-btn is-navy" onclick="lfSetMeeting('${escapeHtml(r.id)}', lfState.meet && lfState.meet.value)" disabled>ثبّت هذا الموعد (بعد اتفاقكما)</button>
+      <button type="button" class="tlx-crumb" onclick="lfMeetClose()">إلغاء</button>`;
   } else if(!set && r.proposed_slot){
-    actions = `<div class="lf-btns"><button type="button" class="btn btn-primary" onclick="lfSetMeeting('${escapeHtml(r.id)}', '${escapeHtml(r.proposed_slot)}')"${busy}>موافقة</button><button type="button" class="btn btn-outline" onclick="lfMeetOpen('${escapeHtml(r.id)}')"${busy}>اقتراح موعد آخر</button></div>`;
+    actions = `<div class="tlx-btns"><button type="button" class="tlx-btn is-navy" onclick="lfSetMeeting('${escapeHtml(r.id)}', '${escapeHtml(r.proposed_slot)}')"${busy}>موافقة</button><button type="button" class="tlx-btn is-ghost" onclick="lfMeetOpen('${escapeHtml(r.id)}')"${busy}>اقتراح موعد آخر</button></div>`;
   } else {
-    actions = `<button type="button" class="btn btn-outline lf-full" onclick="lfMeetOpen('${escapeHtml(r.id)}')"${busy}>${set ? 'تغيير الموعد' : 'تحديد موعد'}</button>`;
+    actions = `<button type="button" class="tlx-btn is-ghost" onclick="lfMeetOpen('${escapeHtml(r.id)}')"${busy}>${set ? 'تغيير الموعد' : 'تحديد موعد'}</button>`;
   }
-  return `<div class="tl-info lf-meet-head">${head}</div>${conf}${actions}`;
+  return `<div class="tlx-sec">موعد اللقاء</div><div class="tlx-box tlx-meet">${head}${conf}${actions}</div>`;
 }
 
 /* ============ إجراءات الطلب ============ */

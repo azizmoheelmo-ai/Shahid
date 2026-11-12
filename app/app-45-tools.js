@@ -178,17 +178,19 @@ function renderTools(){
 }
 
 function toolsHomeHtml(){
-  return `<div class="home-actions">
-    <button class="home-btn" style="grid-column:1/-1;" onclick="toolsGo('list')">
-      <span class="hb-title">📊 الاستبانات</span>
-      <span class="hb-sub">رضا أولياء الأمور والطلاب</span>
+  /* هوية الأدوات الموحّدة (tlx-): بطاقتان بأيقونة خطية؛ شارة المتابعة = إجابات لم تُشاهَد (refreshLeaderBadge) */
+  const n = typeof lfState === 'object' && lfState.unseen > 0 ? lfState.unseen : 0;
+  return `<div class="tlx-grid">
+    <button type="button" class="tlx-card" onclick="toolsGo('list')">
+      <span class="tlx-card-top"><span class="tlx-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span></span>
+      <b>الاستبانات</b><small>رضا أولياء الأمور والطلاب</small>
     </button>
-    <button class="home-btn" style="grid-column:1/-1;" onclick="toolsGo('leaders')">
-      <span class="hb-title">👥 متابعة المؤشرات <span class="acct-badge lf-home-badge" id="lfHomeBadge" style="display:none;">0</span></span>
-      <span class="hb-sub">مؤشرات المدير والوكلاء بروابط مؤقتة ومواعيد لقاء</span>
+    <button type="button" class="tlx-card" onclick="toolsGo('leaders')">
+      <span class="tlx-card-top"><span class="tlx-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span><span class="tlx-pill is-red" id="lfHomeBadge" title="إجابات جديدة" style="display:${n ? 'inline-flex' : 'none'};">${n > 9 ? '9+' : n}</span></span>
+      <b>متابعة المؤشرات</b><small>مؤشرات المدير والوكلاء بروابط مؤقتة ومواعيد لقاء</small>
     </button>
   </div>
-  <p class="tl-note">أي أداة جديدة تُضاف هنا لاحقًا ببلاطة خاصة بها.</p>`;
+  <p class="tlx-foot">أي أداة جديدة تُضاف هنا لاحقًا ببطاقة خاصة بها.</p>`;
 }
 
 function toolsListHtml(){
