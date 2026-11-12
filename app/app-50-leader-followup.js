@@ -6,14 +6,16 @@
    - شاشات داخل toolsView (app-45): 'leaders' (القائمة) و'lcreate' (طلب جديد/الدورة التالية) و'ldetail' (التفاصيل والنتائج).
      التنقل بـtoolsGo(...) فتبقى الحاوية الرئيسية هي نفسها (CLAUDE.md §2).
    - كل استعلام بتصفية .eq('teacher_id', currentUser.id) صريحة (RLS وحدها لا تكفي).
-   - المعلم لا يكتب الإجابة ولا الموعد (صلاحيات أعمدة بالقاعدة)؛ وطلب أُجيب عنه لا يتغيّر ولا يُحذف.
+   - المعلم لا يكتب الإجابة ولا الموعد ولا المسودة (صلاحيات أعمدة بالقاعدة)؛ وطلب أُجيب عنه لا يتغيّر.
+   - الحذف (المجاب عنه وغيره) يمرّ بسلة المحذوفات 30 يومًا مع «تراجع» (DELETE-POLICY.md)، والرابط لا يعود صالحًا بالاسترجاع.
+   - مسودة المسؤول (يحفظها من الرابط ليكمل لاحقًا): المعلم يرى تقدّمها فقط (كم مؤشرًا حُدّد) لا محتواها.
    - التنبيه بدرج الحساب: شارة على «الأدوات» + نقطة على دائرة الحساب = عدد إجابات لم تُشاهَد (seen_at).
    - الإرسال يدوي دائمًا: رابط واتساب حقيقي (<a href>) أو نسخ الرابط، ولا يُرسل شيء من الخادم.
    ============================================================ */
 
 const LF_DAYS = [7, 14, 30];
 const LF_STATUS_LABELS = { answered: 'أُجيب', sent: 'أُرسل', ready: 'لم يُرسل', expired: 'انتهت مدته', revoked: 'رابطه مُلغى' };
-const LF_COLS = 'id, series_id, leader_role, leader_name, cycle_label, sender_name, indicators, slots, code, closes_at, sent_at, answered_at, seen_at, answers, chosen_slot, created_at';
+const LF_COLS = 'id, series_id, leader_role, leader_name, cycle_label, sender_name, indicators, slots, code, closes_at, sent_at, answered_at, seen_at, answers, chosen_slot, draft, draft_saved_at, created_at';
 
 let lfState = { list: null, loading: false, sel: null, create: null, busy: false };
 
@@ -56,6 +58,13 @@ function lfPrevStates(list, r){
   if(!older || !older.answers) return out;
   (older.indicators || []).forEach(ind => { const x = older.answers[ind.id]; if(x) out[ind.label] = x.s; });
   return out;
+}
+
+/* تقدّم مسودة المسؤول: كم مؤشرًا حدّد حالته من الكل (null إن لم يحفظ شيئًا) */
+function lfDraftProgress(r){
+  if(!r || r.answered_at || !r.draft || typeof r.draft !== 'object' || !r.draft.a) return null;
+  const ids = (r.indicators || []).map(i => i.id);
+  return { done: ids.filter(id => r.draft.a[id] && r.draft.a[id].s).length, total: ids.length };
 }
 
 function lfLink(code, origin){ return origin + '/f/' + code; }
@@ -159,7 +168,7 @@ function lfListHtml(){
       const c = lfCounts(r);
       const meta = st === 'answered'
         ? `${c.done} منفذ · ${c.wip} قيد التنفيذ · ${c.no} لم ينفذ`
-        : (s.items.length > 1 ? 'الدورة الحالية بانتظار الإجابة' : 'بانتظار الإجابة');
+        : (lfDraftProgress(r) ? `بدأ الإجابة: ${lfDraftProgress(r).done} من ${lfDraftProgress(r).total} (لم يُسلِّم بعد)` : (s.items.length > 1 ? 'الدورة الحالية بانتظار الإجابة' : 'بانتظار الإجابة'));
       return `<button type="button" class="tl-tile" style="border-right-color:#876A25" onclick="lfOpen('${escapeHtml(r.id)}')"><span class="tl-tile-main"><b>${escapeHtml(lfLeaderTitle(r))}${fresh ? ' <span class="lf-new">جديد</span>' : ''}</b><small>${escapeHtml(r.cycle_label)} · ${escapeHtml(meta)}</small></span>${lfChip(st)}<span class="tl-chev" aria-hidden="true">‹</span></button>`;
     }).join('');
   }
@@ -213,8 +222,9 @@ function lfDetailHtml(){
   const history = lfGroupSeries(lfState.list).find(s => s.id === r.series_id).items.filter(x => x.id !== r.id)
     .map(x => `<button type="button" class="tl-tile" style="border-right-color:#D8D2C4" onclick="lfOpen('${escapeHtml(x.id)}')"><span class="tl-tile-main"><b>${escapeHtml(x.cycle_label)}</b></span>${lfChip(lfStatus(x))}<span class="tl-chev" aria-hidden="true">‹</span></button>`).join('');
   let main;
+  const del = `<button type="button" class="btn btn-outline lf-full lf-del" onclick="lfDelete('${escapeHtml(r.id)}')"${busy}>حذف الطلب</button>`;
   if(st === 'answered'){
-    main = lfAnswersHtml(r);
+    main = lfAnswersHtml(r) + del;
   } else {
     const live = st === 'ready' || st === 'sent';
     const link = r.code ? lfLink(r.code, location.origin) : '';
@@ -226,8 +236,9 @@ function lfDetailHtml(){
       <button type="button" class="btn btn-primary lf-full" onclick="lfReissue('${escapeHtml(r.id)}')"${busy}>إصدار رابط جديد (7 أيام)</button>`;
     const inds = `<div class="tl-info"><b>المؤشرات (${(r.indicators || []).length})</b><small>${(r.indicators || []).map(i => escapeHtml(i.label)).join('<br>')}</small></div>`;
     const slots = (r.slots || []).length ? `<div class="tl-info"><b>أوقات اللقاء المقترحة</b><small>${r.slots.map(s => escapeHtml(leaderSlotLabel(s))).join('<br>')}</small></div>` : '';
-    main = `${inds}${slots}${linkBox}<small class="tl-note">ينتهي ${escapeHtml(isNaN(closes) ? '' : closes.toLocaleDateString('ar', { day: 'numeric', month: 'long' }))}</small>
-      <button type="button" class="btn btn-outline lf-full lf-del" onclick="lfDelete('${escapeHtml(r.id)}')"${busy}>حذف الطلب</button>`;
+    const dp = lfDraftProgress(r);
+    const draft = dp ? `<div class="tl-info lf-draft"><b>بدأ المسؤول الإجابة ولم يُسلِّم بعد</b><small>حدّد ${dp.done} من ${dp.total} مؤشرات${r.draft_saved_at ? ' · آخر حفظ ' + escapeHtml(leaderDateLabel(r.draft_saved_at)) : ''}. تصلك النتيجة عند التسليم.</small></div>` : '';
+    main = `${draft}${inds}${slots}${linkBox}<small class="tl-note">ينتهي ${escapeHtml(isNaN(closes) ? '' : closes.toLocaleDateString('ar', { day: 'numeric', month: 'long' }))}</small>${del}`;
   }
   return `${toolsBackLink('المتابعة', 'leaders')}
     <div class="tl-info lf-head"><b>${escapeHtml(lfLeaderTitle(r))}</b><small>${escapeHtml(r.cycle_label)}</small>${lfChip(st)}</div>
@@ -378,29 +389,58 @@ function lfReissue(id){
   }, 'صدر رابط جديد');
 }
 
-/* حذف طلب لم يُجب عنه فقط (الطلب المُجاب عنه دليل: القاعدة ترفض حذفه والواجهة لا تعرض الزر) */
+/* حذف طلب (المجاب عنه أيضًا) عبر سلة المحذوفات: لقطة أولًا (trashProtect) ثم الحذف، ثم «تراجع» 8 ثوانٍ.
+   السباق: الحذف مشروط بحالة اللقطة نفسها — لو أجاب المسؤول بعد أخذ لقطة «لم يُجب» لا يُحذف شيء (فلا تضيع إجابته
+   خارج السلة)، وتُزال اللقطة ويُعاد قراءة الطلب. */
 async function lfDelete(id){
-  if(lfState.busy) return;
+  if(lfState.busy || !currentUser) return;
   const r = lfState.list && lfState.list.find(x => x.id === id);
-  if(!r || r.answered_at) return;
-  if(!await showConfirm('حذف هذا الطلب نهائيًا؟ سيتوقف رابطه عن العمل. (الطلبات التي أُجيب عنها لا تُحذف.)')) return;
-  const token = toolsState.token;
-  lfState.busy = true;
-  if(toolsStillHere(token, 'ldetail')) renderTools();
-  let removed = false;
-  try{
-    const { data, error } = await sb.from('leader_followups').delete().eq('teacher_id', currentUser.id).eq('id', id).is('answered_at', null).select('id');
-    if(error) throw error;
-    removed = !!(data && data.length);
-    if(!removed) showToast('لا يمكن حذف الطلب: ربما أجاب المسؤول للتو.', 'error');
-    await lfReloadOne(id);
-  } catch(err){
-    showToast('تعذّر الحذف: ' + (err && err.message ? err.message : 'خطأ'), 'error');
-  } finally {
-    lfState.busy = false;
-  }
-  if(removed && toolsStillHere(token, 'ldetail')){ showToast('حُذف الطلب', 'ok'); toolsGo('leaders'); }
-  else if(toolsStillHere(token, 'ldetail')) renderTools();
+  if(!r) return;
+  const msg = r.answered_at
+    ? 'حذف هذا الطلب وإجابة المسؤول عليه؟ يبقى في «المحذوفات» 30 يومًا ويمكنك استرجاعه.'
+    : 'حذف هذا الطلب؟ سيتوقف رابطه عن العمل، ويبقى في «المحذوفات» 30 يومًا (يُسترجع برابط ملغى تصدر له رابطًا جديدًا).';
+  if(!await showConfirm(msg)) return;
+  return trashRunOnce('leader_followup:' + id, async () => {
+    const token = toolsState.token;
+    const uid = currentUser.id;
+    lfState.busy = true;
+    if(toolsStillHere(token, 'ldetail')) renderTools();
+    let removed = false, trashId = null;
+    try{
+      const prot = await trashProtect(() => trashCaptureLeaderFollowup(id, uid));
+      if(!prot){ return; } /* رفض المعلم الحذف بلا سلة */
+      trashId = prot.id;
+      if(prot.gone){ await lfReloadOne(id); return; }
+      const wasAnswered = prot.cap ? !!prot.cap.tables[0].rows[0].answered_at : !!r.answered_at;
+      let q = sb.from('leader_followups').delete().eq('teacher_id', uid).eq('id', id);
+      if(!wasAnswered) q = q.is('answered_at', null);
+      const { data, error } = await q.select('id');
+      if(error) throw error;
+      removed = !!(data && data.length);
+      if(!removed){
+        await trashDiscard(trashId); trashId = null;
+        showToast('لم يُحذف الطلب: ربما أجاب المسؤول للتو. راجع إجابته ثم احذفه إن شئت.', 'error');
+      }
+      await lfReloadOne(id);
+    } catch(err){
+      if(trashId){ await trashDiscard(trashId); trashId = null; }
+      showToast('تعذّر الحذف: ' + (err && err.message ? err.message : 'خطأ'), 'error');
+    } finally {
+      lfState.busy = false;
+    }
+    if(removed){
+      trashOfferUndo('حُذف الطلب', trashId, lfAfterRestore);
+      refreshLeaderBadge();
+      if(toolsStillHere(token, 'ldetail')) toolsGo('leaders');
+    } else if(toolsStillHere(token, 'ldetail')) renderTools();
+  });
+}
+
+/* بعد الاسترجاع من السلة (تراجع أو من «المحذوفات»): تحديث القائمة إن كانت ظاهرة، والشارة */
+async function lfAfterRestore(){
+  refreshLeaderBadge();
+  const v = document.getElementById('toolsView');
+  if(v && v.style.display === 'block' && toolsState.screen === 'leaders') lfLoadList();
 }
 
 /* ============ التنبيه بدرج الحساب ============ */

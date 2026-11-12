@@ -10,8 +10,10 @@
    وleaderValidateAnswers = public.leader_answers_clean بالـSQL (اختبار يطابق الحدود والنصوص).
    «btrim» هنا مثل PostgreSQL: المسافات العادية فقط.
 
+   وleaderValidateDraft = public.leader_draft_clean (مسودة المسؤول الجزئية قبل التسليم).
    الصادرات بالضبط: LEADER_ROLES، LEADER_ANSWER_STATES، LEADER_LIMITS، LEADER_SLOT_RE، LEADER_SLOT_NONE،
-   leaderValidateIndicators، leaderValidateSlots، leaderValidateAnswers، leaderSlotLabel، leaderRoleLabel.
+   leaderValidateIndicators، leaderValidateSlots، leaderValidateAnswers، leaderValidateDraft، leaderSlotLabel،
+   leaderDateLabel، leaderRoleLabel.
    ============================================================ */
 (function(root){
   'use strict';
@@ -89,6 +91,40 @@
     return { ok: true, value: out };
   }
 
+  /* مسودة المسؤول: { a: { i1: { s?, r? } }, slot? } — إجابات جزئية مسموحة (لا شيء إلزامي).
+     الحالة إن وُجدت (ولم تكن فارغة) من الثلاث؛ السبب ≤300 بعد btrim بلا محارف تحكم؛ الفارغ والمعرّف المجهول يُهملان.
+     slot: null أو 'none' أو أحد الأوقات المقترحة (ولا موعد إن لم توجد أوقات). يرجع { ok, value: { a, slot } }. */
+  function leaderValidateDraft(indicators, slots, draft){
+    var iv = leaderValidateIndicators(indicators), sv = leaderValidateSlots(slots);
+    if(!iv.ok || !sv.ok) return { ok: false, error: 'request' };
+    if(!isObj(draft)) return { ok: false, error: 'shape' };
+    var a = draft.a === undefined || draft.a === null ? {} : draft.a;
+    if(!isObj(a)) return { ok: false, error: 'shape' };
+    var out = {};
+    for(var i = 0; i < iv.value.length; i++){
+      var id = iv.value[i].id; var x = hasOwn(a, id) ? a[id] : null;
+      if(x === null || x === undefined) continue;
+      if(!isObj(x)) return { ok: false, error: 'entry' };
+      var o = {}, any = false;
+      if(x.s !== undefined && x.s !== null && x.s !== ''){
+        if(typeof x.s !== 'string' || !hasOwn(LEADER_ANSWER_STATES, x.s)) return { ok: false, error: 'state' };
+        o.s = x.s; any = true;
+      }
+      if(x.r !== undefined && x.r !== null){
+        if(typeof x.r !== 'string') return { ok: false, error: 'reason' };
+        var r = btrim(x.r);
+        if(r !== ''){
+          if(!okText(r, LEADER_LIMITS.maxReason)) return { ok: false, error: 'reason' };
+          o.r = r; any = true;
+        }
+      }
+      if(any) out[id] = o;
+    }
+    var slot = draft.slot === undefined || draft.slot === null ? null : draft.slot;
+    if(slot !== null && (typeof slot !== 'string' || !sv.value.length || !(slot === LEADER_SLOT_NONE || sv.value.indexOf(slot) >= 0))) return { ok: false, error: 'slot' };
+    return { ok: true, value: { a: out, slot: slot } };
+  }
+
   var DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
   var MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
@@ -99,6 +135,14 @@
     var wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
     var h12 = h % 12 === 0 ? 12 : h % 12;
     return DAYS[wd] + ' ' + d + ' ' + MONTHS[m - 1] + ' ' + h12 + ':' + mi + (h < 12 ? ' ص' : ' م');
+  }
+
+  /* تاريخ لحظة (ISO) بتوقيت السعودية (UTC+3 بلا توقيت صيفي): «الأحد 22 نوفمبر» */
+  function leaderDateLabel(iso){
+    var t = new Date(iso).getTime();
+    if(!isFinite(t)) return '';
+    var d = new Date(t + 3 * 3600000);
+    return DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()];
   }
 
   function leaderRoleLabel(role){ return hasOwn(LEADER_ROLES, role) ? LEADER_ROLES[role] : ''; }
@@ -112,7 +156,9 @@
     leaderValidateIndicators: leaderValidateIndicators,
     leaderValidateSlots: leaderValidateSlots,
     leaderValidateAnswers: leaderValidateAnswers,
+    leaderValidateDraft: leaderValidateDraft,
     leaderSlotLabel: leaderSlotLabel,
+    leaderDateLabel: leaderDateLabel,
     leaderRoleLabel: leaderRoleLabel
   };
   if(typeof module === 'object' && module && module.exports) module.exports = api;

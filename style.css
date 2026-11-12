@@ -2891,6 +2891,8 @@ button.bt-cell{cursor:pointer;}
 .lf-ans small{font-size:12.5px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere;}
 .lf-trend{color:#6B5420!important;}
 .lf-home-badge{display:inline-flex;margin-right:6px;vertical-align:middle;}
+.lf-draft{background:#FBF6E8;border-color:#E4D3A2;margin-bottom:8px;}
+.lf-draft b{color:#5E4A16;}
 
 /* ===== محرّر الأسئلة والمستلمون (app-46) ===== */
 .tl-opts3{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}

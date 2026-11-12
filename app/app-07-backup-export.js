@@ -1375,7 +1375,8 @@ grant execute on function public.delete_survey(uuid) to authenticated;
 -- - جدول واحد: الطلب وإجابته وموعده بصف واحد (الإجابة هنا باسم المسؤول عمدًا، بخلاف الاستبانات المجهولة).
 -- - كلها بـauth.uid() = teacher_id وبلا سياسة مسؤول. الكتابة العامة من submit_leader_followup وحدها (service_role عبر api/f.js).
 -- - المعلم لا يكتب الإجابة ولا الموعد ولا وقت الرد: صلاحيات أعمدة (grant) ثم تريجر يُجمّد الطلب بعد الرد.
--- - المؤشرات والأوقات تتجمّد بعد أول إرسال (sent_at). الطلب المُجاب عنه لا يُحذف (دليل) إلا بحذف حساب المعلم.
+-- - المؤشرات والأوقات تتجمّد بعد أول إرسال (sent_at). الحذف (حتى المجاب عنه) يمرّ بسلة المحذوفات بالواجهة.
+-- - مسودة المسؤول (draft) تُحفظ بالخادم من الرابط نفسه (save_leader_draft) ليكمل لاحقًا من أي جهاز قبل التسليم.
 -- - الموعد المحجوز لا يتكرر لدى المعلم نفسه (فهرس فريد جزئي)، فاختيار مسؤولين الموعد نفسه: الأول ينجح والثاني slot_taken.
 -- - الرابط يموت عند الرد (code = null)، والرد بعده كالرابط الخاطئ.
 -- - تعديلات لاحقة إضافية فقط وآمنة التكرار (لا drop table).
@@ -1445,6 +1446,10 @@ create table if not exists public.leader_followups (
   created_at timestamptz not null default now(),
   check ((answered_at is null) = (answers is null))
 );
+-- 3.46: مسودة المسؤول قبل التسليم {a: {i1: {s?, r?}}, slot?}؛ يكتبها save_leader_draft وحده (لا صلاحية عمود للمعلم)
+alter table public.leader_followups add column if not exists draft jsonb
+  constraint leader_followups_draft_chk check (draft is null or (jsonb_typeof(draft) = 'object' and octet_length(draft::text) <= 16384));
+alter table public.leader_followups add column if not exists draft_saved_at timestamptz;
 create unique index if not exists leader_followups_code_key on public.leader_followups(code) where code is not null;
 create unique index if not exists leader_followups_slot_key on public.leader_followups(teacher_id, chosen_slot) where chosen_slot is not null and chosen_slot <> 'none';
 create index if not exists leader_followups_teacher_idx on public.leader_followups(teacher_id, series_id, created_at);
@@ -1458,9 +1463,11 @@ create policy "المعلم ينشئ طلبات متابعته فقط" on public
 drop policy if exists "المعلم يعدّل طلبات متابعته فقط" on public.leader_followups;
 create policy "المعلم يعدّل طلبات متابعته فقط" on public.leader_followups for update to authenticated
   using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+-- الحذف: كل طلبات المعلم (المجاب عنه أيضًا منذ 3.46)، والواجهة تمرّه بسلة المحذوفات (30 يومًا) قبل الحذف
 drop policy if exists "المعلم يحذف طلباته غير المجاب عنها" on public.leader_followups;
-create policy "المعلم يحذف طلباته غير المجاب عنها" on public.leader_followups for delete to authenticated
-  using (auth.uid() = teacher_id and answered_at is null);
+drop policy if exists "المعلم يحذف طلبات متابعته فقط" on public.leader_followups;
+create policy "المعلم يحذف طلبات متابعته فقط" on public.leader_followups for delete to authenticated
+  using (auth.uid() = teacher_id);
 -- صلاحيات الأعمدة: المعلم لا يملك كتابة answers ولا chosen_slot ولا answered_at ولا created_at (من الدالة وحدها)
 revoke all on public.leader_followups from anon;
 revoke insert, update on public.leader_followups from authenticated;
@@ -1537,7 +1544,7 @@ begin
     return 'invalid';
   end if;
   begin
-    update public.leader_followups set answers = v_clean, chosen_slot = p_slot, answered_at = now(), seen_at = null, code = null
+    update public.leader_followups set answers = v_clean, chosen_slot = p_slot, answered_at = now(), seen_at = null, code = null, draft = null
       where id = r.id;
   exception when unique_violation then
     return 'slot_taken';
@@ -1547,6 +1554,67 @@ end
 $fn$;
 revoke execute on function public.submit_leader_followup(text, jsonb, text) from public, anon, authenticated;
 grant execute on function public.submit_leader_followup(text, jsonb, text) to service_role;
+
+-- تنظيف مسودة المسؤول (نفس قواعد leaderValidateDraft بـleader-kit.js): إجابات جزئية مسموحة.
+-- لكل مؤشر معروف كائن اختياري {s?: done|wip|no, r?: نص ≤300 بعد btrim بلا محارف تحكم}؛ الفارغ يُهمل، والمعرّف المجهول يُهمل.
+-- slot: null أو 'none' أو أحد الأوقات المقترحة. يرجع {a, slot} أو null عند أي خطأ.
+create or replace function public.leader_draft_clean(p_indicators jsonb, p_slots jsonb, p_draft jsonb)
+returns jsonb language plpgsql immutable set search_path = '' as $fn$
+declare e jsonb; v_id text; v_a jsonb; v_x jsonb; v_s text; v_r text; v_o jsonb; v_out jsonb := '{}'::jsonb; v_slot jsonb;
+  v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
+begin
+  if not public.leader_indicators_ok(p_indicators) or not public.leader_slots_ok(p_slots) then return null; end if;
+  if p_draft is null or jsonb_typeof(p_draft) <> 'object' then return null; end if;
+  v_a := p_draft->'a';
+  if v_a is null or jsonb_typeof(v_a) = 'null' then v_a := '{}'::jsonb; end if;
+  if jsonb_typeof(v_a) <> 'object' then return null; end if;
+  for e in select x from jsonb_array_elements(p_indicators) x loop
+    v_id := e->>'id'; v_x := v_a->v_id;
+    if v_x is null or jsonb_typeof(v_x) = 'null' then continue; end if;
+    if jsonb_typeof(v_x) <> 'object' then return null; end if;
+    v_o := '{}'::jsonb;
+    if v_x ? 's' and jsonb_typeof(v_x->'s') <> 'null' and coalesce(v_x->>'s', '') <> '' then
+      if jsonb_typeof(v_x->'s') <> 'string' or (v_x->>'s') not in ('done', 'wip', 'no') then return null; end if;
+      v_o := v_o || jsonb_build_object('s', v_x->>'s');
+    end if;
+    if v_x ? 'r' and jsonb_typeof(v_x->'r') <> 'null' then
+      if jsonb_typeof(v_x->'r') <> 'string' then return null; end if;
+      v_r := btrim(v_x->>'r');
+      if v_r <> '' then
+        if char_length(v_r) > 300 or v_r ~ v_ctl then return null; end if;
+        v_o := v_o || jsonb_build_object('r', v_r);
+      end if;
+    end if;
+    if v_o <> '{}'::jsonb then v_out := v_out || jsonb_build_object(v_id, v_o); end if;
+  end loop;
+  v_slot := p_draft->'slot';
+  if v_slot is null or jsonb_typeof(v_slot) = 'null' then
+    v_slot := 'null'::jsonb;
+  elsif jsonb_typeof(v_slot) <> 'string' or not ((v_slot #>> '{}') = 'none' or p_slots ? (v_slot #>> '{}')) or jsonb_array_length(p_slots) = 0 then
+    return null;
+  end if;
+  return jsonb_build_object('a', v_out, 'slot', v_slot);
+end
+$fn$;
+revoke execute on function public.leader_draft_clean(jsonb, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.leader_draft_clean(jsonb, jsonb, jsonb) to service_role;
+
+-- حفظ مسودة المسؤول عبر الرابط (لا يستهلك الرابط): الطلب مفتوح ولم يُجب ولم تنتهِ مدته. true عند الحفظ، وإلا false.
+create or replace function public.save_leader_draft(p_code text, p_draft jsonb)
+returns boolean language plpgsql security definer set search_path = '' as $fn$
+declare r public.leader_followups%rowtype; v_clean jsonb;
+begin
+  if p_code is null or p_code !~ '^[a-z2-9]{8,32}$' then return false; end if;
+  select * into r from public.leader_followups where code = p_code and answered_at is null and closes_at > now() for update;
+  if not found then return false; end if;
+  v_clean := public.leader_draft_clean(r.indicators, r.slots, p_draft);
+  if v_clean is null then return false; end if;
+  update public.leader_followups set draft = v_clean, draft_saved_at = now() where id = r.id;
+  return true;
+end
+$fn$;
+revoke execute on function public.save_leader_draft(text, jsonb) from public, anon, authenticated;
+grant execute on function public.save_leader_draft(text, jsonb) to service_role;
 
 -- ============================================================
 -- النسخة الاحتياطية الشاملة للمسؤول (app-07: exportFullBackup)
@@ -2908,7 +2976,7 @@ declare
     'classroom_private_notes','classroom_followups','classroom_followup_actions','classroom_grade_columns',
     'classroom_grade_scores','classroom_grade_period_scores','classroom_homework','classroom_homework_status',
     'classroom_tasks','classroom_task_students','classroom_custom_tools','classroom_tool_marks','classroom_lessons',
-    'classroom_rubric_criteria','classroom_rubric_marks','classroom_rubric_notes'];
+    'classroom_rubric_criteria','classroom_rubric_marks','classroom_rubric_notes','leader_followups'];
   v_user_owned text[] := array['shawahid','activity_programs','performance_goals','tasks'];
   v_relinks text[] := array['shawahid.program_id','shawahid.goal_id','tasks.linked_goal_id','tasks.linked_program_id'];
   v_spec jsonb; v_rel jsonb; v_tab text; v_owner text; v_rows jsonb; v_c int; v_n int := 0;
