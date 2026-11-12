@@ -83,23 +83,22 @@ function toolsQuestionsHtml(){
   const lim = SURVEY_LIMITS;
   const tiles = e.questions.length ? e.questions.map((q, i) => {
     const t = TQ_TYPES[q.type] || { label: q.type };
-    return `<div class="tq-tile"><div class="tq-n" aria-hidden="true">${i + 1}</div>
-      <div class="tq-main"><span class="tq-label">${escapeHtml(q.label)}</span><span class="tq-chip tq-${escapeHtml(q.type)}">${escapeHtml(t.label)}${q.required ? '' : ' · اختياري'}</span></div>
-      <div class="tq-acts">
-        <button type="button" class="tl-mv" aria-label="للأعلى" onclick="toolsQMove(${i},-1)"${i === 0 ? ' disabled' : ''}>▲</button>
-        <button type="button" class="tl-mv" aria-label="للأسفل" onclick="toolsQMove(${i},1)"${i === e.questions.length - 1 ? ' disabled' : ''}>▼</button>
-        <button type="button" class="tl-mv tq-txt" onclick="toolsQEdit(${i})">تعديل</button>
-        <button type="button" class="tl-mv tq-del" aria-label="حذف السؤال" onclick="toolsQDelete(${i})">✕</button>
-      </div></div>`;
+    return `<div class="tq-tile"><span class="tlx-n" aria-hidden="true">${i + 1}</span>
+      <div class="tq-main"><span class="tq-label">${escapeHtml(q.label)}</span><span class="tq-meta"><span class="tlx-pill tq-${escapeHtml(q.type)}">${escapeHtml(t.label)}</span>${q.required ? '' : '<small>اختياري</small>'}</span>
+      <span class="tq-acts">
+        <button type="button" class="tq-ed" onclick="toolsQEdit(${i})">تعديل</button>
+        <button type="button" class="tlx-x" aria-label="للأعلى" onclick="toolsQMove(${i},-1)"${i === 0 ? ' disabled' : ''}>▲</button>
+        <button type="button" class="tlx-x" aria-label="للأسفل" onclick="toolsQMove(${i},1)"${i === e.questions.length - 1 ? ' disabled' : ''}>▼</button>
+        <button type="button" class="tlx-x tq-del" aria-label="حذف السؤال" onclick="toolsQDelete(${i})">✕</button>
+      </span></div></div>`;
   }).join('') : '<div class="sv-empty">لا أسئلة بعد — أضف سؤالك الأول.</div>';
   const full = e.questions.length >= lim.maxQuestions;
   return `${toolsBackLink('رجوع بلا حفظ', e.mode === 'create' ? 'create' : 'list')}
-    <div class="tl-hint">تتجمّد الأسئلة عند أول إرسال حتى لا تختلط الردود. لتغييرها بعدها انسخ الاستبانة وعدّل النسخة.</div>
-    <div class="tq-count">${e.questions.length} من ${lim.maxQuestions}</div>
-    <div class="tq-list">${tiles}</div>
+    <div class="tlx-note">تتجمّد الأسئلة عند أول إرسال حتى لا تختلط الردود. لتغييرها بعدها انسخ الاستبانة وعدّل النسخة.</div>
+    <div class="tlx-lbl">الأسئلة <small>${e.questions.length} من ${lim.maxQuestions}</small></div>
+    <div class="tlx-box">${tiles}<div class="tlx-add"><button type="button" onclick="toolsQAdd()"${full ? ' disabled' : ''}>＋ إضافة سؤال</button></div></div>
     ${e.error ? `<p class="tq-err" role="alert">${escapeHtml(e.error)}</p>` : ''}
-    <div class="tl-actions"><button type="button" class="btn btn-outline tl-new" onclick="toolsQAdd()"${full ? ' disabled' : ''}>＋ إضافة سؤال</button>
-    <button type="button" class="btn btn-primary tl-sort" id="toolsQDoneBtn" onclick="toolsQuestionsDone()"${e.busy ? ' disabled' : ''}>تم</button></div>`;
+    <div class="tlx-cta"><button type="button" class="tlx-btn is-navy" id="toolsQDoneBtn" onclick="toolsQuestionsDone()"${e.busy ? ' disabled' : ''}>تم</button></div>`;
 }
 
 function toolsQMove(i, dir){
@@ -137,17 +136,17 @@ function toolsQeditHtml(){
   const e = toolsState.qed;
   if(!e || !e.draft) return toolsBackLink('الأسئلة', 'questions');
   const d = e.draft;
-  const types = Object.keys(TQ_TYPES).map(k => `<button type="button" class="tl-opt${d.type === k ? ' is-on' : ''}" aria-pressed="${d.type === k}" onclick="toolsQSetType('${k}')"><b>${escapeHtml(TQ_TYPES[k].label)}</b><small>${escapeHtml(TQ_TYPES[k].hint)}</small></button>`).join('');
-  const opts = d.type === 'choice' ? `<div class="tl-field"><span class="tl-label">الخيارات</span>
-    ${d.options.map((o, i) => `<div class="tq-opt"><input class="goal-input" type="text" maxlength="${SURVEY_LIMITS.maxOption}" value="${escapeHtml(o)}" aria-label="الخيار ${i + 1}" oninput="toolsQSetOption(${i},this.value)"><button type="button" class="tl-mv tq-del" aria-label="حذف الخيار" onclick="toolsQRemoveOption(${i})"${d.options.length <= 2 ? ' disabled' : ''}>✕</button></div>`).join('')}
-    <button type="button" class="tl-chip-btn" onclick="toolsQAddOption()"${d.options.length >= SURVEY_LIMITS.maxOptions ? ' disabled' : ''}>＋ خيار</button></div>` : '';
+  const types = Object.keys(TQ_TYPES).map(k => `<button type="button" class="tlx-opt${d.type === k ? ' is-on' : ''}" aria-pressed="${d.type === k}" onclick="toolsQSetType('${k}')"><b>${escapeHtml(TQ_TYPES[k].label)}</b><small>${escapeHtml(TQ_TYPES[k].hint)}</small></button>`).join('');
+  const opts = d.type === 'choice' ? `<div class="tlx-lbl">الخيارات</div><div class="tlx-box">
+    ${d.options.map((o, i) => `<div class="tlx-ind tq-opt"><span class="tlx-n">${i + 1}</span><input type="text" maxlength="${SURVEY_LIMITS.maxOption}" value="${escapeHtml(o)}" placeholder="نص الخيار" aria-label="الخيار ${i + 1}" oninput="toolsQSetOption(${i},this.value)"><button type="button" class="tlx-x" aria-label="حذف الخيار" onclick="toolsQRemoveOption(${i})"${d.options.length <= 2 ? ' disabled' : ''}>✕</button></div>`).join('')}
+    <div class="tlx-add"><button type="button" onclick="toolsQAddOption()"${d.options.length >= SURVEY_LIMITS.maxOptions ? ' disabled' : ''}>＋ خيار</button></div></div>` : '';
   return `${toolsBackLink('رجوع بلا حفظ', 'questions')}
-    <div class="tl-field"><span class="tl-label">نوع السؤال</span><div class="tl-opts">${types}</div></div>
-    <div class="tl-field"><label for="tqLabel">نص السؤال</label><input id="tqLabel" class="goal-input" type="text" maxlength="${SURVEY_LIMITS.maxLabel}" value="${escapeHtml(d.label)}" oninput="toolsQSetLabel(this.value)"></div>
+    <div class="tlx-lbl">نوع السؤال</div><div class="tlx-opts">${types}</div>
+    <label class="tlx-lbl" for="tqLabel">نص السؤال</label><input id="tqLabel" class="tlx-inp" type="text" maxlength="${SURVEY_LIMITS.maxLabel}" value="${escapeHtml(d.label)}" oninput="toolsQSetLabel(this.value)">
     ${opts}
     <button type="button" class="tq-req${d.required ? ' is-on' : ''}" role="switch" aria-checked="${d.required}" onclick="toolsQToggleRequired()"><span><b>إجباري</b><small>لا يُرسل الرد قبل الإجابة عنه</small></span><i aria-hidden="true"></i></button>
     ${e.error ? `<p class="tq-err" role="alert">${escapeHtml(e.error)}</p>` : ''}
-    <div class="tl-actions"><button type="button" class="btn btn-primary tl-new" onclick="toolsQSave()">حفظ السؤال</button><button type="button" class="btn btn-outline tl-sort" onclick="toolsGo('questions')">إلغاء</button></div>`;
+    <div class="tlx-cta tlx-btns"><button type="button" class="tlx-btn is-ghost" onclick="toolsGo('questions')">إلغاء</button><button type="button" class="tlx-btn is-navy" onclick="toolsQSave()">حفظ السؤال</button></div>`;
 }
 
 function toolsQSetType(t){
@@ -261,12 +260,12 @@ function toolsRecipsListHtml(){
     const r = c.recips.students[s.id] || {};
     const tog = (who, label, phone) => {
       const locked = !!(ex && ex.students.has(s.id + '|' + who));
-      if(locked) return `<button type="button" class="tl-chip-btn tq-who is-on" aria-pressed="true" disabled>${label} ✓ مضاف</button>`;
-      return `<button type="button" class="tl-chip-btn tq-who${r[who] ? ' is-on' : ''}" aria-pressed="${!!r[who]}" onclick="toolsRecipToggle('${escapeHtml(s.id)}','${who}')"${phone ? '' : ' disabled'}>${label}${phone ? '' : ' (بلا رقم)'}</button>`;
+      if(locked) return `<button type="button" class="tlx-chip tq-who is-on" aria-pressed="true" disabled>${label} ✓ مضاف</button>`;
+      return `<button type="button" class="tlx-chip tq-who${r[who] ? ' is-on' : ''}" aria-pressed="${!!r[who]}" onclick="toolsRecipToggle('${escapeHtml(s.id)}','${who}')"${phone ? '' : ' disabled'}>${label}${phone ? '' : ' (بلا رقم)'}</button>`;
     };
     return `<div class="tq-stu"><span class="tq-stu-name"><b>${escapeHtml(s.full_name)}</b><small>${escapeHtml(s.section_id ? crmSectionLabel(s.section_id) : '')}</small></span><span class="tq-who-row">${tog('guardian', 'ولي الأمر', s.guardian_phone)}${tog('student', 'الطالب', s.student_phone)}</span></div>`;
   }).join('');
-  return rows + (total > list.length ? `<p class="tl-note">يُعرض أول ${TQ_RECIP_LIST_MAX} من ${total} — ضيّق بالبحث أو بالشعبة.</p>` : '');
+  return `<div class="tlx-box">${rows}</div>` + (total > list.length ? `<p class="tlx-foot">يُعرض أول ${TQ_RECIP_LIST_MAX} من ${total} — ضيّق بالبحث أو بالشعبة.</p>` : '');
 }
 
 function toolsRecipsHtml(){
@@ -275,28 +274,28 @@ function toolsRecipsHtml(){
   const add = ui.mode === 'add';
   const cnt = toolsRecipCount(c.recips, crmStudents);
   const secs = [['all', 'كل الشعب']].concat(crmSections.slice().sort((a, b) => crmByArabic(crmSectionOptionLabel(a), crmSectionOptionLabel(b))).map(s => [s.id, crmSectionOptionLabel(s)]));
-  const chips = secs.map(x => `<button type="button" class="sv-chip2${ui.sec === x[0] ? ' is-on' : ''}" onclick="toolsRecipsSec('${escapeHtml(x[0])}')">${escapeHtml(x[1])}</button>`).join('');
-  const others = c.recips.others.map((o, i) => `<div class="tq-other"><span><b>${escapeHtml(o.label)}</b><small dir="ltr">${escapeHtml(typeof phoneDisplay === 'function' ? phoneDisplay(o.phone) : o.phone)}</small></span><button type="button" class="tl-mv tq-del" aria-label="حذف" onclick="toolsRecipRemoveOther(${i})">✕</button></div>`).join('');
+  const chips = secs.map(x => `<button type="button" class="tlx-chip${ui.sec === x[0] ? ' is-on' : ''}" onclick="toolsRecipsSec('${escapeHtml(x[0])}')">${escapeHtml(x[1])}</button>`).join('');
+  const others = c.recips.others.map((o, i) => `<div class="tlx-ind tq-other"><span><b>${escapeHtml(o.label)}</b><small dir="ltr">${escapeHtml(typeof phoneDisplay === 'function' ? phoneDisplay(o.phone) : o.phone)}</small></span><button type="button" class="tlx-x" aria-label="حذف" onclick="toolsRecipRemoveOther(${i})">✕</button></div>`).join('');
   const back = add
-    ? `<button type="button" class="tl-back" onclick="toolsCancelAddRecips()"><span aria-hidden="true">›</span> رجوع بلا إضافة</button>`
+    ? `<button type="button" class="tlx-crumb" onclick="toolsCancelAddRecips()"><span aria-hidden="true">›</span> رجوع بلا إضافة</button>`
     : toolsBackLink('رجوع للإنشاء', 'create');
   const summary = add ? `${cnt.links} ${cnt.links === 1 ? 'رابط جديد' : 'روابط جديدة'}` : `${cnt.links} ${cnt.links === 1 ? 'رابط' : 'روابط'}`;
   const doneLabel = add ? 'إضافة المستلمين' : 'تم';
   const doneOn = add ? 'toolsRecipsDone()' : "toolsGo('create')";
   const doneDisabled = add && (cnt.links === 0 || c.busy) ? ' disabled' : '';
   return `${back}
-    <div class="tl-info"><b>${summary}</b><small>${cnt.students} ${cnt.students === 1 ? 'طالب' : 'طلاب'} · ${cnt.others} ${cnt.others === 1 ? 'جهة أخرى' : 'جهات أخرى'}${add ? ' — التذاكر الموجودة بحالتها لا تتغيّر' : ''}</small></div>
-    <div class="tl-field"><span class="tl-label">طلاب بأعينهم</span>
-      <input class="goal-input" id="tqSearch" type="search" placeholder="ابحث بالاسم" value="${escapeHtml(ui.query)}" oninput="toolsRecipsSearch(this.value)">
-      <div class="sv-chips">${chips}</div>
-      <div id="tqRecList">${toolsRecipsListHtml()}</div></div>
-    <div class="tl-field"><span class="tl-label">جهة أخرى</span>
-      <input class="goal-input" id="tqOtherName" type="text" maxlength="60" placeholder="الاسم">
-      <input class="goal-input" id="tqOtherPhone" type="tel" inputmode="tel" dir="ltr" maxlength="20" placeholder="0501234567" style="text-align:left;">
-      ${ui.error ? `<p class="tq-err" role="alert">${escapeHtml(ui.error)}</p>` : ''}
-      <button type="button" class="btn btn-outline" onclick="toolsRecipAddOther()"${c.recips.others.length >= TQ_OTHER_MAX ? ' disabled' : ''}>＋ إضافة</button>
-      ${others}</div>
-    <button type="button" class="btn btn-primary tl-create" id="toolsRecipsDoneBtn" onclick="${doneOn}"${doneDisabled}>${doneLabel}</button>`;
+    <div class="tlx-hero tq-sum"><b>${summary}</b><small>${cnt.students} ${cnt.students === 1 ? 'طالب' : 'طلاب'} · ${cnt.others} ${cnt.others === 1 ? 'جهة أخرى' : 'جهات أخرى'}${add ? ' — التذاكر الموجودة بحالتها لا تتغيّر' : ''}</small></div>
+    <div class="tlx-lbl">طلاب بأعينهم</div>
+    <input class="tlx-inp" id="tqSearch" type="search" placeholder="ابحث بالاسم" value="${escapeHtml(ui.query)}" oninput="toolsRecipsSearch(this.value)">
+    <div class="tlx-chips tlx-scroll">${chips}</div>
+    <div id="tqRecList">${toolsRecipsListHtml()}</div>
+    <div class="tlx-lbl">جهة أخرى</div>
+    <div class="tlx-two"><input class="tlx-inp" id="tqOtherName" type="text" maxlength="60" placeholder="الاسم" aria-label="اسم الجهة">
+      <input class="tlx-inp" id="tqOtherPhone" type="tel" inputmode="tel" dir="ltr" maxlength="20" placeholder="0501234567" aria-label="رقم الجوال" style="text-align:left;"></div>
+    ${ui.error ? `<p class="tq-err" role="alert">${escapeHtml(ui.error)}</p>` : ''}
+    <button type="button" class="tlx-btn is-ghost tlx-gap" onclick="toolsRecipAddOther()"${c.recips.others.length >= TQ_OTHER_MAX ? ' disabled' : ''}>＋ إضافة</button>
+    ${others ? `<div class="tlx-box tlx-gap">${others}</div>` : ''}
+    <div class="tlx-cta"><button type="button" class="tlx-btn is-navy" id="toolsRecipsDoneBtn" onclick="${doneOn}"${doneDisabled}>${doneLabel}</button></div>`;
 }
 
 function toolsRecipsSearch(v){

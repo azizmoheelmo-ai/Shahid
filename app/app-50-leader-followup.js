@@ -209,9 +209,7 @@ function lfChip(status){
   return `<span class="tlx-pill ${LF_STATUS_TONES[status] || ''}">${escapeHtml(LF_STATUS_LABELS[status])}</span>`;
 }
 
-function lfCrumb(label, target){
-  return `<button type="button" class="tlx-crumb" onclick="toolsGo('${target}')"><span aria-hidden="true">›</span> ${escapeHtml(label)}</button>`;
-}
+function lfCrumb(label, target){ return toolsBackLink(label, target); }
 
 /* هل يحتاج الطلب تدخّل المعلم الآن؟ إجابة لم تُشاهَد، أو موعد لقاء لم يُحسم بعد الإجابة */
 function lfNeedsYou(r, list){
