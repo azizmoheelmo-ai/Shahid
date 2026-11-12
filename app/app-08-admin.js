@@ -584,7 +584,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes, leaderTemplatesRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -629,12 +629,13 @@ async function exportBackup(evt){
       fetchAllRows((from, to) => sb.from('classroom_lesson_skips').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
       sb.from('classroom_letter_counters').select('*').eq('teacher_id', uid),
       fetchAllRows((from, to) => sb.from('classroom_attention_dismissals').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
-      fetchAllRows((from, to) => sb.from('leader_followups').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
+      fetchAllRows((from, to) => sb.from('leader_followups').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('leader_templates').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
     ]);
 
     /* نسخة ناقصة بصمت أسوأ من نسخة لم تُنشأ: أي جدول تعذّر جلبه (انقطاع شبكة مثلًا) يوقف النسخة بدل أن يُكتب فارغًا،
        فيظن المعلم أن بياناته محفوظة وهي ليست كذلك. */
-    const backupFetches = { shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes };
+    const backupFetches = { shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes, leaderTemplatesRes };
     const backupFailed = Object.keys(backupFetches).filter(k => !backupFetches[k] || backupFetches[k].error);
     if(backupFailed.length){
       console.error('backup fetch failed:', backupFailed.join(', '));
@@ -949,7 +950,8 @@ async function exportBackup(evt){
       classroom_letter_counters: letterCountersRes.data || [],
       classroom_attention_dismissals: attentionDismissalsRes.data || [],
       /* روابط الطلبات بلا رمز كروابط الاستبانة: لا تُحيي النسخةُ المستعادة روابطَ قديمة (LEADER-FOLLOWUP.md) */
-      leader_followups: (leaderFollowupsRes.data || []).map(r => Object.assign({}, r, { code: null }))
+      leader_followups: (leaderFollowupsRes.data || []).map(r => Object.assign({}, r, { code: null })),
+      leader_templates: leaderTemplatesRes.data || []
     };
     zip.file('بيانات-كاملة.json', JSON.stringify(fullData, null, 2));
 

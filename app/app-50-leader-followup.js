@@ -15,9 +15,9 @@
 
 const LF_DAYS = [7, 14, 30];
 const LF_STATUS_LABELS = { answered: 'أُجيب', sent: 'أُرسل', ready: 'لم يُرسل', expired: 'انتهت مدته', revoked: 'رابطه مُلغى' };
-const LF_COLS = 'id, series_id, leader_role, leader_name, cycle_label, sender_name, indicators, slots, code, closes_at, sent_at, answered_at, seen_at, answers, chosen_slot, draft, draft_saved_at, created_at';
+const LF_COLS = 'id, series_id, leader_role, leader_name, cycle_label, sender_name, indicators, slots, code, closes_at, sent_at, answered_at, seen_at, answers, chosen_slot, proposed_slot, proposed_note, draft, draft_saved_at, created_at';
 
-let lfState = { list: null, loading: false, sel: null, create: null, busy: false };
+let lfState = { list: null, templates: [], loading: false, sel: null, create: null, busy: false, meet: null, confirmed: null };
 
 /* ============ دوال صرفة ============ */
 
@@ -79,16 +79,38 @@ function lfSenderName(){
   return n && n.length <= 60 && !/[\u0000-\u001F\u007F-\u009F@]/.test(n) ? n : null;
 }
 
-function lfNewCreate(from){
-  return { series_id: from ? from.series_id : null, role: from ? from.leader_role : 'principal', name: from && from.leader_name ? from.leader_name : '',
-    cycle: '', indicators: from ? (from.indicators || []).map(i => i.label) : [''], slots: [], days: 7, busy: false };
+/* حالة شاشة الإنشاء. mode: 'new' (جديد)، 'next' (الدورة التالية لنفس المسؤول)، 'copy' (نفس المؤشرات لمسؤول آخر)، 'edit' (تعديل قبل التسليم).
+   ids موازية لـindicators: معرّف المؤشر القائم (يُحفظ عند التعديل فلا تختلط مسودة المسؤول) أو null للجديد. */
+function lfNewCreate(from, mode){
+  mode = mode || (from ? 'next' : 'new');
+  const inds = from ? (from.indicators || []) : [];
+  const c = { mode, editId: null, series_id: mode === 'next' || mode === 'edit' ? from.series_id : null,
+    role: from && mode !== 'copy' ? from.leader_role : 'principal', name: from && mode !== 'copy' && from.leader_name ? from.leader_name : '',
+    cycle: mode === 'edit' ? from.cycle_label : '', indicators: inds.length ? inds.map(i => i.label) : [''],
+    ids: inds.length && mode === 'edit' ? inds.map(i => i.id) : (inds.length ? inds.map(() => null) : [null]),
+    slots: mode === 'edit' ? (from.slots || []).slice() : [], days: 7, busy: false, locked: [], maxId: 0, tplName: null };
+  if(mode === 'edit'){
+    c.editId = from.id;
+    c.locked = from.draft && from.draft.a ? Object.keys(from.draft.a) : [];
+    c.maxId = inds.reduce((m, i) => Math.max(m, parseInt(String(i.id).slice(1), 10) || 0), 0);
+  }
+  return c;
+}
+
+/* معرّفات المؤشرات: القائم يبقى كما هو، والجديد يأخذ رقمًا بعد أكبر رقم سابق (لا يُعاد استعمال معرّف حُذف) */
+function lfAssignIds(labels, ids, maxId){
+  let next = Math.max(maxId || 0, ...ids.filter(Boolean).map(x => parseInt(String(x).slice(1), 10) || 0));
+  return labels.map((label, i) => ({ id: ids[i] || ('i' + (++next)), label }));
 }
 
 /* يُرجع { ok, indicators, slots } بعد إسقاط الفارغ والتحقق بمدقق leader-kit.js، أو { ok:false, msg } */
 function lfValidateCreate(c){
-  const labels = c.indicators.map(x => String(x).trim()).filter(Boolean);
-  const iv = leaderValidateIndicators(labels.map((label, i) => ({ id: 'i' + (i + 1), label })));
-  if(!iv.ok) return { ok: false, msg: labels.length ? 'تحقق من نص المؤشرات (حتى 150 حرفًا لكل مؤشر، وحتى 15 مؤشرًا).' : 'أضف مؤشرًا واحدًا على الأقل.' };
+  const keep = c.indicators.map((x, i) => ({ label: String(x).trim(), id: (c.ids || [])[i] || null })).filter(x => x.label);
+  const labels = keep.map(x => x.label);
+  const missingLocked = (c.locked || []).filter(id => !keep.some(x => x.id === id));
+  if(missingLocked.length) return { ok: false, msg: 'لا تحذف مؤشرًا بدأ المسؤول إجابته (أو اترك نصه).' };
+  const iv = leaderValidateIndicators(lfAssignIds(labels, keep.map(x => x.id), c.maxId));
+  if(!iv.ok) return { ok: false, msg: labels.length ? 'تحقق من نص المؤشرات (حتى 150 حرفًا لكل مؤشر، وحتى ' + LEADER_LIMITS.maxIndicators + ' مؤشرًا).' : 'أضف مؤشرًا واحدًا على الأقل.' };
   const slots = c.slots.map(x => String(x).trim()).filter(Boolean);
   const sv = leaderValidateSlots(slots);
   if(!sv.ok) return { ok: false, msg: 'أوقات اللقاء: حتى 6 أوقات بلا تكرار.' };
@@ -104,7 +126,7 @@ function lfCreateReady(c){
 /* ============ التنقل والتحميل ============ */
 
 function lfResetScreen(screen){
-  if(screen === 'home' || screen === 'list' || screen === 'leaders'){ lfState.create = null; lfState.sel = null; }
+  if(screen === 'home' || screen === 'list' || screen === 'leaders'){ lfState.create = null; lfState.sel = null; lfState.meet = null; lfState.confirmed = null; }
   if(screen === 'leaders' || screen === 'home') lfState.busy = false;
 }
 
@@ -117,6 +139,7 @@ async function lfLoadList(){
     if(res.error) throw res.error;
     if(!toolsStillHere(token, 'leaders')) return;
     lfState.list = res.data || [];
+    lfLoadTemplates();
   } catch(err){
     if(!toolsStillHere(token, 'leaders')) return;
     lfState.list = lfState.list || [];
@@ -135,9 +158,35 @@ function lfOpen(id){
   lfMarkSeen(id);
 }
 
-function lfStartCreate(fromId){
+/* قوالب المعلم المحفوظة (leader_templates). الفشل صامت: الجدول قد لا يكون منشأً بعد، والقوالب الجاهزة تبقى متاحة */
+async function lfLoadTemplates(){
+  if(!currentUser) return;
+  try{
+    const { data, error } = await sb.from('leader_templates').select('id, name, indicators, created_at').eq('teacher_id', currentUser.id).order('created_at', { ascending: true });
+    if(error) throw error;
+    lfState.templates = data || [];
+  } catch(_){ lfState.templates = lfState.templates || []; }
+  if(toolsState.screen === 'lcreate' && toolsStillHere(toolsState.token, 'lcreate')) renderTools();
+}
+
+/* mode: 'next' (الافتراضي مع طلب) أو 'copy' (لمسؤول آخر) */
+function lfStartCreate(fromId, mode){
   const from = fromId && lfState.list ? lfState.list.find(x => x.id === fromId) : null;
-  lfState.create = lfNewCreate(from);
+  lfState.create = lfNewCreate(from, from ? (mode || 'next') : 'new');
+  toolsGo('lcreate');
+}
+
+/* تعديل طلب لم يُسلَّم بعد: من أحدث نسخة بالقاعدة (قد يكون المسؤول حفظ مسودة للتو) */
+async function lfStartEdit(id){
+  if(lfState.busy) return;
+  const token = toolsState.token;
+  lfState.busy = true; renderTools();
+  try{ await lfReloadOne(id); } catch(err){ showToast('تعذّر فتح التعديل: ' + (err && err.message ? err.message : 'خطأ'), 'error'); }
+  lfState.busy = false;
+  if(!toolsStillHere(token, 'ldetail')) return;
+  const r = lfState.list && lfState.list.find(x => x.id === id);
+  if(!r || r.answered_at){ if(r) showToast('أرسل المسؤول إجابته؛ لا يُعدَّل الطلب بعد التسليم.', 'error'); renderTools(); return; }
+  lfState.create = lfNewCreate(r, 'edit');
   toolsGo('lcreate');
 }
 
@@ -146,7 +195,7 @@ function lfStartCreate(fromId){
 function lfRender(screen){
   const body = document.getElementById('toolsBody');
   if(!body) return;
-  if(screen === 'lcreate'){ toolsSetTitle(lfState.create && lfState.create.series_id ? 'الدورة التالية' : 'طلب متابعة جديد'); body.innerHTML = lfCreateHtml(); }
+  if(screen === 'lcreate'){ const m = lfState.create && lfState.create.mode; toolsSetTitle(m === 'edit' ? 'تعديل الطلب' : m === 'next' ? 'الدورة التالية' : m === 'copy' ? 'نسخ لمسؤول آخر' : 'طلب متابعة جديد'); body.innerHTML = lfCreateHtml(); }
   else if(screen === 'ldetail'){ toolsSetTitle('طلب المتابعة'); body.innerHTML = lfDetailHtml(); }
   else { toolsSetTitle('متابعة المؤشرات'); body.innerHTML = lfListHtml(); }
 }
@@ -167,7 +216,7 @@ function lfListHtml(){
       const fresh = list.some(x => x.series_id === s.id && x.answered_at && !x.seen_at);
       const c = lfCounts(r);
       const meta = st === 'answered'
-        ? `${c.done} منفذ · ${c.wip} قيد التنفيذ · ${c.no} لم ينفذ`
+        ? `${c.done} منفذ · ${c.wip} قيد التنفيذ · ${c.no} لم ينفذ` + (r.chosen_slot === 'none' ? (r.proposed_slot ? ' · اقترح موعدًا' : ' · بلا موعد') : '')
         : (lfDraftProgress(r) ? `بدأ الإجابة: ${lfDraftProgress(r).done} من ${lfDraftProgress(r).total} (لم يُسلِّم بعد)` : (s.items.length > 1 ? 'الدورة الحالية بانتظار الإجابة' : 'بانتظار الإجابة'));
       return `<button type="button" class="tl-tile" style="border-right-color:#876A25" onclick="lfOpen('${escapeHtml(r.id)}')"><span class="tl-tile-main"><b>${escapeHtml(lfLeaderTitle(r))}${fresh ? ' <span class="lf-new">جديد</span>' : ''}</b><small>${escapeHtml(r.cycle_label)} · ${escapeHtml(meta)}</small></span>${lfChip(st)}<span class="tl-chev" aria-hidden="true">‹</span></button>`;
     }).join('');
@@ -176,25 +225,43 @@ function lfListHtml(){
     <div class="tl-actions"><button type="button" class="btn btn-primary tl-new" onclick="lfStartCreate(null)">＋ طلب متابعة جديد</button></div>`;
 }
 
+/* «ابدأ من…»: القوالب الجاهزة ثم قوالبي ثم الطلبات السابقة، بقيم r:/t:/f: (المعرّفات مهرَّبة) */
+function lfStartFromHtml(c){
+  if(c.mode === 'edit' || c.mode === 'next') return '';
+  const ready = LEADER_READY_TEMPLATES.map(t => `<option value="r:${escapeHtml(t.key)}">${escapeHtml(t.name + ' (' + t.indicators.length + ')')}</option>`).join('');
+  const mine = (lfState.templates || []).map(t => `<option value="t:${escapeHtml(t.id)}"${c.tplSel === 't:' + t.id ? ' selected' : ''}>${escapeHtml(t.name + ' (' + (t.indicators || []).length + ')')}</option>`).join('');
+  const prev = (lfState.list || []).map(r => `<option value="f:${escapeHtml(r.id)}">${escapeHtml(lfLeaderTitle(r) + ' · ' + r.cycle_label)}</option>`).join('');
+  const delBtn = c.tplSel && c.tplSel.indexOf('t:') === 0 ? `<button type="button" class="btn btn-outline lf-full lf-del" onclick="lfDeleteTemplate('${escapeHtml(c.tplSel.slice(2))}')"${lfState.busy ? ' disabled' : ''}>حذف هذا القالب</button>` : '';
+  return `<div class="tl-field"><label for="lfStartFrom">ابدأ من قالب أو طلب سابق (اختياري)</label><select id="lfStartFrom" class="goal-input" onchange="lfStartFrom(this.value)"><option value="">—</option>`
+    + `<optgroup label="قوالب جاهزة">${ready}</optgroup>${mine ? `<optgroup label="قوالبي">${mine}</optgroup>` : ''}${prev ? `<optgroup label="طلبات سابقة">${prev}</optgroup>` : ''}</select>${delBtn}</div>`;
+}
+
 function lfCreateHtml(){
   const c = lfState.create;
   if(!c) return toolsBackLink('المتابعة', 'leaders');
+  const edit = c.mode === 'edit';
   const roles = Object.keys(LEADER_ROLES).map(k => `<button type="button" class="tl-chip-btn${c.role === k ? ' is-on' : ''}" aria-pressed="${c.role === k}" onclick="lfPickRole('${k}')">${escapeHtml(LEADER_ROLES[k])}</button>`).join('');
-  const inds = c.indicators.map((t, i) => `<div class="lf-row"><input class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxLabel}" aria-label="المؤشر ${i + 1}" value="${escapeHtml(t)}" placeholder="نص المؤشر" oninput="lfSetInd(${i}, this.value)"><button type="button" class="tl-mv" aria-label="حذف المؤشر" onclick="lfRemoveInd(${i})"${c.indicators.length < 2 ? ' disabled' : ''}>✕</button></div>`).join('');
+  const inds = c.indicators.map((t, i) => {
+    const locked = c.ids[i] && c.locked.indexOf(c.ids[i]) >= 0;
+    return `<div class="lf-row"><input class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxLabel}" aria-label="المؤشر ${i + 1}" value="${escapeHtml(t)}" placeholder="نص المؤشر" oninput="lfSetInd(${i}, this.value)"><button type="button" class="tl-mv" aria-label="${locked ? 'بدأ المسؤول إجابته: لا يُحذف' : 'حذف المؤشر'}" onclick="lfRemoveInd(${i})"${c.indicators.length < 2 || locked ? ' disabled' : ''}>✕</button></div>`;
+  }).join('');
   const slots = c.slots.map((t, i) => `<div class="lf-row"><input class="goal-input" type="datetime-local" aria-label="الموعد ${i + 1}" value="${escapeHtml(t)}" oninput="lfSetSlot(${i}, this.value)"><button type="button" class="tl-mv" aria-label="حذف الموعد" onclick="lfRemoveSlot(${i})">✕</button></div>`).join('');
   const days = LF_DAYS.map(d => `<button type="button" class="tl-day${c.days === d ? ' is-on' : ''}" aria-pressed="${c.days === d}" onclick="lfPickDays(${d})">${d === 7 ? '7 أيام' : d + ' يومًا'}</button>`).join('');
-  const prev = lfState.list && lfState.list.length && !c.series_id
-    ? `<div class="tl-field"><label for="lfCopyFrom">نسخ المؤشرات من طلب سابق (اختياري)</label><select id="lfCopyFrom" class="goal-input" onchange="lfCopyFrom(this.value)"><option value="">—</option>${lfState.list.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(lfLeaderTitle(r) + ' · ' + r.cycle_label)}</option>`).join('')}</select></div>` : '';
-  return `${toolsBackLink(c.series_id ? 'الطلب' : 'المتابعة', c.series_id ? 'ldetail' : 'leaders')}
+  const back = edit || c.mode === 'next' ? toolsBackLink('الطلب', 'ldetail') : toolsBackLink('المتابعة', 'leaders');
+  const lockNote = edit && c.locked.length ? `<div class="tl-info lf-draft"><b>بدأ المسؤول الإجابة (حفظ ${c.locked.length})</b><small>تقدر تضيف مؤشرات وتصحّح النصوص وتغيّر المواعيد، لكن لا تحذف مؤشرًا أجاب عنه. الرابط نفسه يبقى صالحًا ويرى التعديل عند فتحه.</small></div>` : '';
+  const tplSave = c.tplName === null
+    ? `<button type="button" class="btn btn-outline lf-full" onclick="lfTemplateNameStart()">حفظ هذه المؤشرات كقالب</button>`
+    : `<div class="lf-row"><input id="lfTplName" class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxTemplate}" placeholder="اسم القالب (مثل: سجلات وكيل الطلاب)" value="${escapeHtml(c.tplName)}" oninput="lfState.create.tplName = this.value"><button type="button" class="btn btn-primary" onclick="lfSaveTemplate()"${lfState.busy ? ' disabled' : ''}>حفظ</button></div>`;
+  return `${back}${lockNote}
     <div class="tl-field"><span class="tl-label">المسؤول</span><div class="tl-chips">${roles}</div></div>
     <div class="tl-field"><label for="lfName">اسمه (اختياري)</label><input id="lfName" class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxName}" value="${escapeHtml(c.name)}" oninput="lfSetField('name', this.value)"></div>
     <div class="tl-field"><label for="lfCycle">الدورة</label><input id="lfCycle" class="goal-input" type="text" maxlength="${LEADER_LIMITS.maxCycle}" placeholder="مثل: الفصل الدراسي الأول" value="${escapeHtml(c.cycle)}" oninput="lfSetField('cycle', this.value)"></div>
-    ${prev}
-    <div class="tl-field"><span class="tl-label">المؤشرات</span>${inds}<button type="button" class="btn btn-outline lf-full" onclick="lfAddInd()"${c.indicators.length >= LEADER_LIMITS.maxIndicators ? ' disabled' : ''}>＋ مؤشر</button></div>
-    <div class="tl-field"><span class="tl-label">أوقات مقترحة للقاء (يختار منها)</span>${slots}<button type="button" class="btn btn-outline lf-full" onclick="lfAddSlot()"${c.slots.length >= LEADER_LIMITS.maxSlots ? ' disabled' : ''}>＋ موعد</button></div>
-    <div class="tl-field"><span class="tl-label">ينتهي الرابط بعد</span><div class="tl-days">${days}</div></div>
-    <button type="button" class="btn btn-primary tl-create" id="lfCreateBtn" onclick="lfCreate()"${lfCreateReady(c) ? '' : ' disabled'}>إنشاء الطلب وتجهيز الرابط</button>
-    <p class="tl-note">لا يُرسل شيء حتى تضغط واتساب أو نسخ الرابط بنفسك. المؤشرات والأوقات تتجمّد بعد أول إرسال.</p>`;
+    ${lfStartFromHtml(c)}
+    <div class="tl-field"><span class="tl-label">المؤشرات (${c.indicators.filter(x => String(x).trim()).length} من ${LEADER_LIMITS.maxIndicators})</span>${inds}<button type="button" class="btn btn-outline lf-full" onclick="lfAddInd()"${c.indicators.length >= LEADER_LIMITS.maxIndicators ? ' disabled' : ''}>＋ مؤشر</button>${edit ? '' : tplSave}</div>
+    <div class="tl-field"><span class="tl-label">أوقات مقترحة للقاء (يختار منها أو يقترح غيرها)</span>${slots}<button type="button" class="btn btn-outline lf-full" onclick="lfAddSlot()"${c.slots.length >= LEADER_LIMITS.maxSlots ? ' disabled' : ''}>＋ موعد</button></div>
+    ${edit ? '' : `<div class="tl-field"><span class="tl-label">ينتهي الرابط بعد</span><div class="tl-days">${days}</div></div>`}
+    <button type="button" class="btn btn-primary tl-create" id="lfCreateBtn" onclick="lfCreate()"${lfCreateReady(c) ? '' : ' disabled'}>${edit ? 'حفظ التعديل' : 'إنشاء الطلب وتجهيز الرابط'}</button>
+    <p class="tl-note">${edit ? 'يبقى الرابط نفسه؛ لا تحتاج إعادة إرسال.' : 'لا يُرسل شيء حتى تضغط واتساب أو نسخ الرابط بنفسك. تقدر تعدّل الطلب لاحقًا ما دام المسؤول لم يُرسل إجابته.'}</p>`;
 }
 
 function lfAnswersHtml(r){
@@ -207,12 +274,8 @@ function lfAnswersHtml(r){
     return `<div class="lf-ans"><div class="lf-ans-head"><span>${escapeHtml(ind.label)}</span><span class="lf-chip lf-s-${escapeHtml(x.s || 'none')}">${escapeHtml(LEADER_ANSWER_STATES[x.s] || '—')}</span></div>${x.r ? `<small>${escapeHtml(x.r)}</small>` : ''}${trend}</div>`;
   }).join('');
   const c = lfCounts(r);
-  let slot = '';
-  if(r.slots && r.slots.length){
-    slot = r.chosen_slot === 'none' ? 'لم يناسبه أي موعد من المقترحة — حدّد معه موعدًا آخر' : (r.chosen_slot ? 'موعد اللقاء: ' + leaderSlotLabel(r.chosen_slot) : '');
-  }
   return `<div class="lf-sum"><div><b class="lf-ok">${c.done}</b><small>منفذ</small></div><div><b class="lf-wip">${c.wip}</b><small>قيد التنفيذ</small></div><div><b class="lf-no">${c.no}</b><small>لم ينفذ</small></div></div>
-    ${rows}${slot ? `<div class="tl-info"><b>${escapeHtml(slot)}</b></div>` : ''}`;
+    ${lfMeetingHtml(r)}${rows}`;
 }
 
 function lfDetailHtml(){
@@ -238,12 +301,13 @@ function lfDetailHtml(){
     const slots = (r.slots || []).length ? `<div class="tl-info"><b>أوقات اللقاء المقترحة</b><small>${r.slots.map(s => escapeHtml(leaderSlotLabel(s))).join('<br>')}</small></div>` : '';
     const dp = lfDraftProgress(r);
     const draft = dp ? `<div class="tl-info lf-draft"><b>بدأ المسؤول الإجابة ولم يُسلِّم بعد</b><small>حدّد ${dp.done} من ${dp.total} مؤشرات${r.draft_saved_at ? ' · آخر حفظ ' + escapeHtml(leaderDateLabel(r.draft_saved_at)) : ''}. تصلك النتيجة عند التسليم.</small></div>` : '';
-    main = `${draft}${inds}${slots}${linkBox}<small class="tl-note">ينتهي ${escapeHtml(isNaN(closes) ? '' : closes.toLocaleDateString('ar', { day: 'numeric', month: 'long' }))}</small>${del}`;
+    const editBtn = `<button type="button" class="btn btn-outline lf-full" onclick="lfStartEdit('${escapeHtml(r.id)}')"${busy}>تعديل الطلب (المؤشرات والمواعيد)</button>`;
+    main = `${draft}${inds}${slots}${editBtn}${linkBox}<small class="tl-note">ينتهي ${escapeHtml(isNaN(closes) ? '' : closes.toLocaleDateString('ar', { day: 'numeric', month: 'long' }))}</small>${del}`;
   }
   return `${toolsBackLink('المتابعة', 'leaders')}
     <div class="tl-info lf-head"><b>${escapeHtml(lfLeaderTitle(r))}</b><small>${escapeHtml(r.cycle_label)}</small>${lfChip(st)}</div>
     ${main}
-    <button type="button" class="btn btn-outline lf-full" onclick="lfStartCreate('${escapeHtml(r.id)}')">إصدار الدورة التالية لنفس المسؤول</button>
+    <div class="lf-btns"><button type="button" class="btn btn-outline" onclick="lfStartCreate('${escapeHtml(r.id)}', 'next')">الدورة التالية لنفس المسؤول</button><button type="button" class="btn btn-outline" onclick="lfStartCreate('${escapeHtml(r.id)}', 'copy')">نسخ لمسؤول آخر</button></div>
     ${history ? `<div class="tl-group"><div class="tl-group-head">الدورات الأخرى</div>${history}</div>` : ''}`;
 }
 
@@ -256,17 +320,60 @@ function lfSyncCreateBtn(){
 function lfSetField(k, v){ const c = lfState.create; if(!c) return; c[k] = String(v); lfSyncCreateBtn(); }
 function lfSetInd(i, v){ const c = lfState.create; if(!c || i >= c.indicators.length) return; c.indicators[i] = String(v); lfSyncCreateBtn(); }
 function lfSetSlot(i, v){ const c = lfState.create; if(!c || i >= c.slots.length) return; c.slots[i] = String(v); lfSyncCreateBtn(); }
-function lfAddInd(){ const c = lfState.create; if(!c || c.indicators.length >= LEADER_LIMITS.maxIndicators) return; c.indicators.push(''); renderTools(); }
-function lfRemoveInd(i){ const c = lfState.create; if(!c || c.indicators.length < 2) return; c.indicators.splice(i, 1); renderTools(); }
+function lfAddInd(){ const c = lfState.create; if(!c || c.indicators.length >= LEADER_LIMITS.maxIndicators) return; c.indicators.push(''); c.ids.push(null); renderTools(); }
+function lfRemoveInd(i){ const c = lfState.create; if(!c || c.indicators.length < 2 || (c.ids[i] && c.locked.indexOf(c.ids[i]) >= 0)) return; c.indicators.splice(i, 1); c.ids.splice(i, 1); renderTools(); }
 function lfAddSlot(){ const c = lfState.create; if(!c || c.slots.length >= LEADER_LIMITS.maxSlots) return; c.slots.push(''); renderTools(); }
 function lfRemoveSlot(i){ const c = lfState.create; if(!c) return; c.slots.splice(i, 1); renderTools(); }
 function lfPickRole(k){ const c = lfState.create; if(!c || !LEADER_ROLES[k]) return; c.role = k; renderTools(); }
 function lfPickDays(d){ const c = lfState.create; if(!c || LF_DAYS.indexOf(d) < 0) return; c.days = d; renderTools(); }
-function lfCopyFrom(id){
-  const c = lfState.create; const r = lfState.list && lfState.list.find(x => x.id === id);
-  if(!c || !r) return;
-  c.indicators = (r.indicators || []).map(i => i.label);
+/* «ابدأ من…»: يعبّئ المؤشرات (وجهة القالب الجاهز إن وُجدت). لا يمسّ وضع التعديل */
+function lfStartFrom(v){
+  const c = lfState.create; if(!c || c.mode === 'edit' || !v) return;
+  let labels = null;
+  if(v.indexOf('r:') === 0){ const t = LEADER_READY_TEMPLATES.find(x => x.key === v.slice(2)); if(t){ labels = t.indicators.slice(); if(t.role && LEADER_ROLES[t.role]) c.role = t.role; } }
+  else if(v.indexOf('t:') === 0){ const t = (lfState.templates || []).find(x => x.id === v.slice(2)); if(t) labels = (t.indicators || []).map(i => i.label); }
+  else if(v.indexOf('f:') === 0){ const r = (lfState.list || []).find(x => x.id === v.slice(2)); if(r) labels = (r.indicators || []).map(i => i.label); }
+  if(!labels || !labels.length) return;
+  c.indicators = labels.slice(0, LEADER_LIMITS.maxIndicators); c.ids = c.indicators.map(() => null); c.tplSel = v;
   renderTools();
+}
+function lfCopyFrom(id){ return lfStartFrom('f:' + id); } /* توافق */
+
+function lfTemplateNameStart(){ const c = lfState.create; if(!c) return; c.tplName = ''; renderTools(); }
+
+/* حفظ مؤشرات الشاشة الحالية كقالب باسم (لحساب المعلم وحده) */
+async function lfSaveTemplate(){
+  const c = lfState.create; if(!c || lfState.busy || !currentUser) return;
+  const name = String(c.tplName || '').trim();
+  if(!name || name.length > LEADER_LIMITS.maxTemplate || /[\u0000-\u001F\u007F-\u009F]/.test(name)){ showToast('اكتب اسمًا للقالب (حتى ' + LEADER_LIMITS.maxTemplate + ' حرفًا).', 'error'); return; }
+  const labels = c.indicators.map(x => String(x).trim()).filter(Boolean);
+  const iv = leaderValidateIndicators(labels.map((label, i) => ({ id: 'i' + (i + 1), label })));
+  if(!iv.ok){ showToast('أضف مؤشرات صالحة أولًا.', 'error'); return; }
+  lfState.busy = true; renderTools();
+  try{
+    const { data, error } = await sb.from('leader_templates').insert({ teacher_id: currentUser.id, name, indicators: iv.value }).select('id, name, indicators, created_at').single();
+    if(error) throw error;
+    lfState.templates = (lfState.templates || []).concat([data]);
+    if(lfState.create === c){ c.tplName = null; c.tplSel = 't:' + data.id; }
+    showToast('حُفظ القالب «' + name + '»', 'ok');
+  } catch(err){ showToast('تعذّر حفظ القالب: ' + (err && err.message ? err.message : 'خطأ'), 'error'); }
+  finally { lfState.busy = false; if(toolsStillHere(toolsState.token, 'lcreate')) renderTools(); }
+}
+
+/* حذف قالب محفوظ: نص فقط بلا توابع (لا سلة، بتأكيد) — DELETE-POLICY.md */
+async function lfDeleteTemplate(id){
+  if(lfState.busy || !currentUser) return;
+  const t = (lfState.templates || []).find(x => x.id === id); if(!t) return;
+  if(!await showConfirm('حذف القالب «' + t.name + '»؟ لا يتأثر أي طلب أُنشئ منه.')) return;
+  lfState.busy = true; renderTools();
+  try{
+    const { error } = await sb.from('leader_templates').delete().eq('teacher_id', currentUser.id).eq('id', id);
+    if(error) throw error;
+    lfState.templates = (lfState.templates || []).filter(x => x.id !== id);
+    if(lfState.create && lfState.create.tplSel === 't:' + id) lfState.create.tplSel = null;
+    showToast('حُذف القالب', 'ok');
+  } catch(err){ showToast('تعذّر حذف القالب: ' + (err && err.message ? err.message : 'خطأ'), 'error'); }
+  finally { lfState.busy = false; if(toolsStillHere(toolsState.token, 'lcreate')) renderTools(); }
 }
 
 /* ============ الإنشاء ============ */
@@ -277,6 +384,7 @@ async function lfCreate(){
   const v = lfValidateCreate(c);
   if(!v.ok){ showToast(v.msg, 'error'); return; }
   const token = toolsState.token;
+  if(c.mode === 'edit') return lfSaveEdit(c, v, token);
   c.busy = true;
   const btn = document.getElementById('lfCreateBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الإنشاء…'; }
@@ -304,6 +412,109 @@ async function lfCreate(){
   lfState.create = null;
   lfState.sel = created.id;
   toolsGo('ldetail');
+}
+
+/* حفظ تعديل طلب لم يُسلَّم: بنفس الرابط. الشرط .is('answered_at', null) يمنع تعديل ما سُلِّم للتو، والقاعدة ترفض
+   حذف مؤشر في مسودة المسؤول (لو حفظها بعد فتح شاشة التعديل) فتظهر رسالتها ويُعاد فتح الطلب بأحدث نسخة. */
+async function lfSaveEdit(c, v, token){
+  c.busy = true;
+  const btn = document.getElementById('lfCreateBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الحفظ…'; }
+  const id = c.editId;
+  let saved = null, err = null;
+  try{
+    const { data, error } = await sb.from('leader_followups').update({
+      leader_role: c.role, leader_name: String(c.name).trim() || null, cycle_label: String(c.cycle).trim(), indicators: v.indicators, slots: v.slots
+    }).eq('teacher_id', currentUser.id).eq('id', id).is('answered_at', null).select(LF_COLS);
+    if(error) throw error;
+    saved = data && data[0];
+  } catch(e){ err = e; }
+  c.busy = false;
+  if(saved){
+    const i = (lfState.list || []).findIndex(x => x.id === id);
+    if(i >= 0) lfState.list[i] = saved;
+    showToast('حُفظ التعديل. الرابط نفسه يبقى صالحًا.', 'ok');
+    if(!toolsStillHere(token, 'lcreate')) return;
+    lfState.create = null; lfState.sel = id; toolsGo('ldetail');
+    return;
+  }
+  showToast(err ? 'تعذّر حفظ التعديل: ' + (err.message || 'خطأ') : 'لم يُحفظ: أرسل المسؤول إجابته للتو.', 'error');
+  try{ await lfReloadOne(id); }catch(_){}
+  if(!toolsStillHere(token, 'lcreate')) return;
+  const r = (lfState.list || []).find(x => x.id === id);
+  if(!r || r.answered_at){ lfState.create = null; lfState.sel = id; toolsGo('ldetail'); return; }
+  /* أعِد قائمة المؤشرات المقفلة من أحدث مسودة (حفظ المسؤول بعد فتح الشاشة) مع إبقاء ما كتبه المعلم */
+  c.locked = r.draft && r.draft.a ? Object.keys(r.draft.a) : [];
+  renderTools();
+}
+
+/* ============ موعد اللقاء بعد التسليم ============ */
+
+function lfMeetWaText(r, slot, kind){
+  const who = r.leader_name ? 'أستاذ ' + r.leader_name : '';
+  /* نص رسالة واتساب (يُرمَّز بـencodeURIComponent داخل الرابط ثم يُهرَّب بالسمة؛ لا يُدرج بالصفحة) */
+  const hi = 'السلام عليكم' + (who ? ' ' + who : '') + '، ';
+  return kind === 'confirm'
+    ? hi + 'تم تأكيد موعد لقائنا لمتابعة المؤشرات (' + r.cycle_label + '): ' + leaderSlotLabel(slot) + '. شكرًا لك.'
+    : hi + 'بخصوص موعد لقاء متابعة المؤشرات (' + r.cycle_label + '): هل يناسبك ' + leaderSlotLabel(slot) + '؟';
+}
+function lfWaUrl(text){ return 'https://wa.me/?text=' + encodeURIComponent(text); }
+
+function lfMeetOpen(id){ lfState.meet = { id, value: '' }; lfState.confirmed = null; renderTools(); }
+function lfMeetClose(){ lfState.meet = null; renderTools(); }
+/* أثناء الكتابة: يُحدَّث رابط واتساب وحالة زر التثبيت فقط (بلا إعادة رسم تُفقد الحقل تركيزه) */
+function lfMeetInput(v){
+  const m = lfState.meet; if(!m) return;
+  m.value = String(v || '');
+  const r = (lfState.list || []).find(x => x.id === m.id);
+  const ok = LEADER_SLOT_RE.test(m.value);
+  const a = document.getElementById('lfMeetWa'), b = document.getElementById('lfMeetSet');
+  if(a){ a.href = ok && r ? lfWaUrl(lfMeetWaText(r, m.value, 'propose')) : '#'; a.setAttribute('aria-disabled', ok ? 'false' : 'true'); a.style.pointerEvents = ok ? '' : 'none'; a.style.opacity = ok ? '' : '.5'; }
+  if(b) b.disabled = !ok || lfState.busy;
+}
+
+/* تثبيت موعد (موافقة على اقتراح المسؤول، أو موعد اتفقتما عليه): set_leader_meeting بالقاعدة تفحص المالك والتعارض */
+async function lfSetMeeting(id, slot){
+  if(lfState.busy || !LEADER_SLOT_RE.test(String(slot || ''))) return;
+  const token = toolsState.token;
+  lfState.busy = true; renderTools();
+  let res = null;
+  try{
+    const { data, error } = await sb.rpc('set_leader_meeting', { p_id: id, p_slot: slot });
+    if(error) throw error;
+    res = data;
+    if(res === 'ok'){ lfState.meet = null; lfState.confirmed = { id, slot }; }
+    else if(res === 'slot_taken') showToast('هذا الموعد محجوز لمسؤول آخر. اختر غيره.', 'error');
+    else showToast('تعذّر تثبيت الموعد.', 'error');
+    await lfReloadOne(id);
+  } catch(err){ showToast('تعذّر تثبيت الموعد: ' + (err && err.message ? err.message : 'خطأ'), 'error'); }
+  finally { lfState.busy = false; if(toolsStillHere(token, 'ldetail')) renderTools(); }
+}
+
+function lfMeetingHtml(r){
+  if(!r.slots || !r.slots.length){
+    if(!r.chosen_slot || r.chosen_slot === 'none') return '';
+  }
+  const busy = lfState.busy ? ' disabled' : '';
+  const set = r.chosen_slot && r.chosen_slot !== 'none';
+  let head;
+  if(set) head = `<b>موعد اللقاء: ${escapeHtml(leaderSlotLabel(r.chosen_slot))}</b>`;
+  else if(r.proposed_slot) head = `<b>اقترح المسؤول موعدًا آخر: ${escapeHtml(leaderSlotLabel(r.proposed_slot))}</b>${r.proposed_note ? `<small>«${escapeHtml(r.proposed_note)}»</small>` : ''}`;
+  else head = `<b>لم يناسبه أي موعد من المقترحة</b>${r.proposed_note ? `<small>«${escapeHtml(r.proposed_note)}»</small>` : ''}<small>حدّد معه موعدًا ثم ثبّته هنا.</small>`;
+  const conf = lfState.confirmed && lfState.confirmed.id === r.id
+    ? `<a class="btn btn-primary lf-wa lf-full" href="${escapeHtml(lfWaUrl(lfMeetWaText(r, lfState.confirmed.slot, 'confirm')))}" target="_blank" rel="noopener">أرسل له التأكيد عبر واتساب</a>` : '';
+  let actions = '';
+  if(lfState.meet && lfState.meet.id === r.id){
+    actions = `<div class="tl-info lf-meet"><label for="lfMeetInput"><b>موعد آخر</b></label><input id="lfMeetInput" class="goal-input" type="datetime-local" value="${escapeHtml(lfState.meet.value)}" oninput="lfMeetInput(this.value)">
+      <a id="lfMeetWa" class="btn btn-outline lf-full" href="#" target="_blank" rel="noopener" style="pointer-events:none;opacity:.5" aria-disabled="true">اقترحه عليه عبر واتساب</a>
+      <button id="lfMeetSet" type="button" class="btn btn-primary lf-full" onclick="lfSetMeeting('${escapeHtml(r.id)}', lfState.meet && lfState.meet.value)" disabled>ثبّت هذا الموعد (بعد اتفاقكما)</button>
+      <button type="button" class="tl-back" onclick="lfMeetClose()">إلغاء</button></div>`;
+  } else if(!set && r.proposed_slot){
+    actions = `<div class="lf-btns"><button type="button" class="btn btn-primary" onclick="lfSetMeeting('${escapeHtml(r.id)}', '${escapeHtml(r.proposed_slot)}')"${busy}>موافقة</button><button type="button" class="btn btn-outline" onclick="lfMeetOpen('${escapeHtml(r.id)}')"${busy}>اقتراح موعد آخر</button></div>`;
+  } else {
+    actions = `<button type="button" class="btn btn-outline lf-full" onclick="lfMeetOpen('${escapeHtml(r.id)}')"${busy}>${set ? 'تغيير الموعد' : 'تحديد موعد'}</button>`;
+  }
+  return `<div class="tl-info lf-meet-head">${head}</div>${conf}${actions}`;
 }
 
 /* ============ إجراءات الطلب ============ */

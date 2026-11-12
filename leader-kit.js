@@ -13,7 +13,8 @@
    وleaderValidateDraft = public.leader_draft_clean (مسودة المسؤول الجزئية قبل التسليم).
    الصادرات بالضبط: LEADER_ROLES، LEADER_ANSWER_STATES، LEADER_LIMITS، LEADER_SLOT_RE، LEADER_SLOT_NONE،
    leaderValidateIndicators، leaderValidateSlots، leaderValidateAnswers، leaderValidateDraft، leaderSlotLabel،
-   leaderDateLabel، leaderRoleLabel.
+   leaderDateLabel، leaderRoleLabel، leaderValidateMeeting، LEADER_READY_TEMPLATES.
+   وleaderValidateMeeting = قواعد submit_leader_followup للموعد (اختيار من المقترحة، أو «لا يناسبني» مع اقتراح بديل اختياري).
    ============================================================ */
 (function(root){
   'use strict';
@@ -27,10 +28,31 @@
   });
   /* منفذ / قيد التنفيذ / لم ينفذ — والسبب إلزامي لغير المنفذ */
   var LEADER_ANSWER_STATES = Object.freeze({ done: 'منفذ', wip: 'قيد التنفيذ', no: 'لم ينفذ' });
-  var LEADER_LIMITS = Object.freeze({ maxIndicators: 15, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60 });
+  var LEADER_LIMITS = Object.freeze({ maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60, maxNote: 100, maxTemplate: 60 });
   /* موعد بتوقيت المدرسة بلا منطقة زمنية: YYYY-MM-DDTHH:MM (السعودية بلا توقيت صيفي، فلا لبس) */
   var LEADER_SLOT_RE = /^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$/;
   var LEADER_SLOT_NONE = 'none'; /* «لا يناسبني أي موعد» */
+
+  /* قوالب جاهزة (نقطة بداية تُنسخ عند الإنشاء؛ المعلم يعدّلها كما يشاء). «سجلات المدير» من قائمة المعلم الرسمية. */
+  var LEADER_READY_TEMPLATES = Object.freeze([
+    Object.freeze({ key: 'principal_records', name: 'سجلات المدير', role: 'principal', indicators: Object.freeze([
+      'سجل الخطة التشغيلية',
+      'سجل التكليفات',
+      'سجل اللجان والفرق المدرسية',
+      'سجل الاجتماعات (اجتماعات اللجان والفرق)',
+      'سجل تطوير وتحسين الخطة التشغيلية',
+      'سجل التحفيز والتكريم لمنسوبي المدرسة',
+      'سجل النمو المهني للمعلمين والإداريين',
+      'سجل استطلاع الرأي والاستبانات',
+      'سجل الشراكة المجتمعية',
+      'بيانات الكادر الإداري',
+      'سجل أحوال الموظفين (من نور)',
+      'سجل الوصف الوظيفي للمعلمين',
+      'سجل الصندوق المدرسي',
+      'سجل الميزانية التشغيلية (الخطة الميلانية المالية)',
+      'سجل ملفات إنجاز المعلمين (عينة)'
+    ]) })
+  ]);
 
   function hasOwn(o, k){ return Object.prototype.hasOwnProperty.call(o, k); }
   function btrim(s){ return s.replace(/^ +| +$/g, ''); }
@@ -40,7 +62,7 @@
   function okText(s, max){ var t = btrim(s); return t.length > 0 && cps(t) <= max && !CONTROL.test(t) && !LONE_SURROGATE.test(t); }
   function isObj(x){ return x !== null && typeof x === 'object' && !Array.isArray(x); }
 
-  /* مؤشرات الطلب: [{ id: 'i1', label }] — 1..15، المعرّف i<رقم> فريد، النص 1..150 بلا محارف تحكم */
+  /* مؤشرات الطلب: [{ id: 'i1', label }] — 1..20، المعرّف i<رقم> فريد، النص 1..150 بلا محارف تحكم */
   function leaderValidateIndicators(list){
     if(!Array.isArray(list) || list.length < 1 || list.length > LEADER_LIMITS.maxIndicators) return { ok: false, error: 'count' };
     var seen = {}; var out = [];
@@ -145,6 +167,28 @@
     return DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()];
   }
 
+  /* الموعد عند التسليم: slot من الأوقات المقترحة أو 'none'؛ ومع 'none' فقط اقتراح بديل اختياري (proposed بصيغة الموعد)
+     وملاحظة اختيارية ≤100 بلا محارف تحكم. بلا أوقات مقترحة: لا شيء من ذلك. يرجع { ok, value: { slot, proposed, note } }. */
+  function leaderValidateMeeting(slots, input){
+    var sv = leaderValidateSlots(slots);
+    if(!sv.ok) return { ok: false, error: 'request' };
+    var x = isObj(input) ? input : {};
+    var slot = x.slot === undefined ? null : x.slot;
+    var prop = x.proposed === undefined || x.proposed === null || x.proposed === '' ? null : x.proposed;
+    var note = x.note === undefined || x.note === null ? '' : x.note;
+    if(typeof note !== 'string') return { ok: false, error: 'note' };
+    note = btrim(note);
+    if(!sv.value.length){
+      if(slot !== null || prop !== null || note !== '') return { ok: false, error: 'no-slots' };
+      return { ok: true, value: { slot: null, proposed: null, note: null } };
+    }
+    if(typeof slot !== 'string' || !(slot === LEADER_SLOT_NONE || sv.value.indexOf(slot) >= 0)) return { ok: false, error: 'slot' };
+    if(slot !== LEADER_SLOT_NONE && (prop !== null || note !== '')) return { ok: false, error: 'proposal-without-none' };
+    if(prop !== null && (typeof prop !== 'string' || !LEADER_SLOT_RE.test(prop))) return { ok: false, error: 'proposed' };
+    if(note !== '' && !okText(note, LEADER_LIMITS.maxNote)) return { ok: false, error: 'note' };
+    return { ok: true, value: { slot: slot, proposed: prop, note: note === '' ? null : note } };
+  }
+
   function leaderRoleLabel(role){ return hasOwn(LEADER_ROLES, role) ? LEADER_ROLES[role] : ''; }
 
   var api = {
@@ -159,6 +203,8 @@
     leaderValidateDraft: leaderValidateDraft,
     leaderSlotLabel: leaderSlotLabel,
     leaderDateLabel: leaderDateLabel,
+    leaderValidateMeeting: leaderValidateMeeting,
+    LEADER_READY_TEMPLATES: LEADER_READY_TEMPLATES,
     leaderRoleLabel: leaderRoleLabel
   };
   if(typeof module === 'object' && module && module.exports) module.exports = api;

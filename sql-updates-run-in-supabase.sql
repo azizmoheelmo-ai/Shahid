@@ -753,13 +753,14 @@ grant execute on function public.delete_survey(uuid) to authenticated;
 -- - جدول واحد: الطلب وإجابته وموعده بصف واحد (الإجابة هنا باسم المسؤول عمدًا، بخلاف الاستبانات المجهولة).
 -- - كلها بـauth.uid() = teacher_id وبلا سياسة مسؤول. الكتابة العامة من submit_leader_followup وحدها (service_role عبر api/f.js).
 -- - المعلم لا يكتب الإجابة ولا الموعد ولا وقت الرد: صلاحيات أعمدة (grant) ثم تريجر يُجمّد الطلب بعد الرد.
--- - المؤشرات والأوقات تتجمّد بعد أول إرسال (sent_at). الحذف (حتى المجاب عنه) يمرّ بسلة المحذوفات بالواجهة.
+-- - الطلب يُعدَّل قبل التسليم بنفس الرابط (3.47)؛ فقط لا يُحذف مؤشر بدأ المسؤول إجابته في مسودته. الحذف (حتى المجاب عنه) يمرّ بسلة المحذوفات بالواجهة.
+-- - الموعد: يختار من المقترحة، أو «لا يناسبني» مع اقتراح بديل (proposed_slot)؛ المعلم يثبّته بـset_leader_meeting ويؤكد عبر واتساب.
 -- - مسودة المسؤول (draft) تُحفظ بالخادم من الرابط نفسه (save_leader_draft) ليكمل لاحقًا من أي جهاز قبل التسليم.
 -- - الموعد المحجوز لا يتكرر لدى المعلم نفسه (فهرس فريد جزئي)، فاختيار مسؤولين الموعد نفسه: الأول ينجح والثاني slot_taken.
 -- - الرابط يموت عند الرد (code = null)، والرد بعده كالرابط الخاطئ.
 -- - تعديلات لاحقة إضافية فقط وآمنة التكرار (لا drop table).
 
--- صحة مؤشرات الطلب (نفس قواعد leaderValidateIndicators بـleader-kit.js): مصفوفة 1..15 كائنًا بمفتاحين id وlabel؛
+-- صحة مؤشرات الطلب (نفس قواعد leaderValidateIndicators بـleader-kit.js): مصفوفة 1..20 كائنًا بمفتاحين id وlabel؛
 -- id بصيغة i<رقم> فريد؛ النص 1..150 حرفًا بعد btrim وبلا محارف تحكم.
 create or replace function public.leader_indicators_ok(p jsonb)
 returns boolean language plpgsql immutable set search_path = '' as $fn$
@@ -767,7 +768,7 @@ declare e jsonb; v_ids text[] := '{}'; v_id text; v_s text;
   v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
 begin
   if p is null or jsonb_typeof(p) <> 'array' then return false; end if;
-  if jsonb_array_length(p) < 1 or jsonb_array_length(p) > 15 then return false; end if;
+  if jsonb_array_length(p) < 1 or jsonb_array_length(p) > 20 then return false; end if;
   for e in select x from jsonb_array_elements(p) x loop
     if jsonb_typeof(e) <> 'object' then return false; end if;
     if (select count(*) from jsonb_object_keys(e)) <> 2 or not (e ? 'id') or not (e ? 'label') then return false; end if;
@@ -828,6 +829,12 @@ create table if not exists public.leader_followups (
 alter table public.leader_followups add column if not exists draft jsonb
   constraint leader_followups_draft_chk check (draft is null or (jsonb_typeof(draft) = 'object' and octet_length(draft::text) <= 16384));
 alter table public.leader_followups add column if not exists draft_saved_at timestamptz;
+-- 3.47: موعد يقترحه المسؤول بدل المقترحة (مع «لا يناسبني») وملاحظته
+alter table public.leader_followups add column if not exists proposed_slot text
+  constraint leader_followups_proposed_chk check (proposed_slot is null or proposed_slot ~ '^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$');
+alter table public.leader_followups add column if not exists proposed_note text
+  constraint leader_followups_note_chk check (proposed_note is null or (char_length(btrim(proposed_note)) between 1 and 100
+    and proposed_note !~ ('[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']')));
 create unique index if not exists leader_followups_code_key on public.leader_followups(code) where code is not null;
 create unique index if not exists leader_followups_slot_key on public.leader_followups(teacher_id, chosen_slot) where chosen_slot is not null and chosen_slot <> 'none';
 create index if not exists leader_followups_teacher_idx on public.leader_followups(teacher_id, series_id, created_at);
@@ -851,21 +858,28 @@ revoke all on public.leader_followups from anon;
 revoke insert, update on public.leader_followups from authenticated;
 grant insert (teacher_id, series_id, leader_role, leader_name, cycle_label, sender_name, indicators, slots, code, closes_at)
   on public.leader_followups to authenticated;
-grant update (leader_name, cycle_label, indicators, slots, code, closes_at, sent_at, seen_at)
+grant update (leader_role, leader_name, cycle_label, indicators, slots, code, closes_at, sent_at, seen_at)
   on public.leader_followups to authenticated;
 
 -- حارس التعديل: لا نقل لمعلم آخر؛ بعد الرد لا يتغيّر شيء غير seen_at؛ بعد الإرسال تتجمّد المؤشرات والأوقات
 create or replace function public.leader_followup_guard() returns trigger
 language plpgsql set search_path = '' as $fn$
+declare k text;
 begin
   if new.teacher_id is distinct from old.teacher_id then
     raise exception 'لا يُغيَّر مالك الطلب' using errcode = '42501';
   end if;
-  if old.answered_at is not null and (to_jsonb(new) - 'seen_at') is distinct from (to_jsonb(old) - 'seen_at') then
+  -- بعد التسليم: لا يتغيّر إلا seen_at، وchosen_slot (تثبيت الموعد بـset_leader_meeting وحدها: لا صلاحية عمود للمعلم)
+  if old.answered_at is not null and (to_jsonb(new) - 'seen_at' - 'chosen_slot') is distinct from (to_jsonb(old) - 'seen_at' - 'chosen_slot') then
     raise exception 'الطلب المُجاب عنه لا يتغيّر' using errcode = '55000';
   end if;
-  if old.sent_at is not null and (new.indicators is distinct from old.indicators or new.slots is distinct from old.slots) then
-    raise exception 'المؤشرات والأوقات تتجمّد بعد الإرسال' using errcode = '55000';
+  -- قبل التسليم يُعدَّل بحرية، إلا حذف مؤشر بدأ المسؤول إجابته في مسودته (فلا تضيع إجابته)
+  if old.answered_at is null and old.draft is not null and new.indicators is distinct from old.indicators then
+    for k in select jsonb_object_keys(coalesce(old.draft->'a', '{}'::jsonb)) loop
+      if not exists (select 1 from jsonb_array_elements(new.indicators) x where x->>'id' = k) then
+        raise exception 'لا يُحذف مؤشر بدأ المسؤول إجابته' using errcode = '55000';
+      end if;
+    end loop;
   end if;
   return new;
 end
@@ -907,9 +921,10 @@ grant execute on function public.leader_answers_clean(jsonb, jsonb) to service_r
 -- استلام إجابة المسؤول عبر الرابط: ذرّي بمعاملة واحدة (قفل صف الطلب for update).
 -- يرجع 'ok' أو 'slot_taken' (الموعد حُجز لمسؤول آخر قبله: يختار غيره) أو 'invalid' (رمز خاطئ/منتهٍ/مستخدَم أو إجابة غير صالحة).
 -- p_slot: أحد الأوقات المقترحة أو 'none' (لا يناسبني) إن وُجدت أوقات؛ وnull إن لم توجد أوقات. بعد النجاح يموت الرابط.
-create or replace function public.submit_leader_followup(p_code text, p_answers jsonb, p_slot text)
+create or replace function public.submit_leader_followup(p_code text, p_answers jsonb, p_slot text, p_proposed text, p_note text)
 returns text language plpgsql security definer set search_path = '' as $fn$
-declare r public.leader_followups%rowtype; v_clean jsonb;
+declare r public.leader_followups%rowtype; v_clean jsonb; v_note text := nullif(btrim(coalesce(p_note, '')), '');
+  v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
 begin
   if p_code is null or p_code !~ '^[a-z2-9]{8,32}$' then return 'invalid'; end if;
   select * into r from public.leader_followups where code = p_code and answered_at is null and closes_at > now() for update;
@@ -917,12 +932,17 @@ begin
   v_clean := public.leader_answers_clean(r.indicators, p_answers);
   if v_clean is null then return 'invalid'; end if;
   if jsonb_array_length(r.slots) = 0 then
-    if p_slot is not null then return 'invalid'; end if;
+    if p_slot is not null or p_proposed is not null or v_note is not null then return 'invalid'; end if;
   elsif p_slot is null or not (p_slot = 'none' or r.slots ? p_slot) then
     return 'invalid';
   end if;
+  -- اقتراح بديل وملاحظة مع «لا يناسبني» فقط
+  if (p_proposed is not null or v_note is not null) and p_slot is distinct from 'none' then return 'invalid'; end if;
+  if p_proposed is not null and p_proposed !~ '^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$' then return 'invalid'; end if;
+  if v_note is not null and (char_length(v_note) > 100 or v_note ~ v_ctl) then return 'invalid'; end if;
   begin
-    update public.leader_followups set answers = v_clean, chosen_slot = p_slot, answered_at = now(), seen_at = null, code = null, draft = null
+    update public.leader_followups set answers = v_clean, chosen_slot = p_slot, proposed_slot = p_proposed, proposed_note = v_note,
+        answered_at = now(), seen_at = null, code = null, draft = null
       where id = r.id;
   exception when unique_violation then
     return 'slot_taken';
@@ -930,8 +950,53 @@ begin
   return 'ok';
 end
 $fn$;
+revoke execute on function public.submit_leader_followup(text, jsonb, text, text, text) from public, anon, authenticated;
+grant execute on function public.submit_leader_followup(text, jsonb, text, text, text) to service_role;
+
+-- الصيغة القديمة (3 معاملات) باقية للتوافق أثناء النشر: تمرّر بلا اقتراح
+create or replace function public.submit_leader_followup(p_code text, p_answers jsonb, p_slot text)
+returns text language sql security definer set search_path = '' as $fn$
+  select public.submit_leader_followup(p_code, p_answers, p_slot, null, null)
+$fn$;
 revoke execute on function public.submit_leader_followup(text, jsonb, text) from public, anon, authenticated;
 grant execute on function public.submit_leader_followup(text, jsonb, text) to service_role;
+
+-- تثبيت موعد اللقاء بعد التسليم (المعلم المالك وحده): موعد اقترحه المسؤول أو اتفقا عليه عبر واتساب.
+-- 'ok' أو 'slot_taken' (محجوز لمسؤول آخر لدى المعلم نفسه) أو 'invalid'. الحساب المعطَّل لا يثبّت شيئًا.
+create or replace function public.set_leader_meeting(p_id uuid, p_slot text)
+returns text language plpgsql security definer set search_path = '' as $fn$
+declare v_uid uuid := auth.uid();
+begin
+  if v_uid is null or p_id is null or public.am_disabled() then return 'invalid'; end if;
+  if p_slot is null or p_slot !~ '^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$' then return 'invalid'; end if;
+  perform 1 from public.leader_followups where id = p_id and teacher_id = v_uid and answered_at is not null for update;
+  if not found then return 'invalid'; end if;
+  begin
+    update public.leader_followups set chosen_slot = p_slot where id = p_id and teacher_id = v_uid;
+  exception when unique_violation then
+    return 'slot_taken';
+  end;
+  return 'ok';
+end
+$fn$;
+revoke execute on function public.set_leader_meeting(uuid, text) from public, anon;
+grant execute on function public.set_leader_meeting(uuid, text) to authenticated;
+
+-- قوالب مؤشرات يحفظها المعلم بالاسم (3.47) ليبدأ منها أي طلب جديد. القوالب الجاهزة («سجلات المدير») بالكود (leader-kit.js).
+create table if not exists public.leader_templates (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(btrim(name)) between 1 and 60
+    and name !~ ('[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']')),
+  indicators jsonb not null check (public.leader_indicators_ok(indicators)),
+  created_at timestamptz not null default now()
+);
+create index if not exists leader_templates_teacher_idx on public.leader_templates(teacher_id, created_at);
+alter table public.leader_templates enable row level security;
+drop policy if exists "المعلم يدير قوالب مؤشراته فقط" on public.leader_templates;
+create policy "المعلم يدير قوالب مؤشراته فقط" on public.leader_templates for all to authenticated
+  using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+revoke all on public.leader_templates from anon;
 
 -- تنظيف مسودة المسؤول (نفس قواعد leaderValidateDraft بـleader-kit.js): إجابات جزئية مسموحة.
 -- لكل مؤشر معروف كائن اختياري {s?: done|wip|no, r?: نص ≤300 بعد btrim بلا محارف تحكم}؛ الفارغ يُهمل، والمعرّف المجهول يُهمل.
@@ -1019,7 +1084,7 @@ returns text[] language sql immutable set search_path = '' as $fn$
     'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes',
     'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students',
     'survey_campaigns', 'survey_campaign_sections', 'survey_invites', 'survey_responses',
-    'leader_followups'
+    'leader_followups', 'leader_templates'
   ]::text[]
 $fn$;
 
@@ -1098,7 +1163,7 @@ begin
     'classroom_rubric_notes', 'classroom_sections', 'classroom_students', 'classroom_task_students', 'classroom_tasks',
     'classroom_timetable_slots', 'classroom_tool_marks', 'deleted_items', 'lesson_plans', 'performance_goals',
     'personal_access_tokens', 'plan_header', 'program_sections', 'self_assessment', 'shahid_drafts', 'shawahid',
-    'leader_followups', 'student_report_shares', 'support_messages', 'survey_campaign_sections', 'survey_campaigns', 'survey_invites',
+    'leader_followups', 'leader_templates', 'student_report_shares', 'support_messages', 'survey_campaign_sections', 'survey_campaigns', 'survey_invites',
     'survey_responses', 'tasks', 'user_app_settings'
   ] loop
     if to_regclass(format('public.%I', v_t)) is null then continue; end if;
