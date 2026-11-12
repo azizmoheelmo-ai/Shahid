@@ -1382,7 +1382,58 @@ grant execute on function public.delete_survey(uuid) to authenticated;
 -- - الرابط يموت عند الرد (code = null)، والرد بعده كالرابط الخاطئ.
 -- - تعديلات لاحقة إضافية فقط وآمنة التكرار (لا drop table).
 
--- صحة مؤشرات الطلب (نفس قواعد leaderValidateIndicators بـleader-kit.js): مصفوفة 1..20 كائنًا بمفتاحين id وlabel؛
+-- 3.50: معايير المؤشر (قائمة تحقق يكتبها المعلم ويحدّد المسؤول المنفَّذ منها). نفس قواعد validCriteria بـleader-kit.js:
+-- مصفوفة 1..10 كائنات بمفتاحين id وlabel؛ id بصيغة c<رقم> فريد داخل المؤشر؛ النص 1..150 بعد btrim وبلا محارف تحكم.
+create or replace function public.leader_criteria_ok(p jsonb)
+returns boolean language plpgsql immutable set search_path = '' as $fn$
+declare e jsonb; v_ids text[] := '{}'; v_id text; v_s text;
+  v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
+begin
+  if p is null or jsonb_typeof(p) <> 'array' then return false; end if;
+  if jsonb_array_length(p) < 1 or jsonb_array_length(p) > 10 then return false; end if;
+  for e in select x from jsonb_array_elements(p) x loop
+    if jsonb_typeof(e) <> 'object' then return false; end if;
+    if (select count(*) from jsonb_object_keys(e)) <> 2 or not (e ? 'id') or not (e ? 'label') then return false; end if;
+    if jsonb_typeof(e->'id') is distinct from 'string' or jsonb_typeof(e->'label') is distinct from 'string' then return false; end if;
+    v_id := e->>'id';
+    if v_id !~ '^c[0-9]{1,3}$' or v_id = any(v_ids) then return false; end if;
+    v_ids := v_ids || v_id;
+    v_s := btrim(e->>'label');
+    if char_length(v_s) < 1 or char_length(v_s) > 150 or v_s ~ v_ctl then return false; end if;
+  end loop;
+  return true;
+end
+$fn$;
+
+-- المعايير المحدَّدة في إجابة/مسودة (checkedCriteria بـleader-kit.js): مصفوفة معرّفات من معايير المؤشر.
+-- p_strict: المجهول والمكرر خطأ (التسليم)، وإلا يُهملان (المسودة: قد يحذف المعلم معيارًا بعد حفظها).
+-- يرجع مصفوفة بترتيب المعايير، أو null عند خطأ الشكل.
+create or replace function public.leader_checked_clean(p_criteria jsonb, p_c jsonb, p_strict boolean)
+returns jsonb language plpgsql immutable set search_path = '' as $fn$
+declare e jsonb; v_known text[] := '{}'; v_got text[] := '{}'; v_id text;
+begin
+  if p_c is null or jsonb_typeof(p_c) = 'null' then return '[]'::jsonb; end if;
+  if jsonb_typeof(p_c) <> 'array' then return null; end if;
+  if p_criteria is not null and jsonb_typeof(p_criteria) = 'array' then
+    select coalesce(array_agg(x->>'id'), '{}') into v_known from jsonb_array_elements(p_criteria) x;
+  end if;
+  for e in select x from jsonb_array_elements(p_c) x loop
+    if jsonb_typeof(e) <> 'string' then return null; end if;
+    v_id := e #>> '{}';
+    if not (v_id = any(v_known)) or v_id = any(v_got) then
+      if p_strict then return null; end if;
+      continue;
+    end if;
+    v_got := v_got || v_id;
+  end loop;
+  if cardinality(v_got) = 0 then return '[]'::jsonb; end if;
+  return (select jsonb_agg(t.x->'id' order by t.o) from jsonb_array_elements(p_criteria) with ordinality t(x, o) where (t.x->>'id') = any(v_got));
+end
+$fn$;
+revoke execute on function public.leader_checked_clean(jsonb, jsonb, boolean) from public, anon, authenticated;
+grant execute on function public.leader_checked_clean(jsonb, jsonb, boolean) to service_role;
+
+-- صحة مؤشرات الطلب (نفس قواعد leaderValidateIndicators بـleader-kit.js): مصفوفة 1..20 كائنًا بمفتاحين id وlabel (ومعايير اختيارية منذ 3.50)؛
 -- id بصيغة i<رقم> فريد؛ النص 1..150 حرفًا بعد btrim وبلا محارف تحكم.
 create or replace function public.leader_indicators_ok(p jsonb)
 returns boolean language plpgsql immutable set search_path = '' as $fn$
@@ -1393,13 +1444,14 @@ begin
   if jsonb_array_length(p) < 1 or jsonb_array_length(p) > 20 then return false; end if;
   for e in select x from jsonb_array_elements(p) x loop
     if jsonb_typeof(e) <> 'object' then return false; end if;
-    if (select count(*) from jsonb_object_keys(e)) <> 2 or not (e ? 'id') or not (e ? 'label') then return false; end if;
+    if not (e ? 'id') or not (e ? 'label') or (select count(*) from jsonb_object_keys(e)) <> (case when e ? 'criteria' then 3 else 2 end) then return false; end if;
     if jsonb_typeof(e->'id') is distinct from 'string' or jsonb_typeof(e->'label') is distinct from 'string' then return false; end if;
     v_id := e->>'id';
     if v_id !~ '^i[0-9]{1,3}$' or v_id = any(v_ids) then return false; end if;
     v_ids := v_ids || v_id;
     v_s := btrim(e->>'label');
     if char_length(v_s) < 1 or char_length(v_s) > 150 or v_s ~ v_ctl then return false; end if;
+    if e ? 'criteria' and not public.leader_criteria_ok(e->'criteria') then return false; end if;
   end loop;
   return true;
 end
@@ -1510,11 +1562,12 @@ create or replace trigger trg_leader_followup_guard before update on public.lead
   for each row execute function public.leader_followup_guard();
 
 -- تنظيف إجابات المسؤول وفق مؤشرات الطلب نفسه (نفس قواعد leaderValidateAnswers بـleader-kit.js):
--- لكل مؤشر كائن {s: done|wip|no, r?: سبب}؛ السبب إلزامي لغير المنفذ، ≤300 بعد btrim وبلا محارف تحكم.
+-- لكل مؤشر كائن {s: done|wip|no, r?: سبب, c?: معايير محقَّقة}؛ السبب إلزامي لغير المنفذ، ≤300 بعد btrim وبلا محارف تحكم.
+-- c (3.50): للمؤشر ذي المعايير تُعاد دائمًا (ولو فارغة)؛ المجهول والمكرر خطأ؛ ولمؤشر بلا معايير لا تُقبل غير فارغة.
 -- يرجع الكائن المعاد بناؤه من معرّفات المؤشرات وحدها، أو null عند أي خطأ.
 create or replace function public.leader_answers_clean(p_indicators jsonb, p_answers jsonb)
 returns jsonb language plpgsql immutable set search_path = '' as $fn$
-declare e jsonb; v_id text; v_a jsonb; v_s text; v_r text; v_out jsonb := '{}'::jsonb;
+declare e jsonb; v_id text; v_a jsonb; v_s text; v_r text; v_c jsonb; v_o jsonb; v_out jsonb := '{}'::jsonb;
   v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
 begin
   if not public.leader_indicators_ok(p_indicators) then return null; end if;
@@ -1532,7 +1585,11 @@ begin
       if v_r <> '' and (char_length(v_r) > 300 or v_r ~ v_ctl) then return null; end if;
     end if;
     if v_s <> 'done' and v_r = '' then return null; end if;
-    v_out := v_out || jsonb_build_object(v_id, case when v_r = '' then jsonb_build_object('s', v_s) else jsonb_build_object('s', v_s, 'r', v_r) end);
+    v_c := public.leader_checked_clean(e->'criteria', v_a->'c', true);
+    if v_c is null or (not (e ? 'criteria') and jsonb_array_length(v_c) > 0) then return null; end if;
+    v_o := case when v_r = '' then jsonb_build_object('s', v_s) else jsonb_build_object('s', v_s, 'r', v_r) end;
+    if e ? 'criteria' then v_o := v_o || jsonb_build_object('c', v_c); end if;
+    v_out := v_out || jsonb_build_object(v_id, v_o);
   end loop;
   return v_out;
 end
@@ -1621,11 +1678,11 @@ create policy "المعلم يدير قوالب مؤشراته فقط" on public
 revoke all on public.leader_templates from anon;
 
 -- تنظيف مسودة المسؤول (نفس قواعد leaderValidateDraft بـleader-kit.js): إجابات جزئية مسموحة.
--- لكل مؤشر معروف كائن اختياري {s?: done|wip|no, r?: نص ≤300 بعد btrim بلا محارف تحكم}؛ الفارغ يُهمل، والمعرّف المجهول يُهمل.
+-- لكل مؤشر معروف كائن اختياري {s?: done|wip|no, r?: نص ≤300 بعد btrim بلا محارف تحكم, c?: معايير (3.50)}؛ الفارغ يُهمل، والمعرّف المجهول يُهمل.
 -- slot: null أو 'none' أو أحد الأوقات المقترحة. يرجع {a, slot} أو null عند أي خطأ.
 create or replace function public.leader_draft_clean(p_indicators jsonb, p_slots jsonb, p_draft jsonb)
 returns jsonb language plpgsql immutable set search_path = '' as $fn$
-declare e jsonb; v_id text; v_a jsonb; v_x jsonb; v_s text; v_r text; v_o jsonb; v_out jsonb := '{}'::jsonb; v_slot jsonb;
+declare e jsonb; v_id text; v_a jsonb; v_x jsonb; v_s text; v_r text; v_c jsonb; v_o jsonb; v_out jsonb := '{}'::jsonb; v_slot jsonb;
   v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
 begin
   if not public.leader_indicators_ok(p_indicators) or not public.leader_slots_ok(p_slots) then return null; end if;
@@ -1649,6 +1706,11 @@ begin
         if char_length(v_r) > 300 or v_r ~ v_ctl then return null; end if;
         v_o := v_o || jsonb_build_object('r', v_r);
       end if;
+    end if;
+    if v_x ? 'c' and jsonb_typeof(v_x->'c') <> 'null' then
+      v_c := public.leader_checked_clean(e->'criteria', v_x->'c', false);
+      if v_c is null then return null; end if;
+      if jsonb_array_length(v_c) > 0 then v_o := v_o || jsonb_build_object('c', v_c); end if;
     end if;
     if v_o <> '{}'::jsonb then v_out := v_out || jsonb_build_object(v_id, v_o); end if;
   end loop;

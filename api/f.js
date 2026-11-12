@@ -56,30 +56,65 @@ async function resolveLeaderCode(code, supabase, now){
   }, taken };
 }
 
-const CSS = 'body{font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;background:#F6F4EE;color:#1B3245;margin:0;padding:0 16px 28px;line-height:1.8}'
-  + 'main{max-width:560px;margin:0 auto}h1{font-size:1.35rem;margin:14px 0 6px}h2{font-size:1.05rem;margin:22px 0 6px}'
-  + '.note{background:#fff;border:1px solid #E4DFD2;border-radius:10px;padding:10px 12px;font-size:.92rem;color:#3d5466}'
-  + '.meta{color:#55697a;font-size:.9rem;margin:2px 0}'
-  + 'fieldset{border:1px solid #E4DFD2;border-radius:12px;background:#fff;margin:12px 0;padding:10px 12px;min-width:0;scroll-margin-top:12px}'
-  + 'legend{font-weight:700;padding:0 6px}fieldset.miss{border-color:#c2410c;box-shadow:0 0 0 2px #fdba74}'
-  + '.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.opts.col{grid-template-columns:1fr}'
+/* هوية واجهة التطبيق (DESIGN.md) — نفس الألوان والزوايا، بخط الجهاز (CSP: default-src 'none' بلا خطوط خارجية) */
+const CSS = ':root{--navy:#1B3245;--gold:#A9852E;--gold-text:#876A25;--paper:#F7F5F0;--card:#fff;--line:#D8D2C4;--ink:#232323;--muted:#6B6659;'
+  + '--div:#EEE9DF;--track:#F3F0E8;--tab:#6B6457;--icon:#F1ECDF;--ok:#2F6B4F;--warn:#876A25;--danger:#8A2C2C;--danger-bg:#FBE9E7;'
+  + '--note-bg:#FBF6E8;--note-line:#E4D3A2;--note-ink:#5E4A16;--add:#FBFAF6;--r-card:14px;--r-btn:11px}'
+  + 'body{font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;background:var(--paper);color:var(--ink);margin:0;padding:0 14px 24px;line-height:1.8}'
+  + 'main{max-width:560px;margin:0 auto}[hidden]{display:none!important}'
+  + '.hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:14px;margin-top:14px}'
+  + '.kick{display:block;font-size:.78rem;font-weight:700;color:var(--gold-text)}'
+  + 'h1{font-size:1.3rem;color:var(--navy);margin:0 0 8px;line-height:1.5}'
+  + '.meta{display:flex;gap:8px;margin:0;padding:6px 0;border-top:1px solid var(--div);font-size:.92rem}'
+  + '.meta span{flex:none;width:52px;color:var(--muted)}.meta bdi{color:var(--navy);font-weight:700}'
+  + '.note{background:var(--note-bg);border:1px solid var(--note-line);border-radius:12px;padding:10px 12px;font-size:.9rem;color:var(--note-ink);margin:10px 0 0}'
+  + '.pg{position:sticky;top:0;z-index:5;background:var(--paper);padding:10px 2px 8px;margin-top:4px}'
+  + '.pg p{display:flex;justify-content:space-between;margin:0 0 4px;font-size:.85rem;color:var(--muted)}.pg b{color:var(--navy)}'
+  + '.pg i{display:block;height:6px;background:var(--div);border-radius:4px;overflow:hidden}.pg i em{display:block;height:6px;width:0;background:var(--ok);border-radius:4px;transition:width .2s}'
+  + 'fieldset{border:1px solid var(--line);border-radius:var(--r-card);background:var(--card);margin:10px 0;padding:12px;min-width:0;scroll-margin-top:70px}'
+  + 'legend{float:right;width:100%;display:flex;align-items:flex-start;gap:8px;padding:0;margin:0 0 10px;font-weight:700;color:var(--navy);font-size:.98rem;line-height:1.6}'
+  + 'legend+*{clear:both}.n{flex:none;min-width:24px;height:24px;border-radius:6px;background:var(--icon);color:var(--navy);font-size:.78rem;font-weight:800;display:grid;place-items:center;margin-top:1px}'
+  /* البلاطة تنطوي (fieldset.cl): يبقى رأسها فقط — الرقم بلون الحالة، والمؤشر، وأول السبب، وشارة الحالة */
+  + 'fieldset[data-i] legend{margin:0}button.tg{display:flex;align-items:flex-start;gap:8px;width:100%;min-height:0;margin:0;padding:2px 0;border:0;border-radius:8px;background:none;color:var(--navy);font:inherit;font-weight:700;font-size:.98rem;line-height:1.6;text-align:start;box-shadow:none}'
+  + '.tx{flex:1;min-width:0}.tx bdi{display:block}.pr{display:none;font-weight:400;font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+  + '.pv{flex:none;font-size:.75rem;font-weight:700;border-radius:999px;padding:1px 9px;margin-top:3px}.pv:empty{display:none}'
+  + '.pv.p-done{background:#E7F0EA;color:var(--ok)}.pv.p-wip{background:#F6EFD9;color:var(--warn)}.pv.p-no{background:var(--danger-bg);color:var(--danger)}'
+  + '.n.n-done{background:var(--ok);color:#fff}.n.n-wip{background:var(--warn);color:#fff}.n.n-no{background:var(--danger);color:#fff}'
+  + '.ch{flex:none;color:var(--muted);font-size:.85rem;margin-top:3px;transition:transform .2s}fieldset.cl .ch{transform:rotate(180deg)}'
+  + '.bd{clear:both;padding-top:10px}fieldset.cl .bd{display:none}fieldset.cl .pr{display:block}fieldset.cl{padding:10px 12px}'
+  /* 3.50: قائمة معايير المؤشر — يحدّد المسؤول ما نُفِّذ منها */
+  + '.crh{margin:0 2px 6px;font-size:.8rem;font-weight:800;color:var(--gold-text)}.cr{border:1px solid var(--div);border-radius:var(--r-btn);overflow:hidden;margin-bottom:10px}'
+  + '.ck{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--div);cursor:pointer;font-size:.92rem;line-height:1.6}.ck:first-child{border-top:0}'
+  + '.ck input{appearance:none;-webkit-appearance:none;flex:none;width:22px;height:22px;margin:0;border:1.5px solid var(--line);border-radius:6px;background:var(--card);display:grid;place-items:center;cursor:pointer}'
+  + '.ck input:checked{background:var(--ok);border-color:var(--ok)}.ck input:checked::after{content:"\\2713";color:#fff;font-size:.8rem;font-weight:800}'
+  + '.ck input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}'
+  + 'button.dn{display:block;width:auto;min-height:38px;margin:10px 0 0 auto;margin-inline-start:auto;padding:6px 18px;background:var(--card);color:var(--navy);border:1px solid var(--line);border-radius:10px;font-size:.9rem}'
+  + 'fieldset.miss{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}'
+  + '.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;background:var(--track);border-radius:var(--r-btn)}'
+  + '.opts.col{grid-template-columns:1fr;gap:6px;padding:0;background:none}'
   + '.opt{position:relative;display:block;cursor:pointer}.opt input{position:absolute;opacity:0;width:1px;height:1px;margin:0}'
-  + '.opt span{display:block;min-height:46px;text-align:center;border:1.5px solid #CFC8B6;border-radius:10px;padding:8px 4px;font-size:.88rem;background:#fff}'
-  + '.opts.col .opt span{text-align:start;padding:10px 12px;font-size:.95rem}'
-  + '.opt input:checked+span{color:#fff;font-weight:700}.opt .s-done:checked+span{background:#2E7D4F;border-color:#2E7D4F}'
-  + '.opt .s-wip:checked+span{background:#A66A00;border-color:#A66A00}.opt .s-no:checked+span{background:#B3382C;border-color:#B3382C}'
-  + '.opt .s-slot:checked+span{background:#1B3245;border-color:#1B3245}.opt input:disabled+span{opacity:.5;background:#ECE8DC;cursor:not-allowed}'
-  + '.opt input:focus-visible+span{outline:3px solid #f59e0b;outline-offset:2px}'
-  + 'textarea{width:100%;box-sizing:border-box;min-height:70px;border:1px solid #CFC8B6;border-radius:10px;padding:8px;font:inherit;margin-top:8px}'
-  + '.cnt{display:block;direction:ltr;text-align:left;font-size:.78rem;color:#55697a}'
-  + 'button{width:100%;margin-top:16px;padding:14px;border:0;border-radius:12px;background:#1B3245;color:#fff;font:inherit;font-size:1.05rem;font-weight:700;cursor:pointer}'
-  + '.prop{margin-top:10px;padding:10px;border:1px dashed #CFC8B6;border-radius:10px;background:#FBFAF6}.prop label{display:block;font-size:.88rem;margin:6px 0 4px}'
-  + '.prop input{width:100%;box-sizing:border-box;border:1px solid #CFC8B6;border-radius:10px;padding:8px;font:inherit;background:#fff}'
-  + 'button.sec{background:#fff;color:#1B3245;border:1.5px solid #1B3245;margin-top:10px}.ok{margin-top:12px;font-weight:600;color:#15803d}'
-  + 'button[disabled]{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid #f59e0b;outline-offset:2px}'
-  + '.msg{margin-top:12px;font-weight:600;color:#9a3b1f}.center{text-align:center;padding-top:12vh}[hidden]{display:none!important}'
-  + '.copy{background:#fff;border:1px solid #E4DFD2;border-radius:12px;padding:6px 12px;text-align:start}.copy li{margin:8px 0;list-style:none}'
-  + '.copy b{display:block}.copy small{color:#55697a;display:block}';
+  + '.opt span{display:flex;align-items:center;justify-content:center;min-height:42px;text-align:center;border-radius:9px;padding:6px 4px;font-size:.92rem;font-weight:700;color:var(--tab)}'
+  + '.opts.col .opt span{justify-content:flex-start;text-align:start;padding:10px 12px;font-size:.95rem;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:var(--r-btn)}'
+  + '.opt input:checked+span{color:#fff;box-shadow:0 2px 6px rgba(27,50,69,.25)}.opt .s-done:checked+span{background:var(--ok)}'
+  + '.opt .s-wip:checked+span{background:var(--warn)}.opt .s-no:checked+span{background:var(--danger)}'
+  + '.opts.col .opt .s-slot:checked+span{background:var(--navy);border-color:var(--navy);color:#fff}.opt input:disabled+span{opacity:.5;background:var(--track);cursor:not-allowed}'
+  + '.opt input:focus-visible+span{outline:3px solid var(--gold);outline-offset:2px}'
+  + 'textarea{width:100%;box-sizing:border-box;min-height:72px;border:1px solid var(--line);border-radius:var(--r-btn);padding:10px 12px;font:inherit;margin-top:10px;background:var(--card);color:var(--ink)}'
+  + 'textarea:focus,.prop input:focus{outline:none;border-color:var(--gold)}'
+  + '.cnt{display:block;direction:ltr;text-align:left;font-size:.75rem;color:var(--muted)}'
+  + '.prop{margin-top:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:var(--r-btn);background:var(--add)}.prop label{display:block;font-size:.88rem;font-weight:700;color:var(--navy);margin:6px 0 4px}'
+  + '.prop input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--r-btn);padding:9px 12px;font:inherit;background:var(--card)}'
+  + '.acts{position:sticky;bottom:0;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--paper);padding:10px 0 calc(10px + env(safe-area-inset-bottom,0px));margin-top:8px;border-top:1px solid var(--div)}'
+  + 'button{width:100%;margin:0;padding:12px;border:0;border-radius:12px;background:var(--navy);color:#fff;font:inherit;font-size:1rem;font-weight:700;cursor:pointer;min-height:48px}'
+  + 'button.sec{background:var(--card);color:var(--navy);border:1px solid var(--line);font-size:.92rem}'
+  + 'button[disabled]{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}'
+  + '.msg{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--danger-bg);font-weight:600;color:var(--danger)}'
+  + '.ok{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:#E7F0EA;font-weight:600;color:var(--ok)}'
+  + '.center{text-align:center;padding-top:8vh}.center h1{margin-top:12px}.center p{color:var(--muted)}'
+  + '.done-ic{width:56px;height:56px;margin:0 auto;border-radius:50%;background:#E7F0EA;color:var(--ok);display:grid;place-items:center;font-size:1.6rem;font-weight:800}'
+  + '.copy{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:0;margin:14px 0 0;text-align:start;overflow:hidden}'
+  + '.copy li{margin:0;padding:10px 12px;list-style:none;border-bottom:1px solid var(--div)}.copy li:last-child{border-bottom:0}'
+  + '.copy b{display:block;color:var(--navy)}.copy small{color:var(--muted);display:block}';
 
 function head(title, nonce){
   return '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -105,15 +140,27 @@ function pTog(){if(!pp)return;var x=slotFs.querySelector('input:checked');pp.hid
 function say(t){m.textContent=t;m.hidden=!t;if(t)ok('');}
 function ok(t){k.textContent=t;k.hidden=!t;}
 function len(s){return Array.from(s).length;}
-function st(fs){var x=fs.querySelector('input:checked');return x?x.value:'';}
+function st(fs){var x=fs.querySelector('input[type=radio]:checked');return x?x.value:'';}
+function cs(fs){return Array.prototype.slice.call(fs.querySelectorAll('.ck input:checked')).map(function(i){return i.value;});}
+function ct(fs){var t=fs.querySelectorAll('.ck input').length;return t?cs(fs).length+' من '+t:'';}
 function sync(fs){var s=st(fs),box=fs.querySelector('.rs'),ta=fs.querySelector('textarea');box.hidden=!s&&!ta.value;
-ta.placeholder=s==='done'?'ملاحظة (اختياري)':'اكتب السبب (مطلوب)';}
-function collect(){var a={};items.forEach(function(fs){var s=st(fs),r=fs.querySelector('textarea').value;if(s||r.trim())a[fs.getAttribute('data-i')]=r.trim()?{s:s,r:r}:{s:s};});
+ta.placeholder=s==='done'?'ملاحظة (اختياري)':'اكتب السبب (مطلوب)';head(fs);prog();}
+function head(fs){var s=st(fs),r=fs.querySelector('textarea').value.trim(),pv=fs.querySelector('.pv'),pr=fs.querySelector('.pr');
+fs.querySelector('.n').className='n'+(s?' n-'+s:'');pv.className='pv'+(s?' p-'+s:'');pv.textContent=s?L[s]:'';pr.textContent=[s||cs(fs).length?ct(fs):'',r].filter(Boolean).join(' · ');fs.querySelector('.dn').hidden=!s;}
+function fold(fs,c){fs.classList.toggle('cl',c);fs.querySelector('.tg').setAttribute('aria-expanded',c?'false':'true');}
+function nextOpen(fs){var i=items.indexOf(fs),n=items.slice(i+1).concat(items.slice(0,i)).filter(function(x){return !st(x);})[0];
+var t=n||slotFs||b;if(n)fold(n,false);t.scrollIntoView({behavior:'smooth',block:'start'});}
+function finish(fs){var s=st(fs),ta=fs.querySelector('textarea');if(!s)return;if(s!=='done'&&!ta.value.trim()){fs.classList.add('miss');ta.focus();return;}
+fs.classList.remove('miss');fold(fs,true);nextOpen(fs);}
+function prog(){var n=items.filter(function(x){return !!st(x);}).length,e=document.getElementById('pgn'),g=document.getElementById('pgb');if(e)e.textContent=n;if(g)g.style.width=(items.length?Math.round(n*100/items.length):0)+'%';}
+function collect(){var a={};items.forEach(function(fs){var s=st(fs),r=fs.querySelector('textarea').value,c=cs(fs),y={s:s};if(r.trim())y.r=r;if(c.length)y.c=c;
+if(s||r.trim()||c.length)a[fs.getAttribute('data-i')]=y;});
 var sl=slotFs&&slotFs.querySelector('input:checked');return {a:a,slot:sl?sl.value:null,p:ppd?ppd.value:'',n:ppn?ppn.value:''};}
 function save(){try{var x=collect();x.t=Date.now();localStorage.setItem(KEY,JSON.stringify(x));}catch(e){}}
 function restore(){try{var x=JSON.parse(localStorage.getItem(KEY)||'null');if(!x||!x.a||!(x.t>SAVED))return;
 items.forEach(function(fs){var y=x.a[fs.getAttribute('data-i')];fs.querySelectorAll('input').forEach(function(i){i.checked=false;});fs.querySelector('textarea').value='';
-if(y){if(y.s){var r=fs.querySelector('input[value="'+y.s+'"]');if(r)r.checked=true;}if(typeof y.r==='string')fs.querySelector('textarea').value=y.r.slice(0,MAXR);}
+if(y){if(y.s){var r=fs.querySelector('input[type=radio][value="'+y.s+'"]');if(r)r.checked=true;}
+if(Array.isArray(y.c))fs.querySelectorAll('.ck input').forEach(function(i){i.checked=y.c.indexOf(i.value)>=0;});if(typeof y.r==='string')fs.querySelector('textarea').value=y.r.slice(0,MAXR);}
 var c=fs.querySelector('.cnt');c.textContent=len(fs.querySelector('textarea').value)+' / '+MAXR;sync(fs);});
 if(slotFs){var q=Array.prototype.slice.call(slotFs.querySelectorAll('input')).filter(function(i){return i.value===x.slot&&!i.disabled;})[0];
 slotFs.querySelectorAll('input[name="slot"]').forEach(function(i){i.checked=false;});if(q)q.checked=true;
@@ -121,10 +168,13 @@ if(ppd&&typeof x.p==='string')ppd.value=x.p;if(ppn&&typeof x.n==='string')ppn.va
 function clear(){try{localStorage.removeItem(KEY);}catch(e){}}
 items.forEach(function(fs){var ta=fs.querySelector('textarea'),c=fs.querySelector('.cnt');
 ta.addEventListener('input',function(){if(len(ta.value)>MAXR)ta.value=Array.from(ta.value).slice(0,MAXR).join('');c.textContent=len(ta.value)+' / '+MAXR;fs.classList.remove('miss');ok('');save();});
-fs.addEventListener('change',function(){fs.classList.remove('miss');sync(fs);ok('');save();});sync(fs);});
+fs.addEventListener('change',function(e){fs.classList.remove('miss');sync(fs);ok('');save();if(e.target.type==='radio'&&st(fs)==='done')finish(fs);});
+fs.querySelector('.tg').addEventListener('click',function(){fold(fs,!fs.classList.contains('cl'));});
+fs.querySelector('.dn').addEventListener('click',function(){finish(fs);});sync(fs);});
 if(slotFs){slotFs.addEventListener('change',function(){slotFs.classList.remove('miss');pTog();ok('');save();});
 if(ppn)ppn.addEventListener('input',function(){ok('');save();});}
 restore();
+(function(){var first=items.filter(function(x){return !st(x);})[0];items.forEach(function(x){fold(x,x!==first);});})();
 function lock(t,btn){busy=true;b.disabled=true;d.disabled=true;btn.textContent=t;}
 function unlock(){busy=false;b.disabled=false;d.disabled=false;b.textContent='إرسال الإجابة';d.textContent='حفظ والإكمال لاحقًا';}
 function post(body){return fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'omit',cache:'no-store'})
@@ -132,7 +182,7 @@ function post(body){return fetch(location.pathname,{method:'POST',headers:{'Cont
 function dead(o){if(o.s===404){b.textContent='تعذّر الإرسال';d.hidden=true;say('لا يمكن استلام إجابة عبر هذا الرابط: ربما أُرسلت إجابة سابقًا أو انتهت مدته.');return true;}
 if(o.s===429){b.textContent='تعذّر الإرسال';d.hidden=true;say('محاولات كثيرة من هذا الجهاز. انتظر بضع دقائق ثم أعد فتح الرابط.');return true;}return false;}
 d.addEventListener('click',function(){if(busy)return;say('');items.forEach(function(fs){fs.classList.remove('miss');});if(slotFs)slotFs.classList.remove('miss');var x=collect();
-var a={};Object.keys(x.a).forEach(function(id){var y=x.a[id];a[id]=y.r?{s:y.s||null,r:y.r}:{s:y.s||null};});
+var a={};Object.keys(x.a).forEach(function(id){var y=x.a[id];a[id]=y.r?{s:y.s||null,r:y.r}:{s:y.s||null};if(y.c)a[id].c=y.c;});
 lock('جارٍ الحفظ…',d);
 post({draft:true,a:a,slot:x.slot}).then(function(o){if(o.j&&o.j.ok){unlock();save();
 var n=items.filter(function(fs){return !!st(fs);}).length;ok('حُفظت إجاباتك ('+n+' من '+items.length+'). افتح الرابط نفسه لاحقًا من أي جهاز لتكملها، ثم اضغط «إرسال الإجابة».');return;}
@@ -140,19 +190,19 @@ if(dead(o))return;unlock();say(o.s===400?'تعذّر الحفظ: راجع الن
 .catch(function(){unlock();say('تعذّر الاتصال. ما كتبته محفوظ على جهازك؛ حاول الحفظ مرة أخرى.');});});
 function done(a,slotText){var ul=document.getElementById('cp');ul.textContent='';
 items.forEach(function(fs){var li=document.createElement('li'),t=document.createElement('b'),s=document.createElement('small'),x=a[fs.getAttribute('data-i')];
-t.textContent=fs.querySelector('legend').textContent;s.textContent=L[x.s]+(x.r?' — '+x.r:'');li.appendChild(t);li.appendChild(s);ul.appendChild(li);});
+t.textContent=fs.querySelector('.n').textContent+'. '+fs.querySelector('.tx bdi').textContent;s.textContent=L[x.s]+(ct(fs)?' · '+ct(fs):'')+(x.r?' — '+x.r:'');li.appendChild(t);li.appendChild(s);ul.appendChild(li);});
 if(slotText){var li=document.createElement('li'),t=document.createElement('b'),s=document.createElement('small');t.textContent='موعد اللقاء';s.textContent=slotText;li.appendChild(t);li.appendChild(s);ul.appendChild(li);}
-f.hidden=true;document.getElementById('hd').hidden=true;document.getElementById('st').hidden=false;window.scrollTo(0,0);}
+f.hidden=true;document.getElementById('hd').hidden=true;document.getElementById('pg').hidden=true;document.getElementById('st').hidden=false;window.scrollTo(0,0);}
 f.addEventListener('submit',function(e){e.preventDefault();if(busy)return;
 var a={},miss=[];
 items.forEach(function(fs){fs.classList.remove('miss');var s=st(fs),r=fs.querySelector('textarea').value.trim();
-if(!s||(s!=='done'&&!r)){miss.push(fs);return;}a[fs.getAttribute('data-i')]=r?{s:s,r:r}:{s:s};});
+if(!s||(s!=='done'&&!r)){miss.push(fs);return;}var y=r?{s:s,r:r}:{s:s};if(fs.querySelector('.ck'))y.c=cs(fs);a[fs.getAttribute('data-i')]=y;});
 var slot=null,slotText='';
 var prop=null,note='';
 if(slotFs){slotFs.classList.remove('miss');var sx=slotFs.querySelector('input[name="slot"]:checked');if(!sx)miss.push(slotFs);else{slot=sx.value;slotText=sx.parentNode.textContent;
 if(slot===NONE){prop=ppd&&ppd.value?ppd.value:null;note=ppn?ppn.value.trim():'';
 slotText=prop?'اقترحتُ موعدًا آخر: '+lab(prop):'لا يناسبني أي موعد';if(note)slotText+=' — '+note;}}}
-if(miss.length){miss.forEach(function(fs){fs.classList.add('miss');});say('بقي '+miss.length+' مما يلزم قبل الإرسال (المميَّز باللون): حالة كل مؤشر، والسبب لما لم يُنفَّذ أو قيد التنفيذ، والموعد. إن أردت الإكمال لاحقًا اضغط «حفظ والإكمال لاحقًا».');
+if(miss.length){miss.forEach(function(fs){fs.classList.add('miss');if(fs!==slotFs)fold(fs,false);});say('بقي '+miss.length+' مما يلزم قبل الإرسال (المميَّز باللون): حالة كل مؤشر، والسبب لما لم يُنفَّذ أو قيد التنفيذ، والموعد. إن أردت الإكمال لاحقًا اضغط «حفظ والإكمال لاحقًا».');
 miss[0].scrollIntoView({behavior:'smooth',block:'center'});return;}
 lock('جارٍ الإرسال…',b);say('');
 post({a:a,slot:slot,proposed:prop,note:note||null}).then(function(o){if(o.j&&o.j.ok){clear();done(a,slotText);return;}
@@ -172,9 +222,15 @@ function indicatorHtml(ind, k, saved){
   const x = saved || {};
   const states = Object.keys(LEADER_ANSWER_STATES).map(s => radio('s-' + ind.id, s, 's-' + s, escapeHtml(LEADER_ANSWER_STATES[s]), false, x.s === s)).join('');
   const r = typeof x.r === 'string' ? x.r : '';
-  return `<fieldset data-i="${escapeHtml(ind.id)}"><legend>${k + 1}. <bdi>${escapeHtml(ind.label)}</bdi></legend>`
-    + `<div class="opts">${states}</div>`
-    + `<div class="rs"${x.s || r ? '' : ' hidden'}><textarea maxlength="${LEADER_LIMITS.maxReason}" aria-label="سبب أو ملاحظة">${escapeHtml(r)}</textarea><small class="cnt" aria-live="polite">${Array.from(r).length} / ${LEADER_LIMITS.maxReason}</small></div></fieldset>`;
+  /* 3.50: معايير المؤشر (إن وُجدت) — المحدَّد من مسودة الخادم يأتي مختارًا */
+  const got = new Set(Array.isArray(x.c) ? x.c : []);
+  const crit = (ind.criteria || []).length
+    ? `<p class="crh">المعايير المطلوبة: حدّد ما نُفِّذ</p><div class="cr">${ind.criteria.map(c => `<label class="ck"><input type="checkbox" value="${escapeHtml(c.id)}"${got.has(c.id) ? ' checked' : ''}><span><bdi>${escapeHtml(c.label)}</bdi></span></label>`).join('')}</div>`
+    : '';
+  return `<fieldset data-i="${escapeHtml(ind.id)}"><legend><button type="button" class="tg" aria-expanded="true"><span class="n">${k + 1}</span> <span class="tx"><bdi>${escapeHtml(ind.label)}</bdi><small class="pr"></small></span><span class="pv"></span><span class="ch" aria-hidden="true">⌃</span></button></legend>`
+    + `<div class="bd">${crit}<div class="opts">${states}</div>`
+    + `<div class="rs"${x.s || r ? '' : ' hidden'}><textarea maxlength="${LEADER_LIMITS.maxReason}" aria-label="سبب أو ملاحظة">${escapeHtml(r)}</textarea><small class="cnt" aria-live="polite">${Array.from(r).length} / ${LEADER_LIMITS.maxReason}</small></div>`
+    + `<button type="button" class="dn" hidden>تم</button></div></fieldset>`;
 }
 
 function slotsHtml(slots, taken, savedSlot){
@@ -195,17 +251,18 @@ function buildLeaderPage(found, nonce){
   const due = req.closesAt ? leaderDateLabel(req.closesAt) : '';
   const n = Object.keys(draft.a).filter(id => draft.a[id].s).length;
   return head('متابعة مؤشرات الأداء', nonce) + '<body><main>'
-    + '<div id="hd"><h1>متابعة مؤشرات الأداء</h1>'
-    + `<p class="meta">إلى: <bdi>${escapeHtml(to)}</bdi></p>`
-    + (req.sender ? `<p class="meta">من: <bdi>${escapeHtml(req.sender)}</bdi></p>` : '')
-    + `<p class="meta">الدورة: <bdi>${escapeHtml(req.cycle)}</bdi></p>`
-    + '<p class="note">اختر حالة كل مؤشر، واكتب السبب لما لم يُنفَّذ أو هو قيد التنفيذ. لا يلزمك الإكمال الآن: اضغط «حفظ والإكمال لاحقًا» ثم افتح الرابط نفسه متى شئت لتكمل. الرابط يقبل إرسالًا واحدًا وينتهي بعده'
+    + '<div id="hd"><div class="hero"><span class="kick">طلب متابعة</span><h1>متابعة مؤشرات الأداء</h1>'
+    + `<p class="meta"><span>إلى</span><bdi>${escapeHtml(to)}</bdi></p>`
+    + (req.sender ? `<p class="meta"><span>من</span><bdi>${escapeHtml(req.sender)}</bdi></p>` : '')
+    + `<p class="meta"><span>الدورة</span><bdi>${escapeHtml(req.cycle)}</bdi></p></div>`
+    + `<p class="note">اختر حالة كل مؤشر${req.indicators.some(i => (i.criteria || []).length) ? ' (وحدّد ما نُفِّذ من معاييره)' : ''}، واكتب السبب لما لم يُنفَّذ أو هو قيد التنفيذ. لا يلزمك الإكمال الآن: اضغط «حفظ والإكمال لاحقًا» ثم افتح الرابط نفسه متى شئت لتكمل. الرابط يقبل إرسالًا واحدًا وينتهي بعده`
     + (due ? `، ويبقى صالحًا حتى ${escapeHtml(due)}.` : '.') + '</p>'
-    + (req.draft ? `<p class="note">أكمل من حيث توقفت: محفوظ ${n} من ${req.indicators.length}.</p>` : '') + '</div>'
+    + (req.draft && Object.keys(draft.a).length ? `<p class="note">أكمل من حيث توقفت${n ? `: محفوظ ${n} من ${req.indicators.length}` : ''}.</p>` : '') + '</div>'
+    + `<div class="pg" id="pg"><p><span>حدّدت <b id="pgn">${n}</b> من ${req.indicators.length}</span><span>مؤشرات</span></p><i><em id="pgb"></em></i></div>`
     + `<form id="lf" novalidate data-saved="${Number(req.savedAt) || 0}">${req.indicators.map((ind, k) => indicatorHtml(ind, k, draft.a[ind.id])).join('')}${slotsHtml(req.slots, found.taken, draft.slot)}`
-    + '<button type="submit" id="sb">إرسال الإجابة</button><button type="button" class="sec" id="sd">حفظ والإكمال لاحقًا</button>'
-    + '<p class="msg" id="sm" role="alert" hidden></p><p class="ok" id="sk" role="status" hidden></p></form>'
-    + '<div id="st" class="center" hidden><h1>شكرًا لك، وصلت إجابتك</h1><p>هذه نسخة من إجابتك. لن يقبل هذا الرابط إجابة أخرى.</p><ul class="copy" id="cp"></ul></div>'
+    + '<p class="msg" id="sm" role="alert" hidden></p><p class="ok" id="sk" role="status" hidden></p>'
+    + '<div class="acts"><button type="button" class="sec" id="sd">حفظ والإكمال لاحقًا</button><button type="submit" id="sb">إرسال الإجابة</button></div></form>'
+    + '<div id="st" class="center" hidden><div class="done-ic" aria-hidden="true">✓</div><h1>شكرًا لك، وصلت إجابتك</h1><p>هذه نسخة من إجابتك. لن يقبل هذا الرابط إجابة أخرى.</p><ul class="copy" id="cp"></ul></div>'
     + `</main><script nonce="${escapeHtml(nonce)}">${buildScript()}</script></body></html>`;
 }
 

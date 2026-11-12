@@ -14,6 +14,7 @@
    ============================================================ */
 
 const LF_DAYS = [7, 14, 30];
+const LF_CRIT_FORMS = { one: 'معيار واحد', two: 'معياران', few: '{n} معايير', many: '{n} معيارًا' };
 const LF_STATUS_LABELS = { answered: 'أُجيب', sent: 'أُرسل', ready: 'لم يُرسل', expired: 'انتهت مدته', revoked: 'رابطه مُلغى' };
 const LF_COLS = 'id, series_id, leader_role, leader_name, cycle_label, sender_name, indicators, slots, code, closes_at, sent_at, answered_at, seen_at, answers, chosen_slot, proposed_slot, proposed_note, draft, draft_saved_at, created_at';
 
@@ -60,6 +61,19 @@ function lfPrevStates(list, r){
   return out;
 }
 
+/* عدد المعايير المتحقَّقة لكل مؤشر (بالنص) في الدورة السابقة نفسها: { label: { n, t } } (3.50) */
+function lfPrevCrit(list, r){
+  const older = list.filter(x => x.series_id === r.series_id && x.answered_at && String(x.created_at) < String(r.created_at))
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  const out = {};
+  if(!older || !older.answers) return out;
+  (older.indicators || []).forEach(ind => {
+    const x = older.answers[ind.id];
+    if(x && (ind.criteria || []).length) out[ind.label] = { n: Array.isArray(x.c) ? x.c.length : 0, t: ind.criteria.length };
+  });
+  return out;
+}
+
 /* تقدّم مسودة المسؤول: كم مؤشرًا حدّد حالته من الكل (null إن لم يحفظ شيئًا) */
 function lfDraftProgress(r){
   if(!r || r.answered_at || !r.draft || typeof r.draft !== 'object' || !r.draft.a) return null;
@@ -88,13 +102,29 @@ function lfNewCreate(from, mode){
     role: from && mode !== 'copy' ? from.leader_role : 'principal', name: from && mode !== 'copy' && from.leader_name ? from.leader_name : '',
     cycle: mode === 'edit' ? from.cycle_label : '', indicators: inds.length ? inds.map(i => i.label) : [''],
     ids: inds.length && mode === 'edit' ? inds.map(i => i.id) : (inds.length ? inds.map(() => null) : [null]),
-    slots: mode === 'edit' ? (from.slots || []).slice() : [], days: 7, busy: false, locked: [], maxId: 0, tplName: null };
+    slots: mode === 'edit' ? (from.slots || []).slice() : [], days: 7, busy: false, locked: [], maxId: 0, tplName: null,
+    crit: inds.length ? inds.map(i => lfCritState(i.criteria, mode === 'edit')) : [lfCritState(null, false)] };
   if(mode === 'edit'){
     c.editId = from.id;
     c.locked = from.draft && from.draft.a ? Object.keys(from.draft.a) : [];
     c.maxId = inds.reduce((m, i) => Math.max(m, parseInt(String(i.id).slice(1), 10) || 0), 0);
   }
   return c;
+}
+
+/* معايير مؤشر في حالة الإنشاء (3.50): { max, items: [{ id|null, label }] }. keepIds (التعديل): المعرّفات القائمة تبقى،
+   وmax = أكبر رقم سابق فلا يُعاد استعمال معرّف معيار حُذف (وإلا قد تظهر مسودة المسؤول محدِّدةً معيارًا جديدًا لم يره) */
+function lfCritState(criteria, keepIds){
+  const list = Array.isArray(criteria) ? criteria : [];
+  return { max: keepIds ? list.reduce((m, x) => Math.max(m, parseInt(String(x.id).slice(1), 10) || 0), 0) : 0,
+    items: list.map(x => ({ id: keepIds ? x.id : null, label: x.label })) };
+}
+
+/* معايير المؤشر النهائية: النص الفارغ يُسقط، والجديد يأخذ رقمًا بعد أكبر رقم سابق. يرجع مصفوفة (قد تكون فارغة) */
+function lfAssignCritIds(cs){
+  const items = (cs && cs.items || []).map(x => ({ id: x.id, label: String(x.label).trim() })).filter(x => x.label);
+  let next = Math.max(cs && cs.max || 0, ...items.filter(x => x.id).map(x => parseInt(String(x.id).slice(1), 10) || 0));
+  return items.map(x => ({ id: x.id || ('c' + (++next)), label: x.label }));
 }
 
 /* معرّفات المؤشرات: القائم يبقى كما هو، والجديد يأخذ رقمًا بعد أكبر رقم سابق (لا يُعاد استعمال معرّف حُذف) */
@@ -105,12 +135,14 @@ function lfAssignIds(labels, ids, maxId){
 
 /* يُرجع { ok, indicators, slots } بعد إسقاط الفارغ والتحقق بمدقق leader-kit.js، أو { ok:false, msg } */
 function lfValidateCreate(c){
-  const keep = c.indicators.map((x, i) => ({ label: String(x).trim(), id: (c.ids || [])[i] || null })).filter(x => x.label);
+  const keep = c.indicators.map((x, i) => ({ label: String(x).trim(), id: (c.ids || [])[i] || null, crit: lfAssignCritIds((c.crit || [])[i]) })).filter(x => x.label);
   const labels = keep.map(x => x.label);
   const missingLocked = (c.locked || []).filter(id => !keep.some(x => x.id === id));
   if(missingLocked.length) return { ok: false, msg: 'لا تحذف مؤشرًا بدأ المسؤول إجابته (أو اترك نصه).' };
-  const iv = leaderValidateIndicators(lfAssignIds(labels, keep.map(x => x.id), c.maxId));
-  if(!iv.ok) return { ok: false, msg: labels.length ? 'تحقق من نص المؤشرات (حتى 150 حرفًا لكل مؤشر، وحتى ' + LEADER_LIMITS.maxIndicators + ' مؤشرًا).' : 'أضف مؤشرًا واحدًا على الأقل.' };
+  if(keep.some(x => x.crit.length > LEADER_LIMITS.maxCriteria)) return { ok: false, msg: 'حتى ' + LEADER_LIMITS.maxCriteria + ' معايير لكل مؤشر.' };
+  const withCrit = lfAssignIds(labels, keep.map(x => x.id), c.maxId).map((ind, i) => keep[i].crit.length ? Object.assign(ind, { criteria: keep[i].crit }) : ind);
+  const iv = leaderValidateIndicators(withCrit);
+  if(!iv.ok) return { ok: false, msg: labels.length ? 'تحقق من نص المؤشرات ومعاييرها (حتى 150 حرفًا لكل نص، وحتى ' + LEADER_LIMITS.maxIndicators + ' مؤشرًا).' : 'أضف مؤشرًا واحدًا على الأقل.' };
   const slots = c.slots.map(x => String(x).trim()).filter(Boolean);
   const sv = leaderValidateSlots(slots);
   if(!sv.ok) return { ok: false, msg: 'أوقات اللقاء: حتى 6 أوقات بلا تكرار.' };
@@ -270,6 +302,14 @@ function lfStartFromHtml(c){
     + (prev ? `<label class="tlx-lbl" for="lfStartFrom">أو انسخ مؤشرات طلب سابق</label><select id="lfStartFrom" class="tlx-inp" onchange="lfStartFrom(this.value)"><option value="">—</option>${prev}</select>` : '');
 }
 
+/* معايير المؤشر i تحت سطره في نموذج الإنشاء (3.50): أسطر صغيرة بنقطة، و«＋ معيار» */
+function lfCritEditHtml(c, i){
+  const cs = (c.crit || [])[i] || { items: [] };
+  const rows = cs.items.map((x, j) => `<div class="tlx-crit"><i aria-hidden="true"></i><input type="text" maxlength="${LEADER_LIMITS.maxLabel}" aria-label="معيار ${j + 1} للمؤشر ${i + 1}" value="${escapeHtml(x.label)}" placeholder="اكتب المعيار…" oninput="lfSetCrit(${i}, ${j}, this.value)"><button type="button" class="tlx-x" aria-label="حذف المعيار" onclick="lfRemoveCrit(${i}, ${j})">✕</button></div>`).join('');
+  const full = cs.items.length >= LEADER_LIMITS.maxCriteria;
+  return `${rows}<button type="button" class="tlx-critadd" onclick="lfAddCrit(${i})"${full ? ' disabled' : ''}>＋ معيار${cs.items.length ? '' : ' (اختياري)'}</button>`;
+}
+
 function lfCreateHtml(){
   const c = lfState.create;
   if(!c) return lfCrumb('المتابعة', 'leaders');
@@ -277,7 +317,8 @@ function lfCreateHtml(){
   const roles = Object.keys(LEADER_ROLES).map(k => `<button type="button" class="tlx-chip${c.role === k ? ' is-on' : ''}" aria-pressed="${c.role === k}" onclick="lfPickRole('${k}')">${escapeHtml(LEADER_ROLES[k])}</button>`).join('');
   const inds = c.indicators.map((t, i) => {
     const locked = c.ids[i] && c.locked.indexOf(c.ids[i]) >= 0;
-    return `<div class="tlx-ind"><span class="tlx-n">${i + 1}</span><input type="text" maxlength="${LEADER_LIMITS.maxLabel}" aria-label="المؤشر ${i + 1}" value="${escapeHtml(t)}" placeholder="اكتب المؤشر…" oninput="lfSetInd(${i}, this.value)"><button type="button" class="tlx-x" aria-label="${locked ? 'بدأ المسؤول إجابته: لا يُحذف' : 'حذف المؤشر'}" onclick="lfRemoveInd(${i})"${c.indicators.length < 2 || locked ? ' disabled' : ''}>✕</button></div>`;
+    return `<div class="tlx-ind"><span class="tlx-n">${i + 1}</span><input type="text" maxlength="${LEADER_LIMITS.maxLabel}" aria-label="المؤشر ${i + 1}" value="${escapeHtml(t)}" placeholder="اكتب المؤشر…" oninput="lfSetInd(${i}, this.value)"><button type="button" class="tlx-x" aria-label="${locked ? 'بدأ المسؤول إجابته: لا يُحذف' : 'حذف المؤشر'}" onclick="lfRemoveInd(${i})"${c.indicators.length < 2 || locked ? ' disabled' : ''}>✕</button></div>`
+      + lfCritEditHtml(c, i);
   }).join('');
   const slots = c.slots.map((t, i) => `<div class="tlx-ind"><span class="tlx-n">${i + 1}</span><input type="datetime-local" aria-label="الموعد ${i + 1}" value="${escapeHtml(t)}" oninput="lfSetSlot(${i}, this.value)"><button type="button" class="tlx-x" aria-label="حذف الموعد" onclick="lfRemoveSlot(${i})">✕</button></div>`).join('');
   const days = LF_DAYS.map(d => `<button type="button" class="${c.days === d ? 'is-on' : ''}" aria-pressed="${c.days === d}" onclick="lfPickDays(${d})">${d === 7 ? '7 أيام' : d + ' يومًا'}</button>`).join('');
@@ -305,14 +346,25 @@ function lfCreateHtml(){
 
 function lfAnswersHtml(r){
   const prev = lfPrevStates(lfState.list || [], r);
+  const prevC = lfPrevCrit(lfState.list || [], r);
   const a = r.answers || {};
+  let met = 0, all = 0;
   const rows = (r.indicators || []).map(ind => {
     const x = a[ind.id] || {};
     const was = prev[ind.label];
-    const trend = was && was !== x.s ? `<small class="tlx-trend">الدورة السابقة: ${escapeHtml(LEADER_ANSWER_STATES[was] || '')}</small>` : '';
-    return `<div class="tlx-ans"><div class="tlx-ans-top"><span>${escapeHtml(ind.label)}</span><span class="tlx-pill ${LF_ANSWER_TONES[x.s] || ''}">${escapeHtml(LEADER_ANSWER_STATES[x.s] || '—')}</span></div>${x.r ? `<small>${escapeHtml(x.r)}</small>` : ''}${trend}</div>`;
+    const crit = ind.criteria || [];
+    const got = new Set(Array.isArray(x.c) ? x.c : []);
+    met += crit.filter(c => got.has(c.id)).length; all += crit.length;
+    const pc = prevC[ind.label];
+    const trendTxt = [was && was !== x.s ? escapeHtml(LEADER_ANSWER_STATES[was] || '') : '', pc && crit.length ? pc.n + ' من ' + pc.t + ' معايير' : ''].filter(Boolean).join(' · ');
+    const trend = trendTxt ? `<small class="tlx-trend">الدورة السابقة: ${trendTxt}</small>` : '';
+    /* المعايير: المتحقَّق ✓ والناقص بالأحمر (3.50) */
+    const crl = crit.length ? `<ul class="tlx-crl">${crit.map(c => got.has(c.id)
+      ? `<li class="is-ok"><b aria-hidden="true">✓</b><span>${escapeHtml(c.label)}</span></li>`
+      : `<li class="is-miss"><b aria-hidden="true"></b><span>${escapeHtml(c.label)} — ناقص</span></li>`).join('')}</ul>` : '';
+    return `<div class="tlx-ans"><div class="tlx-ans-top"><span>${escapeHtml(ind.label)}${crit.length ? ` <small class="tlx-cc">${got.size} من ${crit.length}</small>` : ''}</span><span class="tlx-pill ${LF_ANSWER_TONES[x.s] || ''}">${escapeHtml(LEADER_ANSWER_STATES[x.s] || '—')}</span></div>${x.r ? `<small>${escapeHtml(x.r)}</small>` : ''}${crl}${trend}</div>`;
   }).join('');
-  return `${lfMeetingHtml(r)}<div class="tlx-sec">الإجابات (${(r.indicators || []).length})</div><div class="tlx-box">${rows}</div>`;
+  return `${lfMeetingHtml(r)}<div class="tlx-sec">الإجابات (${(r.indicators || []).length})${all ? ` · المعايير المتحقَّقة ${met} من ${all}` : ''}</div><div class="tlx-box">${rows}</div>`;
 }
 
 /* عنصر بقائمة الإجراءات */
@@ -356,7 +408,7 @@ function lfDetailHtml(){
     const shown = lfState.allInds || all.length <= LIMIT + 1 ? all : all.slice(0, LIMIT);
     const more = shown.length < all.length ? `<button type="button" class="tlx-more" onclick="lfToggleAllInds()">عرض الكل (${all.length}) ▾</button>`
       : (all.length > LIMIT + 1 ? `<button type="button" class="tlx-more" onclick="lfToggleAllInds()">عرض أقل ▴</button>` : '');
-    const inds = `<div class="tlx-sec">المؤشرات (${all.length})</div><div class="tlx-box">${shown.map((i, n) => `<div class="tlx-ind"><span class="tlx-n">${n + 1}</span><span>${escapeHtml(i.label)}</span></div>`).join('')}${more}</div>`;
+    const inds = `<div class="tlx-sec">المؤشرات (${all.length})</div><div class="tlx-box">${shown.map((i, n) => `<div class="tlx-ind"><span class="tlx-n">${n + 1}</span><span>${escapeHtml(i.label)}</span>${(i.criteria || []).length ? `<small class="tlx-cc">${escapeHtml(arabicCountPhrase(i.criteria.length, LF_CRIT_FORMS))}</small>` : ''}</div>`).join('')}${more}</div>`;
     const slots = (r.slots || []).length ? `<div class="tlx-sec">أوقات اللقاء المقترحة</div><div class="tlx-box">${r.slots.map(s => `<div class="tlx-ind"><span>${escapeHtml(leaderSlotLabel(s))}</span></div>`).join('')}</div>` : '';
     main = draft + inds + slots;
   }
@@ -386,8 +438,12 @@ function lfSyncCreateBtn(){
 function lfSetField(k, v){ const c = lfState.create; if(!c) return; c[k] = String(v); lfSyncCreateBtn(); }
 function lfSetInd(i, v){ const c = lfState.create; if(!c || i >= c.indicators.length) return; c.indicators[i] = String(v); lfSyncCreateBtn(); }
 function lfSetSlot(i, v){ const c = lfState.create; if(!c || i >= c.slots.length) return; c.slots[i] = String(v); lfSyncCreateBtn(); }
-function lfAddInd(){ const c = lfState.create; if(!c || c.indicators.length >= LEADER_LIMITS.maxIndicators) return; c.indicators.push(''); c.ids.push(null); renderTools(); }
-function lfRemoveInd(i){ const c = lfState.create; if(!c || c.indicators.length < 2 || (c.ids[i] && c.locked.indexOf(c.ids[i]) >= 0)) return; c.indicators.splice(i, 1); c.ids.splice(i, 1); renderTools(); }
+function lfAddInd(){ const c = lfState.create; if(!c || c.indicators.length >= LEADER_LIMITS.maxIndicators) return; c.indicators.push(''); c.ids.push(null); c.crit.push(lfCritState(null, false)); renderTools(); }
+function lfRemoveInd(i){ const c = lfState.create; if(!c || c.indicators.length < 2 || (c.ids[i] && c.locked.indexOf(c.ids[i]) >= 0)) return; c.indicators.splice(i, 1); c.ids.splice(i, 1); c.crit.splice(i, 1); renderTools(); }
+/* معايير المؤشر i (3.50) */
+function lfAddCrit(i){ const c = lfState.create; const cs = c && c.crit[i]; if(!cs || cs.items.length >= LEADER_LIMITS.maxCriteria) return; cs.items.push({ id: null, label: '' }); renderTools(); }
+function lfRemoveCrit(i, j){ const c = lfState.create; const cs = c && c.crit[i]; if(!cs || j < 0 || j >= cs.items.length) return; cs.items.splice(j, 1); renderTools(); }
+function lfSetCrit(i, j, v){ const c = lfState.create; const cs = c && c.crit[i]; if(!cs || j < 0 || j >= cs.items.length) return; cs.items[j].label = String(v); lfSyncCreateBtn(); }
 function lfAddSlot(){ const c = lfState.create; if(!c || c.slots.length >= LEADER_LIMITS.maxSlots) return; c.slots.push(''); renderTools(); }
 function lfRemoveSlot(i){ const c = lfState.create; if(!c) return; c.slots.splice(i, 1); renderTools(); }
 function lfPickRole(k){ const c = lfState.create; if(!c || !LEADER_ROLES[k]) return; c.role = k; renderTools(); }
@@ -395,12 +451,13 @@ function lfPickDays(d){ const c = lfState.create; if(!c || LF_DAYS.indexOf(d) < 
 /* «ابدأ من…»: يعبّئ المؤشرات (وجهة القالب الجاهز إن وُجدت). لا يمسّ وضع التعديل */
 function lfStartFrom(v){
   const c = lfState.create; if(!c || c.mode === 'edit' || !v) return;
-  let labels = null;
-  if(v.indexOf('r:') === 0){ const t = LEADER_READY_TEMPLATES.find(x => x.key === v.slice(2)); if(t){ labels = t.indicators.slice(); if(t.role && LEADER_ROLES[t.role]) c.role = t.role; } }
-  else if(v.indexOf('t:') === 0){ const t = (lfState.templates || []).find(x => x.id === v.slice(2)); if(t) labels = (t.indicators || []).map(i => i.label); }
-  else if(v.indexOf('f:') === 0){ const r = (lfState.list || []).find(x => x.id === v.slice(2)); if(r) labels = (r.indicators || []).map(i => i.label); }
-  if(!labels || !labels.length) return;
-  c.indicators = labels.slice(0, LEADER_LIMITS.maxIndicators); c.ids = c.indicators.map(() => null); c.tplSel = v;
+  let inds = null; /* [{ label, criteria? }] — القوالب والطلبات السابقة تحمل معاييرها (3.50) */
+  if(v.indexOf('r:') === 0){ const t = LEADER_READY_TEMPLATES.find(x => x.key === v.slice(2)); if(t){ inds = t.indicators.map(label => ({ label })); if(t.role && LEADER_ROLES[t.role]) c.role = t.role; } }
+  else if(v.indexOf('t:') === 0){ const t = (lfState.templates || []).find(x => x.id === v.slice(2)); if(t) inds = t.indicators || []; }
+  else if(v.indexOf('f:') === 0){ const r = (lfState.list || []).find(x => x.id === v.slice(2)); if(r) inds = r.indicators || []; }
+  if(!inds || !inds.length) return;
+  inds = inds.slice(0, LEADER_LIMITS.maxIndicators);
+  c.indicators = inds.map(i => i.label); c.ids = c.indicators.map(() => null); c.crit = inds.map(i => lfCritState(i.criteria, false)); c.tplSel = v;
   renderTools();
 }
 function lfCopyFrom(id){ return lfStartFrom('f:' + id); } /* توافق */
@@ -412,8 +469,8 @@ async function lfSaveTemplate(){
   const c = lfState.create; if(!c || lfState.busy || !currentUser) return;
   const name = String(c.tplName || '').trim();
   if(!name || name.length > LEADER_LIMITS.maxTemplate || /[\u0000-\u001F\u007F-\u009F]/.test(name)){ showToast('اكتب اسمًا للقالب (حتى ' + LEADER_LIMITS.maxTemplate + ' حرفًا).', 'error'); return; }
-  const labels = c.indicators.map(x => String(x).trim()).filter(Boolean);
-  const iv = leaderValidateIndicators(labels.map((label, i) => ({ id: 'i' + (i + 1), label })));
+  const rows = c.indicators.map((x, i) => ({ label: String(x).trim(), crit: lfAssignCritIds(lfCritState((c.crit[i] || {}).items, false)) })).filter(x => x.label);
+  const iv = leaderValidateIndicators(rows.map((x, i) => x.crit.length ? { id: 'i' + (i + 1), label: x.label, criteria: x.crit } : { id: 'i' + (i + 1), label: x.label }));
   if(!iv.ok){ showToast('أضف مؤشرات صالحة أولًا.', 'error'); return; }
   lfState.busy = true; renderTools();
   try{
