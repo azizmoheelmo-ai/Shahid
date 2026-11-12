@@ -88,7 +88,7 @@ function lfNewCreate(from){
 function lfValidateCreate(c){
   const labels = c.indicators.map(x => String(x).trim()).filter(Boolean);
   const iv = leaderValidateIndicators(labels.map((label, i) => ({ id: 'i' + (i + 1), label })));
-  if(!iv.ok) return { ok: false, msg: labels.length ? 'تحقق من نص المؤشرات (حتى 150 حرفًا لكل مؤشر، وحتى 15 مؤشرًا).' : 'أضف مؤشرًا واحدًا على الأقل.' };
+  if(!iv.ok) return { ok: false, msg: labels.length ? 'تحقق من نص المؤشرات (حتى 150 حرفًا لكل مؤشر، وحتى ' + LEADER_LIMITS.maxIndicators + ' مؤشرًا).' : 'أضف مؤشرًا واحدًا على الأقل.' };
   const slots = c.slots.map(x => String(x).trim()).filter(Boolean);
   const sv = leaderValidateSlots(slots);
   if(!sv.ok) return { ok: false, msg: 'أوقات اللقاء: حتى 6 أوقات بلا تكرار.' };

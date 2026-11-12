@@ -1381,7 +1381,7 @@ grant execute on function public.delete_survey(uuid) to authenticated;
 -- - الرابط يموت عند الرد (code = null)، والرد بعده كالرابط الخاطئ.
 -- - تعديلات لاحقة إضافية فقط وآمنة التكرار (لا drop table).
 
--- صحة مؤشرات الطلب (نفس قواعد leaderValidateIndicators بـleader-kit.js): مصفوفة 1..15 كائنًا بمفتاحين id وlabel؛
+-- صحة مؤشرات الطلب (نفس قواعد leaderValidateIndicators بـleader-kit.js): مصفوفة 1..20 كائنًا بمفتاحين id وlabel؛
 -- id بصيغة i<رقم> فريد؛ النص 1..150 حرفًا بعد btrim وبلا محارف تحكم.
 create or replace function public.leader_indicators_ok(p jsonb)
 returns boolean language plpgsql immutable set search_path = '' as $fn$
@@ -1389,7 +1389,7 @@ declare e jsonb; v_ids text[] := '{}'; v_id text; v_s text;
   v_ctl text := '[' || chr(1) || '-' || chr(31) || chr(127) || '-' || chr(159) || ']';
 begin
   if p is null or jsonb_typeof(p) <> 'array' then return false; end if;
-  if jsonb_array_length(p) < 1 or jsonb_array_length(p) > 15 then return false; end if;
+  if jsonb_array_length(p) < 1 or jsonb_array_length(p) > 20 then return false; end if;
   for e in select x from jsonb_array_elements(p) x loop
     if jsonb_typeof(e) <> 'object' then return false; end if;
     if (select count(*) from jsonb_object_keys(e)) <> 2 or not (e ? 'id') or not (e ? 'label') then return false; end if;

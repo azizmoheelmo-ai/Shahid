@@ -44,14 +44,14 @@ test('leader-kit.js: الصادرات بالضبط، وبلا تلويث globalT
   assert.equal(vm.runInContext('btrim()', ctx2), 3, 'لا يكتب فوق دوال التطبيق');
 });
 
-test('المؤشرات: 1..15 بمفتاحين فقط، معرّف i<رقم> فريد، نص 1..150 بلا محارف تحكم', () => {
+test('المؤشرات: 1..20 بمفتاحين فقط، معرّف i<رقم> فريد، نص 1..150 بلا محارف تحكم', () => {
   assert.equal(K.leaderValidateIndicators(IND).ok, true);
   assert.deepEqual(J(K.leaderValidateIndicators([{ id: 'i1', label: '  نص  ' }]).value), [{ id: 'i1', label: 'نص' }]);
   const bad = [[], null, 'x', [{ id: 'i1' }], [{ id: 'i1', label: 'a', extra: 1 }], [{ id: 'q1', label: 'a' }], [{ id: 'i1', label: ' ' }],
     [{ id: 'i1', label: 'a' }, { id: 'i1', label: 'b' }], [{ id: 'i1', label: 'x\u0007y' }], [{ id: 'i1', label: 'x'.repeat(151) }], [{ id: 'i1', label: 5 }],
-    Array.from({ length: 16 }, (_, i) => ({ id: 'i' + (i + 1), label: 'a' }))];
+    Array.from({ length: 21 }, (_, i) => ({ id: 'i' + (i + 1), label: 'a' }))];
   bad.forEach((b, k) => assert.equal(K.leaderValidateIndicators(b).ok, false, 'حالة ' + k));
-  assert.equal(K.leaderValidateIndicators(Array.from({ length: 15 }, (_, i) => ({ id: 'i' + (i + 1), label: 'a' }))).ok, true);
+  assert.equal(K.leaderValidateIndicators(Array.from({ length: 20 }, (_, i) => ({ id: 'i' + (i + 1), label: 'a' }))).ok, true);
 });
 
 test('الأوقات: 0..6 بصيغة YYYY-MM-DDTHH:MM بلا تكرار', () => {
@@ -77,18 +77,28 @@ test('الإجابات: كل مؤشر بحالة صحيحة، والسبب إل�
   assert.equal(K.leaderValidateAnswers([], {}).ok, false);
 });
 
+test('السعة: 20 مؤشرًا بأطول سبب عربي (300 حرف) تتسع لسقف الطلب وعمود الإجابة (16KB)', () => {
+  const inds = Array.from({ length: K.LEADER_LIMITS.maxIndicators }, (_, i) => ({ id: 'i' + (i + 1), label: 'م'.repeat(150) }));
+  const a = {}; inds.forEach(x => { a[x.id] = { s: 'no', r: 'سبب'.repeat(100) }; });
+  const v = K.leaderValidateAnswers(inds, a);
+  assert.equal(v.ok, true);
+  const body = Buffer.byteLength(JSON.stringify({ a, slot: 'none' }), 'utf8');
+  assert.ok(body < require('../api/s.js').BODY_MAX_BYTES, 'حجم الطلب ' + body);
+  assert.ok(Buffer.byteLength(JSON.stringify(v.value), 'utf8') + 20 * 8 < 16384, 'عمود answers (jsonb يضيف مسافات قليلة)');
+});
+
 /* ================= SQL ================= */
 
 test('SQL ↔ JS: حدود المؤشرات والأوقات والإجابات هي نفسها بـleader-kit.js', () => {
   const b = blockOf();
-  assert.match(b, /jsonb_array_length\(p\) < 1 or jsonb_array_length\(p\) > 15/);
+  assert.match(b, /jsonb_array_length\(p\) < 1 or jsonb_array_length\(p\) > 20/);
   assert.match(b, /char_length\(v_s\) < 1 or char_length\(v_s\) > 150/);
   assert.match(b, /v_id !~ '\^i\[0-9\]\{1,3\}\$'/);
   assert.match(b, /jsonb_array_length\(p\) > 6/);
   assert.match(b, /char_length\(v_r\) > 300/);
   assert.match(b, /v_s not in \('done', 'wip', 'no'\)/);
   assert.match(b, /if v_s <> 'done' and v_r = '' then return null/);
-  assert.deepEqual(K.LEADER_LIMITS, { maxIndicators: 15, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60 });
+  assert.deepEqual(K.LEADER_LIMITS, { maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60 });
   assert.deepEqual(Object.keys(K.LEADER_ANSWER_STATES), ['done', 'wip', 'no']);
   /* نفس نص تعبير الموعد حرفيًا بالـSQL (دالة الأوقات وقيد العمود) وبـJS */
   const re = K.LEADER_SLOT_RE.source.replace(/\\\//g, '/');

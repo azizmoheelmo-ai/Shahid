@@ -27,7 +27,7 @@
   });
   /* منفذ / قيد التنفيذ / لم ينفذ — والسبب إلزامي لغير المنفذ */
   var LEADER_ANSWER_STATES = Object.freeze({ done: 'منفذ', wip: 'قيد التنفيذ', no: 'لم ينفذ' });
-  var LEADER_LIMITS = Object.freeze({ maxIndicators: 15, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60 });
+  var LEADER_LIMITS = Object.freeze({ maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60 });
   /* موعد بتوقيت المدرسة بلا منطقة زمنية: YYYY-MM-DDTHH:MM (السعودية بلا توقيت صيفي، فلا لبس) */
   var LEADER_SLOT_RE = /^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$/;
   var LEADER_SLOT_NONE = 'none'; /* «لا يناسبني أي موعد» */
@@ -40,7 +40,7 @@
   function okText(s, max){ var t = btrim(s); return t.length > 0 && cps(t) <= max && !CONTROL.test(t) && !LONE_SURROGATE.test(t); }
   function isObj(x){ return x !== null && typeof x === 'object' && !Array.isArray(x); }
 
-  /* مؤشرات الطلب: [{ id: 'i1', label }] — 1..15، المعرّف i<رقم> فريد، النص 1..150 بلا محارف تحكم */
+  /* مؤشرات الطلب: [{ id: 'i1', label }] — 1..20، المعرّف i<رقم> فريد، النص 1..150 بلا محارف تحكم */
   function leaderValidateIndicators(list){
     if(!Array.isArray(list) || list.length < 1 || list.length > LEADER_LIMITS.maxIndicators) return { ok: false, error: 'count' };
     var seen = {}; var out = [];
