@@ -28,7 +28,7 @@
   });
   /* منفذ / قيد التنفيذ / لم ينفذ — والسبب إلزامي لغير المنفذ */
   var LEADER_ANSWER_STATES = Object.freeze({ done: 'منفذ', wip: 'قيد التنفيذ', no: 'لم ينفذ' });
-  var LEADER_LIMITS = Object.freeze({ maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60, maxNote: 100, maxTemplate: 60 });
+  var LEADER_LIMITS = Object.freeze({ maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60, maxNote: 100, maxTemplate: 60, maxCriteria: 10 });
   /* موعد بتوقيت المدرسة بلا منطقة زمنية: YYYY-MM-DDTHH:MM (السعودية بلا توقيت صيفي، فلا لبس) */
   var LEADER_SLOT_RE = /^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$/;
   var LEADER_SLOT_NONE = 'none'; /* «لا يناسبني أي موعد» */
@@ -62,7 +62,38 @@
   function okText(s, max){ var t = btrim(s); return t.length > 0 && cps(t) <= max && !CONTROL.test(t) && !LONE_SURROGATE.test(t); }
   function isObj(x){ return x !== null && typeof x === 'object' && !Array.isArray(x); }
 
-  /* مؤشرات الطلب: [{ id: 'i1', label }] — 1..20، المعرّف i<رقم> فريد، النص 1..150 بلا محارف تحكم */
+  /* معايير المؤشر (3.50): [{ id: 'c1', label }] — 1..10، المعرّف c<رقم> فريد داخل المؤشر، النص 1..150 بلا محارف تحكم */
+  function validCriteria(list){
+    if(!Array.isArray(list) || list.length < 1 || list.length > LEADER_LIMITS.maxCriteria) return null;
+    var seen = {}, out = [];
+    for(var i = 0; i < list.length; i++){
+      var c = list[i];
+      if(!isObj(c) || Object.keys(c).length !== 2 || !hasOwn(c, 'id') || !hasOwn(c, 'label')) return null;
+      if(typeof c.id !== 'string' || !/^c[0-9]{1,3}$/.test(c.id) || seen[c.id]) return null;
+      if(typeof c.label !== 'string' || !okText(c.label, LEADER_LIMITS.maxLabel)) return null;
+      seen[c.id] = true;
+      out.push({ id: c.id, label: btrim(c.label) });
+    }
+    return out;
+  }
+
+  /* المعايير المحدَّدة في إجابة/مسودة: مصفوفة معرّفات من معايير المؤشر. strict: المجهول والمكرر خطأ (التسليم)،
+     وإلا يُهملان (المسودة: قد يحذف المعلم معيارًا بعد حفظها). يرجع مصفوفة بترتيب المعايير، أو null عند خطأ الشكل. */
+  function checkedCriteria(criteria, c, strict){
+    if(c === undefined || c === null) return [];
+    if(!Array.isArray(c)) return null;
+    var known = {}, got = {};
+    (criteria || []).forEach(function(x){ known[x.id] = true; });
+    for(var i = 0; i < c.length; i++){
+      if(typeof c[i] !== 'string') return null;
+      if(!known[c[i]] || got[c[i]]){ if(strict) return null; continue; }
+      got[c[i]] = true;
+    }
+    return (criteria || []).filter(function(x){ return got[x.id]; }).map(function(x){ return x.id; });
+  }
+
+  /* مؤشرات الطلب: [{ id: 'i1', label, criteria? }] — 1..20، المعرّف i<رقم> فريد، النص 1..150 بلا محارف تحكم،
+     والمعايير اختيارية (3.50) */
   function leaderValidateIndicators(list){
     if(!Array.isArray(list) || list.length < 1 || list.length > LEADER_LIMITS.maxIndicators) return { ok: false, error: 'count' };
     var seen = {}; var out = [];
@@ -70,11 +101,13 @@
       var e = list[i];
       if(!isObj(e)) return { ok: false, error: 'shape' };
       var keys = Object.keys(e);
-      if(keys.length !== 2 || !hasOwn(e, 'id') || !hasOwn(e, 'label')) return { ok: false, error: 'keys' };
+      if(!hasOwn(e, 'id') || !hasOwn(e, 'label') || keys.length !== (hasOwn(e, 'criteria') ? 3 : 2)) return { ok: false, error: 'keys' };
       if(typeof e.id !== 'string' || !/^i[0-9]{1,3}$/.test(e.id) || seen[e.id]) return { ok: false, error: 'id' };
       if(typeof e.label !== 'string' || !okText(e.label, LEADER_LIMITS.maxLabel)) return { ok: false, error: 'label' };
+      var crit = null;
+      if(hasOwn(e, 'criteria')){ crit = validCriteria(e.criteria); if(!crit) return { ok: false, error: 'criteria' }; }
       seen[e.id] = true;
-      out.push({ id: e.id, label: btrim(e.label) });
+      out.push(crit ? { id: e.id, label: btrim(e.label), criteria: crit } : { id: e.id, label: btrim(e.label) });
     }
     return { ok: true, value: out };
   }
@@ -91,8 +124,9 @@
     return { ok: true, value: list.slice() };
   }
 
-  /* إجابات المسؤول: { i1: { s: 'done'|'wip'|'no', r?: سبب } } لكل مؤشر (كلها مطلوبة).
-     السبب إلزامي لغير المنفذ، اختياري للمنفذ، ≤300 بعد btrim. المفاتيح الزائدة تُهمل. */
+  /* إجابات المسؤول: { i1: { s: 'done'|'wip'|'no', r?: سبب, c?: [معرّفات المعايير المحقَّقة] } } لكل مؤشر (كلها مطلوبة).
+     السبب إلزامي لغير المنفذ، اختياري للمنفذ، ≤300 بعد btrim. المفاتيح الزائدة تُهمل.
+     c (3.50): للمؤشر ذي المعايير تُعاد دائمًا (ولو فارغة) بترتيب المعايير؛ المجهول والمكرر خطأ؛ ولمؤشر بلا معايير لا تُقبل غير فارغة. */
   function leaderValidateAnswers(indicators, answers){
     var iv = leaderValidateIndicators(indicators);
     if(!iv.ok) return { ok: false, error: 'indicators' };
@@ -108,7 +142,10 @@
         if(r !== '' && !okText(r, LEADER_LIMITS.maxReason)) return { ok: false, error: 'reason' };
       }
       if(a.s !== 'done' && r === '') return { ok: false, error: 'reason-required' };
+      var ind = iv.value[i], cc = checkedCriteria(ind.criteria, a.c, true);
+      if(cc === null || (!ind.criteria && cc.length)) return { ok: false, error: 'criteria' };
       out[id] = r === '' ? { s: a.s } : { s: a.s, r: r };
+      if(ind.criteria) out[id].c = cc;
     }
     return { ok: true, value: out };
   }
@@ -139,6 +176,11 @@
           if(!okText(r, LEADER_LIMITS.maxReason)) return { ok: false, error: 'reason' };
           o.r = r; any = true;
         }
+      }
+      if(x.c !== undefined && x.c !== null){
+        var dc = checkedCriteria(iv.value[i].criteria, x.c, false);
+        if(dc === null) return { ok: false, error: 'criteria' };
+        if(dc.length){ o.c = dc; any = true; }
       }
       if(any) out[id] = o;
     }

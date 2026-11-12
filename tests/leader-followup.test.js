@@ -78,13 +78,61 @@ test('الإجابات: كل مؤشر بحالة صحيحة، والسبب إل�
 });
 
 test('السعة: 20 مؤشرًا بأطول سبب عربي (300 حرف) تتسع لسقف الطلب وعمود الإجابة (16KB)', () => {
-  const inds = Array.from({ length: K.LEADER_LIMITS.maxIndicators }, (_, i) => ({ id: 'i' + (i + 1), label: 'م'.repeat(150) }));
-  const a = {}; inds.forEach(x => { a[x.id] = { s: 'no', r: 'سبب'.repeat(100) }; });
+  /* 3.50: وبأقصى المعايير (10 لكل مؤشر) كلها محدَّدة */
+  const inds = Array.from({ length: K.LEADER_LIMITS.maxIndicators }, (_, i) => ({ id: 'i' + (i + 1), label: 'م'.repeat(150),
+    criteria: Array.from({ length: K.LEADER_LIMITS.maxCriteria }, (_, j) => ({ id: 'c' + (j + 1), label: 'ع'.repeat(150) })) }));
+  const a = {}; inds.forEach(x => { a[x.id] = { s: 'no', r: 'سبب'.repeat(100), c: x.criteria.map(c => c.id) }; });
   const v = K.leaderValidateAnswers(inds, a);
   assert.equal(v.ok, true);
   const body = Buffer.byteLength(JSON.stringify({ a, slot: 'none' }), 'utf8');
   assert.ok(body < require('../api/s.js').BODY_MAX_BYTES, 'حجم الطلب ' + body);
-  assert.ok(Buffer.byteLength(JSON.stringify(v.value), 'utf8') + 20 * 8 < 16384, 'عمود answers (jsonb يضيف مسافات قليلة)');
+  assert.ok(Buffer.byteLength(JSON.stringify(v.value), 'utf8') + 20 * 40 < 16384, 'عمود answers (jsonb يضيف مسافة بعد كل فاصلة ونقطتين)');
+});
+
+/* ================= معايير المؤشر (3.50) ================= */
+const C2 = [{ id: 'c1', label: 'م1' }, { id: 'c2', label: 'م2' }];
+const ICR = [{ id: 'i1', label: 'أ', criteria: C2 }, { id: 'i2', label: 'ب' }];
+
+test('المعايير: اختيارية، 1..10 بمعرّف c<رقم> فريد ونص 1..150 بلا محارف تحكم، والمؤشر القديم بلا معايير كما هو', () => {
+  assert.deepEqual(J(K.leaderValidateIndicators([{ id: 'i1', label: 'أ', criteria: [{ id: 'c1', label: ' م ' }] }]).value), [{ id: 'i1', label: 'أ', criteria: [{ id: 'c1', label: 'م' }] }]);
+  assert.deepEqual(J(K.leaderValidateIndicators(IND).value), IND, 'بلا مفتاح criteria لمؤشر بلا معايير');
+  assert.equal(K.leaderValidateIndicators([{ id: 'i1', label: 'a', criteria: Array.from({ length: 10 }, (_, i) => ({ id: 'c' + (i + 1), label: 'x' })) }]).ok, true);
+  const bad = [[], null, 'x', [{ id: 'c1', label: 'x' }, { id: 'c1', label: 'y' }], [{ id: 'x1', label: 'x' }], [{ id: 'c1', label: ' ' }], [{ id: 'c1', label: 'x', z: 1 }],
+    [{ id: 'c1', label: 'x'.repeat(151) }], [{ id: 'c1', label: 'a\u0001' }], Array.from({ length: 11 }, (_, i) => ({ id: 'c' + (i + 1), label: 'x' }))];
+  bad.forEach((c, k) => assert.equal(K.leaderValidateIndicators([{ id: 'i1', label: 'a', criteria: c }]).ok, false, 'حالة ' + k));
+});
+
+test('الإجابة بالمعايير: المحدَّد بترتيب المعايير ويُعاد دائمًا لمؤشر ذي معايير؛ المجهول والمكرر خطأ؛ والمؤشر بلا معايير لا يقبلها', () => {
+  assert.deepEqual(J(K.leaderValidateAnswers(ICR, { i1: { s: 'wip', r: 'x', c: ['c2', 'c1'] }, i2: { s: 'done' } }).value), { i1: { s: 'wip', r: 'x', c: ['c1', 'c2'] }, i2: { s: 'done' } });
+  assert.deepEqual(J(K.leaderValidateAnswers(ICR, { i1: { s: 'done' }, i2: { s: 'done', c: [] } }).value), { i1: { s: 'done', c: [] }, i2: { s: 'done' } });
+  [{ i1: { s: 'done', c: ['c9'] }, i2: { s: 'done' } }, { i1: { s: 'done', c: ['c1', 'c1'] }, i2: { s: 'done' } }, { i1: { s: 'done', c: 'c1' }, i2: { s: 'done' } },
+    { i1: { s: 'done', c: [1] }, i2: { s: 'done' } }, { i1: { s: 'done' }, i2: { s: 'done', c: ['c1'] } }]
+    .forEach((a, k) => assert.equal(K.leaderValidateAnswers(ICR, a).ok, false, 'حالة ' + k));
+  assert.equal(K.leaderValidateAnswers(ICR, { i1: { s: 'no', c: ['c1'] }, i2: { s: 'done' } }).ok, false, 'السبب ما زال إلزاميًا لغير المنفذ');
+});
+
+test('المسودة بالمعايير: المعيار الذي حذفه المعلم بعد الحفظ يُهمل ولا يُسقط المسودة كلها', () => {
+  assert.deepEqual(J(K.leaderValidateDraft(ICR, [], { a: { i1: { c: ['c9', 'c2', 'c1', 'c1'] }, i2: { c: ['c1'] } } }).value), { a: { i1: { c: ['c1', 'c2'] } }, slot: null });
+  assert.deepEqual(J(K.leaderValidateDraft(ICR, [], { a: { i1: { c: [], s: 'done' } } }).value), { a: { i1: { s: 'done' } }, slot: null });
+  assert.equal(K.leaderValidateDraft(ICR, [], { a: { i1: { c: 'x' } } }).ok, false);
+  assert.equal(K.leaderValidateDraft(ICR, [], { a: { i1: { c: [3] } } }).ok, false);
+});
+
+test('SQL ↔ JS للمعايير: نفس الحدود، ودالة المحدَّد لـservice_role، والمسودة متسامحة والتسليم صارم (المرآة تتبع بالاختبار العام)', () => {
+  const b = blockOf();
+  const cr = b.slice(b.indexOf('function public.leader_criteria_ok'), b.indexOf('$fn$;', b.indexOf('function public.leader_criteria_ok')));
+  assert.match(cr, /jsonb_array_length\(p\) < 1 or jsonb_array_length\(p\) > 10/);
+  assert.match(cr, /v_id !~ '\^c\[0-9\]\{1,3\}\$'/);
+  assert.match(cr, /char_length\(v_s\) < 1 or char_length\(v_s\) > 150/);
+  assert.match(b, /\(select count\(\*\) from jsonb_object_keys\(e\)\) <> \(case when e \? 'criteria' then 3 else 2 end\)/);
+  assert.match(b, /if e \? 'criteria' and not public\.leader_criteria_ok\(e->'criteria'\) then return false/);
+  assert.match(b, /revoke execute on function public\.leader_checked_clean\(jsonb, jsonb, boolean\) from public, anon, authenticated;\s+grant execute on function public\.leader_checked_clean\(jsonb, jsonb, boolean\) to service_role;/);
+  const ans = b.slice(b.indexOf('function public.leader_answers_clean'), b.indexOf('$fn$;', b.indexOf('function public.leader_answers_clean')));
+  assert.match(ans, /leader_checked_clean\(e->'criteria', v_a->'c', true\)/, 'التسليم صارم');
+  assert.match(ans, /not \(e \? 'criteria'\) and jsonb_array_length\(v_c\) > 0/);
+  const dr = b.slice(b.indexOf('function public.leader_draft_clean'), b.indexOf('$fn$;', b.indexOf('function public.leader_draft_clean')));
+  assert.match(dr, /leader_checked_clean\(e->'criteria', v_x->'c', false\)/, 'المسودة متسامحة');
+  assert.equal(K.LEADER_LIMITS.maxCriteria, 10);
 });
 
 /* ================= SQL ================= */
@@ -98,7 +146,7 @@ test('SQL ↔ JS: حدود المؤشرات والأوقات والإجابات 
   assert.match(b, /char_length\(v_r\) > 300/);
   assert.match(b, /v_s not in \('done', 'wip', 'no'\)/);
   assert.match(b, /if v_s <> 'done' and v_r = '' then return null/);
-  assert.deepEqual(K.LEADER_LIMITS, { maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60, maxNote: 100, maxTemplate: 60 });
+  assert.deepEqual(K.LEADER_LIMITS, { maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60, maxNote: 100, maxTemplate: 60, maxCriteria: 10 });
   assert.deepEqual(Object.keys(K.LEADER_ANSWER_STATES), ['done', 'wip', 'no']);
   /* نفس نص تعبير الموعد حرفيًا بالـSQL (دالة الأوقات وقيد العمود) وبـJS */
   const re = K.LEADER_SLOT_RE.source.replace(/\\\//g, '/');
@@ -921,4 +969,62 @@ test('صفحة المسؤول بالهوية (3.49): بلاطات تنطوي، �
   const script = /<script nonce="N">([\s\S]*)<\/script>/.exec(page)[1];
   assert.match(script, /function prog\(\)/); assert.match(script, /getElementById\('pg'\)\.hidden=true/, 'العدّاد يختفي مع شاشة الشكر');
   assert.doesNotMatch(page, /fonts\.g|@import|@font-face|url\(/, 'بلا خطوط ولا موارد خارجية (CSP: default-src none)');
+});
+
+/* ============ معايير المؤشر عند المعلم (3.50) ============ */
+
+test('الإنشاء بالمعايير: تُحفظ تحت مؤشرها بمعرّفات c<رقم>، والفارغ يُسقط، والمؤشر بلا معايير بلا مفتاح criteria، وحد 10', async () => {
+  const k = makeApp({});
+  runInAppContext(k.app, "showTools(); lfStartCreate(null)");
+  runInAppContext(k.app, `lfState.create.cycle = 'ف1'; lfSetInd(0, 'خطة'); lfAddCrit(0); lfAddCrit(0); lfAddCrit(0); lfSetCrit(0, 0, ' معتمدة '); lfSetCrit(0, 2, 'لها جدول'); lfAddInd(); lfSetInd(1, 'زيارات');`);
+  assert.match(k.html(), /aria-label="معيار 1 للمؤشر 1"/);
+  runInAppContext(k.app, 'lfCreate()'); await settle();
+  const v = k.log.find(l => l.op === 'insert' && l.table === 'leader_followups').values;
+  assert.deepEqual(J(v.indicators), [{ id: 'i1', label: 'خطة', criteria: [{ id: 'c1', label: 'معتمدة' }, { id: 'c2', label: 'لها جدول' }] }, { id: 'i2', label: 'زيارات' }]);
+  const full = makeApp({});
+  runInAppContext(full.app, "showTools(); lfStartCreate(null); lfState.create.cycle = 'ف1'; lfSetInd(0, 'خطة'); for(let j = 0; j < 12; j++) lfAddCrit(0);");
+  assert.equal(runInAppContext(full.app, 'lfState.create.crit[0].items.length'), 10, 'لا يتجاوز 10 معايير');
+  assert.match(full.html(), /onclick="lfAddCrit\(0\)" disabled/);
+});
+
+test('تعديل المعايير قبل التسليم: القائمة تبقى بمعرّفاتها، والمحذوف لا يُعاد رقمه (فلا تُحدَّد في مسودة المسؤول معايير لم يرها)', async () => {
+  const k = makeApp({ rows: [row('a', { indicators: [{ id: 'i1', label: 'أ', criteria: [{ id: 'c1', label: 'م1' }, { id: 'c3', label: 'م3' }] }] })] });
+  await openDetail(k, 'a');
+  assert.match(k.html(), /<small class="tlx-cc">معياران<\/small>/);
+  await runInAppContext(k.app, "lfStartEdit('a')"); await settle();
+  runInAppContext(k.app, "lfRemoveCrit(0, 1); lfAddCrit(0); lfSetCrit(0, 1, 'جديد'); lfCreate();"); await settle();
+  const up = k.log.find(l => l.op === 'update' && l.values.indicators);
+  assert.deepEqual(J(up.values.indicators), [{ id: 'i1', label: 'أ', criteria: [{ id: 'c1', label: 'م1' }, { id: 'c4', label: 'جديد' }] }], 'c3 حُذف فلا يُعاد');
+});
+
+test('القوالب والدورة التالية تحمل المعايير، و«سجلات المدير» الجاهز بلا معايير', async () => {
+  const T = [{ id: 'T1', teacher_id: 'u1', name: 'قالبي', indicators: [{ id: 'i1', label: 'س1', criteria: [{ id: 'c1', label: 'م' }] }], created_at: '2026-11-01T00:00:00Z' }];
+  const k = makeApp({ templates: T, rows: [answered('a', { indicators: [{ id: 'i1', label: 'تنفيذ خطة التحسين', criteria: [{ id: 'c2', label: 'معيار' }] }, { id: 'i2', label: 'الزيارات الصفية' }], answers: { i1: { s: 'done', c: ['c2'] }, i2: { s: 'done' } } })] });
+  runInAppContext(k.app, "showTools(); toolsGo('leaders')"); await settle();
+  runInAppContext(k.app, "lfStartCreate(null); lfStartFrom('t:T1')");
+  assert.deepEqual(J(runInAppContext(k.app, 'lfState.create.crit')), [{ max: 0, items: [{ id: null, label: 'م' }] }]);
+  runInAppContext(k.app, "lfStartFrom('r:principal_records')");
+  assert.ok(J(runInAppContext(k.app, 'lfState.create.crit')).every(x => x.items.length === 0));
+  runInAppContext(k.app, "lfStartFrom('t:T1'); lfAddCrit(0); lfSetCrit(0, 1, 'ثانٍ'); lfTemplateNameStart(); lfState.create.tplName = 'بمعايير';");
+  await runInAppContext(k.app, 'lfSaveTemplate()'); await settle();
+  const ins = k.log.find(l => l.table === 'leader_templates' && l.op === 'insert');
+  assert.deepEqual(J(ins.values.indicators), [{ id: 'i1', label: 'س1', criteria: [{ id: 'c1', label: 'م' }, { id: 'c2', label: 'ثانٍ' }] }]);
+  runInAppContext(k.app, "lfStartCreate('a', 'next')");
+  assert.deepEqual(J(runInAppContext(k.app, 'lfState.create.crit')), [{ max: 0, items: [{ id: null, label: 'معيار' }] }, { max: 0, items: [] }]);
+});
+
+test('النتيجة بالمعايير: المتحقَّق ✓ والناقص بالأحمر، والمجموع، ومقارنة الدورة السابقة، ونصوص المعايير مهرَّبة', async () => {
+  const evil = '<img src=x onerror=alert(1)>';
+  const crit = [{ id: 'c1', label: 'موقّع' }, { id: 'c2', label: evil }, { id: 'c3', label: 'مؤرشف' }];
+  const inds = [{ id: 'i1', label: 'تنفيذ خطة التحسين', criteria: crit }, { id: 'i2', label: 'الزيارات الصفية' }];
+  const k = makeApp({ rows: [
+    answered('old', { series_id: 'S', created_at: '2026-10-01T00:00:00Z', indicators: inds, answers: { i1: { s: 'wip', r: 'ر', c: ['c1', 'c3'] }, i2: { s: 'done' } } }),
+    answered('a', { series_id: 'S', created_at: '2026-11-01T00:00:00Z', indicators: inds, answers: { i1: { s: 'no', r: 'لم يُحدَّث', c: ['c1'] }, i2: { s: 'done' } } })] });
+  await openDetail(k, 'a');
+  const html = k.html();
+  assert.match(html, /المعايير المتحقَّقة 1 من 3/);
+  assert.match(html, /<li class="is-ok"><b aria-hidden="true">✓<\/b><span>موقّع<\/span><\/li>/);
+  assert.match(html, /<li class="is-miss"><b aria-hidden="true"><\/b><span>مؤرشف — ناقص<\/span><\/li>/);
+  assert.match(html, /الدورة السابقة: قيد التنفيذ · 2 من 3 معايير/);
+  assert.doesNotMatch(html, /<img/); assert.match(html, /&lt;img src=x/);
 });

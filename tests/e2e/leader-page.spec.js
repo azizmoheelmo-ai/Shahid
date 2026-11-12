@@ -13,9 +13,9 @@ const F = require('../../api/f.js');
 const LABELS = ['سجل الخطة التشغيلية', 'سجل التكليفات', 'سجل اللجان والفرق المدرسية'];
 const SLOT = '2026-11-20T10:00';
 
-async function open(page, draft){
+async function open(page, draft, indicators){
   const html = F.buildLeaderPage({ req: { role: 'مدير المدرسة', name: 'فهد', cycle: 'ف1', sender: 'ع',
-    indicators: LABELS.map((label, i) => ({ id: 'i' + (i + 1), label })), slots: [SLOT], closesAt: null, draft: draft || null, savedAt: 0 }, taken: [] }, 'N');
+    indicators: indicators || LABELS.map((label, i) => ({ id: 'i' + (i + 1), label })), slots: [SLOT], closesAt: null, draft: draft || null, savedAt: 0 }, taken: [] }, 'N');
   const posts = [];
   await page.route('**/f/testcode', async route => {
     if(route.request().method() === 'POST'){ posts.push(JSON.parse(route.request().postData())); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
@@ -64,4 +64,24 @@ test('الإرسال: الناقص يُعاد فتحه، والكامل يرسل
   expect(posts[0].a).toEqual({ i1: { s: 'done' }, i2: { s: 'done' }, i3: { s: 'wip', r: 'قيد الجمع' } });
   expect(posts[0].slot).toBe(SLOT);
   await expect(page.locator('#cp li b').first()).toHaveText('1. سجل الخطة التشغيلية');
+});
+
+test('المعايير (3.50): المحدَّد من المسودة يظهر، والعدّ في البلاطة المطوية، والمسودة والتسليم يحملان المعايير المحدَّدة فقط', async ({ page }) => {
+  const IC = [{ id: 'i1', label: 'سجل الخطة', criteria: [{ id: 'c1', label: 'معتمدة' }, { id: 'c2', label: 'مرتبطة بمؤشرات' }, { id: 'c3', label: 'لها جدول' }] }, { id: 'i2', label: 'سجل التكليفات' }];
+  const posts = await open(page, { a: { i1: { c: ['c1'] } }, slot: null }, IC);
+  await expect(tile(page, 1).locator('.ck input:checked')).toHaveCount(1);
+  await expect(tile(page, 2).locator('.ck')).toHaveCount(0);
+  await tile(page, 1).locator('.ck').nth(2).click();
+  await tile(page, 1).locator('.s-done + span').click();
+  await expect(tile(page, 1)).toHaveClass(/cl/);
+  await expect(tile(page, 1).locator('.pr')).toHaveText('2 من 3');
+  await page.locator('#sd').click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].a.i1).toEqual({ s: 'done', c: ['c1', 'c3'] });
+  await tile(page, 2).locator('.s-done + span').click();
+  await page.locator(`input[value="${SLOT}"] + span`).click();
+  await page.locator('#sb').click();
+  await expect(page.locator('#st')).toBeVisible();
+  expect(posts[1].a).toEqual({ i1: { s: 'done', c: ['c1', 'c3'] }, i2: { s: 'done' } });
+  await expect(page.locator('#cp li small').first()).toHaveText('منفذ · 2 من 3');
 });

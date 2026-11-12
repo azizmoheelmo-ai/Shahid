@@ -3144,3 +3144,19 @@ select.tlx-inp{min-height:44px;}
 .sv-sheet .sv-np-list span{border-radius:var(--ui-r-pill);}
 .sv-sheet .sv-comment{border-radius:10px;}
 .sv-sheet .sv-ico{border-radius:12px;}
+
+/* --- معايير المؤشر (3.50): أسطر فرعية تحت المؤشر في نموذج الإنشاء، وقائمة المتحقق/الناقص في النتيجة --- */
+.tlx-crit{display:flex;align-items:center;gap:8px;padding:2px 12px 2px 12px;padding-inline-start:42px;}
+.tlx-crit i{flex:none;width:6px;height:6px;border-radius:50%;background:var(--gold);}
+.tlx-crit input{flex:1;min-width:0;border:0;border-bottom:1px dashed var(--ui-divider);background:transparent;font-family:inherit;font-size:13px;color:var(--ink);padding:6px 0;}
+.tlx-crit input:focus{outline:none;border-bottom-color:var(--gold);}
+.tlx-critadd{display:block;border:0;background:none;font-family:inherit;font-size:12px;font-weight:700;color:var(--gold-text);padding:4px 12px 10px;padding-inline-start:42px;cursor:pointer;border-bottom:1px solid var(--ui-divider);width:100%;text-align:start;}
+.tlx-critadd:disabled{opacity:.45;cursor:default;}
+.tlx-ind + .tlx-crit,.tlx-ind:has(+ .tlx-crit),.tlx-ind:has(+ .tlx-critadd){border-bottom:0;}
+.tlx-crl{list-style:none;margin:4px 0 2px;padding:0;display:flex;flex-direction:column;gap:2px;}
+.tlx-crl li{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;line-height:1.7;color:var(--ui-body);}
+.tlx-crl li b{flex:none;width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:11px;margin-top:2px;}
+.tlx-crl li.is-ok b{background:var(--ui-ok);color:var(--ui-on-dark);}
+.tlx-crl li.is-miss b{border:1.5px solid var(--ui-danger);}
+.tlx-crl li.is-miss{color:var(--ui-danger);}
+.tlx-ind small.tlx-cc{flex:none;font-size:11.5px;color:var(--muted);}
