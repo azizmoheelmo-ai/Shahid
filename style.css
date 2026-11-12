@@ -2893,6 +2893,9 @@ button.bt-cell{cursor:pointer;}
 .lf-home-badge{display:inline-flex;margin-right:6px;vertical-align:middle;}
 .lf-draft{background:#FBF6E8;border-color:#E4D3A2;margin-bottom:8px;}
 .lf-draft b{color:#5E4A16;}
+.lf-meet-head{margin:6px 0 8px;border-color:#C9D6E2;background:#F3F7FB;}
+.lf-meet{margin:8px 0;gap:8px;}
+.lf-meet .tl-back{align-self:center;}
 
 /* ===== محرّر الأسئلة والمستلمون (app-46) ===== */
 .tl-opts3{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}

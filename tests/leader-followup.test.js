@@ -29,7 +29,7 @@ const blockOf = () => SQL.slice(SQL.indexOf('-- ============ متابعة مؤش
 /* ================= leader-kit.js ================= */
 
 test('leader-kit.js: الصادرات بالضبط، وبلا تلويث globalThis في Node، ويعمل كسكربت متصفح بلا تصادم', () => {
-  const EXPORTS = ['LEADER_ANSWER_STATES', 'LEADER_LIMITS', 'LEADER_ROLES', 'LEADER_SLOT_NONE', 'LEADER_SLOT_RE', 'leaderDateLabel', 'leaderRoleLabel', 'leaderSlotLabel', 'leaderValidateAnswers', 'leaderValidateDraft', 'leaderValidateIndicators', 'leaderValidateSlots'];
+  const EXPORTS = ['LEADER_ANSWER_STATES', 'LEADER_LIMITS', 'LEADER_READY_TEMPLATES', 'LEADER_ROLES', 'LEADER_SLOT_NONE', 'LEADER_SLOT_RE', 'leaderDateLabel', 'leaderRoleLabel', 'leaderSlotLabel', 'leaderValidateAnswers', 'leaderValidateDraft', 'leaderValidateIndicators', 'leaderValidateMeeting', 'leaderValidateSlots'];
   assert.deepEqual(Object.keys(K).sort(), EXPORTS);
   EXPORTS.forEach(k => assert.equal(globalThis[k], undefined, k));
   const src = read('leader-kit.js');
@@ -98,11 +98,13 @@ test('SQL ↔ JS: حدود المؤشرات والأوقات والإجابات 
   assert.match(b, /char_length\(v_r\) > 300/);
   assert.match(b, /v_s not in \('done', 'wip', 'no'\)/);
   assert.match(b, /if v_s <> 'done' and v_r = '' then return null/);
-  assert.deepEqual(K.LEADER_LIMITS, { maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60 });
+  assert.deepEqual(K.LEADER_LIMITS, { maxIndicators: 20, maxLabel: 150, maxSlots: 6, maxReason: 300, maxName: 60, maxCycle: 60, maxNote: 100, maxTemplate: 60 });
   assert.deepEqual(Object.keys(K.LEADER_ANSWER_STATES), ['done', 'wip', 'no']);
   /* نفس نص تعبير الموعد حرفيًا بالـSQL (دالة الأوقات وقيد العمود) وبـJS */
   const re = K.LEADER_SLOT_RE.source.replace(/\\\//g, '/');
-  assert.equal(b.split(re).length - 1, 2, 'تعبير الموعد بالـSQL مرتان: دالة الأوقات وقيد chosen_slot');
+  const all = b.split("'^20[0-9]{2}").length - 1;
+  assert.ok(all >= 5, 'دالة الأوقات وقيدا chosen_slot وproposed_slot ودالتا التسليم والتثبيت');
+  assert.equal(b.split(re).length - 1, all, 'كل تعبير موعد بالـSQL مطابق حرفيًا لتعبير JS');
   assert.match(b, /leader_role in \('principal', 'deputy_students', 'deputy_academic', 'deputy_other', 'other'\)/);
   assert.deepEqual(Object.keys(K.LEADER_ROLES), ['principal', 'deputy_students', 'deputy_academic', 'deputy_other', 'other']);
 });
@@ -136,12 +138,39 @@ test('SQL: دالة الاستلام لـservice_role وحدها، وذرّية�
   assert.match(b, /check \(\(answered_at is null\) = \(answers is null\)\)/);
 });
 
-test('SQL: حارس التجميد بعد الرد والإرسال، ومنع نقل المالك', () => {
+test('SQL: الحارس — بعد التسليم لا يتغيّر إلا seen_at وchosen_slot، وقبله تعديل حر عدا حذف مؤشر في مسودة المسؤول', () => {
   const g = blockOf();
   assert.match(g, /new\.teacher_id is distinct from old\.teacher_id/);
-  assert.match(g, /old\.answered_at is not null and \(to_jsonb\(new\) - 'seen_at'\) is distinct from \(to_jsonb\(old\) - 'seen_at'\)/);
-  assert.match(g, /old\.sent_at is not null and \(new\.indicators is distinct from old\.indicators or new\.slots is distinct from old\.slots\)/);
+  assert.match(g, /old\.answered_at is not null and \(to_jsonb\(new\) - 'seen_at' - 'chosen_slot'\) is distinct from \(to_jsonb\(old\) - 'seen_at' - 'chosen_slot'\)/);
+  assert.match(g, /old\.answered_at is null and old\.draft is not null and new\.indicators is distinct from old\.indicators/);
+  assert.match(g, /jsonb_object_keys\(coalesce\(old\.draft->'a', '\{\}'::jsonb\)\)/);
+  assert.doesNotMatch(g, /تتجمّد بعد الإرسال/, 'لا تجميد بعد الإرسال (3.47)');
+  assert.match(g, /grant update \(leader_role, leader_name, cycle_label, indicators, slots, code, closes_at, sent_at, seen_at\)/);
   assert.match(g, /create or replace trigger trg_leader_followup_guard before update on public\.leader_followups/);
+});
+
+test('SQL: الموعد — تسليم بخمسة معاملات (اقتراح بديل مع «لا يناسبني» فقط) والقديم غلاف، وset_leader_meeting للمالك وحده', () => {
+  const b = blockOf();
+  assert.match(b, /add column if not exists proposed_slot text\s+constraint leader_followups_proposed_chk/);
+  assert.match(b, /add column if not exists proposed_note text\s+constraint leader_followups_note_chk check \(proposed_note is null or \(char_length\(btrim\(proposed_note\)\) between 1 and 100/);
+  assert.match(b, /revoke execute on function public\.submit_leader_followup\(text, jsonb, text, text, text\) from public, anon, authenticated;\s+grant execute on function public\.submit_leader_followup\(text, jsonb, text, text, text\) to service_role;/);
+  assert.match(b, /if \(p_proposed is not null or v_note is not null\) and p_slot is distinct from 'none' then return 'invalid'/);
+  assert.match(b, /select public\.submit_leader_followup\(p_code, p_answers, p_slot, null, null\)/, 'الصيغة القديمة غلاف للجديدة');
+  const fn = b.slice(b.indexOf('function public.set_leader_meeting'), b.indexOf('$fn$;', b.indexOf('function public.set_leader_meeting')));
+  assert.match(fn, /security definer set search_path = ''/);
+  assert.match(fn, /v_uid is null or p_id is null or public\.am_disabled\(\)/, 'المعطَّل لا يثبّت (الدالة تتجاوز RLS)');
+  assert.match(fn, /where id = p_id and teacher_id = v_uid and answered_at is not null for update/);
+  assert.match(fn, /exception when unique_violation then\s+return 'slot_taken'/);
+  assert.match(b, /revoke execute on function public\.set_leader_meeting\(uuid, text\) from public, anon;/);
+});
+
+test('SQL: جدول القوالب — RLS للمالك، بلا زائر، والمؤشرات بنفس قيد الطلبات', () => {
+  const b = blockOf();
+  assert.match(b, /create table if not exists public\.leader_templates \(/);
+  assert.match(b, /indicators jsonb not null check \(public\.leader_indicators_ok\(indicators\)\),\s+created_at/);
+  assert.match(b, /create policy "المعلم يدير قوالب مؤشراته فقط" on public\.leader_templates for all to authenticated\s+using \(auth\.uid\(\) = teacher_id\) with check \(auth\.uid\(\) = teacher_id\);/);
+  assert.match(b, /revoke all on public\.leader_templates from anon;/);
+  assert.doesNotMatch(b.slice(b.indexOf('leader_templates')), /is_admin/);
 });
 
 test('SQL: الجدول بقائمتي النسخة الشاملة (SQL + JS) وسياسة التعطيل، والرمز يُصدَّر null، والمرآة حرفية', () => {
@@ -161,7 +190,8 @@ test('النسخة الشخصية (app-08): تشمل الجدول بتصفية t
   const src = read('app/app-08-admin.js');
   assert.match(src, /sb\.from\('leader_followups'\)\.select\('\*'\)\.eq\('teacher_id', uid\)/);
   assert.match(src, /leader_followups: \(leaderFollowupsRes\.data \|\| \[\]\)\.map\(r => Object\.assign\(\{\}, r, \{ code: null \}\)\)/);
-  assert.match(src, /leaderFollowupsRes \};/, 'ضمن فحص أي جلب فاشل يوقف النسخة');
+  assert.match(src, /leaderFollowupsRes, leaderTemplatesRes \};/, 'ضمن فحص أي جلب فاشل يوقف النسخة');
+  assert.match(src, /sb\.from\('leader_templates'\)\.select\('\*'\)\.eq\('teacher_id', uid\)/);
 });
 
 test('المسودة: إجابات جزئية مسموحة، والفارغ والمجهول يُهملان، والحالة والسبب والموعد بنفس قواعد التسليم', () => {
@@ -297,7 +327,7 @@ test('api/f.js POST: إجابة صالحة تمرّ للدالة بالقيم ا
   assert.equal(res.statusCode, 200); assert.equal(res.body, '{"ok":true}');
   const rpc = r.f.calls.find(c => c.rpc);
   assert.equal(rpc.rpc, 'submit_leader_followup');
-  assert.deepEqual(J(rpc.args), { p_code: CODE, p_answers: { i1: { s: 'done' }, i2: { s: 'wip', r: 'سبب' } }, p_slot: SLOTS[0] });
+  assert.deepEqual(J(rpc.args), { p_code: CODE, p_answers: { i1: { s: 'done' }, i2: { s: 'wip', r: 'سبب' } }, p_slot: SLOTS[0], p_proposed: null, p_note: null });
   r = handlerWith({ rpc: 'slot_taken' }); res = await call(r.h, 'POST', CODE, GOOD());
   assert.equal(res.statusCode, 409); assert.equal(res.body, '{"ok":false,"error":"slot_taken"}');
   assert.equal(r.limiter.size(), 0, 'تعارض الموعد ليس محاولة رمز فاشلة');
@@ -354,6 +384,53 @@ test('api/f.js GET: الصفحة معبّأة من مسودة الخادم (مه
   assert.equal(broken.statusCode, 200, 'مسودة لا تطابق القواعد تُهمل ولا تكسر الصفحة'); assert.doesNotMatch(broken.body, / checked>/);
 });
 
+test('الموعد (المصدر المشترك): اختيار من المقترحة، أو «لا يناسبني» مع اقتراح بديل وملاحظة اختياريين فقط', () => {
+  assert.deepEqual(J(K.leaderValidateMeeting(SLOTS, { slot: SLOTS[0] }).value), { slot: SLOTS[0], proposed: null, note: null });
+  assert.deepEqual(J(K.leaderValidateMeeting(SLOTS, { slot: 'none', proposed: '2026-11-20T10:00', note: '  بعد الحصة ' }).value), { slot: 'none', proposed: '2026-11-20T10:00', note: 'بعد الحصة' });
+  assert.deepEqual(J(K.leaderValidateMeeting(SLOTS, { slot: 'none', proposed: '', note: '' }).value), { slot: 'none', proposed: null, note: null });
+  assert.deepEqual(J(K.leaderValidateMeeting([], {}).value), { slot: null, proposed: null, note: null });
+  const bad = [{}, { slot: '2026-12-01T10:00' }, { slot: SLOTS[0], proposed: '2026-11-20T10:00' }, { slot: SLOTS[0], note: 'x' },
+    { slot: 'none', proposed: '2026-11-20 10:00' }, { slot: 'none', note: 'x'.repeat(101) }, { slot: 'none', note: 'a\u0001' }, { slot: 'none', note: 5 }];
+  bad.forEach((b, k) => assert.equal(K.leaderValidateMeeting(SLOTS, b).ok, false, 'حالة ' + k));
+  assert.equal(K.leaderValidateMeeting([], { slot: 'none' }).ok, false, 'بلا أوقات: لا موعد ولا اقتراح');
+});
+
+test('القالب الجاهز «سجلات المدير»: 15 مؤشرًا صالحة بقواعد الطلب وجهته مدير المدرسة', () => {
+  const t = K.LEADER_READY_TEMPLATES.find(x => x.key === 'principal_records');
+  assert.equal(t.name, 'سجلات المدير'); assert.equal(t.role, 'principal'); assert.equal(t.indicators.length, 15);
+  assert.equal(K.leaderValidateIndicators(t.indicators.map((label, i) => ({ id: 'i' + (i + 1), label }))).ok, true);
+  assert.ok(Object.isFrozen(t) && Object.isFrozen(t.indicators));
+});
+
+test('api/f.js: «لا يناسبني» مع اقتراح بديل يمرّ للدالة، والاقتراح مع موعد مقترح أو ملاحظة طويلة 400، والصفحة فيها مربع الاقتراح', async () => {
+  let r = handlerWith(); let res = await call(r.h, 'POST', CODE, GOOD({ slot: 'none', proposed: '2026-11-20T10:00', note: ' بعد الحصة ' }));
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(J(r.f.calls.find(c => c.rpc).args).p_proposed, '2026-11-20T10:00');
+  assert.equal(r.f.calls.find(c => c.rpc).args.p_note, 'بعد الحصة');
+  for(const bad of [GOOD({ proposed: '2026-11-20T10:00' }), GOOD({ slot: 'none', note: 'x'.repeat(101) }), GOOD({ slot: 'none', proposed: 'غدًا' })]){
+    r = handlerWith(); res = await call(r.h, 'POST', CODE, bad);
+    assert.equal(res.statusCode, 400, JSON.stringify(bad)); assert.ok(!r.f.calls.some(c => c.rpc));
+  }
+  const page = (await call(handlerWith().h, 'GET', CODE)).body;
+  assert.match(page, /id="pp" hidden/); assert.match(page, /type="datetime-local" id="ppd"/); assert.match(page, /maxlength="100"/);
+  assert.match(page, /لا يناسبني أي موعد منها \(أقترح غيره\)/);
+});
+
+test('صفحة المسؤول: تنسيق الموعد المقترح بالمتصفح (نسخة الإجابة) = leaderSlotLabel', () => {
+  const page = F.buildLeaderPage({ req: { role: 'م', name: '', cycle: 'c', sender: '', indicators: IND, slots: SLOTS, closesAt: null, draft: null, savedAt: 0 }, taken: [] }, 'N');
+  const script = /<script nonce="N">([\s\S]*)<\/script>/.exec(page)[1];
+  const ctx = vm.createContext({});
+  vm.runInContext(/var D=\[[^\n]*\n/.exec(script)[0] + /function lab\(v\)\{[^\n]*\n[^\n]*\}/.exec(script)[0], ctx);
+  for(const v of ['2026-11-20T10:00', '2026-11-16T00:05', '2026-12-31T23:59', '2027-01-03T12:00']) assert.equal(vm.runInContext(`lab(${JSON.stringify(v)})`, ctx), K.leaderSlotLabel(v), v);
+});
+
+test('api/f.js GET: عدّل المعلم الأوقات بعد أن حفظ المسؤول موعدًا — تبقى إجاباته المحفوظة ويُعاد اختيار الموعد فقط', async () => {
+  const { h } = handlerWith({ row: { draft: { a: { i1: { s: 'done' } }, slot: '2026-12-31T10:00' } } });
+  const page = (await call(h, 'GET', CODE)).body;
+  assert.match(page, /value="done" class="s-done" checked/, 'الإجابة باقية');
+  assert.doesNotMatch(page, /class="s-slot"[^>]* checked/, 'الموعد المحذوف لا يُختار');
+});
+
 test('api/f.js: محدِّد المحاولات الفاشلة (429 بعد 20 فشلًا) وفشل القاعدة 503 وطرق غير مسموحة 405', async () => {
   const { h, limiter } = handlerWith();
   for(let i = 0; i < 20; i++) await call(h, 'GET', 'zzzzzzzzzz', null, '9.9.9.9');
@@ -387,14 +464,14 @@ test('الصفحة العامة تعمل فعليًا: السبب يظهر لغ�
 function makeApp(opts){
   opts = opts || {};
   const log = [];
-  const db = { leader_followups: (opts.rows || []).map(r => Object.assign({}, r)), deleted_items: [] };
+  const db = { leader_followups: (opts.rows || []).map(r => Object.assign({}, r)), deleted_items: [], leader_templates: (opts.templates || []).map(r => Object.assign({}, r)) };
   let seq = 0;
   const match = (r, f) => f.every(([k, c, v]) => k === 'eq' ? r[c] === v : k === 'is' ? (r[c] == null) === (v === null) && (v === null ? r[c] == null : true) : r[c] != null);
   const sb = {
     from(table){
       const f = []; let op = 'select', values = null, single = false, maybe = false, ret = false, head = false;
       const api = {
-        select(cols, o){ if(op === 'insert' || op === 'delete') ret = true; if(o && o.head) head = true; return api; }, order(){ return api; }, range(){ return api; },
+        select(cols, o){ if(op === 'insert' || op === 'delete' || op === 'update') ret = true; if(o && o.head) head = true; return api; }, order(){ return api; }, range(){ return api; },
         eq(c, v){ f.push(['eq', c, v]); return api; }, is(c, v){ f.push(['is', c, v]); return api; }, not(c, _o, v){ f.push(['not', c, v]); return api; },
         insert(v){ op = 'insert'; values = v; return api; }, update(v){ op = 'update'; values = v; return api; }, delete(){ op = 'delete'; return api; },
         single(){ single = true; return api; }, maybeSingle(){ maybe = true; return api; },
@@ -410,7 +487,8 @@ function makeApp(opts){
             const row = Object.assign({ id: 'L' + (++seq), series_id: 'S' + seq, answered_at: null, seen_at: null, sent_at: null, answers: null, chosen_slot: null, created_at: new Date(2026, 10, 1 + seq).toISOString() }, values);
             t.push(row); if(ret) data = single ? row : [row];
           } else if(op === 'update'){
-            t.filter(r => match(r, f)).forEach(r => Object.assign(r, values));
+            const m = t.filter(r => match(r, f)); m.forEach(r => Object.assign(r, values));
+            if(ret) data = JSON.parse(JSON.stringify(m));
           } else if(op === 'delete'){
             if(opts.beforeDelete && table === 'leader_followups') opts.beforeDelete(db);
             const gone = t.filter(r => match(r, f)); gone.forEach(r => t.splice(t.indexOf(r), 1)); if(ret) data = gone;
@@ -419,6 +497,17 @@ function makeApp(opts){
         }
       };
       return api;
+    },
+    rpc(name, args){
+      log.push({ rpc: name, args: JSON.parse(JSON.stringify(args)) });
+      if(opts.rpc) return Promise.resolve(opts.rpc(name, args, db));
+      if(name === 'set_leader_meeting'){
+        const r = db.leader_followups.find(x => x.id === args.p_id && x.teacher_id === 'u1' && x.answered_at);
+        if(!r) return Promise.resolve({ data: 'invalid', error: null });
+        if(db.leader_followups.some(x => x !== r && x.chosen_slot === args.p_slot)) return Promise.resolve({ data: 'slot_taken', error: null });
+        r.chosen_slot = args.p_slot; return Promise.resolve({ data: 'ok', error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
     },
     auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe(){} } } }) }
   };
@@ -637,6 +726,109 @@ test('مسودة المسؤول: المعلم يرى التقدّم (كم من �
   assert.match(k.html(), /بدأ المسؤول الإجابة ولم يُسلِّم بعد/); assert.match(k.html(), /حدّد 1 من 2 مؤشرات · آخر حفظ الأحد 22 نوفمبر/);
   assert.doesNotMatch(k.html(), /سرّي/, 'لا يظهر محتوى المسودة');
   assert.equal(k.app.lfDraftProgress(answered('x', { draft: { a: { i1: { s: 'done' } } } })), null, 'المُسلَّم: لا مسودة');
+});
+
+test('التعديل قبل التسليم: نفس الرابط، والمعرّفات القائمة تبقى، والجديد بعد أكبر رقم، وبشرط «لم يُسلَّم» وبتصفية المعلم', async () => {
+  const k = makeApp({ rows: [row('a', { sent_at: '2026-11-10T00:00:00Z', indicators: [{ id: 'i1', label: 'أ' }, { id: 'i3', label: 'ج' }] })] });
+  await openDetail(k, 'a');
+  assert.match(k.html(), /تعديل الطلب \(المؤشرات والمواعيد\)/);
+  await runInAppContext(k.app, "lfStartEdit('a')"); await settle();
+  assert.equal(runInAppContext(k.app, 'toolsState.screen'), 'lcreate'); assert.match(k.html(), /حفظ التعديل/);
+  assert.doesNotMatch(k.html(), /ينتهي الرابط بعد/, 'المدة لا تُعدَّل هنا (تمديد بالتفاصيل)');
+  runInAppContext(k.app, "lfSetInd(0, 'أ معدّل'); lfRemoveInd(1); lfAddInd(); lfSetInd(1, 'جديد'); lfState.create.role = 'deputy_other'; lfCreate();"); await settle();
+  const up = k.log.find(l => l.op === 'update' && l.values.indicators);
+  assert.deepEqual(J(up.values.indicators), [{ id: 'i1', label: 'أ معدّل' }, { id: 'i4', label: 'جديد' }], 'i3 حُذف فلا يُعاد رقمه');
+  assert.equal(up.values.leader_role, 'deputy_other');
+  assert.ok(!('code' in up.values) && !('closes_at' in up.values), 'الرابط نفسه');
+  assert.ok(up.f.some(x => x[1] === 'teacher_id' && x[2] === 'u1') && up.f.some(x => x[0] === 'is' && x[1] === 'answered_at'));
+  assert.equal(runInAppContext(k.app, 'toolsState.screen'), 'ldetail');
+});
+
+test('التعديل مع مسودة المسؤول: مؤشر أجاب عنه لا يُحذف (زر معطّل والتحقق يرفض)، وتعديل نصه مسموح', async () => {
+  const k = makeApp({ rows: [row('a', { draft: { a: { i2: { s: 'no', r: 'س' } }, slot: null } })] });
+  await openDetail(k, 'a'); await runInAppContext(k.app, "lfStartEdit('a')"); await settle();
+  assert.match(k.html(), /بدأ المسؤول الإجابة \(حفظ 1\)/);
+  assert.match(k.html(), /aria-label="بدأ المسؤول إجابته: لا يُحذف"[^>]*disabled/);
+  runInAppContext(k.app, "lfRemoveInd(1)");
+  assert.equal(J(runInAppContext(k.app, 'lfState.create.indicators')).length, 2, 'لم يُحذف');
+  runInAppContext(k.app, "lfSetInd(1, '')");
+  assert.equal(runInAppContext(k.app, 'lfCreateReady(lfState.create)'), false, 'إفراغ نصه = حذف: مرفوض');
+  runInAppContext(k.app, "lfSetInd(1, 'الزيارات (معدّل)'); lfCreate();"); await settle();
+  assert.deepEqual(J(k.log.find(l => l.op === 'update' && l.values.indicators).values.indicators)[1], { id: 'i2', label: 'الزيارات (معدّل)' });
+});
+
+test('التعديل: أجاب المسؤول أثناء فتح شاشة التعديل — لا يُحفظ شيء وتظهر إجابته', async () => {
+  const k = makeApp({ rows: [row('a')] });
+  await openDetail(k, 'a'); await runInAppContext(k.app, "lfStartEdit('a')"); await settle();
+  Object.assign(k.db.leader_followups[0], { answered_at: '2026-11-05T00:00:00Z', answers: { i1: { s: 'done' }, i2: { s: 'done' } }, code: null, chosen_slot: SLOTS[0] });
+  runInAppContext(k.app, "lfSetInd(0, 'تغيير'); lfCreate();"); await settle();
+  assert.equal(k.db.leader_followups[0].indicators[0].label, 'تنفيذ خطة التحسين', 'لم يتغيّر المُسلَّم');
+  assert.match(k.toasts().join('|'), /أرسل المسؤول إجابته للتو/);
+  assert.equal(runInAppContext(k.app, 'toolsState.screen'), 'ldetail');
+});
+
+test('النسخ لمسؤول آخر: نفس المؤشرات بسلسلة جديدة، بلا اسم المسؤول ولا جهته، وزر «الدورة التالية» يبقى بنفس السلسلة', async () => {
+  const k = makeApp({ rows: [answered('a', { series_id: 'SER', leader_role: 'principal', leader_name: 'فهد' })] });
+  await openDetail(k, 'a');
+  assert.match(k.html(), /نسخ لمسؤول آخر/);
+  runInAppContext(k.app, "lfStartCreate('a', 'copy')");
+  const c = J(runInAppContext(k.app, 'lfState.create'));
+  assert.equal(c.mode, 'copy'); assert.equal(c.series_id, null); assert.equal(c.name, ''); assert.deepEqual(c.indicators, ['تنفيذ خطة التحسين', 'الزيارات الصفية']);
+  runInAppContext(k.app, "lfState.create.role = 'deputy_students'; lfState.create.cycle = 'ف1'; lfCreate();"); await settle();
+  const v = k.log.find(l => l.op === 'insert' && l.table === 'leader_followups').values;
+  assert.ok(!('series_id' in v)); assert.equal(v.leader_role, 'deputy_students'); assert.equal(v.leader_name, null);
+});
+
+test('القوالب: «سجلات المدير» يعبّئ 15 مؤشرًا وجهة المدير، وحفظ قالب باسم بتصفية المعلم، وحذفه بتأكيد', async () => {
+  const k = makeApp({ templates: [{ id: 'T1', teacher_id: 'u1', name: 'قالبي', indicators: [{ id: 'i1', label: 'س1' }], created_at: '2026-11-01T00:00:00Z' }, { id: 'T9', teacher_id: 'other', name: 'غريب', indicators: [{ id: 'i1', label: 'x' }], created_at: '2026-11-01T00:00:00Z' }] });
+  runInAppContext(k.app, "showTools(); toolsGo('leaders')"); await settle();
+  runInAppContext(k.app, "lfStartCreate(null)"); await settle();
+  const html = k.html();
+  assert.match(html, /سجلات المدير \(15\)/); assert.match(html, /قالبي \(1\)/); assert.doesNotMatch(html, /غريب/, 'قوالب المعلم وحده');
+  runInAppContext(k.app, "lfState.create.role = 'deputy_other'; lfStartFrom('r:principal_records')");
+  const c = J(runInAppContext(k.app, 'lfState.create'));
+  assert.equal(c.indicators.length, 15); assert.equal(c.indicators[0], 'سجل الخطة التشغيلية'); assert.equal(c.role, 'principal');
+  runInAppContext(k.app, "lfStartFrom('t:T1')");
+  assert.deepEqual(J(runInAppContext(k.app, 'lfState.create.indicators')), ['س1']);
+  runInAppContext(k.app, "lfState.create.indicators = ['م1', 'م2']; lfTemplateNameStart(); lfState.create.tplName = 'سجلات الوكيل';");
+  await runInAppContext(k.app, "lfSaveTemplate()"); await settle();
+  const ins = k.log.find(l => l.table === 'leader_templates' && l.op === 'insert');
+  assert.equal(ins.values.teacher_id, 'u1'); assert.equal(ins.values.name, 'سجلات الوكيل'); assert.deepEqual(J(ins.values.indicators), [{ id: 'i1', label: 'م1' }, { id: 'i2', label: 'م2' }]);
+  assert.ok(k.log.some(l => l.table === 'leader_templates' && l.op === 'select' && l.f.some(x => x[1] === 'teacher_id' && x[2] === 'u1')));
+  await runInAppContext(k.app, "lfDeleteTemplate('T1')"); await settle();
+  const del = k.log.find(l => l.table === 'leader_templates' && l.op === 'delete');
+  assert.ok(del.f.some(x => x[1] === 'teacher_id' && x[2] === 'u1') && del.f.some(x => x[1] === 'id' && x[2] === 'T1'));
+});
+
+test('الموعد عند المعلم: موافقة على اقتراح المسؤول تثبّته بالقاعدة وتعرض رابط تأكيد واتساب، والمحجوز يُرفض برسالة', async () => {
+  const k = makeApp({ rows: [answered('a', { leader_name: 'عبدالسلام', chosen_slot: 'none', proposed_slot: '2026-11-20T10:00', proposed_note: '<b>بعد الحصة</b>' })] });
+  await openDetail(k, 'a');
+  const html = k.html();
+  assert.match(html, /اقترح المسؤول موعدًا آخر: الجمعة 20 نوفمبر 10:00 ص/); assert.match(html, /&lt;b&gt;بعد الحصة&lt;\/b&gt;/);
+  await runInAppContext(k.app, "lfSetMeeting('a', '2026-11-20T10:00')"); await settle();
+  const rpc = k.log.find(l => l.rpc === 'set_leader_meeting');
+  assert.deepEqual(rpc.args, { p_id: 'a', p_slot: '2026-11-20T10:00' });
+  assert.match(k.html(), /موعد اللقاء: الجمعة 20 نوفمبر 10:00 ص/);
+  const wa = /href="(https:\/\/wa\.me\/\?text=[^"]+)"[^>]*>أرسل له التأكيد/.exec(k.html());
+  assert.ok(wa, 'رابط تأكيد واتساب');
+  assert.match(decodeURIComponent(wa[1].replace(/&amp;/g, '&').split('text=')[1]), /أستاذ عبدالسلام، تم تأكيد موعد لقائنا .*الجمعة 20 نوفمبر 10:00 ص/);
+  const busy = makeApp({ rows: [answered('a', { chosen_slot: 'none', proposed_slot: '2026-11-20T10:00' }), answered('b', { chosen_slot: '2026-11-20T10:00' })] });
+  await openDetail(busy, 'a'); await runInAppContext(busy.app, "lfSetMeeting('a', '2026-11-20T10:00')"); await settle();
+  assert.match(busy.toasts().join('|'), /محجوز لمسؤول آخر/);
+  assert.equal(busy.db.leader_followups[0].chosen_slot, 'none');
+});
+
+test('الموعد: «اقتراح موعد آخر» يفتح حقلًا، ورابط واتساب وزر التثبيت يتفعّلان بموعد صالح فقط', async () => {
+  const k = makeApp({ rows: [answered('a', { chosen_slot: 'none', proposed_slot: null })] });
+  await openDetail(k, 'a');
+  assert.match(k.html(), /لم يناسبه أي موعد من المقترحة/);
+  runInAppContext(k.app, "lfMeetOpen('a')");
+  assert.match(k.html(), /id="lfMeetSet"[^>]*disabled/);
+  runInAppContext(k.app, `window.__els.lfMeetWa = { href: '#', style: {}, setAttribute(k, v){ this[k] = v; } }; window.__els.lfMeetSet = { disabled: true }; lfMeetInput('2026-11-22T09:30');`);
+  assert.equal(runInAppContext(k.app, 'window.__els.lfMeetSet.disabled'), false);
+  assert.match(decodeURIComponent(runInAppContext(k.app, 'window.__els.lfMeetWa.href').split('text=')[1]), /هل يناسبك الأحد 22 نوفمبر 9:30 ص؟/);
+  runInAppContext(k.app, "lfMeetInput('xx')");
+  assert.equal(runInAppContext(k.app, 'window.__els.lfMeetSet.disabled'), true);
 });
 
 test('السباق: مغادرة الشاشة أثناء الإنشاء لا تفتح التفاصيل، والطلب يظهر بالقائمة', async () => {
