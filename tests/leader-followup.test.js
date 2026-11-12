@@ -911,3 +911,13 @@ test('الإنشاء: اسم قالب المعلم يُهرَّب داخل ال�
   assert.match(k.html(), /class="tlx-chip is-on" aria-pressed="true" onclick="lfStartFrom\((?:'|&#39;)t:T1/);
   assert.match(k.html(), /حذف هذا القالب/);
 });
+
+test('صفحة المسؤول بالهوية (3.49): رقم المؤشر شارة، عدّاد التقدّم، والأزرار في شريط ثابت — والسكربت يحدّث العدّاد', () => {
+  const page = F.buildLeaderPage({ req: { role: 'مدير المدرسة', name: 'فهد', cycle: 'ف1', sender: 'ع', indicators: IND, slots: SLOTS, draft: { a: { i1: { s: 'done' } }, slot: null } }, taken: [] }, 'N');
+  assert.match(page, /<legend><span class="n">1<\/span> <bdi>/);
+  assert.match(page, /حدّدت <b id="pgn">1<\/b> من 2/, 'العدّاد يبدأ من المسودة');
+  assert.match(page, /<div class="acts"><button type="button" class="sec" id="sd">حفظ والإكمال لاحقًا<\/button><button type="submit" id="sb">إرسال الإجابة<\/button><\/div><\/form>/);
+  const script = /<script nonce="N">([\s\S]*)<\/script>/.exec(page)[1];
+  assert.match(script, /function prog\(\)/); assert.match(script, /getElementById\('pg'\)\.hidden=true/, 'العدّاد يختفي مع شاشة الشكر');
+  assert.doesNotMatch(page, /fonts\.g|@import|@font-face|url\(/, 'بلا خطوط ولا موارد خارجية (CSP: default-src none)');
+});

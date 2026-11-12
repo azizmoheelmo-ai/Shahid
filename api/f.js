@@ -56,30 +56,50 @@ async function resolveLeaderCode(code, supabase, now){
   }, taken };
 }
 
-const CSS = 'body{font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;background:#F6F4EE;color:#1B3245;margin:0;padding:0 16px 28px;line-height:1.8}'
-  + 'main{max-width:560px;margin:0 auto}h1{font-size:1.35rem;margin:14px 0 6px}h2{font-size:1.05rem;margin:22px 0 6px}'
-  + '.note{background:#fff;border:1px solid #E4DFD2;border-radius:10px;padding:10px 12px;font-size:.92rem;color:#3d5466}'
-  + '.meta{color:#55697a;font-size:.9rem;margin:2px 0}'
-  + 'fieldset{border:1px solid #E4DFD2;border-radius:12px;background:#fff;margin:12px 0;padding:10px 12px;min-width:0;scroll-margin-top:12px}'
-  + 'legend{font-weight:700;padding:0 6px}fieldset.miss{border-color:#c2410c;box-shadow:0 0 0 2px #fdba74}'
-  + '.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.opts.col{grid-template-columns:1fr}'
+/* هوية واجهة التطبيق (DESIGN.md) — نفس الألوان والزوايا، بخط الجهاز (CSP: default-src 'none' بلا خطوط خارجية) */
+const CSS = ':root{--navy:#1B3245;--gold:#A9852E;--gold-text:#876A25;--paper:#F7F5F0;--card:#fff;--line:#D8D2C4;--ink:#232323;--muted:#6B6659;'
+  + '--div:#EEE9DF;--track:#F3F0E8;--tab:#6B6457;--icon:#F1ECDF;--ok:#2F6B4F;--warn:#876A25;--danger:#8A2C2C;--danger-bg:#FBE9E7;'
+  + '--note-bg:#FBF6E8;--note-line:#E4D3A2;--note-ink:#5E4A16;--add:#FBFAF6;--r-card:14px;--r-btn:11px}'
+  + 'body{font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;background:var(--paper);color:var(--ink);margin:0;padding:0 14px 24px;line-height:1.8}'
+  + 'main{max-width:560px;margin:0 auto}[hidden]{display:none!important}'
+  + '.hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:14px;margin-top:14px}'
+  + '.kick{display:block;font-size:.78rem;font-weight:700;color:var(--gold-text)}'
+  + 'h1{font-size:1.3rem;color:var(--navy);margin:0 0 8px;line-height:1.5}'
+  + '.meta{display:flex;gap:8px;margin:0;padding:6px 0;border-top:1px solid var(--div);font-size:.92rem}'
+  + '.meta span{flex:none;width:52px;color:var(--muted)}.meta bdi{color:var(--navy);font-weight:700}'
+  + '.note{background:var(--note-bg);border:1px solid var(--note-line);border-radius:12px;padding:10px 12px;font-size:.9rem;color:var(--note-ink);margin:10px 0 0}'
+  + '.pg{position:sticky;top:0;z-index:5;background:var(--paper);padding:10px 2px 8px;margin-top:4px}'
+  + '.pg p{display:flex;justify-content:space-between;margin:0 0 4px;font-size:.85rem;color:var(--muted)}.pg b{color:var(--navy)}'
+  + '.pg i{display:block;height:6px;background:var(--div);border-radius:4px;overflow:hidden}.pg i em{display:block;height:6px;width:0;background:var(--ok);border-radius:4px;transition:width .2s}'
+  + 'fieldset{border:1px solid var(--line);border-radius:var(--r-card);background:var(--card);margin:10px 0;padding:12px;min-width:0;scroll-margin-top:70px}'
+  + 'legend{float:right;width:100%;display:flex;align-items:flex-start;gap:8px;padding:0;margin:0 0 10px;font-weight:700;color:var(--navy);font-size:.98rem;line-height:1.6}'
+  + 'legend+*{clear:both}.n{flex:none;min-width:24px;height:24px;border-radius:6px;background:var(--icon);color:var(--navy);font-size:.78rem;font-weight:800;display:grid;place-items:center;margin-top:1px}'
+  + 'fieldset.miss{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}'
+  + '.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;background:var(--track);border-radius:var(--r-btn)}'
+  + '.opts.col{grid-template-columns:1fr;gap:6px;padding:0;background:none}'
   + '.opt{position:relative;display:block;cursor:pointer}.opt input{position:absolute;opacity:0;width:1px;height:1px;margin:0}'
-  + '.opt span{display:block;min-height:46px;text-align:center;border:1.5px solid #CFC8B6;border-radius:10px;padding:8px 4px;font-size:.88rem;background:#fff}'
-  + '.opts.col .opt span{text-align:start;padding:10px 12px;font-size:.95rem}'
-  + '.opt input:checked+span{color:#fff;font-weight:700}.opt .s-done:checked+span{background:#2E7D4F;border-color:#2E7D4F}'
-  + '.opt .s-wip:checked+span{background:#A66A00;border-color:#A66A00}.opt .s-no:checked+span{background:#B3382C;border-color:#B3382C}'
-  + '.opt .s-slot:checked+span{background:#1B3245;border-color:#1B3245}.opt input:disabled+span{opacity:.5;background:#ECE8DC;cursor:not-allowed}'
-  + '.opt input:focus-visible+span{outline:3px solid #f59e0b;outline-offset:2px}'
-  + 'textarea{width:100%;box-sizing:border-box;min-height:70px;border:1px solid #CFC8B6;border-radius:10px;padding:8px;font:inherit;margin-top:8px}'
-  + '.cnt{display:block;direction:ltr;text-align:left;font-size:.78rem;color:#55697a}'
-  + 'button{width:100%;margin-top:16px;padding:14px;border:0;border-radius:12px;background:#1B3245;color:#fff;font:inherit;font-size:1.05rem;font-weight:700;cursor:pointer}'
-  + '.prop{margin-top:10px;padding:10px;border:1px dashed #CFC8B6;border-radius:10px;background:#FBFAF6}.prop label{display:block;font-size:.88rem;margin:6px 0 4px}'
-  + '.prop input{width:100%;box-sizing:border-box;border:1px solid #CFC8B6;border-radius:10px;padding:8px;font:inherit;background:#fff}'
-  + 'button.sec{background:#fff;color:#1B3245;border:1.5px solid #1B3245;margin-top:10px}.ok{margin-top:12px;font-weight:600;color:#15803d}'
-  + 'button[disabled]{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid #f59e0b;outline-offset:2px}'
-  + '.msg{margin-top:12px;font-weight:600;color:#9a3b1f}.center{text-align:center;padding-top:12vh}[hidden]{display:none!important}'
-  + '.copy{background:#fff;border:1px solid #E4DFD2;border-radius:12px;padding:6px 12px;text-align:start}.copy li{margin:8px 0;list-style:none}'
-  + '.copy b{display:block}.copy small{color:#55697a;display:block}';
+  + '.opt span{display:flex;align-items:center;justify-content:center;min-height:42px;text-align:center;border-radius:9px;padding:6px 4px;font-size:.92rem;font-weight:700;color:var(--tab)}'
+  + '.opts.col .opt span{justify-content:flex-start;text-align:start;padding:10px 12px;font-size:.95rem;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:var(--r-btn)}'
+  + '.opt input:checked+span{color:#fff;box-shadow:0 2px 6px rgba(27,50,69,.25)}.opt .s-done:checked+span{background:var(--ok)}'
+  + '.opt .s-wip:checked+span{background:var(--warn)}.opt .s-no:checked+span{background:var(--danger)}'
+  + '.opts.col .opt .s-slot:checked+span{background:var(--navy);border-color:var(--navy);color:#fff}.opt input:disabled+span{opacity:.5;background:var(--track);cursor:not-allowed}'
+  + '.opt input:focus-visible+span{outline:3px solid var(--gold);outline-offset:2px}'
+  + 'textarea{width:100%;box-sizing:border-box;min-height:72px;border:1px solid var(--line);border-radius:var(--r-btn);padding:10px 12px;font:inherit;margin-top:10px;background:var(--card);color:var(--ink)}'
+  + 'textarea:focus,.prop input:focus{outline:none;border-color:var(--gold)}'
+  + '.cnt{display:block;direction:ltr;text-align:left;font-size:.75rem;color:var(--muted)}'
+  + '.prop{margin-top:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:var(--r-btn);background:var(--add)}.prop label{display:block;font-size:.88rem;font-weight:700;color:var(--navy);margin:6px 0 4px}'
+  + '.prop input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--r-btn);padding:9px 12px;font:inherit;background:var(--card)}'
+  + '.acts{position:sticky;bottom:0;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--paper);padding:10px 0 calc(10px + env(safe-area-inset-bottom,0px));margin-top:8px;border-top:1px solid var(--div)}'
+  + 'button{width:100%;margin:0;padding:12px;border:0;border-radius:12px;background:var(--navy);color:#fff;font:inherit;font-size:1rem;font-weight:700;cursor:pointer;min-height:48px}'
+  + 'button.sec{background:var(--card);color:var(--navy);border:1px solid var(--line);font-size:.92rem}'
+  + 'button[disabled]{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}'
+  + '.msg{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--danger-bg);font-weight:600;color:var(--danger)}'
+  + '.ok{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:#E7F0EA;font-weight:600;color:var(--ok)}'
+  + '.center{text-align:center;padding-top:8vh}.center h1{margin-top:12px}.center p{color:var(--muted)}'
+  + '.done-ic{width:56px;height:56px;margin:0 auto;border-radius:50%;background:#E7F0EA;color:var(--ok);display:grid;place-items:center;font-size:1.6rem;font-weight:800}'
+  + '.copy{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:0;margin:14px 0 0;text-align:start;overflow:hidden}'
+  + '.copy li{margin:0;padding:10px 12px;list-style:none;border-bottom:1px solid var(--div)}.copy li:last-child{border-bottom:0}'
+  + '.copy b{display:block;color:var(--navy)}.copy small{color:var(--muted);display:block}';
 
 function head(title, nonce){
   return '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -107,7 +127,8 @@ function ok(t){k.textContent=t;k.hidden=!t;}
 function len(s){return Array.from(s).length;}
 function st(fs){var x=fs.querySelector('input:checked');return x?x.value:'';}
 function sync(fs){var s=st(fs),box=fs.querySelector('.rs'),ta=fs.querySelector('textarea');box.hidden=!s&&!ta.value;
-ta.placeholder=s==='done'?'ملاحظة (اختياري)':'اكتب السبب (مطلوب)';}
+ta.placeholder=s==='done'?'ملاحظة (اختياري)':'اكتب السبب (مطلوب)';prog();}
+function prog(){var n=items.filter(function(x){return !!st(x);}).length,e=document.getElementById('pgn'),g=document.getElementById('pgb');if(e)e.textContent=n;if(g)g.style.width=(items.length?Math.round(n*100/items.length):0)+'%';}
 function collect(){var a={};items.forEach(function(fs){var s=st(fs),r=fs.querySelector('textarea').value;if(s||r.trim())a[fs.getAttribute('data-i')]=r.trim()?{s:s,r:r}:{s:s};});
 var sl=slotFs&&slotFs.querySelector('input:checked');return {a:a,slot:sl?sl.value:null,p:ppd?ppd.value:'',n:ppn?ppn.value:''};}
 function save(){try{var x=collect();x.t=Date.now();localStorage.setItem(KEY,JSON.stringify(x));}catch(e){}}
@@ -142,7 +163,7 @@ function done(a,slotText){var ul=document.getElementById('cp');ul.textContent=''
 items.forEach(function(fs){var li=document.createElement('li'),t=document.createElement('b'),s=document.createElement('small'),x=a[fs.getAttribute('data-i')];
 t.textContent=fs.querySelector('legend').textContent;s.textContent=L[x.s]+(x.r?' — '+x.r:'');li.appendChild(t);li.appendChild(s);ul.appendChild(li);});
 if(slotText){var li=document.createElement('li'),t=document.createElement('b'),s=document.createElement('small');t.textContent='موعد اللقاء';s.textContent=slotText;li.appendChild(t);li.appendChild(s);ul.appendChild(li);}
-f.hidden=true;document.getElementById('hd').hidden=true;document.getElementById('st').hidden=false;window.scrollTo(0,0);}
+f.hidden=true;document.getElementById('hd').hidden=true;document.getElementById('pg').hidden=true;document.getElementById('st').hidden=false;window.scrollTo(0,0);}
 f.addEventListener('submit',function(e){e.preventDefault();if(busy)return;
 var a={},miss=[];
 items.forEach(function(fs){fs.classList.remove('miss');var s=st(fs),r=fs.querySelector('textarea').value.trim();
@@ -172,7 +193,7 @@ function indicatorHtml(ind, k, saved){
   const x = saved || {};
   const states = Object.keys(LEADER_ANSWER_STATES).map(s => radio('s-' + ind.id, s, 's-' + s, escapeHtml(LEADER_ANSWER_STATES[s]), false, x.s === s)).join('');
   const r = typeof x.r === 'string' ? x.r : '';
-  return `<fieldset data-i="${escapeHtml(ind.id)}"><legend>${k + 1}. <bdi>${escapeHtml(ind.label)}</bdi></legend>`
+  return `<fieldset data-i="${escapeHtml(ind.id)}"><legend><span class="n">${k + 1}</span> <bdi>${escapeHtml(ind.label)}</bdi></legend>`
     + `<div class="opts">${states}</div>`
     + `<div class="rs"${x.s || r ? '' : ' hidden'}><textarea maxlength="${LEADER_LIMITS.maxReason}" aria-label="سبب أو ملاحظة">${escapeHtml(r)}</textarea><small class="cnt" aria-live="polite">${Array.from(r).length} / ${LEADER_LIMITS.maxReason}</small></div></fieldset>`;
 }
@@ -195,17 +216,18 @@ function buildLeaderPage(found, nonce){
   const due = req.closesAt ? leaderDateLabel(req.closesAt) : '';
   const n = Object.keys(draft.a).filter(id => draft.a[id].s).length;
   return head('متابعة مؤشرات الأداء', nonce) + '<body><main>'
-    + '<div id="hd"><h1>متابعة مؤشرات الأداء</h1>'
-    + `<p class="meta">إلى: <bdi>${escapeHtml(to)}</bdi></p>`
-    + (req.sender ? `<p class="meta">من: <bdi>${escapeHtml(req.sender)}</bdi></p>` : '')
-    + `<p class="meta">الدورة: <bdi>${escapeHtml(req.cycle)}</bdi></p>`
+    + '<div id="hd"><div class="hero"><span class="kick">طلب متابعة</span><h1>متابعة مؤشرات الأداء</h1>'
+    + `<p class="meta"><span>إلى</span><bdi>${escapeHtml(to)}</bdi></p>`
+    + (req.sender ? `<p class="meta"><span>من</span><bdi>${escapeHtml(req.sender)}</bdi></p>` : '')
+    + `<p class="meta"><span>الدورة</span><bdi>${escapeHtml(req.cycle)}</bdi></p></div>`
     + '<p class="note">اختر حالة كل مؤشر، واكتب السبب لما لم يُنفَّذ أو هو قيد التنفيذ. لا يلزمك الإكمال الآن: اضغط «حفظ والإكمال لاحقًا» ثم افتح الرابط نفسه متى شئت لتكمل. الرابط يقبل إرسالًا واحدًا وينتهي بعده'
     + (due ? `، ويبقى صالحًا حتى ${escapeHtml(due)}.` : '.') + '</p>'
     + (req.draft ? `<p class="note">أكمل من حيث توقفت: محفوظ ${n} من ${req.indicators.length}.</p>` : '') + '</div>'
+    + `<div class="pg" id="pg"><p><span>حدّدت <b id="pgn">${n}</b> من ${req.indicators.length}</span><span>مؤشرات</span></p><i><em id="pgb"></em></i></div>`
     + `<form id="lf" novalidate data-saved="${Number(req.savedAt) || 0}">${req.indicators.map((ind, k) => indicatorHtml(ind, k, draft.a[ind.id])).join('')}${slotsHtml(req.slots, found.taken, draft.slot)}`
-    + '<button type="submit" id="sb">إرسال الإجابة</button><button type="button" class="sec" id="sd">حفظ والإكمال لاحقًا</button>'
-    + '<p class="msg" id="sm" role="alert" hidden></p><p class="ok" id="sk" role="status" hidden></p></form>'
-    + '<div id="st" class="center" hidden><h1>شكرًا لك، وصلت إجابتك</h1><p>هذه نسخة من إجابتك. لن يقبل هذا الرابط إجابة أخرى.</p><ul class="copy" id="cp"></ul></div>'
+    + '<p class="msg" id="sm" role="alert" hidden></p><p class="ok" id="sk" role="status" hidden></p>'
+    + '<div class="acts"><button type="button" class="sec" id="sd">حفظ والإكمال لاحقًا</button><button type="submit" id="sb">إرسال الإجابة</button></div></form>'
+    + '<div id="st" class="center" hidden><div class="done-ic" aria-hidden="true">✓</div><h1>شكرًا لك، وصلت إجابتك</h1><p>هذه نسخة من إجابتك. لن يقبل هذا الرابط إجابة أخرى.</p><ul class="copy" id="cp"></ul></div>'
     + `</main><script nonce="${escapeHtml(nonce)}">${buildScript()}</script></body></html>`;
 }
 
