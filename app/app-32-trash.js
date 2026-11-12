@@ -22,7 +22,7 @@ const TRASH_KIND_LABELS = {
   student: 'طالب', shahid: 'شاهد', program: 'برنامج', goal: 'هدف', task: 'مهمة (مهامّي)',
   academic_case: 'حالة أكاديمية', incident: 'حادثة', positive_note: 'ملاحظة إيجابية', private_note: 'ملاحظة خاصة',
   grade_columns: 'عمود/اختبار درجات', custom_tool: 'أداة مخصصة', perf_task: 'مهمة أدائية', homework: 'واجب', lesson: 'رصد حصة',
-  followup: 'متابعة'
+  followup: 'متابعة', leader_followup: 'طلب متابعة مؤشرات'
 };
 
 function trashKindLabel(kind){ return TRASH_KIND_LABELS[kind] || kind || 'عنصر'; }
@@ -239,6 +239,17 @@ async function trashCaptureLesson(lessonId, ownerId){
     tables: [{ t: 'classroom_lessons', rows: l }, { t: 'classroom_attendance', rows: att }] };
 }
 
+/* طلب متابعة مؤشرات القيادة (app-50): صف واحد بلا توابع. الرمز يُفرَّغ في اللقطة فلا يعود رابطه صالحًا بالاسترجاع
+   (المعلم يصدر رابطًا جديدًا إن أراد)، ومسودة المسؤول تبقى. */
+async function trashCaptureLeaderFollowup(id, ownerId){
+  const rows = await trashRows('leader_followups', [['eq', 'id', id], ['eq', 'teacher_id', ownerId]]);
+  if(!rows.length) return null;
+  const r = rows[0];
+  const role = typeof leaderRoleLabel === 'function' ? leaderRoleLabel(r.leader_role) : '';
+  return { kind: 'leader_followup', label: [role, r.leader_name, r.cycle_label].filter(Boolean).join(' — ') || 'طلب متابعة', ownerId,
+    tables: [{ t: 'leader_followups', rows: rows.map(x => Object.assign({}, x, { code: null })) }] };
+}
+
 /* يمنع تنفيذ نفس الحذف مرتين (نقرة مزدوجة أثناء التأكيد أو جلب اللقطة) فلا تتكرر عناصر السلة */
 const trashRunning = new Set();
 async function trashRunOnce(key, fn){
@@ -336,6 +347,7 @@ async function trashAfterRestore(res, ownerId){
     if(meta.reenableTool && typeof setAppToolOn === 'function') await setAppToolOn(meta.reenableTool, true);
     if(kind === 'custom_tool' && typeof afterCustomToolsChanged === 'function' && currentUser) await afterCustomToolsChanged(currentUser.id);
     if(kind === 'perf_task' && meta.sectionId && typeof afterCrmTaskChanged === 'function') await afterCrmTaskChanged(meta.sectionId, null);
+    if(kind === 'leader_followup' && typeof lfAfterRestore === 'function') await lfAfterRestore();
   } catch(e){ /* غير حرج */ }
   try{
     if(kind === 'student' && typeof loadCrmStudents === 'function'){ await loadCrmStudents(); if(typeof renderCrmStudentsList === 'function') renderCrmStudentsList(); }
