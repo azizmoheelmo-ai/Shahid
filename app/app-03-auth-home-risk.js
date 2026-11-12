@@ -477,6 +477,7 @@ async function checkAdminStatus(){
   }
   document.getElementById('adminNavBtn').style.display = isAdmin ? 'inline-block' : 'none';
   if(isAdmin) refreshSupportMessagesBadge();
+  if(typeof refreshLeaderBadge === 'function') refreshLeaderBadge(); /* شارة إجابات المسؤولين بدرج الحساب (app-50) */
   /* تنظيف المحذوفات المنتهية (مع صورها) بعد استقرار الدخول — لا يؤخّر شيئًا */
   if(typeof trashPurgeExpired === 'function') setTimeout(() => { trashPurgeExpired(); }, 5000);
   /* شارة "إدارة الصف" = بطاقات الانتباه العاجلة والمهمة (app-16) — مصدر
@@ -537,7 +538,7 @@ function updateAcctInitial(){
 function syncAcctDot(){
   const dot = document.getElementById('acctDot');
   if(!dot) return;
-  const any = ['supportMsgNavBadge', 'riskNavBadge'].some(id => {
+  const any = ['supportMsgNavBadge', 'riskNavBadge', 'toolsNavBadge'].some(id => {
     const b = document.getElementById(id);
     const btn = b && b.closest ? b.closest('button') : null;
     return b && b.style.display !== 'none' && (!btn || btn.style.display !== 'none');

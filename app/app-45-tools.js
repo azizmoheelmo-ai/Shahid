@@ -1,5 +1,5 @@
 /* ============================================================
-   الأدوات — مكان لأدوات قليلة الاستعمال (اليوم: الاستبانات؛ وأي أداة قادمة تُضاف هنا ببلاطتها)
+   الأدوات — مكان لأدوات قليلة الاستعمال (اليوم: الاستبانات ومتابعة المؤشرات app-50؛ وأي أداة قادمة تُضاف هنا ببلاطتها)
    ------------------------------------------------------------
    - الدخول: «🧰 الأدوات» بقائمة الحساب (لا بلاطة بالرئيسية ولا تبويب سفلي: الاستعمال مرة أو مرتين بالسنة).
    - toolsView شاشة رئيسية كاملة: showTools() تستدعي hideAllMainViews() وتُظهر حاويتها صراحةً (CLAUDE.md §2)،
@@ -98,7 +98,9 @@ function toolsGo(screen){
   toolsState.screen = screen;
   toolsState.sorting = false;
   if(screen === 'list' || screen === 'home'){ toolsState.create = null; toolsState.qed = null; toolsState.recipsUi = null; toolsState.addR = null; }
-  if(screen === 'list') toolsLoadList();
+  if(typeof lfResetScreen === 'function') lfResetScreen(screen); /* متابعة المؤشرات (app-50) */
+  if(screen === 'leaders') lfLoadList();
+  else if(screen === 'list') toolsLoadList();
   else if(screen === 'create' && !toolsState.create) toolsInitCreate(); /* العودة من المحرّر/المستلمين تُبقي حالة الإنشاء */
   else renderTools();
 }
@@ -171,6 +173,7 @@ function renderTools(){
   else if(s === 'questions'){ toolsSetTitle('أسئلة الاستبانة'); body.innerHTML = toolsQuestionsHtml(); }
   else if(s === 'qedit'){ toolsSetTitle('سؤال'); body.innerHTML = toolsQeditHtml(); }
   else if(s === 'recips'){ toolsSetTitle('المستلمون'); body.innerHTML = toolsRecipsHtml(); }
+  else if(s === 'leaders' || s === 'lcreate' || s === 'ldetail') lfRender(s);
   else { toolsSetTitle('الأدوات'); body.innerHTML = toolsHomeHtml(); }
 }
 
@@ -179,6 +182,10 @@ function toolsHomeHtml(){
     <button class="home-btn" style="grid-column:1/-1;" onclick="toolsGo('list')">
       <span class="hb-title">📊 الاستبانات</span>
       <span class="hb-sub">رضا أولياء الأمور والطلاب</span>
+    </button>
+    <button class="home-btn" style="grid-column:1/-1;" onclick="toolsGo('leaders')">
+      <span class="hb-title">👥 متابعة المؤشرات <span class="acct-badge lf-home-badge" id="lfHomeBadge" style="display:none;">0</span></span>
+      <span class="hb-sub">مؤشرات المدير والوكلاء بروابط مؤقتة ومواعيد لقاء</span>
     </button>
   </div>
   <p class="tl-note">أي أداة جديدة تُضاف هنا لاحقًا ببلاطة خاصة بها.</p>`;
