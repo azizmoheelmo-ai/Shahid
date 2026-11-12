@@ -161,7 +161,7 @@ function toolsSetTitle(t){
 }
 
 function toolsBackLink(label, target){
-  return `<button type="button" class="tl-back" onclick="toolsGo('${target}')"><span aria-hidden="true">›</span> ${escapeHtml(label)}</button>`;
+  return `<button type="button" class="tlx-crumb" onclick="toolsGo('${target}')"><span aria-hidden="true">›</span> ${escapeHtml(label)}</button>`;
 }
 
 function renderTools(){
@@ -178,17 +178,19 @@ function renderTools(){
 }
 
 function toolsHomeHtml(){
-  return `<div class="home-actions">
-    <button class="home-btn" style="grid-column:1/-1;" onclick="toolsGo('list')">
-      <span class="hb-title">📊 الاستبانات</span>
-      <span class="hb-sub">رضا أولياء الأمور والطلاب</span>
+  /* هوية الأدوات الموحّدة (tlx-): بطاقتان بأيقونة خطية؛ شارة المتابعة = إجابات لم تُشاهَد (refreshLeaderBadge) */
+  const n = typeof lfState === 'object' && lfState.unseen > 0 ? lfState.unseen : 0;
+  return `<div class="tlx-grid">
+    <button type="button" class="tlx-card" onclick="toolsGo('list')">
+      <span class="tlx-card-top"><span class="tlx-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span></span>
+      <b>الاستبانات</b><small>رضا أولياء الأمور والطلاب</small>
     </button>
-    <button class="home-btn" style="grid-column:1/-1;" onclick="toolsGo('leaders')">
-      <span class="hb-title">👥 متابعة المؤشرات <span class="acct-badge lf-home-badge" id="lfHomeBadge" style="display:none;">0</span></span>
-      <span class="hb-sub">مؤشرات المدير والوكلاء بروابط مؤقتة ومواعيد لقاء</span>
+    <button type="button" class="tlx-card" onclick="toolsGo('leaders')">
+      <span class="tlx-card-top"><span class="tlx-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></span><span class="tlx-pill is-red" id="lfHomeBadge" title="إجابات جديدة" style="display:${n ? 'inline-flex' : 'none'};">${n > 9 ? '9+' : n}</span></span>
+      <b>متابعة المؤشرات</b><small>مؤشرات المدير والوكلاء بروابط مؤقتة ومواعيد لقاء</small>
     </button>
   </div>
-  <p class="tl-note">أي أداة جديدة تُضاف هنا لاحقًا ببلاطة خاصة بها.</p>`;
+  <p class="tlx-foot">أي أداة جديدة تُضاف هنا لاحقًا ببطاقة خاصة بها.</p>`;
 }
 
 function toolsListHtml(){
@@ -200,30 +202,27 @@ function toolsListHtml(){
   list.campaigns.forEach(c => { if(counts[c.audience] != null) counts[c.audience]++; });
   const tabs = [['all', 'الكل']].concat(['guardian', 'student', 'custom'].filter(k => k !== 'custom' || counts.custom).map(k => [k, TOOLS_AUDIENCES[k].label]));
   const filter = tabs.some(t => t[0] === st.filter) ? st.filter : 'all';
-  const tabsHtml = `<div class="tl-tabs" role="tablist">${tabs.map(t => `<button type="button" role="tab" aria-selected="${filter === t[0]}" class="tl-tab${filter === t[0] ? ' is-on' : ''}" onclick="toolsSetFilter('${t[0]}')">${escapeHtml(t[1])} <span>${counts[t[0]]}</span></button>`).join('')}</div>`;
-  const shown = groups.filter(g => filter === 'all' || g.key === filter);
-  let body;
+  const head = `<div class="tlx-head"><b>استباناتي</b><button type="button" class="tlx-new" onclick="toolsGo('create')">＋ استبانة جديدة</button></div>`;
   if(!list.campaigns.length){
-    body = `<div class="sv-card sv-center"><div class="sv-ico" aria-hidden="true">★</div><h2>لا توجد استبانات بعد</h2><p>أنشئ استبانة لأولياء الأمور أو للطلاب، وتصلك نتائجها تلقائيًا.</p></div>`;
-  } else {
-    body = shown.map(g => `<div class="tl-group"><div class="tl-group-head" style="color:${TOOLS_AUDIENCES[g.key].color}"><i style="background:${TOOLS_AUDIENCES[g.key].color}"></i>${escapeHtml(TOOLS_AUDIENCES[g.key].group)}<span>${g.items.length}</span></div>${g.items.map((c, i) => toolsTileHtml(c, list.stats, g, i)).join('')}</div>`).join('');
+    return `${toolsBackLink('الأدوات', 'home')}${head}<div class="tlx-box tlx-empty"><span class="tlx-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><b>لا توجد استبانات بعد</b><small>أنشئ استبانة لأولياء الأمور أو للطلاب، وتصلك نتائجها تلقائيًا.</small></div>`;
   }
-  const sortBtn = list.campaigns.length > 1 ? `<button type="button" class="btn btn-outline tl-sort" onclick="toolsToggleSort()"${st.busy ? ' disabled' : ''}>${st.sorting ? 'تم' : 'ترتيب'}</button>` : '';
-  return `${toolsBackLink('الأدوات', 'home')}${tabsHtml}${st.sorting ? '<div class="tl-hint">اسحب ⠿ (أو استخدم السهمين) داخل تصنيف الاستبانة، ثم اضغط «تم».</div>' : ''}${body}
-    <div class="tl-actions"><button type="button" class="btn btn-primary tl-new" onclick="toolsGo('create')">＋ استبانة جديدة</button>${sortBtn}</div>`;
+  const tabsHtml = `<div class="tlx-chips tlx-gap" role="tablist">${tabs.map(t => `<button type="button" role="tab" aria-selected="${filter === t[0]}" class="tlx-chip${filter === t[0] ? ' is-on' : ''}" onclick="toolsSetFilter('${t[0]}')">${escapeHtml(t[1])} (${counts[t[0]]})</button>`).join('')}</div>`;
+  const shown = groups.filter(g => filter === 'all' || g.key === filter);
+  const body = shown.map(g => `<div class="tlx-grp is-calm"><i class="tlx-dot" style="background:${TOOLS_AUDIENCES[g.key].color}"></i>${escapeHtml(TOOLS_AUDIENCES[g.key].group)} (${g.items.length})</div><div class="tlx-box">${g.items.map((c, i) => toolsTileHtml(c, list.stats, g, i)).join('')}</div>`).join('');
+  const sortBtn = list.campaigns.length > 1 ? `<button type="button" class="tlx-btn ${st.sorting ? 'is-navy' : 'is-ghost'} tlx-sortbtn" onclick="toolsToggleSort()"${st.busy ? ' disabled' : ''}>${st.sorting ? 'تم' : 'ترتيب الاستبانات'}</button>` : '';
+  return `${toolsBackLink('الأدوات', 'home')}${head}${tabsHtml}${st.sorting ? '<div class="tlx-note tlx-gap">اسحب ⠿ (أو استخدم السهمين) داخل تصنيف الاستبانة، ثم اضغط «تم».</div>' : ''}${body}${sortBtn}`;
 }
 
 function toolsTileHtml(c, stats, group, idx){
-  const color = TOOLS_AUDIENCES[c.audience] ? TOOLS_AUDIENCES[c.audience].color : '#6B6659';
   const open = svCampaignOpen(c);
-  const chip = `<span class="tl-chip ${open ? 'is-open' : 'is-closed'}">${open ? 'مفتوحة' : 'مغلقة'}</span>`;
-  const main = `<span class="tl-tile-main"><b>${escapeHtml(c.title)}</b><small>${escapeHtml(toolsCampaignMeta(c, stats))}</small></span>`;
+  const chip = `<span class="tlx-pill ${open ? 'is-ok' : ''}">${open ? 'مفتوحة' : 'مغلقة'}</span>`;
+  const main = `<span class="tlx-row-main"><b>${escapeHtml(c.title)}</b><small>${escapeHtml(toolsCampaignMeta(c, stats))}</small></span>`;
   if(toolsState.sorting){
-    return `<div class="tl-tile is-sorting" data-tid="${escapeHtml(c.id)}" style="border-right-color:${color}"><span class="tl-grip" role="button" aria-label="اسحب لإعادة الترتيب" onpointerdown="toolsDragStart(event,'${escapeHtml(c.id)}')">⠿</span>${main}
-      <button type="button" class="tl-mv" aria-label="للأعلى" onclick="toolsMove('${escapeHtml(c.id)}',-1)"${idx === 0 || toolsState.busy ? ' disabled' : ''}>▲</button>
-      <button type="button" class="tl-mv" aria-label="للأسفل" onclick="toolsMove('${escapeHtml(c.id)}',1)"${idx === group.items.length - 1 || toolsState.busy ? ' disabled' : ''}>▼</button></div>`;
+    return `<div class="tlx-row is-sorting" data-tid="${escapeHtml(c.id)}"><span class="tl-grip" role="button" aria-label="اسحب لإعادة الترتيب" onpointerdown="toolsDragStart(event,'${escapeHtml(c.id)}')">⠿</span>${main}
+      <button type="button" class="tlx-x" aria-label="للأعلى" onclick="toolsMove('${escapeHtml(c.id)}',-1)"${idx === 0 || toolsState.busy ? ' disabled' : ''}>▲</button>
+      <button type="button" class="tlx-x" aria-label="للأسفل" onclick="toolsMove('${escapeHtml(c.id)}',1)"${idx === group.items.length - 1 || toolsState.busy ? ' disabled' : ''}>▼</button></div>`;
   }
-  return `<button type="button" class="tl-tile" style="border-right-color:${color}" onclick="openSurvey('${escapeHtml(c.id)}')">${main}${chip}<span class="tl-chev" aria-hidden="true">‹</span></button>`;
+  return `<button type="button" class="tlx-row" onclick="openSurvey('${escapeHtml(c.id)}')">${main}${chip}<span class="tlx-chev" aria-hidden="true">‹</span></button>`;
 }
 
 function toolsSetFilter(f){ toolsState.filter = f; renderTools(); }
@@ -242,9 +241,9 @@ let toolsDrag = null;
 function toolsDragStart(e, id){
   const st = toolsState;
   if(st.busy || toolsDrag || !st.list || !e.currentTarget) return;
-  const tile = e.currentTarget.closest ? e.currentTarget.closest('.tl-tile') : null;
+  const tile = e.currentTarget.closest ? e.currentTarget.closest('.tlx-row') : null;
   if(!tile || !tile.parentNode) return;
-  const group = Array.prototype.slice.call(tile.parentNode.querySelectorAll('.tl-tile'));
+  const group = Array.prototype.slice.call(tile.parentNode.querySelectorAll('.tlx-row'));
   if(group.length < 2) return;
   if(e.preventDefault) e.preventDefault();
   try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
@@ -320,38 +319,38 @@ function toolsCreateHtml(){
   const c = toolsState.create;
   if(!c || c.loading) return toolsBackLink('الاستبانات', 'list') + '<div class="sv-empty">جارٍ التحميل…</div>';
   const custom = c.audience === 'custom';
-  if(!custom && !crmSections.length) return toolsBackLink('الاستبانات', 'list') + `<div class="sv-card sv-center"><h2>لا شعب بعد</h2><p>أضف شعبك وطلابك من «إدارة الصف» أولًا، أو أنشئ استبانة مخصّصة تختار مستلميها بنفسك.</p><button type="button" class="btn btn-outline" onclick="toolsPickAudience('custom')">استبانة مخصّصة</button></div>`;
+  if(!custom && !crmSections.length) return toolsBackLink('الاستبانات', 'list') + `<div class="tlx-box tlx-empty"><b>لا شعب بعد</b><small>أضف شعبك وطلابك من «إدارة الصف» أولًا، أو أنشئ استبانة مخصّصة تختار مستلميها بنفسك.</small><button type="button" class="tlx-btn is-ghost" onclick="toolsPickAudience('custom')">استبانة مخصّصة</button></div>`;
   const hints = { guardian: 'أسئلة بصيغة «ابنكم»', student: 'أسئلة بصيغة «أنت»', custom: 'بأسئلتك ومستلميك' };
   const who = ['guardian', 'student', 'custom'].map(k => {
     const on = c.audience === k, a = TOOLS_AUDIENCES[k];
-    return `<button type="button" class="tl-opt${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toolsPickAudience('${k}')"><b>${escapeHtml(a.label)}</b><small>${hints[k]}</small></button>`;
+    return `<button type="button" class="tlx-opt${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toolsPickAudience('${k}')"><b>${escapeHtml(a.label)}</b><small>${hints[k]}</small></button>`;
   }).join('');
   const allOn = crmSections.every(s => c.sectionIds.has(s.id));
-  const secs = `<button type="button" class="tl-chip-btn${allOn ? ' is-on' : ''}" aria-pressed="${allOn}" onclick="toolsToggleAllSections()">كل شعبي</button>` + crmSections.slice().sort((a, b) => crmByArabic(crmSectionOptionLabel(a), crmSectionOptionLabel(b))).map(s => {
+  const secs = `<button type="button" class="tlx-chip${allOn ? ' is-on' : ''}" aria-pressed="${allOn}" onclick="toolsToggleAllSections()">كل شعبي</button>` + crmSections.slice().sort((a, b) => crmByArabic(crmSectionOptionLabel(a), crmSectionOptionLabel(b))).map(s => {
     const on = c.sectionIds.has(s.id);
-    return `<button type="button" class="tl-chip-btn${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toolsToggleSection('${escapeHtml(s.id)}')">${escapeHtml(crmSectionOptionLabel(s))}</button>`;
+    return `<button type="button" class="tlx-chip${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toolsToggleSection('${escapeHtml(s.id)}')">${escapeHtml(crmSectionOptionLabel(s))}</button>`;
   }).join('');
-  const days = TOOLS_DAYS.map(d => `<button type="button" class="tl-day${c.days === d ? ' is-on' : ''}" aria-pressed="${c.days === d}" onclick="toolsPickDays(${d})">${d === 7 ? '7 أيام' : d + ' يومًا'}</button>`).join('');
+  const days = TOOLS_DAYS.map(d => `<button type="button" class="${c.days === d ? 'is-on' : ''}" aria-pressed="${c.days === d}" onclick="toolsPickDays(${d})">${d === 7 ? '7 أيام' : d + ' يومًا'}</button>`).join('');
   const qn = c.questions.length;
-  const qInfo = `<button type="button" class="tl-info tl-info-btn" onclick="toolsEditQuestions('create')"><span><b>${qn ? qn + ' ' + (qn === 1 ? 'سؤال' : 'أسئلة') : 'لا أسئلة بعد'}</b><small>${qn ? (c.qTouched ? 'عدّلتها بنفسك' : 'جاهزة بصيغة ' + escapeHtml(TOOLS_AUDIENCES[c.audience].who) + '، تعدّلها كما تشاء') : 'أضف سؤالك الأول'}</small></span><span class="tl-edit">تعديل ‹</span></button>`;
+  const qInfo = `<div class="tlx-box"><button type="button" class="tlx-row" onclick="toolsEditQuestions('create')"><span class="tlx-row-main"><b>${qn ? qn + ' ' + (qn === 1 ? 'سؤال' : 'أسئلة') : 'لا أسئلة بعد'}</b><small>${qn ? (c.qTouched ? 'عدّلتها بنفسك' : 'جاهزة بصيغة ' + escapeHtml(TOOLS_AUDIENCES[c.audience].who) + '، تعدّلها كما تشاء') : 'أضف سؤالك الأول'}</small></span><span class="tlx-go">تعديل ‹</span></button></div>`;
   let target, note;
   if(custom){
     const cnt = toolsRecipCount(c.recips, crmStudents);
-    target = `<div class="tl-field"><span class="tl-label">المستلمون</span><button type="button" class="tl-info tl-info-btn" onclick="toolsEditRecips()"><span><b>${cnt.links ? cnt.links + ' ' + (cnt.links === 1 ? 'رابط' : 'روابط') : 'اختر المستلمين'}</b><small>${cnt.links ? cnt.students + ' ' + (cnt.students === 1 ? 'طالب' : 'طلاب') + ' · ' + cnt.others + ' ' + (cnt.others === 1 ? 'جهة أخرى' : 'جهات أخرى') : 'طلاب بأعينهم أو جهات أخرى بالاسم والرقم'}</small></span><span class="tl-edit">اختيار ‹</span></button></div>`;
+    target = `<div class="tlx-lbl">المستلمون</div><div class="tlx-box"><button type="button" class="tlx-row" onclick="toolsEditRecips()"><span class="tlx-row-main"><b>${cnt.links ? cnt.links + ' ' + (cnt.links === 1 ? 'رابط' : 'روابط') : 'اختر المستلمين'}</b><small>${cnt.links ? cnt.students + ' ' + (cnt.students === 1 ? 'طالب' : 'طلاب') + ' · ' + cnt.others + ' ' + (cnt.others === 1 ? 'جهة أخرى' : 'جهات أخرى') : 'طلاب بأعينهم أو جهات أخرى بالاسم والرقم'}</small></span><span class="tlx-go">اختيار ‹</span></button></div>`;
     note = `${cnt.links} ${cnt.links === 1 ? 'رابط' : 'روابط'} · تظهر النتائج من أول ردّ، وتُنبَّه صفحة المستفيد أن العدد قليل · لا يُرسل شيء حتى تضغط واتساب بنفسك`;
   } else {
     const links = toolsExpectedLinks(crmStudents, [...c.sectionIds], c.audience);
-    target = `<div class="tl-field"><span class="tl-label">الشعب</span><div class="tl-chips">${secs}</div></div>`;
+    target = `<div class="tlx-lbl">الشعب</div><div class="tlx-chips">${secs}</div>`;
     note = `${links} ${links === 1 ? 'رابط' : 'روابط'} ${escapeHtml(TOOLS_AUDIENCES[c.audience].to)} بالشعب المختارة · لا يُرسل شيء حتى تضغط واتساب بنفسك`;
   }
   return `${toolsBackLink('الاستبانات', 'list')}
-    <div class="tl-field"><label for="toolsTitleInput">اسم الاستبانة</label><input id="toolsTitleInput" class="goal-input" type="text" maxlength="${SURVEY_LIMITS.maxTitle}" value="${escapeHtml(c.title)}" oninput="toolsSetTitleText(this.value)"></div>
-    <div class="tl-field"><span class="tl-label">لمن؟</span><div class="tl-opts tl-opts3">${who}</div></div>
+    <label class="tlx-lbl" for="toolsTitleInput">اسم الاستبانة</label><input id="toolsTitleInput" class="tlx-inp" type="text" maxlength="${SURVEY_LIMITS.maxTitle}" value="${escapeHtml(c.title)}" oninput="toolsSetTitleText(this.value)">
+    <div class="tlx-lbl">لمن؟</div><div class="tlx-opts tlx-opts3">${who}</div>
     ${target}
-    <div class="tl-field"><span class="tl-label">الأسئلة</span>${qInfo}</div>
-    <div class="tl-field"><span class="tl-label">ينتهي الرابط بعد</span><div class="tl-days">${days}</div></div>
-    <button type="button" class="btn btn-primary tl-create" id="toolsCreateBtn" onclick="toolsCreate()"${toolsCreateReady(c) ? '' : ' disabled'}>إنشاء الاستبانة</button>
-    <p class="tl-note">${note}</p>`;
+    <div class="tlx-lbl">الأسئلة</div>${qInfo}
+    <div class="tlx-lbl">ينتهي الرابط بعد</div><div class="tlx-seg" role="group" aria-label="مدة الرابط">${days}</div>
+    <p class="tlx-foot">${note}</p>
+    <div class="tlx-cta"><button type="button" class="tlx-btn is-navy" id="toolsCreateBtn" onclick="toolsCreate()"${toolsCreateReady(c) ? '' : ' disabled'}>إنشاء الاستبانة</button></div>`;
 }
 
 function toolsSetTitleText(v){

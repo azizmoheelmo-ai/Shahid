@@ -861,3 +861,53 @@ test('التنقل: الشاشات الثلاث داخل toolsView، والدر�
   assert.match(read('app/app-03-auth-home-risk.js'), /\['supportMsgNavBadge', 'riskNavBadge', 'toolsNavBadge'\]/);
   assert.doesNotMatch(A50, /function show[A-Z]\w*\(/, 'لا شاشة رئيسية جديدة: كلها داخل toolsView');
 });
+
+/* ============ الهوية الجديدة (3.48): ترتيب القائمة، قائمة الإجراءات، والتهريب في الكبسولات ============ */
+
+test('القائمة بالأولوية: «تحتاجك الآن» (إجابة جديدة أو موعد لم يُحسم) قبل «بانتظار الإجابة» ثم «مكتملة» ثم «منتهية»', async () => {
+  const k = makeApp({ rows: [
+    row('w', { leader_name: 'منتظر', created_at: '2026-11-09T00:00:00Z' }),
+    answered('d', { leader_name: 'مكتمل', seen_at: '2026-11-06T00:00:00Z', created_at: '2026-11-08T00:00:00Z' }),
+    row('e', { leader_name: 'منتهٍ', closes_at: new Date(Date.now() - 1000).toISOString(), created_at: '2026-11-07T00:00:00Z' }),
+    answered('n', { leader_name: 'جديدإجابة', created_at: '2026-11-01T00:00:00Z' }),
+    answered('m', { leader_name: 'موعدمعلّق', seen_at: '2026-11-06T00:00:00Z', chosen_slot: 'none', proposed_slot: '2026-11-20T10:00', created_at: '2026-11-02T00:00:00Z' })
+  ] });
+  runInAppContext(k.app, "showTools(); toolsGo('leaders')"); await tick(); await tick();
+  const html = k.html();
+  const at = s => html.indexOf(s);
+  assert.ok(at('تحتاجك الآن (2)') >= 0 && at('بانتظار الإجابة (1)') >= 0 && at('مكتملة (1)') >= 0 && at('منتهية (1)') >= 0);
+  assert.ok(at('تحتاجك الآن') < at('جديدإجابة') && at('تحتاجك الآن') < at('موعدمعلّق'), 'الجديد والموعد المعلّق في «تحتاجك الآن»');
+  assert.ok(at('موعدمعلّق') < at('بانتظار الإجابة') && at('بانتظار الإجابة') < at('منتظر') && at('منتظر') < at('مكتملة'));
+  assert.ok(at('مكتملة') < at('مكتمل<') && at('منتهية') < at('منتهٍ'));
+});
+
+test('التفاصيل: الإجراءات قائمة تتعطّل كلها أثناء عملية جارية، و«عرض الكل» للمؤشرات الكثيرة', async () => {
+  const many = Array.from({ length: 9 }, (_, i) => ({ id: 'i' + (i + 1), label: 'مؤشر رقم ' + (i + 1) }));
+  const k = makeApp({ rows: [row('a', { indicators: many })] });
+  await openDetail(k, 'a');
+  let html = k.html();
+  assert.match(html, /مؤشر رقم 4</); assert.doesNotMatch(html, /مؤشر رقم 5</, 'أول 4 فقط');
+  assert.match(html, /عرض الكل \(9\)/);
+  runInAppContext(k.app, 'lfToggleAllInds()');
+  assert.match(k.html(), /مؤشر رقم 9</);
+  for(const label of ['تعديل الطلب \\(المؤشرات والمواعيد\\)', 'تمديد 7 أيام', 'إلغاء الرابط', 'حذف الطلب', 'نسخ لمسؤول آخر']) assert.match(html, new RegExp(label));
+  runInAppContext(k.app, 'lfState.busy = true; renderTools();');
+  html = k.html();
+  const items = html.match(/<button type="button" class="tlx-mi[^>]*>/g) || [];
+  assert.equal(items.length, 6);
+  assert.ok(items.every(b => / disabled/.test(b)), 'لا نقرة مزدوجة على أي إجراء');
+  /* إعادة فتح الطلب تطوي القائمة من جديد */
+  runInAppContext(k.app, 'lfState.busy = false; lfOpen("a")'); await tick();
+  assert.doesNotMatch(k.html(), /مؤشر رقم 5</);
+});
+
+test('الإنشاء: اسم قالب المعلم يُهرَّب داخل الكبسولة، والكبسولة المختارة مميّزة', async () => {
+  const evil = '<img src=x onerror=alert(1)>';
+  const k = makeApp({ templates: [{ id: 'T1', teacher_id: 'u1', name: evil, indicators: [{ id: 'i1', label: 'س1' }], created_at: '2026-11-01T00:00:00Z' }] });
+  runInAppContext(k.app, "showTools(); toolsGo('leaders')"); await settle();
+  runInAppContext(k.app, "lfStartCreate(null)"); await settle();
+  assert.doesNotMatch(k.html(), /<img/); assert.match(k.html(), /&lt;img/);
+  runInAppContext(k.app, "lfStartFrom('t:T1')");
+  assert.match(k.html(), /class="tlx-chip is-on" aria-pressed="true" onclick="lfStartFrom\((?:'|&#39;)t:T1/);
+  assert.match(k.html(), /حذف هذا القالب/);
+});

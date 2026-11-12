@@ -127,7 +127,8 @@ test('التبويبات: «مخصّصة» لا تظهر إلا إن وُجدت�
   runInAppContext(a.app, `toolsSetFilter('student')`);
   const html = a.app.__els.toolsBody.innerHTML;
   assert.match(html, /للطلاب/);
-  assert.doesNotMatch(html, /لأولياء الأمور<span/);
+  assert.match(html, /للطلاب \(1\)/);
+  assert.doesNotMatch(html, /لأولياء الأمور \(/, 'تصنيف أولياء الأمور مخفي بالتصفية');
   const b = await loadList({ students: STUDENTS, campaigns: [camp('c1', 'custom', 0)] });
   assert.match(b.app.__els.toolsBody.innerHTML, /مخصّصة/);
 });
@@ -299,4 +300,17 @@ test('عنوان الاستبانة يُقصّ بحدّ القالب المشت�
   const { app } = await startCreate({ students: STUDENTS });
   runInAppContext(app, `toolsSetTitleText('أ'.repeat(200))`);
   assert.equal(runInAppContext(app, 'toolsState.create.title.length'), 80);
+});
+
+test('وضع الترتيب: صفوف بمقبض وسهمين، والسهمان يتعطّلان كلهما أثناء حفظ الترتيب', async () => {
+  const { app } = await loadList({ students: STUDENTS, campaigns: [camp('g1', 'guardian', 0), camp('g2', 'guardian', 1)] });
+  runInAppContext(app, 'toolsToggleSort()');
+  let html = app.__els.toolsBody.innerHTML;
+  assert.equal((html.match(/class="tlx-row is-sorting"/g) || []).length, 2);
+  assert.match(html, /toolsDragStart\(event,'g1'\)/);
+  runInAppContext(app, 'toolsState.busy = true; renderTools();');
+  html = app.__els.toolsBody.innerHTML;
+  const arrows = html.match(/<button type="button" class="tlx-x"[^>]*>/g) || [];
+  assert.equal(arrows.length, 4);
+  assert.ok(arrows.every(b => / disabled/.test(b)), 'لا نقرة مزدوجة أثناء الحفظ');
 });
