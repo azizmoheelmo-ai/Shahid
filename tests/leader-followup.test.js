@@ -912,9 +912,10 @@ test('الإنشاء: اسم قالب المعلم يُهرَّب داخل ال�
   assert.match(k.html(), /حذف هذا القالب/);
 });
 
-test('صفحة المسؤول بالهوية (3.49): رقم المؤشر شارة، عدّاد التقدّم، والأزرار في شريط ثابت — والسكربت يحدّث العدّاد', () => {
+test('صفحة المسؤول بالهوية (3.49): بلاطات تنطوي، عدّاد التقدّم، والأزرار في شريط ثابت — والسكربت يحدّث العدّاد', () => {
   const page = F.buildLeaderPage({ req: { role: 'مدير المدرسة', name: 'فهد', cycle: 'ف1', sender: 'ع', indicators: IND, slots: SLOTS, draft: { a: { i1: { s: 'done' } }, slot: null } }, taken: [] }, 'N');
-  assert.match(page, /<legend><span class="n">1<\/span> <bdi>/);
+  assert.match(page, /<legend><button type="button" class="tg" aria-expanded="true"><span class="n">1<\/span> <span class="tx"><bdi>/, 'رأس البلاطة زر يطويها');
+  assert.match(page, /<button type="button" class="dn" hidden>تم<\/button><\/div><\/fieldset>/);
   assert.match(page, /حدّدت <b id="pgn">1<\/b> من 2/, 'العدّاد يبدأ من المسودة');
   assert.match(page, /<div class="acts"><button type="button" class="sec" id="sd">حفظ والإكمال لاحقًا<\/button><button type="submit" id="sb">إرسال الإجابة<\/button><\/div><\/form>/);
   const script = /<script nonce="N">([\s\S]*)<\/script>/.exec(page)[1];

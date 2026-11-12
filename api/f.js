@@ -74,6 +74,15 @@ const CSS = ':root{--navy:#1B3245;--gold:#A9852E;--gold-text:#876A25;--paper:#F7
   + 'fieldset{border:1px solid var(--line);border-radius:var(--r-card);background:var(--card);margin:10px 0;padding:12px;min-width:0;scroll-margin-top:70px}'
   + 'legend{float:right;width:100%;display:flex;align-items:flex-start;gap:8px;padding:0;margin:0 0 10px;font-weight:700;color:var(--navy);font-size:.98rem;line-height:1.6}'
   + 'legend+*{clear:both}.n{flex:none;min-width:24px;height:24px;border-radius:6px;background:var(--icon);color:var(--navy);font-size:.78rem;font-weight:800;display:grid;place-items:center;margin-top:1px}'
+  /* البلاطة تنطوي (fieldset.cl): يبقى رأسها فقط — الرقم بلون الحالة، والمؤشر، وأول السبب، وشارة الحالة */
+  + 'fieldset[data-i] legend{margin:0}button.tg{display:flex;align-items:flex-start;gap:8px;width:100%;min-height:0;margin:0;padding:2px 0;border:0;border-radius:8px;background:none;color:var(--navy);font:inherit;font-weight:700;font-size:.98rem;line-height:1.6;text-align:start;box-shadow:none}'
+  + '.tx{flex:1;min-width:0}.tx bdi{display:block}.pr{display:none;font-weight:400;font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+  + '.pv{flex:none;font-size:.75rem;font-weight:700;border-radius:999px;padding:1px 9px;margin-top:3px}.pv:empty{display:none}'
+  + '.pv.p-done{background:#E7F0EA;color:var(--ok)}.pv.p-wip{background:#F6EFD9;color:var(--warn)}.pv.p-no{background:var(--danger-bg);color:var(--danger)}'
+  + '.n.n-done{background:var(--ok);color:#fff}.n.n-wip{background:var(--warn);color:#fff}.n.n-no{background:var(--danger);color:#fff}'
+  + '.ch{flex:none;color:var(--muted);font-size:.85rem;margin-top:3px;transition:transform .2s}fieldset.cl .ch{transform:rotate(180deg)}'
+  + '.bd{clear:both;padding-top:10px}fieldset.cl .bd{display:none}fieldset.cl .pr{display:block}fieldset.cl{padding:10px 12px}'
+  + 'button.dn{display:block;width:auto;min-height:38px;margin:10px 0 0 auto;margin-inline-start:auto;padding:6px 18px;background:var(--card);color:var(--navy);border:1px solid var(--line);border-radius:10px;font-size:.9rem}'
   + 'fieldset.miss{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}'
   + '.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;background:var(--track);border-radius:var(--r-btn)}'
   + '.opts.col{grid-template-columns:1fr;gap:6px;padding:0;background:none}'
@@ -127,7 +136,14 @@ function ok(t){k.textContent=t;k.hidden=!t;}
 function len(s){return Array.from(s).length;}
 function st(fs){var x=fs.querySelector('input:checked');return x?x.value:'';}
 function sync(fs){var s=st(fs),box=fs.querySelector('.rs'),ta=fs.querySelector('textarea');box.hidden=!s&&!ta.value;
-ta.placeholder=s==='done'?'ملاحظة (اختياري)':'اكتب السبب (مطلوب)';prog();}
+ta.placeholder=s==='done'?'ملاحظة (اختياري)':'اكتب السبب (مطلوب)';head(fs);prog();}
+function head(fs){var s=st(fs),r=fs.querySelector('textarea').value.trim(),pv=fs.querySelector('.pv'),pr=fs.querySelector('.pr');
+fs.querySelector('.n').className='n'+(s?' n-'+s:'');pv.className='pv'+(s?' p-'+s:'');pv.textContent=s?L[s]:'';pr.textContent=r;fs.querySelector('.dn').hidden=!s;}
+function fold(fs,c){fs.classList.toggle('cl',c);fs.querySelector('.tg').setAttribute('aria-expanded',c?'false':'true');}
+function nextOpen(fs){var i=items.indexOf(fs),n=items.slice(i+1).concat(items.slice(0,i)).filter(function(x){return !st(x);})[0];
+var t=n||slotFs||b;if(n)fold(n,false);t.scrollIntoView({behavior:'smooth',block:'start'});}
+function finish(fs){var s=st(fs),ta=fs.querySelector('textarea');if(!s)return;if(s!=='done'&&!ta.value.trim()){fs.classList.add('miss');ta.focus();return;}
+fs.classList.remove('miss');fold(fs,true);nextOpen(fs);}
 function prog(){var n=items.filter(function(x){return !!st(x);}).length,e=document.getElementById('pgn'),g=document.getElementById('pgb');if(e)e.textContent=n;if(g)g.style.width=(items.length?Math.round(n*100/items.length):0)+'%';}
 function collect(){var a={};items.forEach(function(fs){var s=st(fs),r=fs.querySelector('textarea').value;if(s||r.trim())a[fs.getAttribute('data-i')]=r.trim()?{s:s,r:r}:{s:s};});
 var sl=slotFs&&slotFs.querySelector('input:checked');return {a:a,slot:sl?sl.value:null,p:ppd?ppd.value:'',n:ppn?ppn.value:''};}
@@ -142,10 +158,13 @@ if(ppd&&typeof x.p==='string')ppd.value=x.p;if(ppn&&typeof x.n==='string')ppn.va
 function clear(){try{localStorage.removeItem(KEY);}catch(e){}}
 items.forEach(function(fs){var ta=fs.querySelector('textarea'),c=fs.querySelector('.cnt');
 ta.addEventListener('input',function(){if(len(ta.value)>MAXR)ta.value=Array.from(ta.value).slice(0,MAXR).join('');c.textContent=len(ta.value)+' / '+MAXR;fs.classList.remove('miss');ok('');save();});
-fs.addEventListener('change',function(){fs.classList.remove('miss');sync(fs);ok('');save();});sync(fs);});
+fs.addEventListener('change',function(e){fs.classList.remove('miss');sync(fs);ok('');save();if(e.target.type==='radio'&&st(fs)==='done')finish(fs);});
+fs.querySelector('.tg').addEventListener('click',function(){fold(fs,!fs.classList.contains('cl'));});
+fs.querySelector('.dn').addEventListener('click',function(){finish(fs);});sync(fs);});
 if(slotFs){slotFs.addEventListener('change',function(){slotFs.classList.remove('miss');pTog();ok('');save();});
 if(ppn)ppn.addEventListener('input',function(){ok('');save();});}
 restore();
+(function(){var first=items.filter(function(x){return !st(x);})[0];items.forEach(function(x){fold(x,x!==first);});})();
 function lock(t,btn){busy=true;b.disabled=true;d.disabled=true;btn.textContent=t;}
 function unlock(){busy=false;b.disabled=false;d.disabled=false;b.textContent='إرسال الإجابة';d.textContent='حفظ والإكمال لاحقًا';}
 function post(body){return fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'omit',cache:'no-store'})
@@ -161,7 +180,7 @@ if(dead(o))return;unlock();say(o.s===400?'تعذّر الحفظ: راجع الن
 .catch(function(){unlock();say('تعذّر الاتصال. ما كتبته محفوظ على جهازك؛ حاول الحفظ مرة أخرى.');});});
 function done(a,slotText){var ul=document.getElementById('cp');ul.textContent='';
 items.forEach(function(fs){var li=document.createElement('li'),t=document.createElement('b'),s=document.createElement('small'),x=a[fs.getAttribute('data-i')];
-t.textContent=fs.querySelector('legend').textContent;s.textContent=L[x.s]+(x.r?' — '+x.r:'');li.appendChild(t);li.appendChild(s);ul.appendChild(li);});
+t.textContent=fs.querySelector('.n').textContent+'. '+fs.querySelector('.tx bdi').textContent;s.textContent=L[x.s]+(x.r?' — '+x.r:'');li.appendChild(t);li.appendChild(s);ul.appendChild(li);});
 if(slotText){var li=document.createElement('li'),t=document.createElement('b'),s=document.createElement('small');t.textContent='موعد اللقاء';s.textContent=slotText;li.appendChild(t);li.appendChild(s);ul.appendChild(li);}
 f.hidden=true;document.getElementById('hd').hidden=true;document.getElementById('pg').hidden=true;document.getElementById('st').hidden=false;window.scrollTo(0,0);}
 f.addEventListener('submit',function(e){e.preventDefault();if(busy)return;
@@ -173,7 +192,7 @@ var prop=null,note='';
 if(slotFs){slotFs.classList.remove('miss');var sx=slotFs.querySelector('input[name="slot"]:checked');if(!sx)miss.push(slotFs);else{slot=sx.value;slotText=sx.parentNode.textContent;
 if(slot===NONE){prop=ppd&&ppd.value?ppd.value:null;note=ppn?ppn.value.trim():'';
 slotText=prop?'اقترحتُ موعدًا آخر: '+lab(prop):'لا يناسبني أي موعد';if(note)slotText+=' — '+note;}}}
-if(miss.length){miss.forEach(function(fs){fs.classList.add('miss');});say('بقي '+miss.length+' مما يلزم قبل الإرسال (المميَّز باللون): حالة كل مؤشر، والسبب لما لم يُنفَّذ أو قيد التنفيذ، والموعد. إن أردت الإكمال لاحقًا اضغط «حفظ والإكمال لاحقًا».');
+if(miss.length){miss.forEach(function(fs){fs.classList.add('miss');if(fs!==slotFs)fold(fs,false);});say('بقي '+miss.length+' مما يلزم قبل الإرسال (المميَّز باللون): حالة كل مؤشر، والسبب لما لم يُنفَّذ أو قيد التنفيذ، والموعد. إن أردت الإكمال لاحقًا اضغط «حفظ والإكمال لاحقًا».');
 miss[0].scrollIntoView({behavior:'smooth',block:'center'});return;}
 lock('جارٍ الإرسال…',b);say('');
 post({a:a,slot:slot,proposed:prop,note:note||null}).then(function(o){if(o.j&&o.j.ok){clear();done(a,slotText);return;}
@@ -193,9 +212,10 @@ function indicatorHtml(ind, k, saved){
   const x = saved || {};
   const states = Object.keys(LEADER_ANSWER_STATES).map(s => radio('s-' + ind.id, s, 's-' + s, escapeHtml(LEADER_ANSWER_STATES[s]), false, x.s === s)).join('');
   const r = typeof x.r === 'string' ? x.r : '';
-  return `<fieldset data-i="${escapeHtml(ind.id)}"><legend><span class="n">${k + 1}</span> <bdi>${escapeHtml(ind.label)}</bdi></legend>`
-    + `<div class="opts">${states}</div>`
-    + `<div class="rs"${x.s || r ? '' : ' hidden'}><textarea maxlength="${LEADER_LIMITS.maxReason}" aria-label="سبب أو ملاحظة">${escapeHtml(r)}</textarea><small class="cnt" aria-live="polite">${Array.from(r).length} / ${LEADER_LIMITS.maxReason}</small></div></fieldset>`;
+  return `<fieldset data-i="${escapeHtml(ind.id)}"><legend><button type="button" class="tg" aria-expanded="true"><span class="n">${k + 1}</span> <span class="tx"><bdi>${escapeHtml(ind.label)}</bdi><small class="pr"></small></span><span class="pv"></span><span class="ch" aria-hidden="true">⌃</span></button></legend>`
+    + `<div class="bd"><div class="opts">${states}</div>`
+    + `<div class="rs"${x.s || r ? '' : ' hidden'}><textarea maxlength="${LEADER_LIMITS.maxReason}" aria-label="سبب أو ملاحظة">${escapeHtml(r)}</textarea><small class="cnt" aria-live="polite">${Array.from(r).length} / ${LEADER_LIMITS.maxReason}</small></div>`
+    + `<button type="button" class="dn" hidden>تم</button></div></fieldset>`;
 }
 
 function slotsHtml(slots, taken, savedSlot){
