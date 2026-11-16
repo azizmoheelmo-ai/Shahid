@@ -288,7 +288,7 @@ async function renderCrmTasks(students, selectId){
   const ungrouped = glist.length ? assigned.filter(st => !groups.get(st.id)) : assigned;
   const byId = new Map(students.map(st => [st.id, st]));
   const isGroupTask = id => [...(gidx.get(id) || new Map()).values()].some(Boolean);
-  s.task = { data, column, selectedId, scores, groups, queue: new Map(), term, pick: null };
+  s.task = { data, column, selectedId, scores, groups, queue: new Map(), term, pick: null, chgKey: 'task:' + selectedId };
   body.innerHTML = head + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmTasks(crmStudentsOfSection(crmSheet.sectionId), this.value)">

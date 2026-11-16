@@ -56,7 +56,7 @@ async function renderCrmTestMode(students, selectId){
       }
     }
     if(crmSheet !== s || s.token !== token || s.mode !== 'test') return;
-    s.test = { tests, selectedId, values: new Map(scores.map(r => [r.student_id, Number(r.score)])), queue: new Map(), term };
+    s.test = { tests, selectedId, values: new Map(scores.map(r => [r.student_id, Number(r.score)])), queue: new Map(), term, chgKey: 'test:' + selectedId };
     s.rubric = rubricInfo ? rubricInitState(tests.find(x => x.id === selectedId), rubricInfo.criteria, rubricInfo.marks, s.test.values, students, rubricInfo.notes) : null;
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== 'test') return;

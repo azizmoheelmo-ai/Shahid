@@ -260,7 +260,8 @@ async function renderCrmParticipation(students, tool){
   }
   const saved = readParticipationState(s, tool ? tool.id : null, period);
   const full = gradeStartsFull(tool ? 'tool:' + tool.id : 'participation');
-  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full, step: full ? -1 : 1, period };
+  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full, step: full ? -1 : 1, period,
+    chgKey: `part:${tool ? tool.id : column.id}:${lessonKey(s.sectionId, s.dateIso, s.period)}:${period}` };
   /* الشارة والشرح للمكوّن الذي له أكثر من فترة */
   const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
@@ -318,6 +319,7 @@ function queueCrmParticipation(studentId, delta, kind){
         : { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta });
     if(error) throw error;
     crmLogSaved(p, [studentId]);
+    crmLogTouch(p, studentId);
     if(typeof invalidateAttention === 'function') invalidateAttention(); /* الدرجة تغيّرت: بطاقات الدرجات تُحسب من جديد عند الحاجة */
     if(crmSheet === s && s.part === p){
       const v = Number(data);
@@ -419,7 +421,7 @@ async function renderCrmHomework(students, selectId){
   }
   if(crmSheet !== s || s.token !== token || s.mode !== 'homework') return;
   const selectedId = (selectId && hw.homeworks.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(hw.homeworks, s.dateIso);
-  s.hw = { data: hw, column, selectedId, queue: new Map(), term };
+  s.hw = { data: hw, column, selectedId, queue: new Map(), term, chgKey: 'hw:' + selectedId };
   if(!hw.homeworks.length){
     body.innerHTML = head + `<div class="empty-state">لا واجبات لهذه الشعبة بعد.</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmHomeworkModal()">+ واجب جديد</button>

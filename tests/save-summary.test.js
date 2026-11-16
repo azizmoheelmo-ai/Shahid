@@ -129,7 +129,7 @@ test('الأسماء الكثيرة تُختصر: أول 15 ثم "و N غيره�
   assert.doesNotMatch(app.crmSummaryNames(names), /ط15/);
 });
 
-test('ماذا تغيّر؟ (اختبار): مطويّ، كانت ← صارت بالفرق، المعدّل والممسوح قبل الجديد، والعائد لقيمته لا يظهر', async () => {
+test('ماذا تغيّر اليوم؟ (اختبار): مطويّ، كانت ← صارت بالفرق، المعدّل والممسوح قبل الجديد، والعائد لقيمته لا يظهر', async () => {
   const app = appWith();
   testSheet(app);
   runInAppContext(app, `crmSheet.test.values = new Map([['a', 15], ['b', 6], ['c', 11]]);`);
@@ -139,17 +139,17 @@ test('ماذا تغيّر؟ (اختبار): مطويّ، كانت ← صارت �
   await app.saveCrmTestInput(get(app, `__input('c', '')`));     /* مُسحت */
   await app.saveCrmTestInput(get(app, `__input('a', '16')`));   /* ما زالت من 15 */
   const h = modal(app) || (await app.finishCrmLessonSheet(), modal(app));
-  assert.match(h, /<details class="crm-ch"><summary><span>ماذا تغيّر؟ \(4\)<\/span><span class="crm-ch-brief">1 جديدة · 2 معدّلة · 1 مُسحت<\/span>/);
+  assert.match(h, /<details class="crm-ch"><summary><span>ماذا تغيّر اليوم؟ \(4\)<\/span><span class="crm-ch-brief">[^<]* · 1 جديدة · 2 معدّلة · 1 مُسحت<\/span>/);
   assert.doesNotMatch(h, /<details[^>]*open/, 'مطويّ افتراضيًا');
-  assert.match(h, /أحمد<\/span><span class="crm-ch-v"><span class="crm-ch-old">15<\/span>←<b>16<\/b><span class="crm-ch-tag is-up" dir="ltr">\+1</);
-  assert.match(h, /بدر &lt;i&gt;x&lt;\/i&gt;<\/span>[\s\S]*?6<\/span>←<b>4<\/b><span class="crm-ch-tag is-down" dir="ltr">−2</);
+  assert.match(h, /أحمد<span class="crm-ch-time">\d+:\d\d<\/span><\/span><span class="crm-ch-v"><span class="crm-ch-old">15<\/span>←<b>16<\/b><span class="crm-ch-tag is-up" dir="ltr">\+1</);
+  assert.match(h, /بدر &lt;i&gt;x&lt;\/i&gt;<span class="crm-ch-time">\d+:\d\d<\/span><\/span>[\s\S]*?6<\/span>←<b>4<\/b><span class="crm-ch-tag is-down" dir="ltr">−2</);
   assert.match(h, /جابر[\s\S]*?11<\/span>←<b>—<\/b><span class="crm-ch-tag is-del">مُسحت/);
   assert.ok(h.indexOf('جابر') < h.indexOf('داود'), 'الممسوح قبل الجديد');
-  assert.match(h, /داود<\/span><span class="crm-ch-v"><b>20<\/b><span class="crm-ch-tag is-new">جديدة/);
+  assert.match(h, /داود<span class="crm-ch-time">\d+:\d\d<\/span><\/span><span class="crm-ch-v"><b>20<\/b><span class="crm-ch-tag is-new">جديدة/);
   runInAppContext(app, 'window.__modal = []');
   await app.saveCrmTestInput(get(app, `__input('a', '15')`));   /* رجعت كما كانت */
   await app.finishCrmLessonSheet();
-  assert.match(modal(app), /ماذا تغيّر؟ \(3\)/);
+  assert.match(modal(app), /ماذا تغيّر اليوم؟ \(3\)/);
 });
 
 test('ماذا تغيّر؟: الفاشل لا يُعدّ تغيّرًا', async () => {
@@ -157,10 +157,10 @@ test('ماذا تغيّر؟: الفاشل لا يُعدّ تغيّرًا', async
   testSheet(app);
   await app.saveCrmTestInput(get(app, `__input('c', '9')`));
   await app.finishCrmLessonSheet();
-  assert.doesNotMatch(modal(app), /ماذا تغيّر/);
+  assert.doesNotMatch(modal(app), /ماذا تغيّر اليوم/);
 });
 
-test('ماذا تغيّر؟ (واجب): الحالة كانت ← صارت', async () => {
+test('ماذا تغيّر اليوم؟ (واجب): الحالة كانت ← صارت', async () => {
   const app = appWith();
   runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-11-16', period: 1, token: 1, mode: 'homework', states: {},
     hw: { selectedId: 'H', data: { homeworks: [{ id: 'H', title: 'واجب ١' }], statusRows: [] }, column: null, queue: new Map(), statuses: new Map() } };
@@ -168,15 +168,60 @@ test('ماذا تغيّر؟ (واجب): الحالة كانت ← صارت', asy
   app.tapCrmHomework('a');
   await get(app, 'crmSheet.hw.queue.get("a")');
   await app.finishCrmLessonSheet();
-  assert.match(modal(app), /أحمد<\/span><span class="crm-ch-v"><span class="crm-ch-old">لم يسلّم<\/span>←<b>سلّم<\/b>/);
+  assert.match(modal(app), /أحمد<span class="crm-ch-time">\d+:\d\d<\/span><\/span><span class="crm-ch-v"><span class="crm-ch-old">لم يسلّم<\/span>←<b>سلّم<\/b>/);
 });
 
-test('ماذا تغيّر؟ (مشاركة): +عدد اليوم والدرجة الآن', async () => {
+test('ماذا تغيّر اليوم؟ (مشاركة): +عدد اليوم والدرجة الآن', async () => {
   const app = appWith();
   runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-11-16', period: 1, token: 1, mode: 'participation', states: {},
     part: { column: { id: 'C', name: 'المشاركة', max_score: 10 }, scores: new Map(), today: {}, undo: [], queue: new Map(), toolId: null, step: 1 } };
     paintCrmParticipation = () => {}; writeParticipationState = () => {};`);
   app.tapCrmParticipation('a'); app.tapCrmParticipation('a');
   await app.finishCrmLessonSheet();
-  assert.match(modal(app), /أحمد<\/span><span class="crm-ch-v"><span class="crm-ch-tag is-up" dir="ltr">\+2<\/span><span class="crm-ch-old">الآن \d+ \/ 10/);
+  assert.match(modal(app), /أحمد<span class="crm-ch-time">\d+:\d\d<\/span><\/span><span class="crm-ch-v"><span class="crm-ch-tag is-up" dir="ltr">\+2<\/span><span class="crm-ch-old">الآن \d+ \/ 10/);
+});
+
+const reopenTest = app => runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-11-16', period: 1, token: 2, mode: 'test', states: {},
+  test: { tests: [{ id: 'T', name: 'الاختبار الأول', max_score: 20 }], selectedId: 'T', values: new Map([['a', 12]]), queue: new Map(), chgKey: 'test:T' } };`);
+
+test('ماذا تغيّر اليوم؟ يبقى بعد "رجوع" وإعادة الفتح (نفس الجهاز واليوم)، مع تاريخ اليوم ووقت التعديل', async () => {
+  const app = appWith();
+  reopenTest(app);
+  runInAppContext(app, `crmSheet.test.values = new Map();`);
+  await app.saveCrmTestInput(get(app, `__input('a', '12')`));
+  reopenTest(app); /* فتح جديد: سجل جلسة جديد */
+  await app.finishCrmLessonSheet();
+  const h = modal(app);
+  assert.match(h, /✓ لا تعديلات جديدة — كل الدرجات محفوظة/);
+  const today = get(app, 'crmTodayLabel()');
+  assert.match(today, /^(الأحد|الاثنين|الثلاثاء|الأربعاء|الخميس|الجمعة|السبت) \d{1,2}\/\d{1,2}$/);
+  assert.ok(h.includes(`ماذا تغيّر اليوم؟ (1)</span><span class="crm-ch-brief">${today} · 1 جديدة</span>`));
+  assert.match(h, /أحمد<span class="crm-ch-time">\d{1,2}:\d\d<\/span>/);
+  const stored = get(app, `localStorage.getItem('crm_chg:u1:test:T:' + localIsoDate())`);
+  assert.doesNotMatch(stored, /أحمد/, 'لا أسماء على الجهاز');
+});
+
+test('ماذا تغيّر اليوم؟ لكل مستخدم وحده، ولكل اختبار وحده', async () => {
+  const app = appWith();
+  reopenTest(app);
+  await app.saveCrmTestInput(get(app, `__input('b', '5')`));
+  runInAppContext(app, `currentUser = { id: 'u2' };`);
+  reopenTest(app);
+  await app.finishCrmLessonSheet();
+  assert.doesNotMatch(modal(app), /ماذا تغيّر اليوم/);
+  runInAppContext(app, `currentUser = { id: 'u1' }; window.__modal = [];`);
+  reopenTest(app);
+  runInAppContext(app, `crmSheet.test.chgKey = 'test:T2'`);
+  await app.finishCrmLessonSheet();
+  assert.doesNotMatch(modal(app), /ماذا تغيّر اليوم/);
+});
+
+test('سجل "ماذا تغيّر" يُنظَّف بعد يومين', () => {
+  const app = appWith();
+  runInAppContext(app, `localStorage.setItem('crm_chg:u1:test:T:' + addDaysIso(localIsoDate(), -3), '{}');
+    localStorage.setItem('crm_chg:u1:test:T:' + addDaysIso(localIsoDate(), -1), '{}');
+    localStorage.setItem('other', '1'); crmChangesPruned = ''; crmChangesPrune();`);
+  assert.equal(get(app, `localStorage.getItem('crm_chg:u1:test:T:' + addDaysIso(localIsoDate(), -3))`), null);
+  assert.equal(get(app, `localStorage.getItem('crm_chg:u1:test:T:' + addDaysIso(localIsoDate(), -1))`), '{}');
+  assert.equal(get(app, `localStorage.getItem('other')`), '1');
 });
