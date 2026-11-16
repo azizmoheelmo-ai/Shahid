@@ -1070,17 +1070,183 @@ async function finishCrmLessonSheet(){
   if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الحفظ...'; }
   try{
     s.failed = false;
+    /* خانة اختبار ما زال المؤشر فيها: تُحفظ قبل الملخص (لا يُعتمد على خروج المؤشر وحده) */
+    try{
+      const a = document.activeElement;
+      if(a && a.classList && a.classList.contains('crm-test-input') && !a.classList.contains('is-invalid') && typeof saveCrmTestInput === 'function') saveCrmTestInput(a);
+    } catch(e){}
     for(let i = 0; i < 100 && ((typeof crmHwBulkBusy !== 'undefined' && crmHwBulkBusy) || (typeof crmToolBulkBusy !== 'undefined' && crmToolBulkBusy)); i++){
       await new Promise(r => setTimeout(r, 50));
     }
     await Promise.allSettled(crmSheetPendingWrites(s));
     if(crmSheet !== s) return;
-    if(s.failed){ showToast('لم يكتمل الحفظ — راجع الرسالة الحمراء ثم أعد المحاولة', 'error'); return; }
-    showToast('تم الحفظ ✓', 'ok'); /* يبقى في مكانه — الخروج بـ"رجوع" */
+    showCrmSaveSummary(s); /* يبقى في مكانه — الخروج بـ"رجوع" */
   } finally {
     crmSheetFinishing = false;
     if(btn && btn.isConnected){ btn.disabled = false; btn.textContent = label; }
   }
+}
+
+/* ============ ملخص زر "حفظ" ============
+   الرصد في الأدوات يُحفظ بنقرته/خانته، فلا يعرف المعلم ماذا حُفظ فعلًا. الملخص بعد "حفظ" يقول:
+   كم حُفظ، وما لم يُحفظ (بالاسم والسبب)، ومن بقي بلا رصد (والغائبون منهم على حدة).
+   سجل الحفظ على كائن الوضع (s.test/s.hw/s.task/s.tool/s.part): لكل طالب نتيجة آخر حفظ له. */
+function crmSaveLog(st){
+  if(!st) return null;
+  if(!st.log) st.log = { ok: new Set(), fail: new Map() };
+  return st.log;
+}
+function crmLogSaved(st, ids){
+  const l = crmSaveLog(st);
+  if(l) (ids || []).forEach(id => { l.ok.add(id); l.fail.delete(id); });
+}
+function crmLogFailed(st, ids, reason){
+  const l = crmSaveLog(st);
+  if(l) (ids || []).forEach(id => { l.ok.delete(id); l.fail.set(id, reason || 'خطأ بالاتصال'); });
+}
+function crmLogClearFail(st, id){
+  const l = st && st.log;
+  if(l) l.fail.delete(id);
+}
+
+const CRM_GRADE_COUNT_FORMS = { one: 'درجة واحدة', two: 'درجتين', few: '{n} درجات', many: '{n} درجة' };
+const CRM_STATE_COUNT_FORMS = { one: 'حالة واحدة', two: 'حالتين', few: '{n} حالات', many: '{n} حالة' };
+const CRM_SUMMARY_MAX_NAMES = 15;
+
+/* كائن الوضع المعروض الآن (أداة "عدّاد" خاصة تُرصد بمحرّك المشاركة) */
+function crmModeState(s){
+  const m = s.mode || '';
+  if(m === 'participation') return { kind: 'part', st: s.part };
+  if(m.indexOf('tool:') === 0){
+    const id = m.slice(5);
+    if(s.part && s.part.toolId === id) return { kind: 'part', st: s.part };
+    return { kind: 'tool', st: s.tool && s.tool.tool && s.tool.tool.id === id ? s.tool : null };
+  }
+  if(m === 'homework') return { kind: 'hw', st: s.hw };
+  if(m === 'task') return { kind: 'task', st: s.task };
+  if(m === 'test') return { kind: 'test', st: s.test };
+  return { kind: null, st: null };
+}
+
+/* محتوى الملخص (بلا HTML) — يُختبر وحده */
+function crmSaveSummaryInfo(s){
+  const { kind, st } = crmModeState(s);
+  const students = crmStudentsOfSection(s.sectionId);
+  const ids = students.map(x => x.id);
+  const nameOf = id => { const x = students.find(y => y.id === id) || (crmStudents || []).find(y => y.id === id); return x ? x.full_name : ''; };
+  const log = (st && st.log) || { ok: new Set(), fail: new Map() };
+  const fails = [...log.fail.entries()].map(([id, reason]) => ({ name: nameOf(id), reason }));
+  const info = { kind, subtitle: crmSectionLabel(s.sectionId), lines: [], fails, missing: null, savedNote: '' };
+  const savedPhrase = forms => log.ok.size ? 'تم حفظ ' + arabicCountPhrase(log.ok.size, forms) : '';
+  let missingIds = [], missingLabel = '';
+  if(kind === 'test' && st){
+    const test = (st.tests || []).find(x => x.id === st.selectedId);
+    if(test) info.subtitle = test.name + ' · ' + info.subtitle;
+    const n = ids.filter(id => st.values.has(id)).length;
+    info.savedNote = savedPhrase(CRM_GRADE_COUNT_FORMS);
+    info.lines.push(`مرصود: ${n} من ${ids.length}`);
+    missingIds = ids.filter(id => !st.values.has(id)); missingLabel = 'بلا درجة';
+  } else if(kind === 'hw' && st){
+    const hw = st.data && (st.data.homeworks || []).find(h => h.id === st.selectedId);
+    if(hw) info.subtitle = hw.title + ' · ' + info.subtitle;
+    const statuses = st.statuses || new Map();
+    const c = homeworkCounts(statuses, ids);
+    info.savedNote = savedPhrase(CRM_STATE_COUNT_FORMS);
+    info.lines.push(`سلّم ${c.submitted} · ناقص ${c.partial} · متأخر ${c.late} · لم يسلّم ${c.missing}`);
+    missingIds = ids.filter(id => !statuses.has(id) || statuses.get(id) === 'missing'); missingLabel = 'لم يسلّم';
+  } else if(kind === 'task' && st){
+    const task = st.data && (st.data.tasks || []).find(t => t.id === st.selectedId);
+    if(task) info.subtitle = task.title + ' · ' + info.subtitle;
+    const assigned = ids.filter(id => st.scores.has(id));
+    const graded = assigned.filter(id => st.scores.get(id) !== null && st.scores.get(id) !== undefined);
+    info.savedNote = savedPhrase(CRM_GRADE_COUNT_FORMS);
+    info.lines.push(`قُيّم ${graded.length} من ${assigned.length}`);
+    missingIds = assigned.filter(id => !graded.includes(id)); missingLabel = 'لم يُقيَّم';
+  } else if(kind === 'tool' && st){
+    info.subtitle = st.tool.name + ' · ' + info.subtitle;
+    const vals = ids.filter(id => st.values.has(id));
+    if(st.tool.tool_type === 'status'){
+      const done = vals.filter(id => st.values.get(id) >= 1).length;
+      info.savedNote = savedPhrase(CRM_STATE_COUNT_FORMS);
+      info.lines.push(`تمّ ${done} · لم يتمّ ${vals.length - done} · لم يُرصد ${ids.length - vals.length}`);
+    } else {
+      info.savedNote = savedPhrase(CRM_GRADE_COUNT_FORMS);
+      info.lines.push(`مرصود: ${vals.length} من ${ids.length}`);
+    }
+    missingIds = ids.filter(id => !st.values.has(id)); missingLabel = 'لم يُرصد';
+  } else if(kind === 'part' && st){
+    if(st.column) info.subtitle = st.column.name + ' · ' + info.subtitle;
+    const today = st.today || {};
+    const k = ids.filter(id => today[id]).length;
+    info.savedNote = log.ok.size ? 'تم حفظ النقرات' : '';
+    info.lines.push(k ? `رُصد في هذه الحصة لـ${arabicCountPhrase(k, CRM_STUDENT_COUNT_FORMS)}` : 'لا نقرات في هذه الحصة بعد');
+    /* لا قائمة "لم يشارك": أغلب الطلاب لا يشاركون كل حصة فتطول بلا فائدة */
+  }
+  if(missingIds.length){
+    const absent = id => s.states && s.states[id] === 'absent';
+    info.missing = { label: missingLabel, names: missingIds.filter(id => !absent(id)).map(nameOf), absent: missingIds.filter(absent).map(nameOf) };
+  }
+  /* فشل لم يُنسب لطالب بعينه (كتحديث عمود الكشف) */
+  info.generalFail = !!s.failed && !fails.length;
+  return info;
+}
+
+function crmSummaryNames(names){
+  const shown = names.slice(0, CRM_SUMMARY_MAX_NAMES).map(escapeHtml).join('، ');
+  return names.length > CRM_SUMMARY_MAX_NAMES ? `${shown} و${names.length - CRM_SUMMARY_MAX_NAMES} غيرهم` : shown;
+}
+
+/* نافذة تبقى حتى يضغط المعلم "تم" */
+function showCrmSummaryModal(html){
+  showInfoModal(html, '420px');
+  const btn = typeof document !== 'undefined' && document.getElementById ? document.getElementById('confirmCancelBtn') : null;
+  if(btn) btn.textContent = 'تم';
+}
+
+function showCrmSaveSummary(s){
+  const info = crmSaveSummaryInfo(s);
+  const failed = info.fails.length || info.generalFail;
+  const title = failed ? '⚠ لم يُحفظ كل شيء' : '✓ ' + (info.savedNote || 'كل ما في الشاشة محفوظ');
+  let html = `<div class="crm-save-sum${failed ? ' is-fail' : ''}">
+    <h3>${escapeHtml(title)}</h3>
+    <div class="crm-save-sub">${escapeHtml(info.subtitle)}</div>
+    ${failed && info.savedNote ? `<div class="crm-save-line">✓ ${escapeHtml(info.savedNote)}</div>` : ''}
+    ${info.lines.map(l => `<div class="crm-save-line">${escapeHtml(l)}</div>`).join('')}`;
+  if(info.fails.length){
+    html += `<div class="crm-save-box is-fail"><b>لم يُحفظ (${info.fails.length}):</b>${info.fails.map(f => `<div>• ${escapeHtml(f.name)} — ${escapeHtml(f.reason)}</div>`).join('')}<div>أعد الرصد لهم ثم اضغط «حفظ».</div></div>`;
+  } else if(info.generalFail){
+    html += `<div class="crm-save-box is-fail">تعذّر إكمال بعض الحفظ — أعد المحاولة، أو افتح الكشف للتأكد.</div>`;
+  }
+  if(info.missing && (info.missing.names.length || info.missing.absent.length)){
+    const m = info.missing;
+    html += `<div class="crm-save-box is-warn">${m.names.length ? `<div><b>${escapeHtml(m.label)} (${m.names.length}):</b> ${crmSummaryNames(m.names)}</div>` : ''}${m.absent.length ? `<div>غائبون: ${crmSummaryNames(m.absent)}</div>` : ''}</div>`;
+  }
+  showCrmSummaryModal(html + '</div>');
+}
+
+/* ملخص حفظ الحضور: الأعداد وأسماء غير الحاضرين */
+function crmAttendanceSummaryInfo(sheet){
+  const students = crmStudentsOfSection(sheet.sectionId);
+  const groups = { absent: [], late: [], permitted_exit: [] };
+  let present = 0;
+  students.forEach(st => {
+    const v = (sheet.states && sheet.states[st.id]) || 'present';
+    if(groups[v]) groups[v].push(st.full_name); else present++;
+  });
+  return { present, groups, subtitle: crmSectionLabel(sheet.sectionId) + (sheet.period ? ' · الحصة ' + sheet.period : '') };
+}
+
+function showCrmAttendanceSummary(sheet){
+  const info = crmAttendanceSummaryInfo(sheet);
+  const g = info.groups;
+  const rows = ['absent', 'late', 'permitted_exit'].filter(k => g[k].length)
+    .map(k => `<div><b>${ATTENDANCE_LABELS[k]} (${g[k].length}):</b> ${crmSummaryNames(g[k])}</div>`).join('');
+  showCrmSummaryModal(`<div class="crm-save-sum">
+    <h3>✓ تم حفظ الحضور</h3>
+    <div class="crm-save-sub">${escapeHtml(info.subtitle)}</div>
+    <div class="crm-save-line">حاضر ${info.present} · غائب ${g.absent.length} · متأخر ${g.late.length} · مستأذن ${g.permitted_exit.length}</div>
+    ${rows ? `<div class="crm-save-box is-warn">${rows}</div>` : '<div class="crm-save-line">الكل حاضر.</div>'}
+  </div>`);
 }
 
 async function saveCrmLessonSheet(){
@@ -1102,7 +1268,7 @@ async function saveCrmLessonSheet(){
     sheet.dirty = false;
     invalidateAttention();
     refreshAttention();
-    showToast('تم حفظ الحضور ✓', 'ok');
+    showCrmAttendanceSummary(sheet);
     /* يبقى في الورقة (لا يعود للقائمة) — ليكمل المشاركة والواجب وغيرها بنقرة؛ الخروج بـ"رجوع" */
     if(crmSheet === sheet){
       if(lessonId) sheet.lessonId = lessonId;

@@ -66,6 +66,7 @@ test('حفظ الحضور يُبقي الورقة مفتوحة على الحضو
   runInAppContext(app, `
     window.__closed = 0; closeCrmLessonSheet = () => { window.__closed++; crmSheet = null; };
     window.__toasts = []; showToast = (m, k) => window.__toasts.push(k + ':' + m);
+    window.__modal = []; showInfoModal = h => window.__modal.push(h);
     invalidateAttention = () => {}; refreshAttention = () => {};
     crmSections = [{ id: 'S', name: '٦' }]; crmStudents = [{ id: 'a', full_name: 'أ', section_id: 'S' }];
     window.__body = { innerHTML: '' }; const _g = document.getElementById; document.getElementById = id => id === 'crmLessonSheetBody' ? window.__body : _g(id);
@@ -78,7 +79,11 @@ test('حفظ الحضور يُبقي الورقة مفتوحة على الحضو
   assert.match(get(app, 'window.__body.innerHTML'), /حفظ التعديل/);
   assert.match(get(app, 'window.__body.innerHTML'), /حُفظ الحضور ✓ — أكمل المشاركة/);
   assert.doesNotMatch(get(app, 'window.__body.innerHTML'), /رُصدت هذه الحصة سابقًا/);
-  assert.match(get(app, 'window.__toasts.join("|")'), /ok:تم حفظ الحضور/);
+  /* ملخص يبقى حتى "تم": الأعداد وأسماء الغائبين */
+  const modal = get(app, 'window.__modal.join("|")');
+  assert.match(modal, /تم حفظ الحضور/);
+  assert.match(modal, /حاضر 0 · غائب 1/);
+  assert.match(modal, /غائب \(1\):<\/b> أ/);
   assert.equal(get(app, 'crmSheetSaving'), false, 'الزر يعود قابلًا للنقر');
   await app.saveCrmLessonSheet();
   assert.equal(rpcLog.filter(l => l.name === 'save_lesson_attendance').length, 2, 'حفظ ثانٍ ممكن');
