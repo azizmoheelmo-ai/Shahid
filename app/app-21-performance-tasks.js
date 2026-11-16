@@ -463,13 +463,16 @@ function persistCrmTaskScores(ids, score, prev){
     } catch(e){
       revert(ids);
       markCrmSheetFailure();
+      crmLogFailed(t, ids, taskDbErrorMessage(e));
       showToast('لم تُحفظ الدرجة: ' + taskDbErrorMessage(e), 'error');
       return;
     }
+    crmLogSaved(t, saved);
     const missing = ids.filter(id => !saved.includes(id));
     if(missing.length){
       revert(missing);
       markCrmSheetFailure();
+      crmLogFailed(t, missing, 'لم يعد مكلّفًا بهذه المهمة — حدّث الورقة');
       showToast(`لم تُحفظ درجة ${missing.length} — لم يعودوا مكلّفين بهذه المهمة. حدّث الورقة.`, 'error');
     }
     t.data.rows.forEach(r => { if(r.task_id === taskId && saved.includes(r.student_id)) r.score = score; });

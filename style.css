@@ -3160,3 +3160,13 @@ select.tlx-inp{min-height:44px;}
 .tlx-crl li.is-miss b{border:1.5px solid var(--ui-danger);}
 .tlx-crl li.is-miss{color:var(--ui-danger);}
 .tlx-ind small.tlx-cc{flex:none;font-size:11.5px;color:var(--muted);}
+
+/* ملخص زر "حفظ" في ورقة الحصة (DESIGN.md: ألوان --ui-*) */
+.crm-save-sum{text-align:right;}
+.crm-save-sum h3{margin:0 0 2px;font-size:16px;font-weight:800;color:var(--ui-ok);}
+.crm-save-sum.is-fail h3{color:var(--ui-danger);}
+.crm-save-sub{font-size:12px;color:var(--muted);margin-bottom:8px;}
+.crm-save-line{font-size:13px;color:var(--ui-body);margin:3px 0;}
+.crm-save-box{border-radius:var(--ui-r-btn);padding:8px 10px;font-size:12.5px;line-height:1.8;margin-top:8px;}
+.crm-save-box.is-fail{background:var(--ui-danger-bg);color:var(--ui-danger);}
+.crm-save-box.is-warn{background:var(--ui-warn-bg);color:var(--ui-warn);}

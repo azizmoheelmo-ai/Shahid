@@ -42,7 +42,8 @@ test('زر "حفظ" في أوضاع الأدوات: ينتظر اكتمال ال
   await p;
   assert.equal(get(app, 'window.__done'), true);
   assert.equal(get(app, 'window.__closed'), 0, 'يبقى في مكانه');
-  assert.match(get(app, 'window.__toasts.join("|")'), /ok:تم الحفظ/);
+  assert.match(get(app, 'window.__modal.join("|")'), /crm-save-sum">/, 'ملخص "تم الحفظ"');
+  assert.doesNotMatch(get(app, 'window.__modal.join("|")'), /is-fail/);
   assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 0);
 });
 
@@ -54,7 +55,7 @@ test('زر "حفظ" لا يمسّ الحضور حتى لو الحصة غير م�
   await Promise.all([app.finishCrmLessonSheet(), app.finishCrmLessonSheet()]);
   assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 0);
   assert.equal(get(app, 'window.__closed'), 0);
-  assert.equal(get(app, 'window.__toasts.filter(t => t.startsWith("ok:تم الحفظ")).length'), 1);
+  assert.equal(get(app, 'window.__modal.length'), 1, 'ملخص واحد فقط');
 });
 
 test('زر "حفظ": فشل أثناء الانتظار = لا يُغلق ولا يحفظ الحضور ويُنبّه', async () => {
@@ -65,7 +66,7 @@ test('زر "حفظ": فشل أثناء الانتظار = لا يُغلق ولا
   await app.finishCrmLessonSheet();
   assert.equal(get(app, 'window.__closed'), 0);
   assert.equal(log.filter(l => l.name === 'save_lesson_attendance').length, 0);
-  assert.match(get(app, 'window.__toasts.join("|")'), /error:لم يكتمل الحفظ/);
+  assert.match(get(app, 'window.__modal.join("|")'), /لم يُحفظ كل شيء[\s\S]*تعذّر إكمال بعض الحفظ/);
 });
 
 test('نقرة مشاركة فشل حفظها تُعلّم الورقة "فشل" (حتى لا يقول زر حفظ: تم)', async () => {

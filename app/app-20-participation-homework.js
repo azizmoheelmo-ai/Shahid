@@ -317,6 +317,7 @@ function queueCrmParticipation(studentId, delta, kind){
         ? { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta, p_keep_zero: true }
         : { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta });
     if(error) throw error;
+    crmLogSaved(p, [studentId]);
     if(typeof invalidateAttention === 'function') invalidateAttention(); /* الدرجة تغيّرت: بطاقات الدرجات تُحسب من جديد عند الحاجة */
     if(crmSheet === s && s.part === p){
       const v = Number(data);
@@ -326,6 +327,7 @@ function queueCrmParticipation(studentId, delta, kind){
   }).catch(e => {
     markCrmSheetFailure();
     const isTap = kind !== 'undo';
+    crmLogFailed(p, [studentId], (isTap ? 'نقرة لم تُحفظ' : 'تراجع لم يُحفظ') + ' (' + (e.message || 'خطأ بالاتصال') + ')');
     showToast((isTap ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + (e.message || 'خطأ بالاتصال'), 'error');
     /* إرجاع كل أثر العرض المتفائل: الدرجة والعدّاد وسجل التراجع. لو بقيت نقرة
        فاشلة في السجل، أنقص "تراجع" لاحقًا درجة حقيقية لم تُضف أصلًا */
@@ -474,6 +476,7 @@ function persistCrmHomework(studentId, state){
   const h = s.hw;
   const hwId = h.selectedId;
   const prev = h.queue.get(studentId) || Promise.resolve();
+  let stored = false; /* الحالة حُفظت (فشل تحديث العمود بعدها لا يجعلها "لم تُحفظ") */
   const next = prev.then(async () => {
     const uid = currentUser.id;
     const { error } = state === 'missing'
@@ -484,8 +487,10 @@ function persistCrmHomework(studentId, state){
     /* نسخة محلية لحساب الدرجة (لكل الواجبات، لا المختار وحده) */
     h.data.statusRows = h.data.statusRows.filter(r => !(r.homework_id === hwId && r.student_id === studentId));
     if(state !== 'missing') h.data.statusRows.push({ homework_id: hwId, student_id: studentId, status: state });
+    stored = true;
+    crmLogSaved(h, [studentId]);
     await syncHomeworkColumn(h.column, s.sectionId, h.data, [studentId]);
-  }).catch(e => { markCrmSheetFailure(); showToast('لم يُحفظ الواجب: ' + (e.message || 'خطأ بالاتصال') + ' — أعد النقر', 'error'); });
+  }).catch(e => { markCrmSheetFailure(); if(!stored) crmLogFailed(h, [studentId], e.message || 'خطأ بالاتصال'); showToast('لم يُحفظ الواجب: ' + (e.message || 'خطأ بالاتصال') + ' — أعد النقر', 'error'); });
   h.queue.set(studentId, next);
   return next;
 }
@@ -508,6 +513,8 @@ async function markAllCrmHomeworkSubmitted(){
   if(!ids.length) return;
   crmHwBulkBusy = true;
   const uid = currentUser.id, hwId = s.hw.selectedId;
+  const h = s.hw;
+  let stored = false;
   ids.forEach(id => { s.hw.statuses.set(id, 'submitted'); paintCrmHomework(id); });
   paintCrmHomeworkCounts();
   try{
@@ -516,10 +523,13 @@ async function markAllCrmHomeworkSubmitted(){
       { onConflict: 'homework_id,student_id' });
     if(error) throw error;
     ids.forEach(id => s.hw.data.statusRows.push({ homework_id: hwId, student_id: id, status: 'submitted' }));
+    stored = true;
+    crmLogSaved(h, ids);
     await syncHomeworkColumn(s.hw.column, s.sectionId, s.hw.data, ids);
     showToast('سُجّل "سلّم" للباقين — اضغط على المقصّرين لتعديلهم', 'ok');
   } catch(e){
     markCrmSheetFailure();
+    if(!stored) crmLogFailed(h, ids, e.message || 'خطأ بالاتصال');
     showToast('تعذّر الحفظ: ' + (e.message || '') , 'error');
     if(crmSheet === s) setCrmSheetMode('homework');
   } finally {

@@ -130,8 +130,11 @@ function saveCrmTestInput(input){
   if(!parsed.ok){
     input.classList.add('is-invalid');
     showToast(`${parsed.error} (الدرجة الكاملة ${formatScore(test.max_score)})`, 'error');
+    /* الرقم الخاطئ يبقى ظاهرًا في الخانة ولم يُحفظ — يُذكر في ملخص "حفظ" */
+    crmLogFailed(t, [studentId], `كُتب «${String(input.value).trim()}»: ${parsed.error}`);
     return;
   }
+  crmLogClearFail(t, studentId);
   const prev = t.values.has(studentId) ? t.values.get(studentId) : null;
   const value = parsed.value;
   if(prev === value) return;
@@ -145,10 +148,13 @@ function saveCrmTestInput(input){
       ? await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', columnId).eq('student_id', studentId)
       : await sb.from('classroom_grade_scores').upsert({ teacher_id: uid, column_id: columnId, student_id: studentId, score: value }, { onConflict: 'column_id,student_id' });
     if(error) throw error;
+    crmLogSaved(t, [studentId]);
     if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   }).catch(e => {
     markCrmSheetFailure();
-    showToast('لم تُحفظ الدرجة: ' + (typeof gradeDbErrorMessage === 'function' ? gradeDbErrorMessage(e) : (e.message || 'خطأ بالاتصال')), 'error');
+    const why = typeof gradeDbErrorMessage === 'function' ? gradeDbErrorMessage(e) : (e.message || 'خطأ بالاتصال');
+    crmLogFailed(t, [studentId], why);
+    showToast('لم تُحفظ الدرجة: ' + why, 'error');
     /* يُعاد العرض لما كان، ما لم تتغيّر الخانة بإدخال أحدث أو يتبدّل الاختبار */
     if(crmSheet !== s || s.test !== t || t.selectedId !== columnId) return;
     const cur = t.values.has(studentId) ? t.values.get(studentId) : null;
