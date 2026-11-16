@@ -32,15 +32,30 @@ const SHAHID_SOURCE_LABELS = {
   lesson_plan: 'خطة درس في التطبيق',
   program_session: 'برنامج نشاط في التطبيق',
   task: 'مهمة أدائية مرصودة في التطبيق',
-  followup: 'متابعة طالب في التطبيق'
+  followup: 'متابعة طالب في التطبيق',
+  survey: 'استبانة رضا في التطبيق',
+  lessons_month: 'رصد الحصص في التطبيق',
+  test_analysis: 'تحليل نتائج اختبار في التطبيق',
+  rubric_test: 'اختبار بسلّم تقدير في التطبيق'
 };
+/* مصادر المرحلة الثانية: لا عمود ربط في جداولها، فتُعرَّف بمرجع ثابت (shawahid.source_ref = مفتاح البند)
+   والفهرس الفريد (user_id, source_ref) يمنع الشاهد المكرر. */
+const INBOX_REF_TYPES = ['survey', 'lessons_month', 'test_analysis', 'rubric_test'];
+const INBOX_LESSON_MONTHS = 3;   /* آخر 3 أشهر منتهية */
+const INBOX_LESSONS_MIN = 10;    /* شهر فيه أقل من 10 حصص مرصودة لا يُقترح */
+const INBOX_TEST_MIN = 5;        /* كحدّ تقرير الشعبة (SS_MIN_STUDENTS): لا حكم على أقل من 5 طلاب */
+const INBOX_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
 /* أيقونات خطية (DESIGN.md ق5) لكل مصدر */
 const INBOX_ICONS = {
   lesson_plan: '<svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM8.5 12l2 2 4-4"/></svg>',
   program_session: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
   task: '<svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>',
-  followup: '<svg viewBox="0 0 24 24"><path d="M4 17l5-5 4 4 7-8"/><path d="M15 8h5v5"/></svg>'
+  followup: '<svg viewBox="0 0 24 24"><path d="M4 17l5-5 4 4 7-8"/><path d="M15 8h5v5"/></svg>',
+  survey: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg>',
+  lessons_month: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 14h2M12 14h2M16 14h0"/></svg>',
+  test_analysis: '<svg viewBox="0 0 24 24"><path d="M5 20V10M10 20V4M15 20v-7M20 20v-4"/></svg>',
+  rubric_test: '<svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>'
 };
 
 let inboxItems = [];          /* آخر قائمة محمّلة */
@@ -50,6 +65,7 @@ let inboxBusy = false;        /* حفظ/تحضير جارٍ — يعطّل ال�
 let inboxViewSeq = 0;         /* يلغي نتيجة تحميل قديم لو فُتحت الشاشة ثانية */
 let inboxEntrySeq = 0;        /* يلغي نتيجة تحميل قديم لبطاقات الدخول */
 let inboxAutoAll = false;     /* «عرض باقي ما عبّأه التطبيق» بالورقة */
+let inboxRefContext = null;   /* «تعديل كامل» لمصدر من المرحلة الثانية: { sourceType, sourceRef, sourceNote } يقرؤه saveShahid */
 
 /* التاريخ بصيغة التطبيق المختصرة («الخميس 13/11») — لا ينقلب اتجاهه وسط النص العربي */
 function inboxDateText(iso){
@@ -62,6 +78,7 @@ function inboxResetState(){
   inboxShowAll = false;
   inboxSheet = null;
   inboxBusy = false;
+  inboxRefContext = null;
   inboxViewSeq++;
   inboxEntrySeq++;
 }
@@ -172,6 +189,7 @@ function buildInboxShahidRecord(o){
     source_type: o.sourceType,
     source_note: String(d.sourceNote || '').slice(0, 200) || null
   };
+  if(o.sourceRef) rec.source_ref = o.sourceRef;
   if(o.program){
     rec.program_id = o.program.programId;
     rec.program_session_no = o.program.sessionNo;
@@ -184,7 +202,7 @@ function buildInboxShahidRecord(o){
 function isMissingSourceColumnError(err){
   if(!err) return false;
   const msg = String(err.message || '');
-  return /source_(type|note)/.test(msg) && (err.code === 'PGRST204' || err.code === '42703' || /schema cache|does not exist|column/i.test(msg));
+  return /source_(type|note|ref)/.test(msg) && (err.code === 'PGRST204' || err.code === '42703' || /schema cache|does not exist|column/i.test(msg));
 }
 
 /* إدراج شاهد مع ختم المصدر، وبدونه إن لم تُضف الأعمدة بعد */
@@ -194,6 +212,7 @@ async function insertShahidWithSource(record){
     const plain = Object.assign({}, record);
     delete plain.source_type;
     delete plain.source_note;
+    delete plain.source_ref;
     res = await sb.from('shawahid').insert(plain).select().single();
   }
   return res;
@@ -221,6 +240,153 @@ function inboxSectionLabelFrom(sections, grades, id){
   return (g ? g.name + ' — ' : '') + 'الشعبة ' + (typeof crmDigits === 'function' ? crmDigits(sec.name) : sec.name);
 }
 
+/* ============ مسودات المرحلة الثانية (دوال صرفة) ============
+   م1 (REPORTS.md): لا يُنسب للمعلم إجراء لم يُسجَّل — الوصف والخطوات مما في البيانات فقط،
+   والأثر النوعي يكتبه المعلم. */
+
+function inboxMonthLabel(ym){
+  const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+  return m ? INBOX_MONTHS[Number(m[2]) - 1] + ' ' + m[1] : String(ym || '');
+}
+
+/* الأشهر المنتهية التي رُصدت فيها حصص كافية: [{ month: 'YYYY-MM', lessons }] (الأحدث أولًا) */
+function inboxLessonMonths(lessons, todayIso, minLessons){
+  const cur = String(todayIso).slice(0, 7);
+  const by = new Map();
+  (lessons || []).forEach(l => {
+    const m = String(l.lesson_date || '').slice(0, 7);
+    if(!/^\d{4}-\d{2}$/.test(m) || m >= cur) return;
+    if(!by.has(m)) by.set(m, []);
+    by.get(m).push(l);
+  });
+  return [...by.entries()].filter(([, ls]) => ls.length >= (minLessons || INBOX_LESSONS_MIN))
+    .sort((a, b) => b[0].localeCompare(a[0])).map(([month, ls]) => ({ month, lessons: ls }));
+}
+
+function buildLessonsMonthShahidDraft(o){
+  const ls = o.lessons || [];
+  const label = inboxMonthLabel(o.month);
+  const days = new Set(ls.map(l => l.lesson_date)).size;
+  const bySec = new Map();
+  ls.forEach(l => bySec.set(l.section_id, (bySec.get(l.section_id) || 0) + 1));
+  const secLabel = id => (o.sectionLabel && o.sectionLabel(id)) || 'شعبة';
+  const lines = [...bySec.entries()].map(([id, n]) => `${secLabel(id)}: ${n} حصة`);
+  const last = ls.map(l => l.lesson_date).sort().pop() || null;
+  return {
+    elementKey: 'أداء الواجبات الوظيفية',
+    title: `رصد الحصص في ورقة الحصة — ${label}`,
+    classLabel: bySec.size === 1 ? secLabel([...bySec.keys()][0]) : '',
+    date: last,
+    description: `رصدتُ ${ls.length} حصة في ورقة رصد الحصة خلال شهر ${label}، في ${days} يومًا دراسيًا ولـ${bySec.size} ${bySec.size === 1 ? 'شعبة' : 'شعب'}.`,
+    goal: 'الانتظام في رصد الحصص أولًا بأول لمتابعة الطلاب بدقة.',
+    steps: [],
+    quant: `${ls.length} حصة مرصودة في ${days} يومًا\n` + lines.join('\n'),
+    qual: '',
+    reflection: '',
+    sourceNote: `${ls.length} حصة مرصودة في ${label}`
+  };
+}
+
+/* تحليل اختبار: scores أرقام مرصودة (null لا تُحسب)، rules { pass, top } حدود المعلم (app-31) */
+function buildTestAnalysisShahidDraft(o){
+  const c = o.column;
+  const max = Number(c.max_score);
+  const vals = (o.scores || []).filter(v => v !== null && v !== undefined && v !== '').map(Number).filter(v => isFinite(v));
+  const n = vals.length;
+  const pass = Number(o.rules && o.rules.pass) || 50;
+  const top = Number(o.rules && o.rules.top) || 90;
+  const pcts = vals.map(v => 100 * v / max);
+  const low = pcts.filter(x => x < pass).length;
+  const hi = pcts.filter(x => x >= top).length;
+  const avg = n ? vals.reduce((a, b) => a + b, 0) / n : 0;
+  const r2 = x => Math.round(x * 100) / 100;
+  const sec = o.sectionLabel || '';
+  return {
+    elementKey: 'تحليل نتائج المتعلمين وتشخيص مستوياتهم',
+    title: 'تحليل نتائج اختبار: ' + c.name,
+    classLabel: sec,
+    date: o.date || null,
+    description: `حلّلتُ نتائج اختبار «${c.name}»${c.measures ? ` (يقيس: ${c.measures})` : ''} لـ${n} طلاب${sec ? ' في ' + sec : ''}، وصنّفتهم بحدود ثابتة: ضعاف دون ${pass}%، ومتفوقون من ${top}%.`,
+    goal: 'تشخيص مستويات الطلاب بعد الاختبار لتحديد من يحتاج دعمًا ومن يحتاج إثراءً.',
+    steps: ['رصد درجات الاختبار في كشف الدرجات', `تصنيف الطلاب بحدود ثابتة (ضعاف دون ${pass}%، متفوقون من ${top}%)`],
+    quant: `المتوسط ${r2(avg)} من ${r2(max)} (${n ? Math.round(100 * avg / max) : 0}%) · أعلى ${n ? r2(Math.max(...vals)) : 0} · أدنى ${n ? r2(Math.min(...vals)) : 0}\n`
+      + `ضعاف: ${low} · متوسطون: ${n - low - hi} · متفوقون: ${hi}`,
+    qual: '',
+    reflection: '',
+    sourceNote: `اختبار رُصد لـ${n} طلاب`
+  };
+}
+
+/* اختبار بسلّم تقدير: criteria [{id, name, points}]، marks [{criterion_id, student_id, level}] (0 كامل .. 4 صفر) */
+function buildRubricTestShahidDraft(o){
+  const c = o.column;
+  const crit = (o.criteria || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+  const marks = o.marks || [];
+  const students = new Set(marks.map(m => m.student_id)).size;
+  const per = crit.map(k => {
+    const ms = marks.filter(m => m.criterion_id === k.id);
+    const good = ms.filter(m => Number(m.level) <= 1).length; /* كامل أو كبير */
+    return { name: k.name, n: ms.length, good };
+  });
+  const rated = per.filter(x => x.n > 0);
+  const weakest = rated.length > 1 ? rated.reduce((m, x) => (x.good / x.n < m.good / m.n ? x : m), rated[0]) : null;
+  const sec = o.sectionLabel || '';
+  const r2 = x => Math.round(Number(x) * 100) / 100;
+  return {
+    elementKey: 'تنوع أساليب التقويم',
+    title: 'اختبار بسلّم تقدير: ' + c.name,
+    classLabel: sec,
+    date: o.date || null,
+    description: `قوّمتُ ${students} طلاب${sec ? ' في ' + sec : ''} في «${c.name}» بسلّم تقدير من ${crit.length} معايير، ولكل معيار مستوى إنجاز (كامل، كبير، جزئي، بداية، صفر).`,
+    goal: 'تقويم أداء الطلاب بمعايير واضحة بدل درجة واحدة، لتحديد مواطن القوة والضعف في كل معيار.',
+    steps: crit.map(k => `${k.name} (${r2(k.points)} ${Number(k.points) === 1 ? 'درجة' : 'درجات'})`),
+    quant: rated.map(x => `${x.name}: أتقنه ${x.good} من ${x.n} (كامل أو كبير)`).join('\n'),
+    qual: '',
+    reflection: weakest ? `أضعف معيار في النتائج: «${weakest.name}» (أتقنه ${weakest.good} من ${weakest.n}).` : '',
+    sourceNote: `سلّم تقدير من ${crit.length} معايير لـ${students} طلاب`
+  };
+}
+
+const INBOX_SURVEY_ELEMENT = { guardian: 'التفاعل مع أولياء الأمور', student: 'تهيئة البيئة التعليمية', custom: '' };
+const INBOX_SURVEY_GOAL = {
+  guardian: 'قياس رضا أولياء الأمور عن تعليم أبنائهم والتواصل معهم، وتحديد ما يحتاج تحسينًا.',
+  student: 'قياس رضا الطلاب عن بيئة التعلم، وتحديد ما يحتاج تحسينًا.',
+  custom: 'قياس رضا المستفيدين، وتحديد ما يحتاج تحسينًا.'
+};
+
+/* استبانة: analysis = svAnalyze (app-44)، sent = روابط أُرسلت، total = كل الروابط */
+function buildSurveyShahidDraft(o){
+  const c = o.campaign;
+  const an = o.analysis;
+  const n = an.valid;
+  const who = c.audience === 'guardian' ? 'أولياء الأمور' : c.audience === 'student' ? 'الطلاب' : 'المستفيدين';
+  const qn = Array.isArray(c.questions) ? c.questions.length : 0;
+  const ratings = an.items.filter(a => a.type === 'rating' && a.avg != null);
+  const tfs = an.items.filter(a => a.type === 'truefalse' && a.pct != null);
+  const overall = typeof svOverallPct === 'function' ? svOverallPct(an.items) : null;
+  const weak = typeof svWeakestRating === 'function' ? svWeakestRating(an.items) : null;
+  const rate = o.sent ? Math.min(100, Math.round(100 * n / o.sent)) : null;
+  const f1 = v => (Math.round(v * 10) / 10).toFixed(1);
+  const lines = [`${n} ردًا${o.sent ? ` من ${o.sent} رابطًا أُرسل (${rate}%)` : ''}${overall == null ? '' : ` · متوسط التقييمات ${overall}%`}`]
+    .concat(ratings.slice(0, 6).map(a => `${a.label}: ${f1(a.avg)} من 5`))
+    .concat(tfs.slice(0, 3).map(a => `${a.label}: نعم ${a.pct}%`));
+  return {
+    elementKey: INBOX_SURVEY_ELEMENT[c.audience] || '',
+    title: 'استبانة رضا: ' + c.title,
+    classLabel: '',
+    date: o.date || null,
+    description: `أجريتُ استبانة «${c.title}» لـ${who}${o.sections ? ` في ${o.sections} ${o.sections === 1 ? 'شعبة' : 'شعب'}` : ''} برابط شخصي لكل مستفيد، ووصلني ${n} ردًا (الردود لا تُربط بأسماء أصحابها).`,
+    goal: INBOX_SURVEY_GOAL[c.audience] || INBOX_SURVEY_GOAL.custom,
+    steps: [qn ? `إعداد أسئلة الاستبانة (${qn} ${qn <= 10 ? 'أسئلة' : 'سؤالًا'})` : 'إعداد أسئلة الاستبانة',
+      o.sent ? `إرسال ${o.sent} رابطًا شخصيًا عبر واتساب` : 'إرسال الروابط',
+      'تحليل النتائج بعد اكتمال الحد الأدنى من الردود'],
+    quant: lines.join('\n'),
+    qual: '',
+    reflection: weak ? `أضعف محور في النتائج: «${weak.label}» (${f1(weak.avg)} من 5).` : '',
+    sourceNote: `${n} ردًا صالحًا على الاستبانة`
+  };
+}
+
 /* ============ التحميل ============ */
 
 function inboxFlags(){
@@ -231,7 +397,10 @@ function inboxFlags(){
     plans: classroom,
     tasks: classroom && appToolOn('tasks'),
     followups: classroom && typeof followupsOn === 'function' && followupsOn(),
-    programs: appSectionOn('work')
+    programs: appSectionOn('work'),
+    lessons: classroom,
+    tests: classroom && appToolOn('tests'),
+    surveys: true
   };
 }
 
@@ -327,11 +496,93 @@ async function loadInboxItems(){
     });
   }
 
+  const p2 = await inboxLoadPhase2(uid, f, todayIso, secLabel);
+  if(p2 === null) return null;
+  p2.forEach(it => items.push(it));
+
   const visible = items.filter(it => !inboxIsDismissed(dismissals, it.key));
   return {
     items: sortInboxItems(visible, key => inboxElementGap(key, myPlan, planShahidCounts)),
     sections, grades
   };
+}
+
+/* المرحلة الثانية: الاستبانات، أشهر الرصد، تحليل الاختبارات، اختبارات سلّم التقدير.
+   يرجع [] إن لم يُضف عمود source_ref بعد (بلا مرجع لا نعرف الموثّق فلا نقترح ما قد يتكرر)،
+   وnull عند فشل استعلام آخر. */
+async function inboxLoadPhase2(uid, f, todayIso, secLabel){
+  const refRes = await sb.from('shawahid').select('source_ref').eq('user_id', uid).not('source_ref', 'is', null);
+  if(refRes.error) return [];
+  const done = new Set((refRes.data || []).map(r => r.source_ref));
+  const items = [];
+  const none = Promise.resolve({ data: [], error: null });
+  const monthFrom = (() => { const [y, m] = todayIso.split('-').map(Number); const d = new Date(y, m - 1 - INBOX_LESSON_MONTHS, 1); return localIsoDate(d); })();
+  const term = typeof crmAttentionTerm === 'function' ? crmAttentionTerm() : null;
+  const [cRes, lRes, gRes] = await Promise.all([
+    f.surveys ? sb.from('survey_campaigns').select('id, title, audience, questions, min_results, created_at').eq('teacher_id', uid) : none,
+    f.lessons ? fetchAllRows((from, to) => sb.from('classroom_lessons').select('id, section_id, lesson_date').eq('teacher_id', uid)
+      .gte('lesson_date', monthFrom).lt('lesson_date', todayIso.slice(0, 8) + '01').order('id', { ascending: true }).range(from, to)) : none,
+    f.tests && term ? sb.from('classroom_grade_columns').select('*').eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).eq('category', 'tests') : none
+  ]);
+  if(cRes.error || lRes.error || gRes.error) return null;
+
+  /* الاستبانات: عدد الردود الخام يكفي للاقتراح؛ الصلاحية الدقيقة (svAnalyze) عند فتح الورقة */
+  const camps = cRes.data || [];
+  if(camps.length){
+    const counts = new Map();
+    for(const ids of chunkArray(camps.map(c => c.id), 100)){
+      const r = await fetchAllRows((from, to) => sb.from('survey_responses').select('id, campaign_id').eq('teacher_id', uid).in('campaign_id', ids).order('id', { ascending: true }).range(from, to));
+      if(r.error) return null;
+      (r.data || []).forEach(x => counts.set(x.campaign_id, (counts.get(x.campaign_id) || 0) + 1));
+    }
+    camps.forEach(c => {
+      const n = counts.get(c.id) || 0;
+      const min = typeof svMinResults === 'function' ? svMinResults(c) : 5;
+      if(n < min) return;
+      const key = 'survey:' + c.id;
+      if(done.has(key)) return;
+      items.push({ key, type: 'survey', ref: { campaignId: c.id }, elementKey: INBOX_SURVEY_ELEMENT[c.audience] || '',
+        title: 'استبانة رضا: ' + c.title, date: String(c.created_at || '').slice(0, 10), sub: `${n} ${n <= 10 ? 'ردود' : 'ردًا'} وصلت` });
+    });
+  }
+
+  inboxLessonMonths(lRes.data || [], todayIso, INBOX_LESSONS_MIN).forEach(m => {
+    const key = 'lessons_month:' + m.month;
+    if(done.has(key)) return;
+    items.push({ key, type: 'lessons_month', ref: { month: m.month }, elementKey: 'أداء الواجبات الوظيفية',
+      title: 'رصد الحصص — ' + inboxMonthLabel(m.month), date: m.lessons.map(l => l.lesson_date).sort().pop(),
+      sub: `${m.lessons.length} حصة مرصودة` });
+  });
+
+  /* الاختبارات اليدوية الظاهرة في الفصل الحالي، المرصودة لـ5 طلاب فأكثر */
+  const cols = (gRes.data || []).filter(c => !c.tool_id && (typeof gradeColumnVisible !== 'function' || gradeColumnVisible(c)));
+  if(cols.length){
+    const scored = new Map();
+    for(const ids of chunkArray(cols.map(c => c.id), 100)){
+      const r = await fetchAllRows((from, to) => sb.from('classroom_grade_scores').select('id, column_id, score').eq('teacher_id', uid).in('column_id', ids)
+        .not('score', 'is', null).order('id', { ascending: true }).range(from, to));
+      if(r.error) return null;
+      (r.data || []).forEach(x => scored.set(x.column_id, (scored.get(x.column_id) || 0) + 1));
+    }
+    const ready = cols.filter(c => (scored.get(c.id) || 0) >= INBOX_TEST_MIN);
+    const rubric = new Set();
+    if(ready.length){
+      const r = await sb.from('classroom_rubric_criteria').select('column_id').eq('teacher_id', uid).in('column_id', ready.map(c => c.id));
+      if(r.error) return null;
+      (r.data || []).forEach(x => rubric.add(x.column_id));
+    }
+    ready.forEach(c => {
+      const sl = secLabel(c.section_id);
+      const n = scored.get(c.id);
+      const tKey = 'test_analysis:' + c.id;
+      if(!done.has(tKey)) items.push({ key: tKey, type: 'test_analysis', ref: { columnId: c.id }, elementKey: 'تحليل نتائج المتعلمين وتشخيص مستوياتهم',
+        title: 'تحليل نتائج اختبار: ' + c.name, date: String(c.created_at || '').slice(0, 10), sub: `رُصد لـ${n} طلاب` + (sl ? ' · ' + sl : '') });
+      const rKey = 'rubric_test:' + c.id;
+      if(rubric.has(c.id) && !done.has(rKey)) items.push({ key: rKey, type: 'rubric_test', ref: { columnId: c.id }, elementKey: 'تنوع أساليب التقويم',
+        title: 'اختبار بسلّم تقدير: ' + c.name, date: String(c.created_at || '').slice(0, 10), sub: 'سلّم تقدير بمعايير' + (sl ? ' · ' + sl : '') });
+    });
+  }
+  return items;
 }
 
 /* ============ بطاقات الدخول (الرئيسية + الشواهد) ============ */
@@ -487,7 +738,54 @@ async function inboxPrepareSheet(it){
     if(!p) throw new Error('البرنامج غير موجود — ربما حُذف');
     sheet.draft = buildProgramSessionShahidDraft({ program: p, sessionNo: it.ref.sessionNo, sectionId: it.ref.sectionId,
       sectionLabel: it.ref.sectionLabel, weekStart: it.ref.weekStart, todayIso });
+  } else if(it.type === 'survey'){
+    const [cRes, rRes, iRes, sRes] = await Promise.all([
+      sb.from('survey_campaigns').select('id, title, audience, questions, min_results, created_at').eq('teacher_id', uid).eq('id', it.ref.campaignId).maybeSingle(),
+      fetchAllRows((from, to) => sb.from('survey_responses').select('id, answers, created_on').eq('teacher_id', uid).eq('campaign_id', it.ref.campaignId).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('survey_invites').select('id, sent_at').eq('teacher_id', uid).eq('campaign_id', it.ref.campaignId).order('id', { ascending: true }).range(from, to)),
+      sb.from('survey_campaign_sections').select('section_id').eq('teacher_id', uid).eq('campaign_id', it.ref.campaignId)
+    ]);
+    if(cRes.error || rRes.error || iRes.error) throw new Error('تعذّر تحميل الاستبانة');
+    if(!cRes.data) throw new Error('الاستبانة غير موجودة — ربما حُذفت');
+    const an = svAnalyze(rRes.data || [], cRes.data.questions);
+    if(!an.ok || an.valid < svMinResults(cRes.data)) throw new Error('نتائج الاستبانة لم تكتمل بعد (الحد الأدنى من الردود الصالحة)');
+    sheet.draft = buildSurveyShahidDraft({ campaign: cRes.data, analysis: an, sent: (iRes.data || []).filter(x => x.sent_at).length,
+      sections: sRes.error ? 0 : (sRes.data || []).length, date: (rRes.data || []).map(x => x.created_on).filter(Boolean).sort().pop() || todayIso });
+  } else if(it.type === 'lessons_month'){
+    const from = it.ref.month + '-01';
+    const [y, m] = it.ref.month.split('-').map(Number);
+    const to = localIsoDate(new Date(y, m, 1));
+    const lRes = await fetchAllRows((a, b) => sb.from('classroom_lessons').select('id, section_id, lesson_date').eq('teacher_id', uid)
+      .gte('lesson_date', from).lt('lesson_date', to).order('id', { ascending: true }).range(a, b));
+    if(lRes.error) throw new Error('تعذّر تحميل الحصص');
+    const labels = new Map();
+    for(const id of new Set((lRes.data || []).map(l => l.section_id))) labels.set(id, await inboxSectionLabel(id));
+    sheet.draft = buildLessonsMonthShahidDraft({ month: it.ref.month, lessons: lRes.data || [], sectionLabel: id => labels.get(id) || '' });
+  } else if(it.type === 'test_analysis' || it.type === 'rubric_test'){
+    const [cRes, scRes] = await Promise.all([
+      sb.from('classroom_grade_columns').select('*').eq('teacher_id', uid).eq('id', it.ref.columnId).maybeSingle(),
+      fetchAllRows((a, b) => sb.from('classroom_grade_scores').select('id, student_id, score, updated_at').eq('teacher_id', uid).eq('column_id', it.ref.columnId).order('id', { ascending: true }).range(a, b))
+    ]);
+    if(cRes.error || scRes.error) throw new Error('تعذّر تحميل الاختبار');
+    if(!cRes.data) throw new Error('الاختبار غير موجود — ربما حُذف');
+    const scores = (scRes.data || []).filter(x => x.score !== null && x.score !== undefined);
+    if(scores.length < INBOX_TEST_MIN) throw new Error(`يُحلَّل الاختبار بعد رصده لـ${INBOX_TEST_MIN} طلاب على الأقل`);
+    const date = scores.map(x => String(x.updated_at || '').slice(0, 10)).filter(Boolean).sort().pop() || todayIso;
+    const sl = await inboxSectionLabel(cRes.data.section_id);
+    if(it.type === 'test_analysis'){
+      const rules = typeof gradeRulesNow === 'function' ? gradeRulesNow() : { pass: 50, top: 90 };
+      sheet.draft = buildTestAnalysisShahidDraft({ column: cRes.data, scores: scores.map(x => x.score), rules, sectionLabel: sl, date });
+    } else {
+      const [kRes, mRes] = await Promise.all([
+        sb.from('classroom_rubric_criteria').select('id, name, points, position').eq('teacher_id', uid).eq('column_id', it.ref.columnId),
+        fetchAllRows((a, b) => sb.from('classroom_rubric_marks').select('id, criterion_id, student_id, level').eq('teacher_id', uid).eq('column_id', it.ref.columnId).order('id', { ascending: true }).range(a, b))
+      ]);
+      if(kRes.error || mRes.error) throw new Error('تعذّر تحميل معايير الاختبار');
+      if(!(kRes.data || []).length) throw new Error('لم تعد لهذا الاختبار معايير');
+      sheet.draft = buildRubricTestShahidDraft({ column: cRes.data, criteria: kRes.data, marks: mRes.data || [], sectionLabel: sl, date });
+    }
   }
+  if(!sheet.draft) throw new Error('نوع عمل غير معروف');
   sheet.qual = sheet.draft.qual || '';
   sheet.elementKey = sheet.draft.elementKey;
   return sheet;
@@ -654,6 +952,11 @@ async function inboxStillPending(item){
       ? !(ses.section_status && ses.section_status[item.ref.sectionId] && ses.section_status[item.ref.sectionId].done)
       : !ses.done;
   }
+  if(INBOX_REF_TYPES.includes(item.type)){
+    const { data, error } = await sb.from('shawahid').select('id').eq('user_id', uid).eq('source_ref', item.key).limit(1);
+    if(error) throw error;
+    return !(data || []).length;
+  }
   return false;
 }
 
@@ -706,6 +1009,7 @@ async function inboxSave(){
       school: getProfileSchool(), subject: getProfileSubject(),
       draft: s.draft, qual: s.qual, elementKey: el.key, elementLabel: el.label,
       goalId: goals.length === 1 ? goals[0].id : null, photoUrls: urls, sourceType: s.item.type,
+      sourceRef: INBOX_REF_TYPES.includes(s.item.type) ? s.item.key : null,
       program: s.item.type === 'program_session' ? s.item.ref : null
     });
     let { data: inserted, error } = await insertShahidWithSource(record);
@@ -713,7 +1017,15 @@ async function inboxSave(){
       /* حُفظ من قبل (نقرة/تبويب آخر): لا شاهد مكرر — نكمل الربط على الموجود */
       cleanup();
       const { data: existing } = await sb.from('shawahid').select('*').eq('id', s.id).eq('user_id', uid).maybeSingle();
-      if(!existing) throw error;
+      if(!existing){
+        /* تعارض على المرجع (source_ref) لا على المعرّف: العمل وُثّق بشاهد آخر — لا تكرار */
+        if(INBOX_REF_TYPES.includes(s.item.type)){
+          showToast('هذا العمل وُثّق من قبل (ربما من جهاز آخر) — لا شاهد مكرر', 'ok');
+          if(isInboxViewOpen() && inboxSheet === s && currentUser && currentUser.id === uid){ inboxBusy = false; await showInbox(); }
+          return;
+        }
+        throw error;
+      }
       inserted = existing;
       error = null;
     }
@@ -754,6 +1066,18 @@ async function inboxOpenFullForm(){
       await openShahidDraftFromTask(it.ref.taskId);
     } else if(it.type === 'followup'){
       await openShahidDraftFromFollowups(it.ref.followupIds, it.ref.groupId);
+    } else if(INBOX_REF_TYPES.includes(it.type)){
+      /* مصادر المرحلة الثانية: النموذج المعتاد معبّأً، ومرجع المصدر يُحفظ معه (saveShahid يقرأ inboxRefContext) */
+      const d = s.draft;
+      startNewShahid();
+      inboxRefContext = { sourceType: it.type, sourceRef: it.key, sourceNote: d.sourceNote || '' };
+      document.getElementById('mLesson').value = d.title || '';
+      document.getElementById('mClass').value = d.classLabel || '';
+      document.getElementById('mDate').value = d.date || '';
+      if(d.elementKey && getElementsOrder().some(e => e.key === d.elementKey)){ elementSelect.value = d.elementKey; updateExample(); }
+      fillShahidFields({ description: d.description, goal: d.goal, steps: d.steps, quant: d.quant, qual: d.qual, reflection: d.reflection });
+      formDirty = true;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } else if(it.type === 'program_session'){
       if(it.ref.sectionId){
         if(!programDetailSections.some(x => x.id === it.ref.sectionId)) programDetailSections = [{ id: it.ref.sectionId, label: it.ref.sectionLabel || '' }];

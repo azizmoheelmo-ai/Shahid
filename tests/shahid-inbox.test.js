@@ -26,6 +26,7 @@ function fakeClient(seed, log, opts){
     if(op === 'not') return !(r[c] === null || r[c] === undefined);
     if(op === 'gte') return String(r[c]) >= String(v);
     if(op === 'lte') return String(r[c]) <= String(v);
+    if(op === 'lt') return String(r[c]) < String(v);
     return true;
   }));
   return {
@@ -52,7 +53,7 @@ function fakeClient(seed, log, opts){
         select(){ return api; }, order(){ return api; }, limit(){ return api; }, range(){ return api; },
         eq(c, v){ f.push(['eq', c, v]); return api; }, in(c, v){ f.push(['in', c, v]); return api; },
         is(c, v){ f.push(['is', c, v]); return api; }, not(c){ f.push(['not', c]); return api; },
-        gte(c, v){ f.push(['gte', c, v]); return api; }, lte(c, v){ f.push(['lte', c, v]); return api; },
+        gte(c, v){ f.push(['gte', c, v]); return api; }, lte(c, v){ f.push(['lte', c, v]); return api; }, lt(c, v){ f.push(['lt', c, v]); return api; },
         insert(r){ op = 'insert'; values = r; return api; },
         upsert(r){ op = 'upsert'; values = r; return api; },
         update(r){ op = 'update'; values = r; return api; },
@@ -261,7 +262,7 @@ test('loadInboxItems: المصادر الأربعة، بتصفية المعلم 
   assert.ok(keys.includes('program:PR:2:-'), 'بلا تقويم: أول حصة ناقصة');
   assert.equal(res.items.find(i => i.key === 'task:t1').sub, 'رُصدت درجاتها · الرابع — الشعبة 2');
   /* CLAUDE.md §1: كل قراءة من جدول شخصي تحمل تصفية المعلم */
-  const owner = { lesson_plans: 'user_id', activity_programs: 'user_id' };
+  const owner = { lesson_plans: 'user_id', activity_programs: 'user_id', shawahid: 'user_id' };
   log.filter(l => l.op === 'select').forEach(l => {
     const col = owner[l.table] || 'teacher_id';
     assert.ok(l.filters.some(([op, c, v]) => op === 'eq' && c === col && v === 'u1'), 'تصفية المعلم: ' + l.table);
@@ -369,7 +370,8 @@ test('SQL: عمودا المصدر بقيدهما في ملف التحديثات
   const sql = read('sql-updates-run-in-supabase.sql');
   const blk = sql.slice(sql.indexOf('-- ============ ختم مصدر الشاهد'), sql.indexOf('-- ============ استبانة رضا المستفيدين'));
   assert.match(blk, /add column if not exists source_type text/);
-  assert.match(blk, /source_type in \('lesson_plan', 'program_session', 'task', 'followup'\)/);
+  assert.match(blk, /source_type in \('lesson_plan', 'program_session', 'task', 'followup', 'survey', 'lessons_month', 'test_analysis', 'rubric_test'\)/);
+  assert.match(blk, /create unique index if not exists shawahid_source_ref_key on public\.shawahid\(user_id, source_ref\) where source_ref is not null/);
   assert.match(blk, /char_length\(source_note\) <= 200/);
   const app = loadApp();
   assert.ok(app.buildSchemaSql().includes(blk.trim()), 'المرآة حرفية');
@@ -394,4 +396,150 @@ test('سباق: تحميل بطاقة الدخول المتأخر لا يبدّ�
   await runInAppContext(app, `(async () => { inboxItems = [{ key: 'drawn' }]; await refreshInboxEntries(); })()`);
   assert.equal(runInAppContext(app, 'inboxItems.length === 1 && inboxItems[0].key'), 'drawn');
   assert.equal(runInAppContext(app, `document.getElementById('homeInboxCard').style.display`), 'block', 'البطاقة نفسها تُرسم');
+});
+
+/* ============ المرحلة الثانية: مصادر بمرجع (استبانة، شهر رصد، تحليل اختبار، سلّم تقدير) ============ */
+
+test('inboxLessonMonths: الأشهر المنتهية فقط وبحدّ أدنى من الحصص', () => {
+  const app = loadApp();
+  const ls = [];
+  for(let i = 1; i <= 12; i++) ls.push({ section_id: 'S', lesson_date: '2026-09-' + String(i).padStart(2, '0') });
+  for(let i = 1; i <= 4; i++) ls.push({ section_id: 'S', lesson_date: '2026-10-0' + i });
+  for(let i = 1; i <= 15; i++) ls.push({ section_id: 'S', lesson_date: '2026-11-' + String(i).padStart(2, '0') });
+  const out = app.inboxLessonMonths(ls, '2026-11-16', 10);
+  assert.deepEqual(J(out.map(m => m.month)), ['2026-09'], 'أكتوبر أقل من الحد، ونوفمبر لم ينتهِ');
+});
+
+test('buildLessonsMonthShahidDraft: أرقام الرصد فقط، بلا إجراء غير مسجّل', () => {
+  const app = loadApp();
+  const d = app.buildLessonsMonthShahidDraft({ month: '2026-09', lessons: [
+    { section_id: 'A', lesson_date: '2026-09-01' }, { section_id: 'A', lesson_date: '2026-09-02' }, { section_id: 'B', lesson_date: '2026-09-02' }
+  ], sectionLabel: id => 'ش' + id });
+  assert.match(d.title, /سبتمبر 2026/);
+  assert.match(d.description, /3 حصة.*في 2 يومًا.*2 شعب/);
+  assert.match(d.quant, /شA: 2 حصة/);
+  assert.equal(d.date, '2026-09-02');
+  assert.equal(d.steps.length, 0);
+});
+
+test('buildTestAnalysisShahidDraft: التصنيف بحدود المعلم، والفارغ لا يُحسب صفرًا', () => {
+  const app = loadApp();
+  const d = app.buildTestAnalysisShahidDraft({ column: { name: 'اختبار 1', max_score: 10, measures: 'القراءة' },
+    scores: [2, 5, 6, 9, 10, null], rules: { pass: 60, top: 90 }, sectionLabel: 'ش', date: '2026-10-01' });
+  assert.match(d.description, /لـ5 طلاب/);
+  assert.match(d.description, /يقيس: القراءة/);
+  assert.match(d.quant, /ضعاف: 2 · متوسطون: 1 · متفوقون: 2/);
+  assert.match(d.quant, /المتوسط 6.4 من 10 \(64%\)/);
+  assert.equal(d.reflection, '', 'لا تفسير ولا توصية مخترعة');
+});
+
+test('buildRubricTestShahidDraft: الإتقان لكل معيار (كامل أو كبير) وأضعف معيار', () => {
+  const app = loadApp();
+  const d = app.buildRubricTestShahidDraft({ column: { name: 'قراءة' }, criteria: [{ id: 'k1', name: 'الطلاقة', points: 2, position: 1 }, { id: 'k2', name: 'الدقة', points: 1, position: 0 }],
+    marks: [{ criterion_id: 'k1', student_id: 'a', level: 0 }, { criterion_id: 'k1', student_id: 'b', level: 1 }, { criterion_id: 'k2', student_id: 'a', level: 3 }, { criterion_id: 'k2', student_id: 'b', level: 0 }] });
+  assert.deepEqual(J(d.steps), ['الدقة (1 درجة)', 'الطلاقة (2 درجات)']);
+  assert.match(d.quant, /الطلاقة: أتقنه 2 من 2/);
+  assert.match(d.reflection, /«الدقة» \(أتقنه 1 من 2\)/);
+});
+
+test('buildSurveyShahidDraft: من التحليل نفسه (svAnalyze)، والعنصر بحسب الجهة', () => {
+  const app = loadApp();
+  const questions = [{ id: 'q1', type: 'rating', label: 'التواصل' }, { id: 'q2', type: 'rating', label: 'الواجبات' }];
+  const an = { ok: true, valid: 6, invalid: 0, items: [
+    { id: 'q1', type: 'rating', label: 'التواصل', n: 6, avg: 4.5 }, { id: 'q2', type: 'rating', label: 'الواجبات', n: 6, avg: 3.2 }] };
+  const d = app.buildSurveyShahidDraft({ campaign: { title: 'رضا الفصل الأول', audience: 'guardian', questions }, analysis: an, sent: 20, sections: 2, date: '2026-10-05' });
+  assert.equal(d.elementKey, 'التفاعل مع أولياء الأمور');
+  assert.match(d.quant, /6 ردًا من 20 رابطًا أُرسل \(30%\)/);
+  assert.match(d.quant, /التواصل: 4.5 من 5/);
+  assert.match(d.reflection, /«الواجبات» \(3.2 من 5\)/);
+  assert.match(d.description, /لا تُربط بأسماء/);
+});
+
+function seedPhase2(){
+  const s = SEED();
+  s.shawahid = [{ user_id: 'u1', source_ref: 'survey:old' }, { user_id: 'u2', source_ref: 'survey:c1' }];
+  s.survey_campaigns = [
+    { id: 'c1', teacher_id: 'u1', title: 'رضا', audience: 'guardian', questions: [], min_results: 3, created_at: '2026-10-01T00:00:00Z' },
+    { id: 'old', teacher_id: 'u1', title: 'موثّقة', audience: 'guardian', questions: [], min_results: 1, created_at: '2026-09-01T00:00:00Z' },
+    { id: 'few', teacher_id: 'u1', title: 'قليلة', audience: 'guardian', questions: [], min_results: 5, created_at: '2026-09-01T00:00:00Z' }
+  ];
+  s.survey_responses = [1, 2, 3].map(i => ({ id: 'r' + i, teacher_id: 'u1', campaign_id: 'c1' })).concat([{ id: 'r9', teacher_id: 'u1', campaign_id: 'old' }, { id: 'r8', teacher_id: 'u1', campaign_id: 'few' }]);
+  s.classroom_lessons = [];
+  const last = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d; })();
+  const ym = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0');
+  for(let i = 1; i <= 10; i++) s.classroom_lessons.push({ id: 'l' + i, teacher_id: 'u1', section_id: 'S', lesson_date: ym + '-' + String(i).padStart(2, '0') });
+  s.classroom_grade_columns = [
+    { id: 'T1', teacher_id: 'u1', section_id: 'S', academic_year: '1448-1449', semester: 1, category: 'tests', name: 'اختبار', max_score: 10, tool_id: null, created_at: '2026-10-01T00:00:00Z' },
+    { id: 'T2', teacher_id: 'u1', section_id: 'S', academic_year: '1448-1449', semester: 1, category: 'tests', name: 'قليل', max_score: 10, tool_id: null }
+  ];
+  s.classroom_grade_scores = [1, 2, 3, 4, 5].map(i => ({ id: 'g' + i, teacher_id: 'u1', column_id: 'T1', student_id: 's' + i, score: i * 2 }))
+    .concat([{ id: 'g9', teacher_id: 'u1', column_id: 'T2', student_id: 's1', score: 5 }]);
+  s.classroom_rubric_criteria = [{ id: 'k1', teacher_id: 'u1', column_id: 'T1', name: 'الدقة', points: 10 }];
+  return { s, ym };
+}
+
+function phase2App(seed, log, opts){
+  const app = inboxApp(seed, log, opts);
+  runInAppContext(app, `crmAttentionTerm = () => ({ year: '1448-1449', semester: 1 }); gradeColumnVisible = () => true;
+    const els = getElementsOrder(); getElementsOrder = () => els.concat([{ key: 'تحليل نتائج المتعلمين وتشخيص مستوياتهم', label: 'تحليل النتائج (10%)' }]);`);
+  return app;
+}
+
+test('المرحلة الثانية: الاستبانة المكتملة، الشهر المنتهي، الاختبار وسلّمه — والموثّق بمرجعه يُستبعد', async () => {
+  const log = [];
+  const { s, ym } = seedPhase2();
+  const app = phase2App(s, log);
+  const res = await runInAppContext(app, 'loadInboxItems()');
+  const keys = J(res.items.map(i => i.key));
+  assert.ok(keys.includes('survey:c1'), 'وصلت ردودها للحد');
+  assert.ok(!keys.includes('survey:old'), 'موثّقة بمرجعها');
+  assert.ok(!keys.includes('survey:few'), 'لم تبلغ الحد');
+  assert.ok(keys.includes('lessons_month:' + ym));
+  assert.ok(keys.includes('test_analysis:T1'));
+  assert.ok(keys.includes('rubric_test:T1'));
+  assert.ok(!keys.includes('test_analysis:T2'), 'أقل من 5 طلاب');
+  const owner = { lesson_plans: 'user_id', activity_programs: 'user_id', shawahid: 'user_id' };
+  log.filter(l => l.op === 'select').forEach(l => {
+    const col = owner[l.table] || 'teacher_id';
+    assert.ok(l.filters.some(([op, c, v]) => op === 'eq' && c === col && v === 'u1'), 'تصفية المعلم: ' + l.table);
+  });
+});
+
+test('المرحلة الثانية: قبل إضافة عمود المرجع لا تُقترح مصادرها (لا تكرار) وتبقى المصادر الأربعة', async () => {
+  const { s } = seedPhase2();
+  const app = phase2App(s, [], { fail: (table, op) => table === 'shawahid' && op === 'select' ? { data: null, error: { code: '42703', message: 'column shawahid.source_ref does not exist' } } : null });
+  const res = await runInAppContext(app, 'loadInboxItems()');
+  const keys = J(res.items.map(i => i.key));
+  assert.ok(!keys.some(k => /^(survey|lessons_month|test_analysis|rubric_test):/.test(k)));
+  assert.ok(keys.includes('task:t1'));
+});
+
+test('حفظ مصدر بمرجع: source_ref = مفتاح البند، والموثّق من جهاز آخر لا يُكرَّر', async () => {
+  const log = [];
+  const { s } = seedPhase2();
+  const app = phase2App(s, log);
+  await runInAppContext(app, `(async () => { const r = await loadInboxItems(); inboxItems = r.items; document.getElementById('inboxView').style.display = 'block';
+    await inboxOpen(inboxItems.findIndex(i => i.key === 'test_analysis:T1')); document.getElementById('inboxElement').value = inboxSheet.elementKey; })()`);
+  assert.ok(runInAppContext(app, 'inboxSheet && inboxSheet.draft.title'), 'الورقة مفتوحة');
+  await runInAppContext(app, `document.getElementById('inboxQual').value = 'أثر'; inboxSave()`);
+  const ins = log.filter(l => l.table === 'shawahid' && l.op === 'insert');
+  assert.equal(ins.length, 1);
+  assert.equal(ins[0].rows[0].source_ref, 'test_analysis:T1');
+  assert.equal(ins[0].rows[0].source_type, 'test_analysis');
+
+  const log2 = [];
+  const p2 = seedPhase2();
+  const app2 = phase2App(p2.s, log2);
+  await runInAppContext(app2, `(async () => { const r = await loadInboxItems(); inboxItems = r.items; document.getElementById('inboxView').style.display = 'block';
+    await inboxOpen(inboxItems.findIndex(i => i.key === 'test_analysis:T1')); document.getElementById('inboxElement').value = inboxSheet.elementKey; })()`);
+  p2.s.shawahid.push({ id: 'other', user_id: 'u1', source_ref: 'test_analysis:T1' });
+  await runInAppContext(app2, `document.getElementById('inboxQual').value = 'أثر'; inboxSave()`);
+  assert.equal(log2.filter(l => l.table === 'shawahid' && l.op === 'insert').length, 0);
+});
+
+test('«تعديل كامل» لمصدر بمرجع: saveShahid يحمل المرجع ويُصفَّر مع شاهد جديد', () => {
+  const src = read('app/app-09-shahid-form.js');
+  assert.match(src, /record\.source_ref = inboxRefContext\.sourceRef/);
+  const start = src.slice(src.indexOf('function startNewShahid'), src.indexOf('function addShahidForElement'));
+  assert.match(start, /inboxRefContext = null/);
 });

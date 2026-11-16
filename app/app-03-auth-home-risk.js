@@ -340,6 +340,7 @@ async function onLoggedIn(user){
   calendarDataCache = null; // لا نُبقي بيانات تقويم مستخدم سابق على نفس الصفحة
   if(typeof batchResetState === 'function') batchResetState(); // ولا بطاقات «تجهيز الشواهد» لمستخدم سابق
   if(typeof inboxResetState === 'function') inboxResetState(); // ولا «أعمال تنتظر التوثيق» لمستخدم سابق
+  if(typeof portfolioResetState === 'function') portfolioResetState(); // ولا روابط اطلاع لمستخدم سابق
   try{
     const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){

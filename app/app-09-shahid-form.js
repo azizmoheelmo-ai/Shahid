@@ -964,6 +964,12 @@ async function saveShahid(){
       const sourceType = programSessionContext ? 'program_session' : planShahidContext ? 'lesson_plan'
         : taskShahidContext ? 'task' : followupShahidContext ? 'followup' : null;
       if(sourceType) record.source_type = sourceType;
+      /* مصادر المرحلة الثانية (استبانة، شهر رصد، اختبار): المرجع يمنع أن يصير العمل الواحد شاهدين */
+      if(!sourceType && typeof inboxRefContext !== 'undefined' && inboxRefContext){
+        record.source_type = inboxRefContext.sourceType;
+        record.source_ref = inboxRefContext.sourceRef;
+        record.source_note = String(inboxRefContext.sourceNote || '').slice(0, 200) || null;
+      }
     }
 
     if(editingId){
@@ -978,7 +984,9 @@ async function saveShahid(){
       const { data: inserted, error } = record.source_type
         ? await insertShahidWithSource(record)
         : await sb.from('shawahid').insert(record).select().single();
+      if(error && error.code === '23505' && record.source_ref) throw new Error('هذا العمل موثّق كشاهد من قبل (ربما من جهاز آخر)');
       if(error) throw error;
+      if(typeof inboxRefContext !== 'undefined') inboxRefContext = null;
       formDirty = false;
       clearDraft();
       const refText = inserted && inserted.ref_number ? ` — الرقم المرجعي: ${inserted.ref_number}` : '';
@@ -1194,6 +1202,7 @@ function startNewShahid(){
   followupShahidContext = null;
   planShahidContext = null;
   taskShahidContext = null;
+  if(typeof inboxRefContext !== 'undefined') inboxRefContext = null;
   clearDraft();
   document.getElementById('planBtn').style.display = '';
   document.getElementById('saveBtn').textContent = 'حفظ الشاهد';
