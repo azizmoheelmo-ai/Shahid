@@ -3170,3 +3170,21 @@ select.tlx-inp{min-height:44px;}
 .crm-save-box{border-radius:var(--ui-r-btn);padding:8px 10px;font-size:12.5px;line-height:1.8;margin-top:8px;}
 .crm-save-box.is-fail{background:var(--ui-danger-bg);color:var(--ui-danger);}
 .crm-save-box.is-warn{background:var(--ui-warn-bg);color:var(--ui-warn);}
+/* "ماذا تغيّر؟" داخل الملخص: مطويّ افتراضيًا، وقائمته تُمرَّر من داخلها فيبقى "تم" ظاهرًا */
+.crm-ch{border:1px solid var(--line);border-radius:var(--ui-r-btn);margin-top:8px;overflow:hidden;}
+.crm-ch summary{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;font-size:13px;font-weight:700;color:var(--navy);background:var(--ui-hover);cursor:pointer;list-style:none;}
+.crm-ch summary::-webkit-details-marker{display:none;}
+.crm-ch summary::before{content:'▸';margin-left:6px;}
+.crm-ch[open] summary::before{content:'▾';}
+.crm-ch summary > span:first-child{flex:1;}
+.crm-ch-brief{font-size:11.5px;font-weight:600;color:var(--muted);}
+.crm-ch-list{max-height:240px;overflow-y:auto;}
+.crm-ch-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid var(--ui-divider);font-size:13px;}
+.crm-ch-v{display:flex;gap:6px;align-items:center;flex-shrink:0;}
+.crm-ch-old{color:var(--muted);text-decoration:line-through;}
+.crm-ch-v .crm-ch-old:last-child{text-decoration:none;font-size:12px;}
+.crm-ch-tag{font-size:10.5px;font-weight:700;border-radius:var(--ui-r-pill);padding:1px 7px;}
+.crm-ch-tag.is-up{background:var(--ui-ok-bg);color:var(--ui-ok);}
+.crm-ch-tag.is-down{background:var(--ui-danger-bg);color:var(--ui-danger);}
+.crm-ch-tag.is-new{background:var(--ui-info-bg);color:var(--navy);}
+.crm-ch-tag.is-del{background:var(--ui-neutral-bg);color:var(--ui-neutral);}

@@ -103,8 +103,8 @@ test('مشاركة: لا قائمة "لم يشارك" — العدد فقط', as
   await app.finishCrmLessonSheet();
   const h = modal(app);
   assert.match(h, /تم حفظ النقرات/);
-  assert.match(h, /رُصد في هذه الحصة لـطالبان/);
-  assert.doesNotMatch(h, /crm-save-box/);
+  assert.match(h, /رُصد في هذه الحصة: 2 من 4/);
+  assert.doesNotMatch(h, /crm-save-box/, 'لا قائمة "لم يشارك"');
 });
 
 test('واجب: يذكر الأعداد وأسماء من لم يسلّم', async () => {
@@ -127,4 +127,56 @@ test('الأسماء الكثيرة تُختصر: أول 15 ثم "و N غيره�
   const names = Array.from({ length: 20 }, (_, i) => 'ط' + i);
   assert.match(app.crmSummaryNames(names), /ط14 و5 غيرهم$/);
   assert.doesNotMatch(app.crmSummaryNames(names), /ط15/);
+});
+
+test('ماذا تغيّر؟ (اختبار): مطويّ، كانت ← صارت بالفرق، المعدّل والممسوح قبل الجديد، والعائد لقيمته لا يظهر', async () => {
+  const app = appWith();
+  testSheet(app);
+  runInAppContext(app, `crmSheet.test.values = new Map([['a', 15], ['b', 6], ['c', 11]]);`);
+  await app.saveCrmTestInput(get(app, `__input('d', '20')`));   /* جديدة */
+  await app.saveCrmTestInput(get(app, `__input('a', '17')`));   /* +2 */
+  await app.saveCrmTestInput(get(app, `__input('b', '4')`));    /* −2 */
+  await app.saveCrmTestInput(get(app, `__input('c', '')`));     /* مُسحت */
+  await app.saveCrmTestInput(get(app, `__input('a', '16')`));   /* ما زالت من 15 */
+  const h = modal(app) || (await app.finishCrmLessonSheet(), modal(app));
+  assert.match(h, /<details class="crm-ch"><summary><span>ماذا تغيّر؟ \(4\)<\/span><span class="crm-ch-brief">1 جديدة · 2 معدّلة · 1 مُسحت<\/span>/);
+  assert.doesNotMatch(h, /<details[^>]*open/, 'مطويّ افتراضيًا');
+  assert.match(h, /أحمد<\/span><span class="crm-ch-v"><span class="crm-ch-old">15<\/span>←<b>16<\/b><span class="crm-ch-tag is-up" dir="ltr">\+1</);
+  assert.match(h, /بدر &lt;i&gt;x&lt;\/i&gt;<\/span>[\s\S]*?6<\/span>←<b>4<\/b><span class="crm-ch-tag is-down" dir="ltr">−2</);
+  assert.match(h, /جابر[\s\S]*?11<\/span>←<b>—<\/b><span class="crm-ch-tag is-del">مُسحت/);
+  assert.ok(h.indexOf('جابر') < h.indexOf('داود'), 'الممسوح قبل الجديد');
+  assert.match(h, /داود<\/span><span class="crm-ch-v"><b>20<\/b><span class="crm-ch-tag is-new">جديدة/);
+  runInAppContext(app, 'window.__modal = []');
+  await app.saveCrmTestInput(get(app, `__input('a', '15')`));   /* رجعت كما كانت */
+  await app.finishCrmLessonSheet();
+  assert.match(modal(app), /ماذا تغيّر؟ \(3\)/);
+});
+
+test('ماذا تغيّر؟: الفاشل لا يُعدّ تغيّرًا', async () => {
+  const app = appWith('c');
+  testSheet(app);
+  await app.saveCrmTestInput(get(app, `__input('c', '9')`));
+  await app.finishCrmLessonSheet();
+  assert.doesNotMatch(modal(app), /ماذا تغيّر/);
+});
+
+test('ماذا تغيّر؟ (واجب): الحالة كانت ← صارت', async () => {
+  const app = appWith();
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-11-16', period: 1, token: 1, mode: 'homework', states: {},
+    hw: { selectedId: 'H', data: { homeworks: [{ id: 'H', title: 'واجب ١' }], statusRows: [] }, column: null, queue: new Map(), statuses: new Map() } };
+    syncHomeworkColumn = async () => {}; paintCrmHomework = () => {}; paintCrmHomeworkCounts = () => {}; gradeStartsFull = () => false;`);
+  app.tapCrmHomework('a');
+  await get(app, 'crmSheet.hw.queue.get("a")');
+  await app.finishCrmLessonSheet();
+  assert.match(modal(app), /أحمد<\/span><span class="crm-ch-v"><span class="crm-ch-old">لم يسلّم<\/span>←<b>سلّم<\/b>/);
+});
+
+test('ماذا تغيّر؟ (مشاركة): +عدد اليوم والدرجة الآن', async () => {
+  const app = appWith();
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-11-16', period: 1, token: 1, mode: 'participation', states: {},
+    part: { column: { id: 'C', name: 'المشاركة', max_score: 10 }, scores: new Map(), today: {}, undo: [], queue: new Map(), toolId: null, step: 1 } };
+    paintCrmParticipation = () => {}; writeParticipationState = () => {};`);
+  app.tapCrmParticipation('a'); app.tapCrmParticipation('a');
+  await app.finishCrmLessonSheet();
+  assert.match(modal(app), /أحمد<\/span><span class="crm-ch-v"><span class="crm-ch-tag is-up" dir="ltr">\+2<\/span><span class="crm-ch-old">الآن \d+ \/ 10/);
 });
