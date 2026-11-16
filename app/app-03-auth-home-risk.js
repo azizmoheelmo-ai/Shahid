@@ -339,6 +339,7 @@ async function onLoggedIn(user){
   calendarRegion = null;
   calendarDataCache = null; // لا نُبقي بيانات تقويم مستخدم سابق على نفس الصفحة
   if(typeof batchResetState === 'function') batchResetState(); // ولا بطاقات «تجهيز الشواهد» لمستخدم سابق
+  if(typeof inboxResetState === 'function') inboxResetState(); // ولا «أعمال تنتظر التوثيق» لمستخدم سابق
   try{
     const { data: profile } = await sb.from('profiles').select('disabled, duty_type, calendar_region').eq('id', user.id).maybeSingle();
     if(profile && profile.disabled){
@@ -490,7 +491,7 @@ async function checkAdminStatus(){
    العنوان يُقرأ من الشاشة الظاهرة (لافتتها .band-title مخفية بالتنسيق، أو اسم
    ثابت للشاشات بلا لافتة) — مراقبة ظهور الشاشات بدل تعديل كل دالة showX. */
 const TOP_TITLE_VIEWS = ['homeView', 'formView', 'listView', 'adminView', 'planView', 'selfView', 'classroomView',
-  'referralLetterView', 'settingsView', 'toolsView', 'riskView', 'academicView', 'acLetterView', 'programsView', 'calendarView', 'tasksView', 'batchView'];
+  'referralLetterView', 'settingsView', 'toolsView', 'riskView', 'academicView', 'acLetterView', 'programsView', 'calendarView', 'tasksView', 'batchView', 'inboxView'];
 const TOP_TITLE_FALLBACK = { homeView: 'الرئيسية', listView: 'الشواهد', formView: 'توثيق شاهد', programsView: 'أعمالي', tasksView: 'أعمالي', batchView: 'تجهيز الشواهد' };
 
 function topTitleFor(view, id){

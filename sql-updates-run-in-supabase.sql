@@ -433,6 +433,18 @@ do $$ begin
   end if;
 end $$;
 
+-- ============ ختم مصدر الشاهد (app-51: أعمال تنتظر التوثيق) ============
+-- شاهد بُني من عمل مسجّل في التطبيق (خطة درس، حصة برنامج، مهمة أدائية، متابعة) يحمل
+-- نوع مصدره وسطرًا قصيرًا عنه («رُصدت درجات 26 من 28») فيظهر بالبطاقة والـPDF «مصدره: ...».
+-- nullable بالكامل: لا أثر على أي شاهد حالي. قبل تشغيله يُحفظ الشاهد بلا ختم (لا يتعطل الحفظ).
+alter table public.shawahid add column if not exists source_type text;
+alter table public.shawahid add column if not exists source_note text;
+alter table public.shawahid drop constraint if exists shawahid_source_valid;
+alter table public.shawahid add constraint shawahid_source_valid check (
+  (source_type is null or source_type in ('lesson_plan', 'program_session', 'task', 'followup'))
+  and (source_note is null or char_length(source_note) <= 200)
+);
+
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
 -- الاستبانة كائن مستقل على مستوى المعلم: عنوان، وجمهور واحد، وشعب مختارة، وأسئلتها هي (نسخة محفوظة بالحملة)،
 -- وترتيب يحدده المعلم، وعتبة عرض نتائج لكل استبانة.

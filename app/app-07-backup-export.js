@@ -1891,6 +1891,18 @@ create policy "المعلم يحذف روابط برامجه فقط" on public.p
 -- program_session_no الأقدم (قبل إنشاء classroom_sections بمئات الأسطر).
 alter table public.shawahid add column if not exists program_section_id uuid references public.classroom_sections(id) on delete set null;
 
+-- ============ ختم مصدر الشاهد (app-51: أعمال تنتظر التوثيق) ============
+-- شاهد بُني من عمل مسجّل في التطبيق (خطة درس، حصة برنامج، مهمة أدائية، متابعة) يحمل
+-- نوع مصدره وسطرًا قصيرًا عنه («رُصدت درجات 26 من 28») فيظهر بالبطاقة والـPDF «مصدره: ...».
+-- nullable بالكامل: لا أثر على أي شاهد حالي. قبل تشغيله يُحفظ الشاهد بلا ختم (لا يتعطل الحفظ).
+alter table public.shawahid add column if not exists source_type text;
+alter table public.shawahid add column if not exists source_note text;
+alter table public.shawahid drop constraint if exists shawahid_source_valid;
+alter table public.shawahid add constraint shawahid_source_valid check (
+  (source_type is null or source_type in ('lesson_plan', 'program_session', 'task', 'followup'))
+  and (source_note is null or char_length(source_note) <= 200)
+);
+
 create table if not exists public.classroom_incident_types (
   id uuid primary key default gen_random_uuid(),
   problem_name text not null,

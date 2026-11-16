@@ -374,6 +374,8 @@ function renderRecCard(r){
   const stageTag = r.cycle_stage && CYCLE_STAGES[r.cycle_stage]
     ? `<span class="stage-tag">${CYCLE_STAGES[r.cycle_stage].label}</span>`
     : '';
+  const stamp = typeof shahidSourceStamp === 'function' ? shahidSourceStamp(r) : '';
+  const stampLine = stamp ? `<div class="rec-source">مصدره: ${escapeHtml(stamp)}</div>` : '';
 
   return `
     <div class="rec">
@@ -384,6 +386,7 @@ function renderRecCard(r){
         <span class="rec-date">${date}</span>
       </div>
       <div class="rec-desc">${escapeHtml(descSnippet)}${(r.description||'').length > 160 ? '…' : ''}</div>
+      ${stampLine}
       ${photosHtml}
       <div class="rec-actions">
         <button class="btn btn-outline" onclick="editRecord('${r.id}')">تعديل</button>
@@ -957,6 +960,10 @@ async function saveShahid(){
     if(!editingId){
       const dateForStage = record.lesson_date ? new Date(record.lesson_date) : new Date();
       record.cycle_stage = getCycleStageKey(dateForStage);
+      /* ختم المصدر (app-51): شاهد فُتح من عمل مسجّل بالتطبيق. التعديل لاحقًا لا يمسّه */
+      const sourceType = programSessionContext ? 'program_session' : planShahidContext ? 'lesson_plan'
+        : taskShahidContext ? 'task' : followupShahidContext ? 'followup' : null;
+      if(sourceType) record.source_type = sourceType;
     }
 
     if(editingId){
@@ -968,7 +975,9 @@ async function saveShahid(){
       showToast('تم تحديث الشاهد بنجاح', 'ok');
       setTimeout(() => { showList(); }, 700);
     } else {
-      const { data: inserted, error } = await sb.from('shawahid').insert(record).select().single();
+      const { data: inserted, error } = record.source_type
+        ? await insertShahidWithSource(record)
+        : await sb.from('shawahid').insert(record).select().single();
       if(error) throw error;
       formDirty = false;
       clearDraft();
@@ -1402,6 +1411,9 @@ function buildPdfHtml(rec, photoDataUrls, opts){
   const subline = [rec.school, rec.subject].filter(has).join(' — ');
   const metaExtra = (has(rec.ref_number) || has(dateDisplay))
     ? `<div style="display:flex;border-top:1px solid ${SH_LINE};">${idMetaPdf('الرقم المرجعي', rec.ref_number)}${idMetaPdf('التاريخ', dateDisplay)}</div>` : '';
+  /* ختم المصدر (REPORTS.md ق29): الشاهد مبني على عمل مسجّل في التطبيق */
+  const stamp = typeof shahidSourceStamp === 'function' ? shahidSourceStamp(rec) : '';
+  const sourceRow = stamp ? `<div style="display:flex;border-top:1px solid ${SH_LINE};">${idMetaPdf('مصدر الشاهد', stamp)}</div>` : '';
 
   return `
   <div dir="rtl" style="width:794px;background:#fff;font-family:${SH_FONT};color:#15445a;box-sizing:border-box;padding-top:22px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
@@ -1425,7 +1437,7 @@ function buildPdfHtml(rec, photoDataUrls, opts){
       <div style="display:flex;">
         ${idMetaPdf('عنوان الدرس / الوحدة', rec.lesson_title, 2)}${idMetaPdf('الصف / الفصل', rec.class_name)}
       </div>
-      ${metaExtra}
+      ${metaExtra}${sourceRow}
     </div>
     ${sections}
     <div style="display:flex;gap:40px;margin:26px 30px 0;">
