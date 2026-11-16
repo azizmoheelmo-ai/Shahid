@@ -471,7 +471,7 @@ function paintCrmHomeworkCounts(){
 }
 
 /* حفظ حالة طالب ثم إعادة حساب درجته — بالتتابع لكل طالب */
-function persistCrmHomework(studentId, state){
+function persistCrmHomework(studentId, state, prevState){
   const s = crmSheet;
   const h = s.hw;
   const hwId = h.selectedId;
@@ -489,6 +489,7 @@ function persistCrmHomework(studentId, state){
     if(state !== 'missing') h.data.statusRows.push({ homework_id: hwId, student_id: studentId, status: state });
     stored = true;
     crmLogSaved(h, [studentId]);
+    crmLogChange(h, studentId, prevState || 'missing', state);
     await syncHomeworkColumn(h.column, s.sectionId, h.data, [studentId]);
   }).catch(e => { markCrmSheetFailure(); if(!stored) crmLogFailed(h, [studentId], e.message || 'خطأ بالاتصال'); showToast('لم يُحفظ الواجب: ' + (e.message || 'خطأ بالاتصال') + ' — أعد النقر', 'error'); });
   h.queue.set(studentId, next);
@@ -498,11 +499,12 @@ function persistCrmHomework(studentId, state){
 function tapCrmHomework(studentId){
   const s = crmSheet;
   if(!s || !s.hw || !s.hw.selectedId) return;
-  const st = nextHomeworkState(s.hw.statuses.get(studentId) || 'missing', gradeStartsFull('homework'));
+  const before = s.hw.statuses.get(studentId) || 'missing';
+  const st = nextHomeworkState(before, gradeStartsFull('homework'));
   if(st === 'missing') s.hw.statuses.delete(studentId); else s.hw.statuses.set(studentId, st);
   paintCrmHomework(studentId);
   paintCrmHomeworkCounts();
-  persistCrmHomework(studentId, st);
+  persistCrmHomework(studentId, st, before);
 }
 
 let crmHwBulkBusy = false;
@@ -525,6 +527,7 @@ async function markAllCrmHomeworkSubmitted(){
     ids.forEach(id => s.hw.data.statusRows.push({ homework_id: hwId, student_id: id, status: 'submitted' }));
     stored = true;
     crmLogSaved(h, ids);
+    ids.forEach(id => crmLogChange(h, id, 'missing', 'submitted'));
     await syncHomeworkColumn(s.hw.column, s.sectionId, s.hw.data, ids);
     showToast('سُجّل "سلّم" للباقين — اضغط على المقصّرين لتعديلهم', 'ok');
   } catch(e){

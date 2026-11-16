@@ -384,6 +384,7 @@ function setCrmToolValue(studentId, value){
       return;
     }
     crmLogSaved(t, [studentId]);
+    crmLogChange(t, studentId, prev, value);
     try{ await syncToolColumn(t.column, t.tool, s.sectionId, t.term, [studentId]); }
     catch(e){ markCrmSheetFailure(); showToast('حُفظ الرصد، وتعذّر تحديث عموده — يُحدَّث عند فتح الكشف', 'error'); }
   });
@@ -413,6 +414,7 @@ async function markAllCrmToolDone(){
       })), { onConflict: 'tool_id,student_id,mark_date,period' });
       if(error) throw error;
       crmLogSaved(t, ids);
+      ids.forEach(id => crmLogChange(t, id, null, 1));
       await syncToolColumn(t.column, t.tool, s.sectionId, t.term, ids);
       showToast('سُجّل "تمّ" للباقين — اضغط على من لم يتمّ لتعديله', 'ok');
     } catch(e){

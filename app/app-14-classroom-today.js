@@ -1104,6 +1104,16 @@ function crmLogFailed(st, ids, reason){
   const l = crmSaveLog(st);
   if(l) (ids || []).forEach(id => { l.ok.delete(id); l.fail.set(id, reason || 'خطأ بالاتصال'); });
 }
+/* ماذا تغيّر لكل طالب في هذه الجلسة: من (قبل أول تغيير) ← إلى (آخر ما حُفظ). يُسجَّل بعد نجاح الحفظ فقط،
+   والعائد لقيمته الأولى يُحذف (لا تغيّر صافيًا) */
+function crmLogChange(st, id, from, to){
+  const l = crmSaveLog(st);
+  if(!l) return;
+  if(!l.changes) l.changes = new Map();
+  const norm = v => (v === undefined ? null : v);
+  const first = l.changes.has(id) ? l.changes.get(id).from : norm(from);
+  if(first === norm(to)) l.changes.delete(id); else l.changes.set(id, { from: first, to: norm(to) });
+}
 function crmLogClearFail(st, id){
   const l = st && st.log;
   if(l) l.fail.delete(id);
@@ -1136,7 +1146,8 @@ function crmSaveSummaryInfo(s){
   const nameOf = id => { const x = students.find(y => y.id === id) || (crmStudents || []).find(y => y.id === id); return x ? x.full_name : ''; };
   const log = (st && st.log) || { ok: new Set(), fail: new Map() };
   const fails = [...log.fail.entries()].map(([id, reason]) => ({ name: nameOf(id), reason }));
-  const info = { kind, subtitle: crmSectionLabel(s.sectionId), lines: [], fails, missing: null, savedNote: '' };
+  const info = { kind, subtitle: crmSectionLabel(s.sectionId), lines: [], fails, missing: null, savedNote: '', changes: [], numeric: true };
+  const changes = log.changes || new Map();
   const savedPhrase = forms => log.ok.size ? 'تم حفظ ' + arabicCountPhrase(log.ok.size, forms) : '';
   let missingIds = [], missingLabel = '';
   if(kind === 'test' && st){
@@ -1179,8 +1190,26 @@ function crmSaveSummaryInfo(s){
     const today = st.today || {};
     const k = ids.filter(id => today[id]).length;
     info.savedNote = log.ok.size ? 'تم حفظ النقرات' : '';
-    info.lines.push(k ? `رُصد في هذه الحصة لـ${arabicCountPhrase(k, CRM_STUDENT_COUNT_FORMS)}` : 'لا نقرات في هذه الحصة بعد');
+    info.lines.push(k ? `رُصد في هذه الحصة: ${k} من ${ids.length}` : 'لا نقرات في هذه الحصة بعد');
     /* لا قائمة "لم يشارك": أغلب الطلاب لا يشاركون كل حصة فتطول بلا فائدة */
+  }
+  /* ماذا تغيّر: المعدّل والممسوح أولًا (الأخطر)، ثم الجديد — بترتيب الكشف داخل كل مجموعة */
+  if(kind === 'part' && st){
+    const step = st.step || 1, today = st.today || {};
+    info.numeric = true;
+    info.changes = ids.filter(id => today[id]).map(id => ({ name: nameOf(id), delta: today[id] * step,
+      to: st.scores && st.scores.has(id) ? st.scores.get(id) : null, max: st.column ? st.column.max_score : null }));
+    info.changeKind = 'part';
+  } else if(changes.size){
+    const label = kind === 'hw' ? (v => HOMEWORK_LABELS[v || 'missing'])
+      : (kind === 'tool' && st && st.tool.tool_type === 'status') ? (v => v === null ? 'لم يُرصد' : (v >= 1 ? 'تمّ' : 'لم يتمّ'))
+      : null;
+    info.numeric = !label;
+    const rank = c => (c.from === null || (kind === 'hw' && c.from === 'missing')) ? 1 : 0;
+    info.changes = ids.filter(id => changes.has(id)).map(id => Object.assign({ name: nameOf(id) }, changes.get(id)))
+      .map(c => label ? Object.assign(c, { fromText: label(c.from), toText: label(c.to) }) : c)
+      .sort((a, b) => rank(a) - rank(b));
+    info.changeKind = label ? 'state' : 'grade';
   }
   if(missingIds.length){
     const absent = id => s.states && s.states[id] === 'absent';
@@ -1212,6 +1241,7 @@ function showCrmSaveSummary(s){
     <div class="crm-save-sub">${escapeHtml(info.subtitle)}</div>
     ${failed && info.savedNote ? `<div class="crm-save-line">✓ ${escapeHtml(info.savedNote)}</div>` : ''}
     ${info.lines.map(l => `<div class="crm-save-line">${escapeHtml(l)}</div>`).join('')}`;
+  html += crmSaveChangesHtml(info);
   if(info.fails.length){
     html += `<div class="crm-save-box is-fail"><b>لم يُحفظ (${info.fails.length}):</b>${info.fails.map(f => `<div>• ${escapeHtml(f.name)} — ${escapeHtml(f.reason)}</div>`).join('')}<div>أعد الرصد لهم ثم اضغط «حفظ».</div></div>`;
   } else if(info.generalFail){
@@ -1222,6 +1252,31 @@ function showCrmSaveSummary(s){
     html += `<div class="crm-save-box is-warn">${m.names.length ? `<div><b>${escapeHtml(m.label)} (${m.names.length}):</b> ${crmSummaryNames(m.names)}</div>` : ''}${m.absent.length ? `<div>غائبون: ${crmSummaryNames(m.absent)}</div>` : ''}</div>`;
   }
   showCrmSummaryModal(html + '</div>');
+}
+
+/* "ماذا تغيّر؟" مطويّ افتراضيًا (details) — سطر واحد لا يزحم النافذة */
+function crmSaveChangesHtml(info){
+  const list = info.changes || [];
+  if(!list.length) return '';
+  const fmt = v => (v === null || v === undefined) ? '—' : formatScore(v);
+  const signed = d => `<span class="crm-ch-tag ${d > 0 ? 'is-up' : 'is-down'}" dir="ltr">${d > 0 ? '+' : '−'}${formatScore(Math.abs(d))}</span>`;
+  let brief = '', rows = '';
+  if(info.changeKind === 'part'){
+    rows = list.map(c => `<div class="crm-ch-row"><span>${escapeHtml(c.name)}</span><span class="crm-ch-v">${signed(c.delta)}<span class="crm-ch-old">الآن ${fmt(c.to)}${c.max !== null ? ' / ' + formatScore(c.max) : ''}</span></span></div>`).join('');
+  } else if(info.changeKind === 'grade'){
+    const nNew = list.filter(c => c.from === null).length, nDel = list.filter(c => c.from !== null && c.to === null).length;
+    const nEdit = list.length - nNew - nDel;
+    brief = [nNew ? nNew + ' جديدة' : '', nEdit ? nEdit + ' معدّلة' : '', nDel ? nDel + ' مُسحت' : ''].filter(Boolean).join(' · ');
+    rows = list.map(c => {
+      const v = c.from === null ? `<b>${fmt(c.to)}</b><span class="crm-ch-tag is-new">جديدة</span>`
+        : c.to === null ? `<span class="crm-ch-old">${fmt(c.from)}</span>←<b>—</b><span class="crm-ch-tag is-del">مُسحت</span>`
+        : `<span class="crm-ch-old">${fmt(c.from)}</span>←<b>${fmt(c.to)}</b>${signed(c.to - c.from)}`;
+      return `<div class="crm-ch-row"><span>${escapeHtml(c.name)}</span><span class="crm-ch-v">${v}</span></div>`;
+    }).join('');
+  } else {
+    rows = list.map(c => `<div class="crm-ch-row"><span>${escapeHtml(c.name)}</span><span class="crm-ch-v"><span class="crm-ch-old">${escapeHtml(c.fromText)}</span>←<b>${escapeHtml(c.toText)}</b></span></div>`).join('');
+  }
+  return `<details class="crm-ch"><summary><span>ماذا تغيّر؟ (${list.length})</span>${brief ? `<span class="crm-ch-brief">${brief}</span>` : ''}</summary><div class="crm-ch-list">${rows}</div></details>`;
 }
 
 /* ملخص حفظ الحضور: الأعداد وأسماء غير الحاضرين */

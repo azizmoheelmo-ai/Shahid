@@ -149,6 +149,7 @@ function saveCrmTestInput(input){
       : await sb.from('classroom_grade_scores').upsert({ teacher_id: uid, column_id: columnId, student_id: studentId, score: value }, { onConflict: 'column_id,student_id' });
     if(error) throw error;
     crmLogSaved(t, [studentId]);
+    crmLogChange(t, studentId, prev, value);
     if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   }).catch(e => {
     markCrmSheetFailure();

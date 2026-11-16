@@ -468,6 +468,7 @@ function persistCrmTaskScores(ids, score, prev){
       return;
     }
     crmLogSaved(t, saved);
+    saved.forEach(id => crmLogChange(t, id, prev.get(id), score));
     const missing = ids.filter(id => !saved.includes(id));
     if(missing.length){
       revert(missing);
