@@ -308,6 +308,8 @@ function trashOfferUndo(msg, itemId, onRestored){
 function trashRestoreErrorMessage(error){
   const code = error && (error.code || '');
   const msg = (error && error.message) || '';
+  /* شاهد من «أعمال تنتظر التوثيق» (app-51): العمل نفسه وُثّق بشاهد جديد بعد الحذف (الفهرس الفريد على المرجع) */
+  if(code === '23505' && /shawahid_source_ref_key/.test(msg)) return 'تعذّر الاسترجاع: هذا العمل وُثّق بشاهد آخر بعد الحذف. احذف الشاهد الجديد أولًا إن أردت استرجاع القديم.';
   if(code === '23505') return 'تعذّر الاسترجاع: يوجد سجل بنفس المعرّف (ربما استُرجع من قبل).';
   if(code === '23503') return 'تعذّر الاسترجاع: عنصر مرتبط به (مثل الطالب أو الشعبة أو العمود) لم يعد موجودًا. استرجع العنصر الأصلي أولًا.';
   if(code === 'P0002' || /deleted_item_not_found/.test(msg)) return 'هذا العنصر لم يعد في المحذوفات (استُرجع أو انتهت مدته).';

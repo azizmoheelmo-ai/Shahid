@@ -49,7 +49,14 @@ function photoPrefix(supabaseUrl){
 function safeFileUrl(u, prefix){
   if(typeof u !== 'string' || !prefix || !u.startsWith(prefix)) return null;
   const rest = u.slice(prefix.length);
-  return /^[A-Za-z0-9._\/%-]+$/.test(rest) && !rest.includes('..') ? u : null;
+  /* بلا % (مسارات رفع التطبيق لا تحويها): «%2e%2e» يفكّه المتصفح إلى «..» فيخرج من الحاوية */
+  if(!/^[A-Za-z0-9._\/-]+$/.test(rest) || rest.includes('..') || rest.includes('//')) return null;
+  /* تحقق ثانٍ بعد تطبيع المتصفح نفسه: المسار يبقى داخل الحاوية */
+  try{
+    const a = new URL(u), b = new URL(prefix);
+    if(a.origin !== b.origin || !a.pathname.startsWith(b.pathname) || a.search || a.hash) return null;
+  } catch(e){ return null; }
+  return u;
 }
 function isImagePath(u){ return /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(u.split('?')[0]); }
 
@@ -65,17 +72,21 @@ async function resolvePortfolio(code, supabase, now){
   if(p.error) throw p.error;
   if(p.data && p.data.disabled) return { ok: false };
   const [inYear, noYear, els] = await Promise.all([
+    /* الأحدث أولًا، وصف زائد (MAX_ROWS + 1) لنعرف إن قُصّت القائمة فنقول ذلك بالصفحة */
     supabase.from('shawahid').select(COLS).eq('user_id', share.teacher_id).eq('cycle_year', share.cycle_year)
-      .order('lesson_date', { ascending: true }).limit(MAX_ROWS),
+      .order('lesson_date', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false }).limit(MAX_ROWS + 1),
     /* شواهد قديمة بلا دورة مخزّنة: تُحسب دورتها من تاريخها كما يفعل التطبيق */
-    supabase.from('shawahid').select(COLS).eq('user_id', share.teacher_id).is('cycle_year', null).limit(MAX_ROWS),
+    supabase.from('shawahid').select(COLS).eq('user_id', share.teacher_id).is('cycle_year', null)
+      .order('created_at', { ascending: false }).limit(MAX_ROWS + 1),
     supabase.from('performance_elements').select('key, label, sort_order').order('sort_order', { ascending: true })
   ]);
   if(inYear.error) throw inYear.error;
   if(noYear.error) throw noYear.error;
+  const dateKey = r => String(r.lesson_date || r.created_at || '');
   const rows = (inYear.data || []).concat((noYear.data || []).filter(r => cycleYearOf(r.lesson_date || r.created_at) === share.cycle_year))
-    .filter(r => r && r.user_id === share.teacher_id); /* دفاع إضافي: لا صف لغير صاحب الرابط مهما حدث بالاستعلام */
-  return { ok: true, share, rows: rows.slice(0, MAX_ROWS), elements: els.error ? [] : (els.data || []) };
+    .filter(r => r && r.user_id === share.teacher_id) /* دفاع إضافي: لا صف لغير صاحب الرابط مهما حدث بالاستعلام */
+    .sort((a, b) => dateKey(b).localeCompare(dateKey(a)));
+  return { ok: true, share, rows: rows.slice(0, MAX_ROWS), truncated: rows.length > MAX_ROWS, elements: els.error ? [] : (els.data || []) };
 }
 
 const CSS = ':root{--navy:#1B3245;--gold:#A9852E;--gold-text:#876A25;--paper:#F7F5F0;--card:#fff;--line:#D8D2C4;--ink:#232323;--muted:#6B6659;'
@@ -150,6 +161,7 @@ function buildPortfolioPage(found, nonce, supabaseUrl){
     if(!groups.has(k)) groups.set(k, { label: r.element_label || 'بلا عنصر', rows: [] });
     groups.get(k).rows.push(r);
   });
+  groups.forEach(g => g.rows.sort((a, b) => String(a.lesson_date || a.created_at || '').localeCompare(String(b.lesson_date || b.created_at || ''))));
   const sorted = [...groups.entries()].sort((a, b) => (order.has(a[0]) ? order.get(a[0]) : 999) - (order.has(b[0]) ? order.get(b[0]) : 999));
   const sub = [first.school, first.subject].filter(Boolean).map(x => escapeHtml(x)).join(' — ');
   const until = dateText(found.share.expires_at);
@@ -160,10 +172,11 @@ function buildPortfolioPage(found, nonce, supabaseUrl){
   if(!rows.length){
     return head('شواهد الأداء الوظيفي', nonce) + `<body><main>${hero}<div class="empty">لا شواهد في هذه الدورة بعد.</div></main></body></html>`;
   }
+  const cut = found.truncated ? `<p class="hero">تعرض الصفحة أحدث ${MAX_ROWS} شاهد في هذه الدورة؛ وما قبلها محفوظ عند المعلم.</p>` : '';
   const sum = `<nav class="sum">${sorted.map(([, g], i) => `<a href="#e${i}"><span>${escapeHtml(g.label)}</span><b>${g.rows.length}</b></a>`).join('')}</nav>`;
   const body = sorted.map(([, g], i) => `<section><h2 id="e${i}">${escapeHtml(g.label)} <span class="cnt">· ${g.rows.length}</span></h2>${g.rows.map(r => cardHtml(r, prefix)).join('')}</section>`).join('');
   return head('شواهد الأداء الوظيفي', nonce)
-    + `<body><main>${hero}${sum}${body}<p class="foot">أرسل المعلم هذا الرابط بنفسه، ويستطيع إلغاءه متى شاء.</p></main></body></html>`;
+    + `<body><main>${hero}${cut}${sum}${body}<p class="foot">أرسل المعلم هذا الرابط بنفسه، ويستطيع إلغاءه متى شاء.</p></main></body></html>`;
 }
 
 function securityHeaders(res, nonce, supabaseUrl){

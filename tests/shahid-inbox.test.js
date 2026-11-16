@@ -148,24 +148,51 @@ test('sortInboxItems: ما ينقص الخطة أولًا (الأكبر نقصً
 
 test('inboxDueProgramSessions: ما حلّ أسبوعه فقط، وكل شعبة فتحة مستقلة', async (t) => {
   const app = loadApp();
-  const p = { id: 'P', sessions: [
+  const p = { id: 'P', created_at: '2026-08-20T00:00:00Z', sessions: [
     { session_no: 2, week_label: 'و2', section_status: { s1: { done: true } } },
     { session_no: 1, week_label: 'و1' }, { session_no: 3, week_label: 'و3' }, { session_no: 4 }
   ] };
-  const idx = { 'و1': '2026-09-01', 'و2': '2026-09-08', 'و3': '2026-09-15' };
+  const occ = { 'و1': ['2026-09-01'], 'و2': ['2026-09-08'], 'و3': ['2026-09-15'] };
   await t.test('بلا شعب: الحصص التي بدأ أسبوعها وغير الموثّقة، مرتبة', () => {
-    const out = app.inboxDueProgramSessions([p], new Map(), idx, '2026-09-10');
+    const out = app.inboxDueProgramSessions([p], new Map(), occ, '2026-09-10');
     assert.deepEqual(J(out.map(x => x.sessionNo)), [1, 2]);
     assert.equal(out[0].weekStart, '2026-09-01');
   });
   await t.test('بشعب: الحصة الموثّقة لشعبة تبقى ناقصة للأخرى', () => {
-    const out = app.inboxDueProgramSessions([p], new Map([['P', ['s1', 's2']]]), idx, '2026-09-10');
+    const out = app.inboxDueProgramSessions([p], new Map([['P', ['s1', 's2']]]), occ, '2026-09-10');
     assert.deepEqual(J(out.map(x => x.sessionNo + x.sectionId)), ['1s1', '1s2', '2s2']);
   });
   await t.test('بلا تقويم: أول حصة ناقصة فقط (لا نعرف ما حلّ غيرها)', () => {
     const out = app.inboxDueProgramSessions([p], new Map(), null, '2026-09-10');
     assert.deepEqual(J(out.map(x => x.sessionNo)), [1]);
   });
+});
+
+/* المراجع المستقل (2): اسم الأسبوع يتكرر بالفصلين؛ أول ظهوره وحده جعل حصص برنامج الفصل الثاني «حلّت»
+   فورًا بتاريخ قبل إنشاء البرنامج، ونسب للمعلم «نفّذتُ» حصصًا لم تأتِ بعد */
+test('inboxWeekOccurrences + inboxDueProgramSessions: الاسم المكرر بالفصلين يُحسب من ظهوره بعد إنشاء البرنامج', () => {
+  const app = loadApp();
+  const weeks = [
+    { week_label: 'الأسبوع الأول', gregorian_date: '2026-08-23' }, { week_label: 'الأسبوع الأول', gregorian_date: '2026-08-24' },
+    { week_label: 'الأسبوع الثاني', gregorian_date: '2026-08-30' }, { week_label: 'الأسبوع الثالث', gregorian_date: '2026-09-06' },
+    { week_label: 'الأسبوع الأول', gregorian_date: '2027-01-10' }, { week_label: 'الأسبوع الثاني', gregorian_date: '2027-01-17' },
+    { week_label: 'الأسبوع الثالث', gregorian_date: '2027-01-24' }
+  ];
+  const occ = app.inboxWeekOccurrences(weeks);
+  assert.deepEqual(J(occ['الأسبوع الأول']), ['2026-08-23', '2027-01-10'], 'الصفوف المتتالية ظهور واحد');
+  const p = { id: 'P', created_at: '2027-01-05T08:00:00Z', cycle_year: '2026/2027', sessions: [
+    { session_no: 1, week_label: 'الأسبوع الأول' }, { session_no: 2, week_label: 'الأسبوع الثاني' }, { session_no: 3, week_label: 'الأسبوع الثالث' }] };
+  const out = app.inboxDueProgramSessions([p], new Map(), occ, '2027-01-11', '2026/2027');
+  assert.deepEqual(J(out.map(x => [x.sessionNo, x.weekStart])), [[1, '2027-01-10']]);
+});
+
+test('inboxDueProgramSessions: برامج الدورات السابقة لا تُقترح، والاسم غير المطابق للتقويم = أول حصة ناقصة فقط', () => {
+  const app = loadApp();
+  const occ = { 'و1': ['2026-09-01'] };
+  const old = { id: 'O', cycle_year: '2025/2026', created_at: '2025-09-01', sessions: [{ session_no: 1, week_label: 'و1' }] };
+  const odd = { id: 'X', cycle_year: '2026/2027', created_at: '2026-08-20', sessions: [{ session_no: 1, week_label: 'الاسبوع الاول' }, { session_no: 2, week_label: 'غيره' }] };
+  const out = app.inboxDueProgramSessions([old, odd], new Map(), occ, '2026-10-01', '2026/2027');
+  assert.deepEqual(J(out.map(x => x.programId + x.sessionNo)), ['X1']);
 });
 
 test('buildProgramSessionShahidDraft: من بيانات البرنامج فقط، والتاريخ أول أسبوع منتهٍ', () => {
@@ -175,7 +202,9 @@ test('buildProgramSessionShahidDraft: من بيانات البرنامج فقط�
   const d = app.buildProgramSessionShahidDraft({ program, sessionNo: 2, sectionLabel: 'الرابع — الشعبة 2', weekStart: '2026-09-01', todayIso: '2026-09-20' });
   assert.equal(d.title, 'نادي القراءة — الحصة 2 من 4 — الرابع — الشعبة 2');
   assert.equal(d.date, '2026-09-01');
-  assert.match(d.description, /12 طالبًا/);
+  assert.doesNotMatch(d.description, /12 طالبًا/, 'عدد طلاب البرنامج كله لا يُنسب لشعبة واحدة');
+  assert.match(app.buildProgramSessionShahidDraft({ program, sessionNo: 2, weekStart: '2026-09-01', todayIso: '2026-09-20' }).description, /12 طالبًا/);
+  assert.equal(app.buildProgramSessionShahidDraft({ program, sessionNo: 2, weekStart: '2026-09-01', createdIso: '2026-09-03', todayIso: '2026-09-20' }).date, '2026-09-03', 'لا تاريخ قبل إنشاء البرنامج');
   assert.match(d.quant, /يكتمل توثيق 2 من 4/);
   assert.equal(d.steps.length, 0, 'لا خطوات مخترعة');
   const cur = app.buildProgramSessionShahidDraft({ program, sessionNo: 2, weekStart: '2026-09-15', todayIso: '2026-09-17' });
@@ -458,12 +487,16 @@ test('buildSurveyShahidDraft: من التحليل نفسه (svAnalyze)، وال�
 function seedPhase2(){
   const s = SEED();
   s.shawahid = [{ user_id: 'u1', source_ref: 'survey:old' }, { user_id: 'u2', source_ref: 'survey:c1' }];
+  const Q = [{ id: 'q1', type: 'rating', label: 'التواصل', required: true }];
   s.survey_campaigns = [
-    { id: 'c1', teacher_id: 'u1', title: 'رضا', audience: 'guardian', questions: [], min_results: 3, created_at: '2026-10-01T00:00:00Z' },
-    { id: 'old', teacher_id: 'u1', title: 'موثّقة', audience: 'guardian', questions: [], min_results: 1, created_at: '2026-09-01T00:00:00Z' },
-    { id: 'few', teacher_id: 'u1', title: 'قليلة', audience: 'guardian', questions: [], min_results: 5, created_at: '2026-09-01T00:00:00Z' }
+    { id: 'c1', teacher_id: 'u1', title: 'رضا', audience: 'guardian', questions: Q, min_results: 3, created_at: '2026-10-01T00:00:00Z' },
+    { id: 'old', teacher_id: 'u1', title: 'موثّقة', audience: 'guardian', questions: Q, min_results: 1, created_at: '2026-09-01T00:00:00Z' },
+    { id: 'few', teacher_id: 'u1', title: 'قليلة', audience: 'guardian', questions: Q, min_results: 5, created_at: '2026-09-01T00:00:00Z' },
+    { id: 'bad', teacher_id: 'u1', title: 'ردود غير صالحة', audience: 'guardian', questions: Q, min_results: 3, created_at: '2026-09-01T00:00:00Z' }
   ];
-  s.survey_responses = [1, 2, 3].map(i => ({ id: 'r' + i, teacher_id: 'u1', campaign_id: 'c1' })).concat([{ id: 'r9', teacher_id: 'u1', campaign_id: 'old' }, { id: 'r8', teacher_id: 'u1', campaign_id: 'few' }]);
+  s.survey_responses = [1, 2, 3].map(i => ({ id: 'r' + i, teacher_id: 'u1', campaign_id: 'c1', answers: { q1: 4 } }))
+    .concat([{ id: 'r9', teacher_id: 'u1', campaign_id: 'old', answers: { q1: 5 } }, { id: 'r8', teacher_id: 'u1', campaign_id: 'few', answers: { q1: 5 } }])
+    .concat([1, 2, 3].map(i => ({ id: 'b' + i, teacher_id: 'u1', campaign_id: 'bad', answers: { q1: 9 } })));
   s.classroom_lessons = [];
   const last = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d; })();
   const ym = last.getFullYear() + '-' + String(last.getMonth() + 1).padStart(2, '0');
@@ -494,6 +527,7 @@ test('المرحلة الثانية: الاستبانة المكتملة، ال�
   assert.ok(keys.includes('survey:c1'), 'وصلت ردودها للحد');
   assert.ok(!keys.includes('survey:old'), 'موثّقة بمرجعها');
   assert.ok(!keys.includes('survey:few'), 'لم تبلغ الحد');
+  assert.ok(!keys.includes('survey:bad'), 'المراجع المستقل (3): ثلاثة ردود غير صالحة لا تُحسب — وإلا ظهرت استبانة لا تُفتح ورقتها');
   assert.ok(keys.includes('lessons_month:' + ym));
   assert.ok(keys.includes('test_analysis:T1'));
   assert.ok(keys.includes('rubric_test:T1'));
@@ -542,4 +576,112 @@ test('«تعديل كامل» لمصدر بمرجع: saveShahid يحمل الم�
   assert.match(src, /record\.source_ref = inboxRefContext\.sourceRef/);
   const start = src.slice(src.indexOf('function startNewShahid'), src.indexOf('function addShahidForElement'));
   assert.match(start, /inboxRefContext = null/);
+});
+
+
+/* ============ إصلاحات المراجعة المستقلة ============ */
+
+test('مراجعة (2): نص النموذج الجاهز لا يُعبَّأ في ورقة الخطة، والأثر يبدأ فارغًا لكل مصدر', async () => {
+  const seed = SEED();
+  seed.lesson_plans[0].template_name = 'تصحيح الأعمال ورصد الدرجات في وقتها';
+  seed.lesson_plans[0].element_key = 'أداء الواجبات الوظيفية';
+  const app = inboxApp(seed, []);
+  runInAppContext(app, `SHAHID_TEMPLATES['أداء الواجبات الوظيفية'] = [{ name: 'تصحيح الأعمال ورصد الدرجات في وقتها', quant: 'رصد 35 طالبًا', qual: 'لا استفسارات', reflection: 'مثال' }];`);
+  const sheet = await runInAppContext(app, `(async () => { const r = await loadInboxItems(); return inboxPrepareSheet(r.items.find(i => i.key === 'plan:p1')); })()`);
+  assert.equal(sheet.draft.quant, '');
+  assert.equal(sheet.draft.qual, '');
+  assert.equal(sheet.draft.reflection, '');
+  assert.equal(sheet.qual, '');
+  const fsheet = await runInAppContext(app, `(async () => { const r = await loadInboxItems(); return inboxPrepareSheet(r.items.find(i => i.key === 'followup:g1')); })()`);
+  assert.equal(fsheet.qual, '', 'لا «النتيجة بحكم المعلم» تغني عن كتابة الأثر');
+});
+
+test('مراجعة (9): متابعة فردية لطالب غير نشط لا تُقترح، كبطاقة الانتباه', async () => {
+  const seed = SEED();
+  seed.classroom_followups.push({ id: 'f9', teacher_id: 'u1', group_id: null, section_id: 'S', reason_type: 'absence', reason_text: 'غياب', status: 'closed', outcome: 'improved', closed_at: daysAgo(3) + 'T00:00:00Z', shahid_id: null, student_id: 'gone' });
+  seed.classroom_followups.push({ id: 'f8', teacher_id: 'u1', group_id: null, section_id: 'S', reason_type: 'absence', reason_text: 'غياب', status: 'closed', outcome: 'improved', closed_at: daysAgo(3) + 'T00:00:00Z', shahid_id: null, student_id: 'a' });
+  seed.classroom_students.push({ id: 'gone', teacher_id: 'u1', full_name: 'منقول', is_active: false });
+  const app = inboxApp(seed, []);
+  const keys = J((await runInAppContext(app, 'loadInboxItems()')).items.map(i => i.key));
+  assert.ok(!keys.includes('followup:f9'));
+  assert.ok(keys.includes('followup:f8'));
+});
+
+test('مراجعة (3): عمل لا تُفتح ورقته يُعرض إخفاؤه (لا يبقى عالقًا)', async () => {
+  const log = [];
+  const seed = SEED();
+  const app = inboxApp(seed, log);
+  await runInAppContext(app, `(async () => { const r = await loadInboxItems(); inboxItems = r.items; document.getElementById('inboxView').style.display = 'block'; })()`);
+  seed.classroom_tasks = seed.classroom_tasks.filter(t => t.id !== 't1'); /* حُذفت المهمة بعد عرض القائمة */
+  await runInAppContext(app, `inboxOpen(inboxItems.findIndex(i => i.key === 'task:t1'))`);
+  const up = log.find(l => l.table === 'classroom_attention_dismissals' && l.op === 'upsert');
+  assert.ok(up && up.rows[0].subject_key === 'task:t1' && up.rows[0].teacher_id === 'u1');
+  assert.equal(runInAppContext(app, 'inboxSheet'), null);
+});
+
+test('مراجعة (5): خطأ شبكة بعد حفظ فعلي = لا حذف للصور المرفوعة، ويُكمل الربط', async () => {
+  const log = [];
+  const seed = SEED();
+  seed.shawahid = [];
+  const removed = [];
+  const app = inboxApp(seed, log, { fail: (table, op, values) => {
+    if(table === 'shawahid' && op === 'insert'){ seed.shawahid.push(Object.assign({}, values)); return { data: null, error: { message: 'Failed to fetch' } }; }
+    return null;
+  } });
+  runInAppContext(app, `compressImage = async f => f;`);
+  const sb = runInAppContext(app, 'sb');
+  sb.storage.from = () => ({ upload: async () => ({ error: null }), getPublicUrl: p => ({ data: { publicUrl: 'https://x.supabase.co/storage/v1/object/public/shawahid-photos/' + p } }), remove: async (paths) => { removed.push(...paths); return {}; } });
+  await openTaskSheet(app);
+  await runInAppContext(app, `inboxSheet.files.push({ name: 'a.jpg', type: 'image/jpeg', size: 10 }); document.getElementById('inboxQual').value = 'أثر'; inboxSave()`);
+  assert.equal(removed.length, 0, 'الصور لشاهد محفوظ فعلًا');
+  assert.ok(log.some(l => l.table === 'classroom_tasks' && l.op === 'update'), 'الربط اكتمل');
+});
+
+test('مراجعة (6): لا إرفاق ولا تبديل ولا رجوع أثناء الحفظ', () => {
+  const app = inboxApp(SEED(), []);
+  runInAppContext(app, `inboxSheet = { item: { type: 'followup', key: 'k' }, files: [], draft: { title: 't', steps: [] }, showNames: false, members: [], actions: [] }; inboxBusy = true;`);
+  runInAppContext(app, `inboxAddFiles({ files: [{ name: 'x.jpg', type: 'image/jpeg', size: 1 }], value: 'x' }); inboxSetNames(true); inboxBackToList();`);
+  assert.equal(runInAppContext(app, 'inboxSheet.files.length'), 0);
+  assert.equal(runInAppContext(app, 'inboxSheet.showNames'), false);
+  assert.ok(runInAppContext(app, 'inboxSheet !== null'));
+});
+
+test('مراجعة (7): «تعديل كامل» للمتابعة يحمل اختيار الأسماء، والمرجع يُحفظ مع مسودة النموذج ويُستعاد', () => {
+  assert.match(read('app/app-51-shahid-inbox.js'), /openShahidDraftFromFollowups\(it\.ref\.followupIds, it\.ref\.groupId, s\.showNames === true\)/);
+  assert.match(read('app/app-16-attention-followups.js'), /const showNames = forceShowNames === true \|\|/);
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  runInAppContext(app, `inboxRefContext = { sourceType: 'survey', sourceRef: 'survey:c1', sourceNote: 'n' };`);
+  const d = runInAppContext(app, 'collectFormDraft()');
+  assert.equal(d.inbox_ref.sourceRef, 'survey:c1');
+  runInAppContext(app, `inboxRefContext = null; applyDraft(${JSON.stringify({ steps: [], inbox_ref: { sourceType: 'survey', sourceRef: 'survey:c1' } })});`);
+  assert.equal(runInAppContext(app, 'inboxRefContext && inboxRefContext.sourceRef'), 'survey:c1');
+  runInAppContext(app, `inboxRefContext = null; applyDraft(${JSON.stringify({ steps: [], inbox_ref: { sourceType: 'evil', sourceRef: 'x' } })});`);
+  assert.equal(runInAppContext(app, 'inboxRefContext'), null, 'نوع غير معروف لا يُقبل من التخزين المحلي');
+});
+
+test('مراجعة (أ4): تبديل الحساب يفرّغ بطاقات المستخدم السابق فورًا', () => {
+  const app = inboxApp(SEED(), []);
+  runInAppContext(app, `document.getElementById('homeInboxCard').innerHTML = 'عمل سابق'; document.getElementById('homeInboxCard').style.display = 'block'; inboxResetState();`);
+  assert.equal(runInAppContext(app, `document.getElementById('homeInboxCard').innerHTML`), '');
+  assert.equal(runInAppContext(app, `document.getElementById('homeInboxCard').style.display`), 'none');
+});
+
+test('مراجعة (4): استرجاع شاهد وُثّق عمله ثانيةً يقول السبب الحقيقي', () => {
+  const app = loadApp();
+  assert.match(app.trashRestoreErrorMessage({ code: '23505', message: 'duplicate key value violates unique constraint "shawahid_source_ref_key"' }), /وُثّق بشاهد آخر بعد الحذف/);
+  assert.match(app.trashRestoreErrorMessage({ code: '23505', message: 'duplicate key value violates unique constraint "shawahid_pkey"' }), /بنفس المعرّف/);
+});
+
+test('مراجعة (أ3): حلقة «تعطيل الحساب» في buildSchemaSql بعد إنشاء كل جداولها (التثبيت الجديد)', () => {
+  const sql = loadApp().buildSchemaSql();
+  const blkAt = sql.indexOf('-- فرض «تعطيل الحساب» من القاعدة نفسها');
+  const loopAt = sql.indexOf("execute format('create policy %I on public.%I as restrictive", blkAt);
+  const list = [...(/foreach v_t in array array\[([\s\S]*?)\] loop/.exec(sql.slice(blkAt))[1]).matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
+  assert.ok(blkAt > 0 && loopAt > blkAt && list.includes('portfolio_shares'));
+  list.forEach(t => {
+    const at = sql.indexOf('create table if not exists public.' + t + ' ');
+    const at2 = sql.indexOf('create table if not exists public.' + t + '(');
+    const created = Math.max(at, at2);
+    if(created >= 0) assert.ok(created < loopAt, t + ' يُنشأ قبل الحلقة');
+  });
 });

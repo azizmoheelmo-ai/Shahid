@@ -468,9 +468,28 @@ create table if not exists public.portfolio_shares (
 );
 create index if not exists portfolio_shares_teacher_idx on public.portfolio_shares(teacher_id, expires_at);
 alter table public.portfolio_shares enable row level security;
+-- لا تعديل بعد الإنشاء (لا سياسة update): الرمز والمدة والدورة ثابتة، والإلغاء حذف وحسب.
 drop policy if exists "المعلم يدير روابط شواهده فقط" on public.portfolio_shares;
-create policy "المعلم يدير روابط شواهده فقط" on public.portfolio_shares for all to authenticated
-  using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يقرأ روابط شواهده" on public.portfolio_shares;
+create policy "المعلم يقرأ روابط شواهده" on public.portfolio_shares for select to authenticated using (auth.uid() = teacher_id);
+drop policy if exists "المعلم ينشئ روابط شواهده" on public.portfolio_shares;
+create policy "المعلم ينشئ روابط شواهده" on public.portfolio_shares for insert to authenticated with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يلغي روابط شواهده" on public.portfolio_shares;
+create policy "المعلم يلغي روابط شواهده" on public.portfolio_shares for delete to authenticated using (auth.uid() = teacher_id);
+-- وقت الإنشاء من الخادم لا من المتصفح، والمدة بين الآن و121 يومًا (قيد الجدول وحده يقارن بوقت يرسله العميل)
+create or replace function public.portfolio_shares_guard()
+returns trigger language plpgsql set search_path = '' as $fn$
+begin
+  new.created_at := now();
+  if new.expires_at <= now() or new.expires_at > now() + interval '121 days' then
+    raise exception 'portfolio_share_bad_expiry';
+  end if;
+  return new;
+end
+$fn$;
+drop trigger if exists trg_portfolio_shares_guard on public.portfolio_shares;
+create trigger trg_portfolio_shares_guard before insert on public.portfolio_shares
+for each row execute function public.portfolio_shares_guard();
 
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
 -- الاستبانة كائن مستقل على مستوى المعلم: عنوان، وجمهور واحد، وشعب مختارة، وأسئلتها هي (نسخة محفوظة بالحملة)،

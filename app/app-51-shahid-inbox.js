@@ -81,6 +81,13 @@ function inboxResetState(){
   inboxRefContext = null;
   inboxViewSeq++;
   inboxEntrySeq++;
+  /* لا تبقى بطاقة المستخدم السابق (عدد أعماله وعنوان أقربها) ظاهرة حتى يكتمل تحميل الجديد */
+  ['homeInboxCard', 'inboxEntry', 'inboxBody'].forEach(id => {
+    const el = typeof document !== 'undefined' && document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = '';
+    if(id !== 'inboxBody') el.style.display = 'none';
+  });
 }
 
 /* ============ دوال صرفة ============ */
@@ -102,12 +109,36 @@ function inboxIsDismissed(dismissals, key){
   return (dismissals || []).some(d => d.rule_key === INBOX_RULE_KEY && d.subject_key === key);
 }
 
-/* حصص البرامج غير الموثّقة التي حلّ أسبوعها (بداية أسبوعها ≤ اليوم).
-   weekIndex: { اسم الأسبوع: تاريخ أوله } من التقويم الرسمي. بلا تقويم (null):
-   أول حصة غير موثّقة فقط لكل برنامج (لكل شعبة) — لا نعرف ما حلّ من غيرها. */
-function inboxDueProgramSessions(programs, sectionIdsMap, weekIndex, todayIso){
+/* اسم الأسبوع ← أول يوم في كل ظهور له، تصاعديًا. الاسم يتكرر بالفصلين («الأسبوع الأول» مرتين)،
+   فلا يصح أخذ أول ظهور وحده (buildWeekLabelDateIndex للعرض التقريبي بالتقويم فقط). الصفوف المتتالية
+   بنفس الاسم ظهور واحد. weekRows مرتبة تصاعديًا بالتاريخ (loadCalendarData). */
+function inboxWeekOccurrences(weekRows){
+  const idx = {};
+  let prev = null;
+  (weekRows || []).forEach(w => {
+    const label = w && w.week_label ? String(w.week_label).trim() : '';
+    if(!label || !w.gregorian_date){ prev = null; return; }
+    if(label !== prev) (idx[label] = idx[label] || []).push(String(w.gregorian_date).slice(0, 10));
+    prev = label;
+  });
+  return idx;
+}
+
+/* بداية أسبوع الحصة: أول ظهور للاسم لم ينتهِ قبل إنشاء البرنامج (null = لا نعرف) */
+function inboxResolveWeekStart(weekOcc, label, createdIso){
+  const list = weekOcc && weekOcc[String(label || '').trim()];
+  if(!list || !list.length) return null;
+  return list.find(d => !createdIso || addDaysIso(d, 6) >= createdIso) || null;
+}
+
+/* حصص البرامج غير الموثّقة التي حلّ أسبوعها — برامج الدورة الحالية فقط.
+   weekOcc من inboxWeekOccurrences؛ null = بلا تقويم. حصة لا يُعرف أسبوعها (بلا تقويم، أو اسم لا
+   يطابق التقويم) تُقترح فقط إن كانت أول حصة ناقصة — لا نفترض أن ما بعدها حدث. */
+function inboxDueProgramSessions(programs, sectionIdsMap, weekOcc, todayIso, cycleYear){
   const out = [];
   (programs || []).forEach(p => {
+    if(cycleYear && p.cycle_year && p.cycle_year !== cycleYear) return;
+    const createdIso = String(p.created_at || '').slice(0, 10);
     const sectionIds = (sectionIdsMap && sectionIdsMap.get(p.id)) || [];
     const slots = sectionIds.length ? sectionIds : [null];
     const sessions = (p.sessions || []).slice().sort((x, y) => (x.session_no || 0) - (y.session_no || 0));
@@ -115,13 +146,11 @@ function inboxDueProgramSessions(programs, sectionIdsMap, weekIndex, todayIso){
       const pending = sessions.filter(s => secId
         ? !(s.section_status && s.section_status[secId] && s.section_status[secId].done)
         : !s.done);
-      const due = weekIndex
-        ? pending.filter(s => { const start = weekIndex[(s.week_label || '').trim()]; return !!start && start <= todayIso; })
-        : pending.slice(0, 1);
-      due.forEach(s => out.push({
-        programId: p.id, sessionNo: s.session_no, sectionId: secId,
-        weekStart: weekIndex ? weekIndex[(s.week_label || '').trim()] : null, weekLabel: s.week_label || ''
-      }));
+      pending.forEach((s, i) => {
+        const start = inboxResolveWeekStart(weekOcc, s.week_label, createdIso);
+        const due = start ? start <= todayIso : i === 0;
+        if(due) out.push({ programId: p.id, sessionNo: s.session_no, sectionId: secId, weekStart: start, weekLabel: s.week_label || '', createdIso });
+      });
     });
   });
   return out;
@@ -141,9 +170,12 @@ function buildProgramSessionShahidDraft(o){
   const n = o.sessionNo;
   const sec = o.sectionLabel || '';
   const done = inboxProgramDoneCount(p, o.sectionId || null);
-  const students = Number(p.student_count) || 0;
-  /* التاريخ: أسبوع الحصة إن انتهى (أوله)، وإلا اليوم */
-  const date = o.weekStart && addDaysIso(o.weekStart, 6) < o.todayIso ? o.weekStart : o.todayIso;
+  /* عدد الطلاب للبرنامج كله: لا يُنسب لشعبة واحدة */
+  const students = sec ? 0 : (Number(p.student_count) || 0);
+  /* التاريخ: أسبوع الحصة إن انتهى (أوله، ولا قبل إنشاء البرنامج)، وإلا اليوم */
+  const created = o.createdIso || String(p.created_at || '').slice(0, 10);
+  const start = o.weekStart && created && o.weekStart < created ? created : o.weekStart;
+  const date = start && addDaysIso(o.weekStart, 6) < o.todayIso ? start : o.todayIso;
   return {
     elementKey: p.element_key || '',
     title: `${p.name} — الحصة ${n} من ${total}${sec ? ' — ' + sec : ''}`,
@@ -420,7 +452,7 @@ async function loadInboxItems(){
       .lte('planned_date', todayIso).gte('planned_date', addDaysIso(todayIso, -INBOX_PLAN_DAYS)) : none,
     f.tasks ? sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, shahid_id, created_at')
       .eq('teacher_id', uid).is('shahid_id', null).gte('created_at', sinceIso(INBOX_TASK_DAYS)) : none,
-    f.followups ? sb.from('classroom_followups').select('id, group_id, section_id, reason_type, reason_text, status, outcome, closed_at, shahid_id')
+    f.followups ? sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, status, outcome, closed_at, shahid_id')
       .eq('teacher_id', uid).eq('status', 'closed').eq('outcome', 'improved').is('shahid_id', null).gte('closed_at', sinceIso(INBOX_FOLLOWUP_DAYS)) : none,
     (f.plans || f.tasks || f.followups || f.programs) ? sb.from('classroom_sections').select('id, name, grade_level_id').eq('teacher_id', uid) : none,
     (f.plans || f.tasks || f.followups || f.programs) ? sb.from('classroom_grade_levels').select('id, name').eq('teacher_id', uid) : none,
@@ -457,9 +489,18 @@ async function loadInboxItems(){
     }));
   }
 
+  /* كبطاقة الانتباه (app-16): متابعات أداة مخفية لا تظهر، والفردية لطالب غير نشط أو محذوف لا تُقترح */
+  let fRows = (fRes.data || []).filter(x => typeof followupVisible !== 'function' || followupVisible(x));
+  const indiv = fRows.filter(x => !x.group_id).map(x => x.student_id);
+  if(indiv.length){
+    const st = await sb.from('classroom_students').select('id, is_active').eq('teacher_id', uid).in('id', [...new Set(indiv)]);
+    if(st.error) return null;
+    const active = new Set((st.data || []).filter(x => x.is_active !== false).map(x => x.id));
+    fRows = fRows.filter(x => x.group_id || active.has(x.student_id));
+  }
   /* المتابعة الجماعية بند واحد (بمعرّف المجموعة) */
   const fGroups = new Map();
-  (fRes.data || []).forEach(x => {
+  fRows.forEach(x => {
     const k = x.group_id || x.id;
     if(!fGroups.has(k)) fGroups.set(k, []);
     fGroups.get(k).push(x);
@@ -476,19 +517,19 @@ async function loadInboxItems(){
   });
 
   if(f.programs && activityPrograms.length){
-    let weekIndex = null;
+    let weekOcc = null;
     if(calendarRegion){
       try{
         const { weeks } = await loadCalendarData(calendarRegion);
-        weekIndex = buildWeekLabelDateIndex(weeks);
-      } catch(e){ weekIndex = null; }
+        weekOcc = inboxWeekOccurrences(weeks);
+      } catch(e){ weekOcc = null; }
     }
-    inboxDueProgramSessions(activityPrograms, programSectionIdsMap, weekIndex, todayIso).forEach(s => {
+    inboxDueProgramSessions(activityPrograms, programSectionIdsMap, weekOcc, todayIso, getCycleYear()).forEach(s => {
       const p = activityPrograms.find(x => x.id === s.programId);
       const sl = s.sectionId ? secLabel(s.sectionId) : '';
       items.push({
         key: `program:${s.programId}:${s.sessionNo}:${s.sectionId || '-'}`, type: 'program_session',
-        ref: { programId: s.programId, sessionNo: s.sessionNo, sectionId: s.sectionId, weekStart: s.weekStart, sectionLabel: sl },
+        ref: { programId: s.programId, sessionNo: s.sessionNo, sectionId: s.sectionId, weekStart: s.weekStart, createdIso: s.createdIso, sectionLabel: sl },
         elementKey: p.element_key || '', title: `${p.name} — الحصة ${s.sessionNo}`,
         date: s.weekStart || todayIso,
         sub: 'حصة برنامج لم تُوثَّق' + (s.weekLabel ? ' · ' + s.weekLabel : '') + (sl ? ' · ' + sl : '')
@@ -531,12 +572,15 @@ async function inboxLoadPhase2(uid, f, todayIso, secLabel){
   if(camps.length){
     const counts = new Map();
     for(const ids of chunkArray(camps.map(c => c.id), 100)){
-      const r = await fetchAllRows((from, to) => sb.from('survey_responses').select('id, campaign_id').eq('teacher_id', uid).in('campaign_id', ids).order('id', { ascending: true }).range(from, to));
+      const r = await fetchAllRows((from, to) => sb.from('survey_responses').select('id, campaign_id, answers').eq('teacher_id', uid).in('campaign_id', ids).order('id', { ascending: true }).range(from, to));
       if(r.error) return null;
-      (r.data || []).forEach(x => counts.set(x.campaign_id, (counts.get(x.campaign_id) || 0) + 1));
+      (r.data || []).forEach(x => { if(!counts.has(x.campaign_id)) counts.set(x.campaign_id, []); counts.get(x.campaign_id).push(x); });
     }
     camps.forEach(c => {
-      const n = counts.get(c.id) || 0;
+      /* الردود الصالحة بالمدقّق نفسه الذي تعرض به شاشة الاستبانة (svAnalyze) — لا بالعدد الخام،
+         وإلا ظهرت استبانة لا تُفتح ورقتها أبدًا */
+      const an = typeof svAnalyze === 'function' ? svAnalyze(counts.get(c.id) || [], c.questions) : { ok: false, valid: 0 };
+      const n = an.ok ? an.valid : 0;
       const min = typeof svMinResults === 'function' ? svMinResults(c) : 5;
       if(n < min) return;
       const key = 'survey:' + c.id;
@@ -701,6 +745,8 @@ async function inboxPrepareSheet(it){
     const p = it.ref.plan;
     const tpl = p.template_name ? (SHAHID_TEMPLATES[p.element_key] || []).find(t => t.name === p.template_name) : null;
     const fl = buildPlanShahidFields(p, tpl, todayIso);
+    /* نص النموذج الجاهز (أثر كمي/نوعي وتأمل) مثال لا بيانات: لا يُنسب للمعلم هنا (م1). يبقى بالنموذج الكامل كمثال يعدّله */
+    fl.quant = ''; fl.qual = ''; fl.reflection = '';
     const sl = p.section_id ? await inboxSectionLabel(p.section_id) : '';
     sheet.draft = Object.assign({ elementKey: p.element_key, title: p.title, classLabel: sl,
       sourceNote: 'خطة سُجّلت في ' + String(p.created_at || p.planned_date || '').slice(0, 10) + ' لموعد ' + p.planned_date }, fl);
@@ -737,7 +783,7 @@ async function inboxPrepareSheet(it){
     const p = activityPrograms.find(x => x.id === it.ref.programId);
     if(!p) throw new Error('البرنامج غير موجود — ربما حُذف');
     sheet.draft = buildProgramSessionShahidDraft({ program: p, sessionNo: it.ref.sessionNo, sectionId: it.ref.sectionId,
-      sectionLabel: it.ref.sectionLabel, weekStart: it.ref.weekStart, todayIso });
+      sectionLabel: it.ref.sectionLabel, weekStart: it.ref.weekStart, createdIso: it.ref.createdIso, todayIso });
   } else if(it.type === 'survey'){
     const [cRes, rRes, iRes, sRes] = await Promise.all([
       sb.from('survey_campaigns').select('id, title, audience, questions, min_results, created_at').eq('teacher_id', uid).eq('id', it.ref.campaignId).maybeSingle(),
@@ -786,7 +832,8 @@ async function inboxPrepareSheet(it){
     }
   }
   if(!sheet.draft) throw new Error('نوع عمل غير معروف');
-  sheet.qual = sheet.draft.qual || '';
+  /* الأثر الذي لاحظه يكتبه المعلم دائمًا: لا تعبئة مسبقة تُغني عن كتابته */
+  sheet.qual = '';
   sheet.elementKey = sheet.draft.elementKey;
   return sheet;
 }
@@ -817,18 +864,22 @@ async function inboxOpen(i){
   inboxBusy = true;
   const uid = currentUser.id;
   const seq = inboxViewSeq;
-  try{
-    const sheet = await inboxPrepareSheet(it);
-    if(seq !== inboxViewSeq || !isInboxViewOpen() || !currentUser || currentUser.id !== uid) return;
-    inboxSheet = sheet;
-    inboxAutoAll = false;
-    renderInboxSheet();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  } catch(e){
-    showToast(e.message || 'تعذّر تجهيز الشاهد', 'error');
-  } finally {
-    inboxBusy = false;
+  const still = () => seq === inboxViewSeq && isInboxViewOpen() && !!currentUser && currentUser.id === uid;
+  let sheet = null, failure = null;
+  try{ sheet = await inboxPrepareSheet(it); } catch(e){ failure = e; }
+  inboxBusy = false;
+  if(!still()) return;
+  if(failure){
+    /* عمل لا تُفتح ورقته (حُذف مصدره، أو لم تعد بياناته كافية): يُعرض إخفاؤه كي لا يبقى عالقًا بالقائمة.
+       خطأ التحضير وحده هنا — لا أخطاء الرسم */
+    const hide = await showConfirm((failure.message || 'تعذّر تجهيز الشاهد') + '\n\nإخفاء هذا العمل من «أعمال تنتظر التوثيق»؟');
+    if(hide && still()) await inboxDismissKey(it.key);
+    return;
   }
+  inboxSheet = sheet;
+  inboxAutoAll = false;
+  renderInboxSheet();
+  if(typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function inboxSyncInputs(){
@@ -877,7 +928,7 @@ function renderInboxSheet(){
     <div class="tlx-lbl">الأثر الذي لاحظته <small>مطلوب — سطر يكفي</small></div>
     <textarea id="inboxQual" class="tlx-inp" rows="3" maxlength="${INBOX_QUAL_MAX}" placeholder="مثال: تفاعل الطلاب أكثر، وتحسّنت مشاركة المجموعة الثالثة..." oninput="inboxSyncInputs()">${escapeHtml(s.qual || '')}</textarea>
     <div class="tlx-lbl">صور أو مستند <small>اختياري — حتى ${INBOX_MAX_FILES}، والصورة تقوّي الشاهد</small></div>
-    <div class="tlx-chips">${files}${s.files.length < INBOX_MAX_FILES ? `<label class="tlx-chip ibx-add">＋ إرفاق<input type="file" accept="image/*,application/pdf" multiple hidden onchange="inboxAddFiles(this)"></label>` : ''}</div>
+    <div class="tlx-chips">${files}${s.files.length < INBOX_MAX_FILES && !inboxBusy ? `<label class="tlx-chip ibx-add">＋ إرفاق<input type="file" accept="image/*,application/pdf" multiple hidden onchange="inboxAddFiles(this)"></label>` : ''}</div>
     <div class="tlx-sec">خيارات أخرى</div>
     <div class="tlx-box">
       <button type="button" id="inboxFullBtn" class="tlx-mi" onclick="inboxOpenFullForm()"><i><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></i><span>تعديل كامل في نموذج الشاهد</span></button>
@@ -887,12 +938,13 @@ function renderInboxSheet(){
 }
 
 function inboxBackToList(){
+  if(inboxBusy) return;
   inboxSheet = null;
   renderInboxList();
 }
 
 function inboxSetNames(on){
-  if(!inboxSheet || inboxSheet.item.type !== 'followup') return;
+  if(!inboxSheet || inboxSheet.item.type !== 'followup' || inboxBusy) return;
   inboxSyncInputs();
   inboxSheet.showNames = !!on;
   inboxRebuildFollowupDraft(inboxSheet);
@@ -900,7 +952,7 @@ function inboxSetNames(on){
 }
 
 function inboxAddFiles(input){
-  if(!inboxSheet) return;
+  if(!inboxSheet || inboxBusy){ if(input) input.value = ''; return; }
   inboxSyncInputs();
   const picked = Array.from(input.files || []);
   input.value = '';
@@ -1013,6 +1065,11 @@ async function inboxSave(){
       program: s.item.type === 'program_session' ? s.item.ref : null
     });
     let { data: inserted, error } = await insertShahidWithSource(record);
+    if(error && !error.code){
+      /* خطأ شبكة لا خطأ قاعدة: ربما حُفظ الصف وضاع الرد — نتحقق قبل حذف الصور المرفوعة */
+      const { data: maybe } = await sb.from('shawahid').select('*').eq('id', s.id).eq('user_id', uid).maybeSingle();
+      if(maybe){ inserted = maybe; error = null; }
+    }
     if(error && error.code === '23505'){
       /* حُفظ من قبل (نقرة/تبويب آخر): لا شاهد مكرر — نكمل الربط على الموجود */
       cleanup();
@@ -1030,6 +1087,7 @@ async function inboxSave(){
       error = null;
     }
     if(error) throw error;
+    uploaded.length = 0; /* الصور صارت للشاهد المحفوظ: لا تُحذف لو فشل ما بعده */
     await inboxLinkSource(s.item, inserted.id);
     if(currentUser && currentUser.id === uid){
       if(typeof myRecords !== 'undefined' && Array.isArray(myRecords) && myRecords.length && !myRecords.some(r => String(r.id) === String(inserted.id))) myRecords.unshift(inserted);
@@ -1065,7 +1123,7 @@ async function inboxOpenFullForm(){
     } else if(it.type === 'task'){
       await openShahidDraftFromTask(it.ref.taskId);
     } else if(it.type === 'followup'){
-      await openShahidDraftFromFollowups(it.ref.followupIds, it.ref.groupId);
+      await openShahidDraftFromFollowups(it.ref.followupIds, it.ref.groupId, s.showNames === true);
     } else if(INBOX_REF_TYPES.includes(it.type)){
       /* مصادر المرحلة الثانية: النموذج المعتاد معبّأً، ومرجع المصدر يُحفظ معه (saveShahid يقرأ inboxRefContext) */
       const d = s.draft;
@@ -1098,6 +1156,7 @@ async function inboxOpenFullForm(){
         descBox.value = s.draft.description || '';
         quantBox.value = s.draft.quant || '';
       }
+      if(s.files.length) showToast('أعد إرفاق الصور في النموذج — المرفقة في الورقة السريعة لا تنتقل إليه', 'error');
       inboxSheet = null;
     }
   } catch(e){
@@ -1108,23 +1167,31 @@ async function inboxOpenFullForm(){
   }
 }
 
+/* يحفظ الإخفاء بجدول التجاهل باسم المعلم؛ true عند النجاح */
+async function inboxDismissKey(key){
+  if(inboxBusy || !currentUser) return false;
+  inboxBusy = true;
+  inboxSetButtons(true);
+  const uid = currentUser.id;
+  const sheet = inboxSheet;
+  const { error } = await sb.from('classroom_attention_dismissals').upsert(
+    { teacher_id: uid, rule_key: INBOX_RULE_KEY, subject_key: key, dismissed_at: new Date().toISOString() },
+    { onConflict: 'teacher_id,rule_key,subject_key' });
+  inboxBusy = false;
+  if(error){ showToast('تعذّر الإخفاء: ' + error.message, 'error'); if(inboxSheet === sheet) inboxSetButtons(false); return false; }
+  showToast('أُخفي من القائمة', 'ok');
+  if(isInboxViewOpen() && inboxSheet === sheet && currentUser && currentUser.id === uid){
+    inboxItems = inboxItems.filter(x => x.key !== key);
+    inboxSheet = null;
+    renderInboxList();
+  }
+  return true;
+}
+
 async function inboxDismiss(){
   const s = inboxSheet;
   if(!s || inboxBusy) return;
   const ok = await showConfirm('إخفاء هذا العمل من «أعمال تنتظر التوثيق»؟ لا يُحذف شيء من بياناتك.');
   if(!ok || inboxSheet !== s) return;
-  inboxBusy = true;
-  inboxSetButtons(true);
-  const uid = currentUser.id;
-  const { error } = await sb.from('classroom_attention_dismissals').upsert(
-    { teacher_id: uid, rule_key: INBOX_RULE_KEY, subject_key: s.item.key, dismissed_at: new Date().toISOString() },
-    { onConflict: 'teacher_id,rule_key,subject_key' });
-  inboxBusy = false;
-  if(error){ showToast('تعذّر الإخفاء: ' + error.message, 'error'); if(inboxSheet === s) inboxSetButtons(false); return; }
-  showToast('أُخفي من القائمة', 'ok');
-  if(isInboxViewOpen() && inboxSheet === s && currentUser && currentUser.id === uid){
-    inboxItems = inboxItems.filter(x => x.key !== s.item.key);
-    inboxSheet = null;
-    renderInboxList();
-  }
+  await inboxDismissKey(s.item.key);
 }

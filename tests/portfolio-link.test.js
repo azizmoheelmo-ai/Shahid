@@ -149,7 +149,15 @@ test('SQL: الجدول بقيوده وRLS المالك، وداخل سياسة 
   const blk = sql.slice(sql.indexOf('-- ============ رابط الاطلاع على الشواهد للإدارة'), sql.indexOf('-- ============ استبانة رضا المستفيدين'));
   assert.match(blk, /code text not null unique check \(code ~ '\^\[a-z2-9\]\{14,32\}\$'\)/);
   assert.match(blk, /check \(expires_at <= created_at \+ interval '121 days'\)/);
-  assert.match(blk, /using \(auth\.uid\(\) = teacher_id\) with check \(auth\.uid\(\) = teacher_id\)/);
+  /* مراجعة (أ2): لا سياسة تعديل ولا «for all» — الرمز والمدة لا يتغيّران بعد الإنشاء */
+  assert.match(blk, /for select to authenticated using \(auth\.uid\(\) = teacher_id\)/);
+  assert.match(blk, /for insert to authenticated with check \(auth\.uid\(\) = teacher_id\)/);
+  assert.match(blk, /for delete to authenticated using \(auth\.uid\(\) = teacher_id\)/);
+  assert.doesNotMatch(blk.replace(/--[^\n]*/g, ''), /create policy[^;]*portfolio_shares for (all|update)/);
+  /* الوقت من الخادم والمدة حتى 121 يومًا من الآن */
+  assert.match(blk, /new\.created_at := now\(\);/);
+  assert.match(blk, /new\.expires_at <= now\(\) or new\.expires_at > now\(\) \+ interval '121 days'/);
+  assert.match(blk, /before insert on public\.portfolio_shares/);
   const dis = /foreach v_t in array array\[([\s\S]*?)\] loop/.exec(sql.slice(sql.indexOf('-- فرض «تعطيل الحساب» من القاعدة نفسها')))[1];
   assert.match(dis, /'portfolio_shares'/);
   assert.ok(runInAppContext(loadApp(), 'buildSchemaSql()').includes(blk.trim()));
@@ -213,4 +221,27 @@ test('pfRevoke: نقرة أولى للتأكيد فقط، والثانية تح�
   await runInAppContext(app, `pfRevoke('L9')`);
   assert.equal(dels().length, 1);
   assert.ok(dels()[0].filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'));
+});
+
+
+/* ============ إصلاحات المراجعة المستقلة ============ */
+
+test('مراجعة (أ1): المسار المرمّز («%2e%2e») ومسار بشرطتين لا يخرجان من حاوية الصور', () => {
+  const pre = p.photoPrefix(URL_);
+  assert.equal(p.safeFileUrl(pre + '%2e%2e/report-shares/a.pdf', pre), null);
+  assert.equal(p.safeFileUrl(pre + '%2E%2E/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/rest/v1/x', pre), null);
+  assert.equal(p.safeFileUrl(pre + 'u1//x.jpg', pre), null);
+  assert.equal(p.safeFileUrl(pre + 'u1/x.jpg?download', pre), null);
+  assert.equal(p.safeFileUrl(pre + 'u1/1_ab.jpg', pre), pre + 'u1/1_ab.jpg');
+});
+
+test('مراجعة (6/10): الأحدث أولًا عند القص، مع تنبيه بالصفحة', async () => {
+  const seed = SEED();
+  for(let i = 0; i < 502; i++) seed.shawahid.push({ id: 'n' + i, user_id: 'u1', cycle_year: '2026/2027', element_key: 'k', element_label: 'العنصر', lesson_title: 'ش' + i, lesson_date: '2026-10-' + String(1 + (i % 28)).padStart(2, '0'), created_at: '2026-10-01' });
+  seed.shawahid.push({ id: 'newest', user_id: 'u1', cycle_year: '2026/2027', element_key: 'k', element_label: 'العنصر', lesson_title: 'الأحدث', lesson_date: '2027-06-01' });
+  const r = await p.resolvePortfolio('abcdefghjkmnpq', fakeDb(seed));
+  assert.equal(r.rows.length, 500);
+  assert.equal(r.truncated, true);
+  assert.ok(r.rows.some(x => x.id === 'newest'), 'الأحدث لا يُقص');
+  assert.match(p.buildPortfolioPage(r, 'N', URL_), /تعرض الصفحة أحدث 500 شاهد/);
 });

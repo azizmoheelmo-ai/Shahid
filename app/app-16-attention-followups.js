@@ -1545,10 +1545,11 @@ function offerShahidFromFollowups(followupIds, groupId){
 }
 
 let crmShahidDraftBusy = false;
-async function openShahidDraftFromFollowups(followupIds, groupId){
+/* forceShowNames: اختيار «بالأسماء» من ورقة «أعمال تنتظر التوثيق» (app-51) — لا مربع اختيار هناك */
+async function openShahidDraftFromFollowups(followupIds, groupId, forceShowNames){
   if(crmShahidDraftBusy) return;
   crmShahidDraftBusy = true;
-  const showNames = !!(document.getElementById('crmShahidShowNames') || {}).checked;
+  const showNames = forceShowNames === true || !!(document.getElementById('crmShahidShowNames') || {}).checked;
   const uid = currentUser.id;
   try{
     /* الجماعية: كل أعضائها المغلقين (لملخص "X من Y تحسّنوا")، لا المتحسّنين فقط */
