@@ -60,6 +60,8 @@ const INBOX_ICONS = {
 
 let inboxItems = [];          /* آخر قائمة محمّلة */
 let inboxShowAll = false;     /* «عرض الكل» بمجموعة الأعمال الأخرى */
+let inboxHidden = [];         /* أعمال أخفاها المعلم وما زالت قائمة — تُعاد من «الأعمال المخفية» */
+let inboxHiddenOpen = false;  /* قائمة «الأعمال المخفية» مفتوحة */
 let inboxSheet = null;        /* الورقة المفتوحة: { id, item, draft, showNames, files, members, actions, sectionLabel } */
 let inboxBusy = false;        /* حفظ/تحضير جارٍ — يعطّل الأزرار */
 let inboxViewSeq = 0;         /* يلغي نتيجة تحميل قديم لو فُتحت الشاشة ثانية */
@@ -76,6 +78,8 @@ function inboxDateText(iso){
 function inboxResetState(){
   inboxItems = [];
   inboxShowAll = false;
+  inboxHidden = [];
+  inboxHiddenOpen = false;
   inboxSheet = null;
   inboxBusy = false;
   inboxRefContext = null;
@@ -542,9 +546,12 @@ async function loadInboxItems(){
   p2.forEach(it => items.push(it));
 
   const visible = items.filter(it => !inboxIsDismissed(dismissals, it.key));
+  /* المخفية: ما أخفاه المعلم وما زال عملًا قائمًا غير موثّق — تُعرض بقائمة «الأعمال المخفية» للإعادة */
+  const hidden = items.filter(it => inboxIsDismissed(dismissals, it.key))
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   return {
     items: sortInboxItems(visible, key => inboxElementGap(key, myPlan, planShahidCounts)),
-    sections, grades
+    hidden, sections, grades
   };
 }
 
@@ -680,6 +687,9 @@ async function showInbox(){
   window.scrollTo({ top: 0, behavior: 'smooth' });
   inboxSheet = null;
   inboxShowAll = false;
+  inboxHiddenOpen = false;
+  inboxItems = [];
+  inboxHidden = []; /* فشل التحميل لا يُبقي قائمة سابقة تُرسم فوق رسالة الخطأ */
   const body = document.getElementById('inboxBody');
   body.innerHTML = '<div class="loading-state">جارِ جمع أعمالك...</div>';
   const seq = ++inboxViewSeq;
@@ -694,6 +704,7 @@ async function showInbox(){
     return;
   }
   inboxItems = res.items;
+  inboxHidden = res.hidden || [];
   renderInboxList();
 }
 
@@ -715,7 +726,8 @@ function renderInboxList(){
   const note = '<p class="tlx-note">أعمال نفّذتها في التطبيق ولم توثّقها بعد. اختر عملًا فيُعبَّأ شاهده من بياناته، وتضيف أنت الأثر الذي لاحظته وصورة إن وُجدت، ثم تحفظ.</p>';
   if(!inboxItems.length){
     body.innerHTML = back + `<div class="tlx-box tlx-empty"><span class="tlx-ic">${INBOX_ICONS.task}</span><b>لا أعمال تنتظر التوثيق</b>
-      <small>تظهر هنا: الخطط التي حلّ موعدها، وحصص برامجك، والمهام الأدائية بعد رصد درجاتها، والمتابعات التي انتهت بتحسّن.</small></div>`;
+      <small>تظهر هنا: الخطط التي حلّ موعدها، وحصص برامجك، والمهام الأدائية بعد رصد درجاتها، والمتابعات التي انتهت بتحسّن.</small></div>`
+      + inboxHiddenHtml();
     return;
   }
   const idx = inboxItems.map((it, i) => ({ it, i }));
@@ -731,7 +743,44 @@ function renderInboxList(){
       + (rest.length > restShown.length ? `<button type="button" class="tlx-more" onclick="inboxShowAll = true; renderInboxList();">عرض الكل (${rest.length})</button>` : '')
       + '</div>';
   }
-  body.innerHTML = html;
+  body.innerHTML = html + inboxHiddenHtml();
+}
+
+/* «الأعمال المخفية (n)»: مطوية افتراضيًا، وكل عمل بزر «إعادة» (الإخفاء لا يحذف شيئًا، فالإعادة آمنة) */
+function inboxHiddenHtml(){
+  if(!inboxHidden.length) return '';
+  const head = `<button type="button" class="tlx-more ibx-hidden-toggle" aria-expanded="${inboxHiddenOpen}" onclick="inboxToggleHidden()">${inboxHiddenOpen ? 'طيّ الأعمال المخفية' : 'الأعمال المخفية'} (${inboxHidden.length})</button>`;
+  if(!inboxHiddenOpen) return `<div class="ibx-hidden">${head}</div>`;
+  const rows = inboxHidden.map((it, i) => `<div class="tlx-ind ibx-hidden-row">
+      <span><b>${escapeHtml(it.title)}</b><small>${escapeHtml(it.sub)}</small></span>
+      <button type="button" class="tlx-chip" ${inboxBusy ? 'disabled' : ''} onclick="inboxRestoreHidden(${i})">إعادة</button></div>`).join('');
+  return `<div class="ibx-hidden">${head}<div class="tlx-grp is-calm">أعمال أخفيتها — أعدها للقائمة متى شئت</div><div class="tlx-box">${rows}</div></div>`;
+}
+
+function inboxToggleHidden(){
+  if(!inboxHidden.length || inboxSheet) return;
+  inboxHiddenOpen = !inboxHiddenOpen;
+  renderInboxList();
+}
+
+/* إعادة عمل مخفي: حذف سجل الإخفاء (باسم المعلم وبمفتاح العمل) ثم يرجع للقائمة بترتيبها */
+async function inboxRestoreHidden(i){
+  const it = inboxHidden[i];
+  if(!it || inboxBusy || !currentUser) return;
+  const uid = currentUser.id;
+  const seq = inboxViewSeq;
+  inboxBusy = true;
+  renderInboxList();
+  const { error } = await sb.from('classroom_attention_dismissals').delete()
+    .eq('teacher_id', uid).eq('rule_key', INBOX_RULE_KEY).eq('subject_key', it.key);
+  inboxBusy = false;
+  if(seq !== inboxViewSeq || !isInboxViewOpen() || !currentUser || currentUser.id !== uid) return;
+  if(error){ showToast('تعذّرت الإعادة: ' + error.message, 'error'); renderInboxList(); return; }
+  inboxHidden = inboxHidden.filter(x => x.key !== it.key);
+  if(!inboxHidden.length) inboxHiddenOpen = false;
+  inboxItems = sortInboxItems(inboxItems.concat([it]), key => inboxElementGap(key, myPlan, planShahidCounts));
+  showToast('أُعيد العمل إلى القائمة', 'ok');
+  renderInboxList();
 }
 
 /* ============ ورقة التوثيق السريع ============ */
@@ -1181,7 +1230,9 @@ async function inboxDismissKey(key){
   if(error){ showToast('تعذّر الإخفاء: ' + error.message, 'error'); if(inboxSheet === sheet) inboxSetButtons(false); return false; }
   showToast('أُخفي من القائمة', 'ok');
   if(isInboxViewOpen() && inboxSheet === sheet && currentUser && currentUser.id === uid){
+    const moved = inboxItems.find(x => x.key === key);
     inboxItems = inboxItems.filter(x => x.key !== key);
+    if(moved && !inboxHidden.some(x => x.key === key)) inboxHidden = [moved].concat(inboxHidden);
     inboxSheet = null;
     renderInboxList();
   }

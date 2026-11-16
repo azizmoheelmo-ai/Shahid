@@ -685,3 +685,38 @@ test('مراجعة (أ3): حلقة «تعطيل الحساب» في buildSchemaS
     if(created >= 0) assert.ok(created < loopAt, t + ' يُنشأ قبل الحلقة');
   });
 });
+
+/* ============ الأعمال المخفية: الإعادة ============ */
+
+test('الأعمال المخفية: المخفي القائم يُعاد بقائمته، ولا يظهر بالقائمة الرئيسية', async () => {
+  const seed = SEED();
+  seed.classroom_attention_dismissals.push({ teacher_id: 'u1', rule_key: 'shahid_inbox', subject_key: 'plan:p1' });
+  const app = inboxApp(seed, []);
+  const res = await runInAppContext(app, 'loadInboxItems()');
+  assert.ok(!J(res.items.map(i => i.key)).includes('plan:p1'));
+  assert.deepEqual(J(res.hidden.map(i => i.key)).sort(), ['plan:p1', 'task:t-hidden'], 'المخفيان قائمان (المهمة مرصودة)');
+});
+
+test('إعادة عمل مخفي: حذف الإخفاء باسم المعلم وبمفتاحه، ويرجع للقائمة؛ ونقرتان = طلب واحد', async () => {
+  const log = [];
+  const seed = SEED();
+  seed.classroom_attention_dismissals.push({ teacher_id: 'u1', rule_key: 'shahid_inbox', subject_key: 'plan:p1' });
+  const app = inboxApp(seed, log);
+  await runInAppContext(app, `(async () => { const r = await loadInboxItems(); inboxItems = r.items; inboxHidden = r.hidden; document.getElementById('inboxView').style.display = 'block'; })()`);
+  await runInAppContext(app, `Promise.all([inboxRestoreHidden(0), inboxRestoreHidden(0)])`);
+  const dels = log.filter(l => l.table === 'classroom_attention_dismissals' && l.op === 'delete');
+  assert.equal(dels.length, 1);
+  const f = dels[0].filters;
+  [['teacher_id', 'u1'], ['rule_key', 'shahid_inbox'], ['subject_key', 'plan:p1']].forEach(([c, v]) =>
+    assert.ok(f.some(([op, cc, vv]) => op === 'eq' && cc === c && vv === v), c));
+  assert.ok(J(runInAppContext(app, 'inboxItems.map(i => i.key)')).includes('plan:p1'));
+  assert.deepEqual(J(runInAppContext(app, 'inboxHidden.map(i => i.key)')), ['task:t-hidden'], 'المعاد وحده يخرج');
+});
+
+test('الإخفاء ينقل العمل لقائمة «الأعمال المخفية» فورًا (يمكن إعادته بلا إعادة تحميل)', async () => {
+  const app = inboxApp(SEED(), []);
+  await openTaskSheet(app);
+  await runInAppContext(app, 'inboxDismiss()');
+  assert.ok(J(runInAppContext(app, 'inboxHidden.map(i => i.key)')).includes('task:t1'));
+  assert.ok(!J(runInAppContext(app, 'inboxItems.map(i => i.key)')).includes('task:t1'));
+});

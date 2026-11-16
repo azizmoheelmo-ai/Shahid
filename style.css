@@ -3212,3 +3212,9 @@ select.tlx-inp{min-height:44px;}
 .pf-acts .tlx-btn{min-height:40px;font-size:13px;}
 .pf-revoke.is-confirm{color:var(--ui-danger);border-color:var(--ui-danger);}
 #pfBody .tlx-ans{gap:6px;}
+/* «الأعمال المخفية» (app-51) */
+.ibx-hidden{margin-top:14px;}
+.ibx-hidden-toggle{border-radius:var(--ui-r-btn);border:1px dashed var(--line);background:var(--ui-add-bg);}
+.ibx-hidden-row > span{display:flex;flex-direction:column;}
+.ibx-hidden-row b{font-size:13px;color:var(--navy);font-weight:800;}
+.ibx-hidden-row small{font-size:11.5px;color:var(--muted);}
