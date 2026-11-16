@@ -931,6 +931,7 @@ function hideAllMainViews(){
   document.getElementById('calendarView').style.display = 'none';
   document.getElementById('tasksView').style.display = 'none';
   document.getElementById('batchView').style.display = 'none';
+  document.getElementById('inboxView').style.display = 'none';
 }
 /* المصدر الوحيد لتبويبات إدارة الصف: زر + لوحة. كل من يُخفي التبويبات أو
    يكتشف المفتوح منها يقرأ من هنا — قوائم مكررة نسيت تبويبًا جديدًا فظهر
@@ -2657,6 +2658,7 @@ async function showHome(){
   renderHomeProgressCard();
   renderCurrentWeekWidget();
   loadAndRenderHomeDashboardExtras();
+  if(typeof refreshInboxEntries === 'function') refreshInboxEntries(); /* أعمال تنتظر التوثيق — بالخلفية */
   maybeShowOnboardingTour();
 }
 
@@ -2879,6 +2881,7 @@ async function showList(){
   setActiveBottomTab('shahid');
   document.getElementById('listView').style.display = 'block';
   refreshBatchEntry(); /* زر «تجهيز دفعة» — بالخلفية دون تعطيل عرض القائمة */
+  if(typeof refreshInboxEntries === 'function') refreshInboxEntries(); /* أعمال تنتظر التوثيق — بالخلفية */
   await loadMyShawahid();
 }
 

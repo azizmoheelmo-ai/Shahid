@@ -255,6 +255,7 @@
         <button type="button" class="sh-icon-btn" aria-label="المزيد" onclick="toggleShawahidMore(event)">⋯</button>
         <div class="sh-more-menu" id="shMoreMenu" style="display:none;">
           <button class="btn btn-outline" id="exportAllBtn" onclick="closeShawahidMore();exportAllShawahid()">📄 طباعة / حفظ الكل PDF</button>
+          <button class="btn btn-outline" id="portfolioLinkBtn" onclick="closeShawahidMore();showPortfolioLinks()">🔗 رابط اطلاع للإدارة</button>
         </div>
       </div>
     </div>
@@ -311,6 +312,9 @@
       <p id="dateInfoBar" class="home-date">📅 <span id="dateInfoDay"></span> <span id="dateInfoHijri"></span><span id="dateInfoWeek"></span></p>
 
       <div id="homeActionCard" class="home-card home-action-card" style="display:none;"></div>
+
+      <!-- أعمال تنتظر التوثيق (app-51) — تظهر فقط إن وُجد عمل جاهز -->
+      <div id="homeInboxCard" style="display:none;"></div>
 
       <div id="homeCustomizeIntro" class="home-card cust-intro" style="display:none;">
         <div class="cust-intro-text"><b>✨ جديد: خصّص التطبيق كما تريد</b><small>اختر الأقسام والأدوات التي تستخدمها وأخفِ الباقي — بياناتك لا تُحذف.</small></div>
@@ -1340,6 +1344,7 @@
           </div>
         </div>
       </div>
+      <div id="inboxEntry" class="ibx-list-entry" style="display:none;"></div>
       <div id="batchEntry" class="bt-entry" style="display:none;">
         <button type="button" class="bt-entry-btn" onclick="showBatch()">
           <span class="bt-entry-ico">⚡</span>
@@ -1352,6 +1357,14 @@
       </div>
       <!-- زر ثابت أسفل الشاشة مهما نزلت في القائمة -->
       <div class="sh-fab-wrap"><button type="button" class="sh-fab" onclick="startNewShahid()">+ شاهد جديد</button></div>
+    </div>
+  </div>
+
+  <!-- ---------- أعمال تنتظر التوثيق (app-51) ---------- -->
+  <div id="inboxView" style="display:none;">
+    <div class="sheet">
+      <div class="band band-title"><h1 id="inboxTitle">أعمال تنتظر التوثيق</h1></div>
+      <div id="inboxBody" class="section"></div>
     </div>
   </div>
 
@@ -1581,6 +1594,8 @@
 <script src="app/app-48-followup-agreement.js"></script>
 <script src="app/app-49-grade-suggestions.js"></script>
 <script src="app/app-50-leader-followup.js"></script>
+<script src="app/app-51-shahid-inbox.js"></script>
+<script src="app/app-52-portfolio-link.js"></script>
 
 </body>
 </html>

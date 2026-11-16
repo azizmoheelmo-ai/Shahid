@@ -378,6 +378,9 @@ function collectFormDraft(){
        كشاهد عادي منفصل بينما تبقى حصة البرنامج المقابلة "لم تُوثَّق بعد". */
     program_id: programSessionContext ? programSessionContext.programId : null,
     program_session_no: programSessionContext ? programSessionContext.sessionNo : null,
+    /* مرجع عمل من «أعمال تنتظر التوثيق» (app-51): يُحفظ مع المسودة كي لا يُفقد بعد إعادة تحميل الصفحة
+       فيُحفظ الشاهد بلا مرجع ويُقترح العمل نفسه ثانية */
+    inbox_ref: (typeof inboxRefContext !== 'undefined' && inboxRefContext) ? inboxRefContext : null,
     element_key: elementSelect.value,
     teacher: document.getElementById('mTeacher').value,
     school: document.getElementById('mSchool').value,
@@ -488,6 +491,11 @@ function applyDraft(d){
   programSessionContext = (d.program_id && d.program_session_no != null)
     ? { programId: d.program_id, sessionNo: d.program_session_no }
     : null;
+  if(typeof inboxRefContext !== 'undefined'){
+    const r = d.inbox_ref;
+    inboxRefContext = (!editingId && r && typeof r.sourceRef === 'string' && typeof INBOX_REF_TYPES !== 'undefined' && INBOX_REF_TYPES.includes(r.sourceType))
+      ? { sourceType: r.sourceType, sourceRef: r.sourceRef, sourceNote: String(r.sourceNote || '') } : null;
+  }
   formDirty = true;
 }
 

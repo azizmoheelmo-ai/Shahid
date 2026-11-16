@@ -433,6 +433,64 @@ do $$ begin
   end if;
 end $$;
 
+-- ============ ختم مصدر الشاهد (app-51: أعمال تنتظر التوثيق) ============
+-- شاهد بُني من عمل مسجّل في التطبيق (خطة درس، حصة برنامج، مهمة أدائية، متابعة) يحمل
+-- نوع مصدره وسطرًا قصيرًا عنه («رُصدت درجات 26 من 28») فيظهر بالبطاقة والـPDF «مصدره: ...».
+-- nullable بالكامل: لا أثر على أي شاهد حالي. قبل تشغيله يُحفظ الشاهد بلا ختم (لا يتعطل الحفظ).
+alter table public.shawahid add column if not exists source_type text;
+alter table public.shawahid add column if not exists source_note text;
+alter table public.shawahid add column if not exists source_ref text;
+alter table public.shawahid drop constraint if exists shawahid_source_valid;
+alter table public.shawahid add constraint shawahid_source_valid check (
+  (source_type is null or source_type in ('lesson_plan', 'program_session', 'task', 'followup', 'survey', 'lessons_month', 'test_analysis', 'rubric_test'))
+  and (source_note is null or char_length(source_note) <= 200)
+  and (source_ref is null or source_ref ~ '^[a-z_]{2,20}:[A-Za-z0-9:-]{1,100}$')
+);
+-- المرحلة الثانية: مصادر بلا عمود ربط في جداولها (استبانة، شهر رصد، تحليل اختبار، سلّم تقدير) تُعرَّف بمرجع
+-- نصي ثابت (survey:<معرّف>، lessons_month:2026-10 ...). الفهرس الفريد يمنع أن يصير العمل الواحد شاهدين،
+-- وحذف الشاهد يحرّر المرجع فيعود العمل لقائمة «أعمال تنتظر التوثيق».
+create unique index if not exists shawahid_source_ref_key on public.shawahid(user_id, source_ref) where source_ref is not null;
+
+-- ============ رابط الاطلاع على الشواهد للإدارة (app-52، api/p.js) ============
+-- رابط قراءة فقط /p/<رمز> يعرض شواهد دورة واحدة مرتبة بالعناصر لمن يرسله المعلم (المدير، المشرف).
+-- - الرمز عشوائي (14 حرفًا من 31 ≈ 70 بت)، والمدة حتى 120 يومًا، والإلغاء بحذف السجل (لا توابع له: بلا سلة).
+-- - الصفحة تقرأ بمفتاح الخادم بالرمز وحده، شواهد صاحب الرابط ودورته فقط، ولا تعمل لحساب معطَّل.
+-- - خارج النسخة الشاملة عمدًا (رابط مؤقت لا قيمة لاستعادته)، وداخل سياسة تعطيل الحساب.
+create table if not exists public.portfolio_shares (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  code text not null unique check (code ~ '^[a-z2-9]{14,32}$'),
+  label text check (label is null or char_length(label) <= 60),
+  cycle_year text not null check (char_length(cycle_year) between 4 and 20),
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  check (expires_at <= created_at + interval '121 days')
+);
+create index if not exists portfolio_shares_teacher_idx on public.portfolio_shares(teacher_id, expires_at);
+alter table public.portfolio_shares enable row level security;
+-- لا تعديل بعد الإنشاء (لا سياسة update): الرمز والمدة والدورة ثابتة، والإلغاء حذف وحسب.
+drop policy if exists "المعلم يدير روابط شواهده فقط" on public.portfolio_shares;
+drop policy if exists "المعلم يقرأ روابط شواهده" on public.portfolio_shares;
+create policy "المعلم يقرأ روابط شواهده" on public.portfolio_shares for select to authenticated using (auth.uid() = teacher_id);
+drop policy if exists "المعلم ينشئ روابط شواهده" on public.portfolio_shares;
+create policy "المعلم ينشئ روابط شواهده" on public.portfolio_shares for insert to authenticated with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يلغي روابط شواهده" on public.portfolio_shares;
+create policy "المعلم يلغي روابط شواهده" on public.portfolio_shares for delete to authenticated using (auth.uid() = teacher_id);
+-- وقت الإنشاء من الخادم لا من المتصفح، والمدة بين الآن و121 يومًا (قيد الجدول وحده يقارن بوقت يرسله العميل)
+create or replace function public.portfolio_shares_guard()
+returns trigger language plpgsql set search_path = '' as $fn$
+begin
+  new.created_at := now();
+  if new.expires_at <= now() or new.expires_at > now() + interval '121 days' then
+    raise exception 'portfolio_share_bad_expiry';
+  end if;
+  return new;
+end
+$fn$;
+drop trigger if exists trg_portfolio_shares_guard on public.portfolio_shares;
+create trigger trg_portfolio_shares_guard before insert on public.portfolio_shares
+for each row execute function public.portfolio_shares_guard();
+
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
 -- الاستبانة كائن مستقل على مستوى المعلم: عنوان، وجمهور واحد، وشعب مختارة، وأسئلتها هي (نسخة محفوظة بالحملة)،
 -- وترتيب يحدده المعلم، وعتبة عرض نتائج لكل استبانة.
@@ -1224,7 +1282,7 @@ begin
     'classroom_positive_notes', 'classroom_private_notes', 'classroom_rubric_criteria', 'classroom_rubric_marks',
     'classroom_rubric_notes', 'classroom_sections', 'classroom_students', 'classroom_task_students', 'classroom_tasks',
     'classroom_timetable_slots', 'classroom_tool_marks', 'deleted_items', 'lesson_plans', 'performance_goals',
-    'personal_access_tokens', 'plan_header', 'program_sections', 'self_assessment', 'shahid_drafts', 'shawahid',
+    'personal_access_tokens', 'plan_header', 'portfolio_shares', 'program_sections', 'self_assessment', 'shahid_drafts', 'shawahid',
     'leader_followups', 'leader_templates', 'student_report_shares', 'support_messages', 'survey_campaign_sections', 'survey_campaigns', 'survey_invites',
     'survey_responses', 'tasks', 'user_app_settings'
   ] loop

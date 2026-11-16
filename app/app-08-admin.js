@@ -313,6 +313,7 @@ function adminRenderRecCard(r){
         <span class="rec-date">${date}</span>
       </div>
       <div class="rec-desc">${escapeHtml(descSnippet)}${(r.description||'').length > 140 ? '…' : ''}</div>
+      ${typeof shahidSourceStamp === 'function' && shahidSourceStamp(r) ? `<div class="rec-source">مصدره: ${escapeHtml(shahidSourceStamp(r))}</div>` : ''}
       ${photosHtml}
       <div class="rec-actions">
         <button class="btn btn-outline" onclick="adminPrintRecord('${r.id}', event)">طباعة</button>

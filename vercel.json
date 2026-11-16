@@ -11,11 +11,15 @@
     {
       "source": "/f/:code",
       "destination": "/api/f?c=:code"
+    },
+    {
+      "source": "/p/:code",
+      "destination": "/api/p?c=:code"
     }
   ],
   "headers": [
     {
-      "source": "/((?!s/|f/).*)",
+      "source": "/((?!s/|f/|p/).*)",
       "headers": [
         {
           "key": "X-Frame-Options",
