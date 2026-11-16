@@ -1093,8 +1093,69 @@ async function finishCrmLessonSheet(){
    سجل الحفظ على كائن الوضع (s.test/s.hw/s.task/s.tool/s.part): لكل طالب نتيجة آخر حفظ له. */
 function crmSaveLog(st){
   if(!st) return null;
-  if(!st.log) st.log = { ok: new Set(), fail: new Map() };
+  if(!st.log) st.log = { ok: new Set(), fail: new Map(), changes: crmChangesLoad(st) };
   return st.log;
+}
+
+/* "ماذا تغيّر اليوم؟" يُحفظ على هذا الجهاز لكل عنصر (اختبار/واجب/مهمة/أداة/مشاركة حصة) ليوم اليوم،
+   فيبقى بعد "رجوع" وإعادة الفتح. يُخزَّن معرّف الطالب والقيمتان والوقت فقط (بلا أسماء)، ويُنظَّف بعد يومين. */
+const CRM_CHANGES_KEEP_DAYS = 2;
+function crmChangesKey(st){
+  return st && st.chgKey && currentUser ? 'crm_chg:' + currentUser.id + ':' + st.chgKey + ':' + localIsoDate() : null;
+}
+function crmChangesLoad(st){
+  const map = new Map();
+  const key = crmChangesKey(st);
+  if(!key) return map;
+  crmChangesPrune();
+  try{
+    const raw = JSON.parse(localStorage.getItem(key) || 'null');
+    if(raw && typeof raw === 'object') Object.keys(raw).forEach(id => {
+      const c = raw[id];
+      if(c && typeof c === 'object' && typeof c.t === 'number') map.set(id, { from: c.from === undefined ? null : c.from, to: c.to === undefined ? null : c.to, t: c.t, touch: !!c.touch });
+    });
+  } catch(e){}
+  return map;
+}
+function crmChangesPersist(st){
+  const key = crmChangesKey(st);
+  if(!key || !st.log) return;
+  try{
+    const obj = {};
+    st.log.changes.forEach((c, id) => { obj[id] = c; });
+    if(Object.keys(obj).length) localStorage.setItem(key, JSON.stringify(obj)); else localStorage.removeItem(key);
+  } catch(e){}
+}
+let crmChangesPruned = '';
+function crmChangesPrune(){
+  const today = localIsoDate();
+  if(crmChangesPruned === today) return;
+  crmChangesPruned = today;
+  try{
+    const limit = addDaysIso(today, -CRM_CHANGES_KEEP_DAYS);
+    for(let i = localStorage.length - 1; i >= 0; i--){
+      const k = localStorage.key(i);
+      if(!k || k.indexOf('crm_chg:') !== 0) continue;
+      const date = k.slice(k.lastIndexOf(':') + 1);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < limit) localStorage.removeItem(k);
+    }
+  } catch(e){}
+}
+/* المشاركة: يكفي وقت آخر نقرة (العدد من سجل نقرات الحصة) */
+function crmLogTouch(st, id){
+  const l = crmSaveLog(st);
+  if(!l) return;
+  l.changes.set(id, { from: null, to: null, t: Date.now(), touch: true });
+  crmChangesPersist(st);
+}
+function crmTimeLabel(t){
+  const d = new Date(t);
+  if(isNaN(d)) return '';
+  return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function crmTodayLabel(){
+  const iso = localIsoDate();
+  return `${CRM_WEEKDAY_NAMES[weekdayOfIso(iso)]} ${Number(iso.slice(8))}/${Number(iso.slice(5, 7))}`;
 }
 function crmLogSaved(st, ids){
   const l = crmSaveLog(st);
@@ -1109,10 +1170,10 @@ function crmLogFailed(st, ids, reason){
 function crmLogChange(st, id, from, to){
   const l = crmSaveLog(st);
   if(!l) return;
-  if(!l.changes) l.changes = new Map();
   const norm = v => (v === undefined ? null : v);
   const first = l.changes.has(id) ? l.changes.get(id).from : norm(from);
-  if(first === norm(to)) l.changes.delete(id); else l.changes.set(id, { from: first, to: norm(to) });
+  if(first === norm(to)) l.changes.delete(id); else l.changes.set(id, { from: first, to: norm(to), t: Date.now() });
+  crmChangesPersist(st);
 }
 function crmLogClearFail(st, id){
   const l = st && st.log;
@@ -1144,7 +1205,7 @@ function crmSaveSummaryInfo(s){
   const students = crmStudentsOfSection(s.sectionId);
   const ids = students.map(x => x.id);
   const nameOf = id => { const x = students.find(y => y.id === id) || (crmStudents || []).find(y => y.id === id); return x ? x.full_name : ''; };
-  const log = (st && st.log) || { ok: new Set(), fail: new Map() };
+  const log = crmSaveLog(st) || { ok: new Set(), fail: new Map(), changes: new Map() };
   const fails = [...log.fail.entries()].map(([id, reason]) => ({ name: nameOf(id), reason }));
   const info = { kind, subtitle: crmSectionLabel(s.sectionId), lines: [], fails, missing: null, savedNote: '', changes: [], numeric: true };
   const changes = log.changes || new Map();
@@ -1197,8 +1258,9 @@ function crmSaveSummaryInfo(s){
   if(kind === 'part' && st){
     const step = st.step || 1, today = st.today || {};
     info.numeric = true;
-    info.changes = ids.filter(id => today[id]).map(id => ({ name: nameOf(id), delta: today[id] * step,
-      to: st.scores && st.scores.has(id) ? st.scores.get(id) : null, max: st.column ? st.column.max_score : null }));
+    info.changes = ids.filter(id => today[id]).map(id => ({ name: nameOf(id), delta: today[id] * step, t: changes.has(id) ? changes.get(id).t : null,
+      to: st.scores && st.scores.has(id) ? st.scores.get(id) : null, max: st.column ? st.column.max_score : null }))
+      .sort((a, b) => (b.t || 0) - (a.t || 0));
     info.changeKind = 'part';
   } else if(changes.size){
     const label = kind === 'hw' ? (v => HOMEWORK_LABELS[v || 'missing'])
@@ -1206,9 +1268,9 @@ function crmSaveSummaryInfo(s){
       : null;
     info.numeric = !label;
     const rank = c => (c.from === null || (kind === 'hw' && c.from === 'missing')) ? 1 : 0;
-    info.changes = ids.filter(id => changes.has(id)).map(id => Object.assign({ name: nameOf(id) }, changes.get(id)))
+    info.changes = ids.filter(id => changes.has(id) && !changes.get(id).touch).map(id => Object.assign({ name: nameOf(id) }, changes.get(id)))
       .map(c => label ? Object.assign(c, { fromText: label(c.from), toText: label(c.to) }) : c)
-      .sort((a, b) => rank(a) - rank(b));
+      .sort((a, b) => (rank(a) - rank(b)) || ((b.t || 0) - (a.t || 0)));
     info.changeKind = label ? 'state' : 'grade';
   }
   if(missingIds.length){
@@ -1235,7 +1297,9 @@ function showCrmSummaryModal(html){
 function showCrmSaveSummary(s){
   const info = crmSaveSummaryInfo(s);
   const failed = info.fails.length || info.generalFail;
-  const title = failed ? '⚠ لم يُحفظ كل شيء' : '✓ ' + (info.savedNote || 'كل ما في الشاشة محفوظ');
+  const nothingNew = info.kind === 'test' || info.kind === 'task' || (info.kind === 'tool' && info.changeKind !== 'state')
+    ? 'لا تعديلات جديدة — كل الدرجات محفوظة' : 'لا تعديلات جديدة — كل الرصد محفوظ';
+  const title = failed ? '⚠ لم يُحفظ كل شيء' : '✓ ' + (info.savedNote || nothingNew);
   let html = `<div class="crm-save-sum${failed ? ' is-fail' : ''}">
     <h3>${escapeHtml(title)}</h3>
     <div class="crm-save-sub">${escapeHtml(info.subtitle)}</div>
@@ -1259,10 +1323,12 @@ function crmSaveChangesHtml(info){
   const list = info.changes || [];
   if(!list.length) return '';
   const fmt = v => (v === null || v === undefined) ? '—' : formatScore(v);
+  const tm = c => c.t ? `<span class="crm-ch-time">${crmTimeLabel(c.t)}</span>` : '';
+  const who = c => `<span>${escapeHtml(c.name)}${tm(c)}</span>`;
   const signed = d => `<span class="crm-ch-tag ${d > 0 ? 'is-up' : 'is-down'}" dir="ltr">${d > 0 ? '+' : '−'}${formatScore(Math.abs(d))}</span>`;
   let brief = '', rows = '';
   if(info.changeKind === 'part'){
-    rows = list.map(c => `<div class="crm-ch-row"><span>${escapeHtml(c.name)}</span><span class="crm-ch-v">${signed(c.delta)}<span class="crm-ch-old">الآن ${fmt(c.to)}${c.max !== null ? ' / ' + formatScore(c.max) : ''}</span></span></div>`).join('');
+    rows = list.map(c => `<div class="crm-ch-row">${who(c)}<span class="crm-ch-v">${signed(c.delta)}<span class="crm-ch-old">الآن ${fmt(c.to)}${c.max !== null ? ' / ' + formatScore(c.max) : ''}</span></span></div>`).join('');
   } else if(info.changeKind === 'grade'){
     const nNew = list.filter(c => c.from === null).length, nDel = list.filter(c => c.from !== null && c.to === null).length;
     const nEdit = list.length - nNew - nDel;
@@ -1271,12 +1337,12 @@ function crmSaveChangesHtml(info){
       const v = c.from === null ? `<b>${fmt(c.to)}</b><span class="crm-ch-tag is-new">جديدة</span>`
         : c.to === null ? `<span class="crm-ch-old">${fmt(c.from)}</span>←<b>—</b><span class="crm-ch-tag is-del">مُسحت</span>`
         : `<span class="crm-ch-old">${fmt(c.from)}</span>←<b>${fmt(c.to)}</b>${signed(c.to - c.from)}`;
-      return `<div class="crm-ch-row"><span>${escapeHtml(c.name)}</span><span class="crm-ch-v">${v}</span></div>`;
+      return `<div class="crm-ch-row">${who(c)}<span class="crm-ch-v">${v}</span></div>`;
     }).join('');
   } else {
-    rows = list.map(c => `<div class="crm-ch-row"><span>${escapeHtml(c.name)}</span><span class="crm-ch-v"><span class="crm-ch-old">${escapeHtml(c.fromText)}</span>←<b>${escapeHtml(c.toText)}</b></span></div>`).join('');
+    rows = list.map(c => `<div class="crm-ch-row">${who(c)}<span class="crm-ch-v"><span class="crm-ch-old">${escapeHtml(c.fromText)}</span>←<b>${escapeHtml(c.toText)}</b></span></div>`).join('');
   }
-  return `<details class="crm-ch"><summary><span>ماذا تغيّر؟ (${list.length})</span>${brief ? `<span class="crm-ch-brief">${brief}</span>` : ''}</summary><div class="crm-ch-list">${rows}</div></details>`;
+  return `<details class="crm-ch"><summary><span>ماذا تغيّر اليوم؟ (${list.length})</span><span class="crm-ch-brief">${[crmTodayLabel(), brief].filter(Boolean).join(' · ')}</span></summary><div class="crm-ch-list">${rows}</div></details>`;
 }
 
 /* ملخص حفظ الحضور: الأعداد وأسماء غير الحاضرين */

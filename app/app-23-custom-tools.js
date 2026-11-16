@@ -228,7 +228,8 @@ async function renderCrmToolMode(students, tool){
     return;
   }
   if(crmSheet !== s || s.token !== token || s.mode !== mode) return;
-  s.tool = { tool, column: colRes.column || null, values, queue: new Map(), term, period, full };
+  s.tool = { tool, column: colRes.column || null, values, queue: new Map(), term, period, full,
+    chgKey: `tool:${tool.id}:${lessonKey(s.sectionId, s.dateIso, s.period)}:${period}` };
   if(filled.length && s.tool.column){
     /* في طابور الطالب: نقرته التالية تنتظر هذه المزامنة فلا تسبقها وتُكتب فوقها قيمة قديمة. فشلها يُصلَح عند فتح الكشف */
     const sync = syncToolColumn(s.tool.column, tool, s.sectionId, term, filled).catch(() => {});
