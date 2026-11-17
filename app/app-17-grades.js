@@ -632,7 +632,8 @@ function openCrmGradeToolsMenu(){
     down: 'M12 4v11M7 10l5 5 5-5M5 20h14',
     up: 'M12 20V9M7 14l5-5 5 5M5 4h14',
     grid: 'M4 4h16v16H4zM4 10h16M10 4v16',
-    swap: 'M7 4v14M3 14l4 4 4-4M17 20V6M13 10l4-4 4 4'
+    swap: 'M7 4v14M3 14l4 4 4-4M17 20V6M13 10l4-4 4 4',
+    clock: 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z'
   };
   const ic = k => `<span class="crm-gs-ic">${svg(ICON[k])}</span>`;
   const tx = (title, sub) => `<span class="crm-gs-tx">${title}${sub ? `<small class="hb-sub">${sub}</small>` : ''}</span>`;
@@ -657,6 +658,8 @@ function openCrmGradeToolsMenu(){
   }
   move += opt('up', 'تصدير الكشف', 'ملف Excel بكل الدرجات', `onclick="exportCrmGradeSheet('sheet', this)"`);
   html += `<div class="crm-am-item" data-am="move">${head('move', 'swap', 'نقل الدرجات', g.columns.length ? 'استيراد · قالب · تصدير' : 'تصدير')}<div class="crm-am-body">${move}</div></div>`;
+  /* سجل الدرجات (app-55): كل تغيير محفوظ 30 يومًا، والاستعادة لما قبل أي لحظة */
+  html += `<button type="button" class="crm-am-head crm-am-solo" onclick="openGradeHistory('${g.sectionId}')">${ic('clock')}${tx('سجل الدرجات والاستعادة', 'رجّع درجات الشعبة كما كانت قبل أي لحظة')}<span class="crm-am-chev" aria-hidden="true">‹</span></button>`;
   showInfoModal(html + '</div>', '420px');
 }
 

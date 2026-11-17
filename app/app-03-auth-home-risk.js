@@ -483,6 +483,8 @@ async function checkAdminStatus(){
   if(typeof refreshLeaderBadge === 'function') refreshLeaderBadge(); /* شارة إجابات المسؤولين بدرج الحساب (app-50) */
   /* تنظيف المحذوفات المنتهية (مع صورها) بعد استقرار الدخول — لا يؤخّر شيئًا */
   if(typeof trashPurgeExpired === 'function') setTimeout(() => { trashPurgeExpired(); }, 5000);
+  /* وسجل الدرجات بعد 30 يومًا (app-55) */
+  if(typeof gradeHistoryCleanup === 'function') setTimeout(() => { gradeHistoryCleanup(); }, 6000);
   /* شارة "إدارة الصف" = بطاقات الانتباه العاجلة والمهمة (app-16) — مصدر
      واحد لتنبيهات الطلاب بدل تكرارها هنا وفي مركز التنبيهات */
   refreshAttention();

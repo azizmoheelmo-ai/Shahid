@@ -3006,6 +3006,12 @@ button.bt-cell{cursor:pointer;}
 .tlx-pill.is-gold{background:var(--ui-warn-bg);color:var(--ui-warn);}
 .tlx-pill.is-blue{background:var(--ui-info-bg);color:var(--navy);}
 .tlx-pill.is-new{background:var(--gold);color:var(--ui-on-dark);margin-inline-start:6px;vertical-align:middle;}
+/* سجل الدرجات (app-55): سطر «الآن ← بعد الاستعادة» وقائمة المعاينة */
+.gh-list{max-height:46vh;overflow-y:auto;}
+.gh-change{flex:none;font-size:13px;color:var(--ui-body);white-space:nowrap;}
+.gh-now{text-decoration:line-through;color:var(--muted);}
+.gh-then{color:var(--ui-ok);font-weight:800;}
+.gh-more{padding:9px 12px;font-size:12px;color:var(--muted);text-align:center;}
 .tlx-mini{display:flex;height:4px;background:var(--ui-divider);border-radius:3px;margin-top:6px;overflow:hidden;}
 .tlx-mini i{display:block;height:4px;}
 .tlx-mini .m-ok{background:var(--ui-ok);}.tlx-mini .m-wip{background:var(--ui-wip);}.tlx-mini .m-no{background:var(--ui-danger);}

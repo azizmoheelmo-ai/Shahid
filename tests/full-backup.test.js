@@ -32,7 +32,7 @@ test('كل جدول بيانات بالقاعدة داخل النسخة، وال
   const fromSchema = [...runInAppContext(loadApp({}), 'buildSchemaSql()').matchAll(/create table if not exists public\.([a-z_]+)/g)].map(x => x[1]);
   const all = new Set(created.concat(fromSchema));
   const excluded = [...all].filter(t => !sqlWhitelist().includes(t)).sort();
-  assert.deepEqual(excluded, ['login_attempts', 'personal_access_tokens', 'portfolio_shares', 'student_report_shares']);
+  assert.deepEqual(excluded, ['grade_history', 'login_attempts', 'personal_access_tokens', 'portfolio_shares', 'student_report_shares']); /* grade_history: سجل متجدد 30 يومًا للاستعادة، لا قيمة لنسخه */
 });
 
 test('الدوال: للمسؤول وحده، مسار بحث فارغ، بلا تنفيذ للزائر، وروابط الاستبانة بلا رمز', () => {
