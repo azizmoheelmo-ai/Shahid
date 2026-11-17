@@ -18,10 +18,11 @@ test('هوية الوزارة: خطها وألوانها وتدرجها، بلا
   assert.doesNotMatch(html, /#A9852E|#1B3245|#876A25|Amiri/i, 'لا ألوان ذهبية ولا خط Amiri');
 });
 
-test('النصوص مهرّبة، والقسم الفارغ يُحذف، والصور الفارغة تقول لا توجد صور', () => {
+test('النصوص مهرّبة، والقسم الفارغ يُحذف، وبلا صور لا يُطبع «لا توجد صور» (ق31)', () => {
   const app = loadApp();
   const html = app.buildPdfHtml(rec, []);
-  assert.match(html, /لا توجد صور مرفقة/);
+  assert.doesNotMatch(html, /لا توجد صور مرفقة/);
+  assert.doesNotMatch(html, /الشاهد المصوّر/, 'قسم الصور يُحذف حين لا صور ولا مستندات');
   assert.doesNotMatch(html, /الهدف من هذا الإجراء/);
   assert.doesNotMatch(html, /<img src=x>/);
   assert.doesNotMatch(html, /<b>س<\/b>/);
