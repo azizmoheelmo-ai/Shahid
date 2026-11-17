@@ -14,6 +14,9 @@
    - الفترة الجارية لا تدخل المعدّل حتى تنتهي (لا هبوط مفاجئ عند بدء فترة):
      في الأولى تُحسب الأولى؛ بعدها تُحسب الفترات المنتهية فقط، والأخيرة عند
      "أنهِ الفترة". للمرصود مباشرة: classroom_grade_columns.counted_periods.
+     إلا المكوّن الذي "يبدأ من الدرجة كاملة" (cfg.live): فترته الجديدة تبدأ كاملة
+     فلا هبوط أصلًا، فتُحسب الجارية فورًا — وإلا بقي الكشف على الفترة الأولى
+     (كاملة تلقائيًا) واختفى كل إنقاص يرصده المعلم، فيظن أن الدرجة "رجعت كاملة".
    - تقليل الفترات يحذف رصد ما بعدها فقط (ترجع الدرجة لما قبلها)، مع "تراجع".
      هوية المكوّن كما في إعداد الدرجات: kind:participation، tool:<id>، name:<اسم>.
    - الاختبارات بلا فترات (كل اختبار عمود مستقل أصلًا).
@@ -42,12 +45,19 @@ function normalizePeriodCfg(raw){
 }
 
 /* كم فترة تُحسب في الدرجة: null = الكل (فترة واحدة)؛ في الأولى: الأولى؛ بعدها: المنتهية فقط؛
-   وبعد "أنهِ الفترة الأخيرة": كلها */
+   وبعد "أنهِ الفترة الأخيرة": كلها. "يبدأ من الكاملة" (live): الجارية تُحسب فورًا */
 function countedPeriodsOf(cfg){
   if(!cfg || cfg.n < 2) return null;
   if(cfg.ended) return cfg.n;
   const cur = currentPeriodOf(cfg);
+  if(cfg.live) return cur;
   return cur === 1 ? 1 : cur - 1;
+}
+
+/* مفتاح "يبدأ من" (إعداد الدرجات) لهوية مكوّن فترات: kind:participation ← participation، tool:<id> كما هو */
+function startFullKeyOfPeriodKey(key){
+  if(key === 'kind:participation' || key === 'kind:homework' || key === 'kind:task') return key.slice(5);
+  return typeof key === 'string' && key.indexOf('tool:') === 0 ? key : null;
 }
 
 /* القيمة القديمة (الإصدار 1.5: "later" أو تاريخ لكل فصل) = المشاركة والواجبات بفترتين */
@@ -77,7 +87,10 @@ function normalizePeriodsFeature(raw){
 function periodCfgOf(features, term, key){
   const t = features && features.periods && features.periods[termPeriodKey(term)];
   const c = t && normalizePeriodCfg(t[key]);
-  return c || { n: 1, starts: [] };
+  if(!c) return { n: 1, starts: [] };
+  const sk = startFullKeyOfPeriodKey(key);
+  if(sk && features.startFull && features.startFull[sk] === true) c.live = true;
+  return c;
 }
 
 function currentPeriodOf(cfg){ return Math.min(cfg.n, (cfg.starts || []).length + 1); }
@@ -291,6 +304,18 @@ async function goToComponentPeriod(key, target, dateIso){
   const cfg = periodCfg(term, key);
   const now = currentPeriodOf(cfg);
   if(!(target >= 1 && target <= cfg.n) || (target === now && !cfg.ended)) return false;
+  /* الرجوع لفترة سابقة في مكوّن مرصود مباشرة يُخفي رصد ما بعدها (يبقى محفوظًا) — المعلم يظنه ضاع، فتأكيد صريح */
+  if(target < now && periodKeyIsDirect(key)){
+    let later = [];
+    try{ later = await laterPeriodRows(key, target); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
+    if(later.length){
+      const names = [1, 2, 3].filter(p => p > target && later.some(r => Number(r.period) === p)).map(p => PERIOD_NAMES[p]).join(' و');
+      if(!(await showConfirm(`الرجوع إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}" يُخفي ما رصدته في ${names} من الورقة والكشف. لا يُحذف شيء — يعود كما هو إذا بدأتها من جديد. متأكد؟`))) return false;
+      /* تغيّر الإعداد أثناء السؤال (نقرة أخرى/جهاز آخر): لا نحفظ فوقه بنسخة قديمة */
+      const again = periodCfg(term, key);
+      if(gradePeriodSaving || again.n !== cfg.n || again.starts.join() !== cfg.starts.join() || !!again.ended !== !!cfg.ended) return false;
+    }
+  }
   return withPeriodBusy(() => savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }), /* الانتقال يلغي "انتهت" */
     target > now ? `بدأت ${PERIOD_NAMES[target]} في "${periodCompName(key)}" ✓` : `رجعت إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}"`);
 }
@@ -343,7 +368,7 @@ function openCrmPeriodPicker(){
       <h3 style="margin:0;font-size:15px;color:var(--navy);">فترات "${escapeHtml(periodCompName(info.key))}"</h3>
       <button type="button" class="crm-ic-btn" aria-label="إعداد الدرجات" title="إعداد الدرجات: التوزيع والفترات" onclick="openGradeSettingsFromPeriodPicker()">⚙</button>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">الدرجة في الكشف = معدّل الفترات المنتهية (الجارية تُحسب عند انتهائها). ما رصدته سابقًا يبقى في فترته.</p>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">${info.cfg.live ? 'الدرجة في الكشف = معدّل الفترات، والجارية تُحسب فورًا (تبدأ كاملة).' : 'الدرجة في الكشف = معدّل الفترات المنتهية (الجارية تُحسب عند انتهائها).'} ما رصدته سابقًا يبقى في فترته.</p>
     ${opts}
     ${now === info.cfg.n ? `<button type="button" class="crm-period-opt" onclick="closeCrmModal();endComponentPeriods('${escapeHtml(info.key).replace(/'/g, '&#39;')}', ${!info.cfg.ended})">
       <span><b>${info.cfg.ended ? '↺ ' + PERIOD_NAMES[now] + ' جارية من جديد' : '✓ أنهِ ' + PERIOD_NAMES[now]}</b><small>${info.cfg.ended ? 'لا تُحسب حتى تنهيها' : 'فتُحسب في الدرجة'}</small></span></button>` : ''}
@@ -363,8 +388,8 @@ async function pickCrmPeriod(p){
   if(p === info.period){ closeCrmModal(); return; }
   /* بدء فترة من حصة سابقة: تبدأ من تاريخ تلك الحصة (فتُرصد هي فيها) */
   const today = localIsoDate();
+  closeCrmModal(); /* قبل تأكيد الرجوع (نفس إطار النافذة) */
   const ok = await goToComponentPeriod(info.key, p, s.dateIso < today ? s.dateIso : today);
-  closeCrmModal();
   if(!ok || crmSheet !== s) return; /* فشل، أو أُغلقت الورقة أثناء الحفظ */
   await setCrmSheetMode(s.mode);
 }
