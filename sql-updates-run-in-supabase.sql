@@ -241,6 +241,8 @@ begin
   if v_item.teacher_id <> auth.uid() and not public.is_admin(auth.uid()) then
     raise exception 'forbidden' using errcode = '42501';
   end if;
+  -- الاسترجاع يعيد ما كان، ولو في فترة أُقفلت بعد الحذف (قفل الفترات: grade_lock_blocked)
+  perform set_config('shahid.lock_bypass', 'on', true);
 
   for v_spec in select * from jsonb_array_elements(coalesce(v_item.payload->'tables', '[]'::jsonb)) loop
     v_tab := v_spec->>'t';
@@ -703,6 +705,109 @@ end
 $fn$;
 revoke execute on function public.grade_history_restore(uuid, timestamptz, boolean) from public, anon;
 grant execute on function public.grade_history_restore(uuid, timestamptz, boolean) to authenticated;
+
+-- ============================================================
+-- قفل الفترات المنتهية
+-- الفترة التي أنهاها المعلم تُقفل في القاعدة نفسها: لا يُضاف فيها رصد ولا يُعدَّل ولا يُحذف — من أي شاشة أو جهاز
+-- أو إعداد — حتى يفتحها المعلم صراحةً («فتح للتعديل»). (السبب: إعدادات الفترات و«يبدأ من» القديمة غيّرت
+-- درجات فترات منتهية عند معلمين، 2026-11-17.)
+-- - القفل في عمود مستقل period_locks على user_app_settings: حفظ الإعدادات (features) لا يكتبه أبدًا، فلا يمحوه
+--   جهاز قديم. الشكل: {"سنة|فصل": {"<هوية المكوّن>": {"p": آخر فترة مقفلة, "before": "يوم بدء الفترة التالية"}}}.
+-- - المرصود بفترة (المشاركة والعدّاد): تُقفل درجات الفترات حتى p. المؤرَّخ (تسليم الواجبات، المهام، رصد الحالة/الدرجة):
+--   يُقفل ما تاريخه قبل before (موعد الواجب، موعد المهمة أو يوم إنشائها، يوم الحصة).
+-- - الحذف المتتابع (حذف طالب أو عمود أو واجب أو حساب) لا يُمنع، واسترجاع السلة يتجاوز القفل (يعيد ما كان).
+-- آمن التكرار.
+-- ============================================================
+alter table public.user_app_settings add column if not exists period_locks jsonb not null default '{}'::jsonb;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'user_app_settings_period_locks_chk' and conrelid = 'public.user_app_settings'::regclass) then
+    alter table public.user_app_settings add constraint user_app_settings_period_locks_chk
+      check (jsonb_typeof(period_locks) = 'object' and octet_length(period_locks::text) <= 20000);
+  end if;
+end $$;
+
+-- هل يقع هذا الصف داخل فترة مقفلة؟ (false لكل ما لا يخصه القفل، وللحذف المتتابع بعد حذف الأصل)
+create or replace function public.grade_lock_blocked(p_tbl text, r jsonb) returns boolean
+language plpgsql stable security definer set search_path = '' as $fn$
+declare v_t uuid := (r->>'teacher_id')::uuid; v_key text; v_term text; v_per smallint; v_date date; v_lock jsonb;
+begin
+  if v_t is null or coalesce(current_setting('shahid.lock_bypass', true), '') = 'on' then return false; end if;
+  if not exists (select 1 from public.classroom_students s where s.id = (r->>'student_id')::uuid) then return false; end if;
+  if p_tbl = 'classroom_grade_period_scores' then
+    select case when c.tool_id is not null then 'tool:' || c.tool_id::text when c.kind = 'participation' then 'kind:participation' end,
+           c.academic_year || '|' || c.semester
+      into v_key, v_term from public.classroom_grade_columns c where c.id = (r->>'column_id')::uuid;
+    v_per := (r->>'period')::smallint;
+  elsif p_tbl = 'classroom_homework_status' then
+    select 'kind:homework', h.academic_year || '|' || h.semester, h.due_date
+      into v_key, v_term, v_date from public.classroom_homework h where h.id = (r->>'homework_id')::uuid;
+  elsif p_tbl = 'classroom_task_students' then
+    select 'kind:task', t.academic_year || '|' || t.semester, coalesce(t.due_date, t.created_at::date)
+      into v_key, v_term, v_date from public.classroom_tasks t where t.id = (r->>'task_id')::uuid;
+  elsif p_tbl = 'classroom_tool_marks' then
+    if not exists (select 1 from public.classroom_custom_tools ct where ct.id = (r->>'tool_id')::uuid) then return false; end if;
+    v_key := 'tool:' || (r->>'tool_id'); v_term := (r->>'academic_year') || '|' || (r->>'semester'); v_date := (r->>'mark_date')::date;
+  else
+    return false;
+  end if;
+  if v_key is null or v_term is null then return false; end if; -- الأصل حُذف، أو عمود يدوي (بلا قفل)
+  select s.period_locks->v_term->v_key into v_lock from public.user_app_settings s where s.user_id = v_t;
+  if v_lock is null or jsonb_typeof(v_lock) <> 'object' then return false; end if;
+  if v_per is not null then return v_per <= coalesce((v_lock->>'p')::smallint, 0); end if;
+  return v_date is not null and v_lock->>'before' is not null and v_date < (v_lock->>'before')::date;
+end
+$fn$;
+revoke execute on function public.grade_lock_blocked(text, jsonb) from public, anon, authenticated;
+
+create or replace function public.grade_lock_guard() returns trigger
+language plpgsql security definer set search_path = '' as $fn$
+begin
+  if tg_op in ('UPDATE', 'DELETE') and public.grade_lock_blocked(tg_table_name, to_jsonb(old)) then
+    raise exception 'grade_period_locked' using errcode = 'P0001', hint = 'الفترة مقفلة — افتحها للتعديل من نافذة الفترات';
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') and public.grade_lock_blocked(tg_table_name, to_jsonb(new)) then
+    raise exception 'grade_period_locked' using errcode = 'P0001', hint = 'الفترة مقفلة — افتحها للتعديل من نافذة الفترات';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end
+$fn$;
+revoke execute on function public.grade_lock_guard() from public, anon, authenticated;
+
+do $do$
+declare v_t text;
+begin
+  foreach v_t in array array['classroom_grade_period_scores', 'classroom_homework_status', 'classroom_task_students', 'classroom_tool_marks'] loop
+    if to_regclass(format('public.%I', v_t)) is null then continue; end if;
+    execute format('drop trigger if exists trg_grade_lock on public.%I', v_t);
+    execute format('create trigger trg_grade_lock before insert or update or delete on public.%I for each row execute function public.grade_lock_guard()', v_t);
+  end loop;
+end
+$do$;
+
+-- قفل/فتح فترات مكوّن (تعديل ذرّي لمفتاح واحد؛ لا يمسّ features). p_period = 0: لا قفل.
+create or replace function public.set_period_lock(p_term text, p_key text, p_period smallint, p_before date)
+returns jsonb language plpgsql security invoker set search_path = '' as $fn$
+declare v_uid uuid := auth.uid(); v_res jsonb;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  if p_term is null or p_term !~ '^[0-9٠-٩/ -]{1,20}[|][12]$' then raise exception 'bad term'; end if;
+  if p_key is null or p_key !~ '^(kind:(participation|homework|task)|tool:[0-9a-f-]{36})$' then raise exception 'bad key'; end if;
+  if p_period is null or p_period < 0 or p_period > 3 or (p_period > 0 and p_before is null) then raise exception 'bad period'; end if;
+  insert into public.user_app_settings as s (user_id, features, period_locks) values (v_uid, '{}'::jsonb, '{}'::jsonb)
+    on conflict (user_id) do nothing;
+  update public.user_app_settings s set period_locks =
+    case when p_period = 0
+      then jsonb_set(s.period_locks, array[p_term], coalesce(s.period_locks->p_term, '{}'::jsonb) - p_key)
+      else jsonb_set(s.period_locks, array[p_term], coalesce(s.period_locks->p_term, '{}'::jsonb)
+        || jsonb_build_object(p_key, jsonb_build_object('p', p_period, 'before', p_before)))
+    end
+    where s.user_id = v_uid
+    returning s.period_locks into v_res;
+  return v_res;
+end
+$fn$;
+revoke execute on function public.set_period_lock(text, text, smallint, date) from public, anon;
+grant execute on function public.set_period_lock(text, text, smallint, date) to authenticated;
 
 -- ============ استبانة رضا المستفيدين (SURVEYS.md) ============
 -- الاستبانة كائن مستقل على مستوى المعلم: عنوان، وجمهور واحد، وشعب مختارة، وأسئلتها هي (نسخة محفوظة بالحملة)،
