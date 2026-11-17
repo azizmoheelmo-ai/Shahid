@@ -284,8 +284,8 @@ async function loadCrmGradeSheet(sectionId){
       } catch(e){}
     }
   }
-  /* المرصود مباشرة (المشاركة، العدّاد، اليدوي): "يبدأ من الدرجة كاملة" يملأ الفترة الجارية لمن لا درجة
-     له فيها (القاعدة تحدّث المعدّل)، ثم درجات الفترات — للرصد اليدوي دائمًا، وللعرض متى كان له أكثر من فترة */
+  /* المرصود مباشرة (المشاركة، العدّاد، اليدوي): درجات الفترات — للرصد اليدوي دائمًا، وللعرض متى كان له أكثر من فترة.
+     فتح الكشف لا يكتب أي درجة (أُلغي ملء «يبدأ من الكاملة» — 3.61) */
   for(const c of visible.filter(isDirectPeriodColumn)){
     try{
       const load = async () => {
@@ -300,13 +300,7 @@ async function loadCrmGradeSheet(sectionId){
         const { error: cErr } = await sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want });
         if(!cErr) c.counted_periods = want;
       }
-      let pd = await load();
-      const fk = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
-      if(fk && gradeStartsFull(fk)){
-        const period = Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
-        /* الأولى فقط — ما بعدها تُكتب كاملته عند انتهائها (لا يتغيّر المعدّل لمجرد بدء فترة) */
-        if(period === 1 && (await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
-      }
+      const pd = await load();
       breakdown.set(c.id, participationPeriodBreakdown(pd.main, pd.rows));
     } catch(e){}
   }
@@ -511,7 +505,7 @@ function crmGradesPageHtml(g){
   }
   /* الجدول الكامل لم يعد يُعرض (مرهق على الجوال): الرصد من أزرار «رصد» وتعديل الدرجة من صفحة الطالب، والجدول الكامل في «تصدير الكشف» */
   const plus = hasBaseGradeColumns(g.allColumns || g.columns) ? '<button type="button" class="crm-gs-plus" aria-label="إضافة ونقل الدرجات" title="إضافة اختبار، استيراد، قالب، تصدير" onclick="openCrmGradeToolsMenu()">＋</button>' : '';
-  return crmGradesSectionPickerHtml(g.sectionId, plus) + crmGradesViewSwitchHtml() + crmGradeSimpleHtml(g);
+  return (typeof gradeEditBannerHtml === 'function' ? gradeEditBannerHtml() : '') + crmGradesSectionPickerHtml(g.sectionId, plus) + crmGradesViewSwitchHtml() + crmGradeSimpleHtml(g);
 }
 
 function crmGradeBarHtml(score, max){
@@ -632,7 +626,8 @@ function openCrmGradeToolsMenu(){
     down: 'M12 4v11M7 10l5 5 5-5M5 20h14',
     up: 'M12 20V9M7 14l5-5 5 5M5 4h14',
     grid: 'M4 4h16v16H4zM4 10h16M10 4v16',
-    swap: 'M7 4v14M3 14l4 4 4-4M17 20V6M13 10l4-4 4 4'
+    swap: 'M7 4v14M3 14l4 4 4-4M17 20V6M13 10l4-4 4 4',
+    clock: 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z'
   };
   const ic = k => `<span class="crm-gs-ic">${svg(ICON[k])}</span>`;
   const tx = (title, sub) => `<span class="crm-gs-tx">${title}${sub ? `<small class="hb-sub">${sub}</small>` : ''}</span>`;
@@ -657,6 +652,8 @@ function openCrmGradeToolsMenu(){
   }
   move += opt('up', 'تصدير الكشف', 'ملف Excel بكل الدرجات', `onclick="exportCrmGradeSheet('sheet', this)"`);
   html += `<div class="crm-am-item" data-am="move">${head('move', 'swap', 'نقل الدرجات', g.columns.length ? 'استيراد · قالب · تصدير' : 'تصدير')}<div class="crm-am-body">${move}</div></div>`;
+  /* سجل الدرجات (app-55): كل تغيير محفوظ 30 يومًا، والاستعادة لما قبل أي لحظة */
+  html += `<button type="button" class="crm-am-head crm-am-solo" onclick="openGradeHistory('${g.sectionId}')">${ic('clock')}${tx('سجل الدرجات والاستعادة', 'رجّع درجات الشعبة كما كانت قبل أي لحظة')}<span class="crm-am-chev" aria-hidden="true">‹</span></button>`;
   showInfoModal(html + '</div>', '420px');
 }
 
@@ -1174,7 +1171,7 @@ function openCrmGradeEntry(columnId){
   crmGradeEntry = { columnId, saving: false, period };
   const students = crmStudentsOfSection(crmGrades.sectionId);
   const scoreOf = crmGradeEntryScores(crmGrades, c, period);
-  box.innerHTML = `
+  box.innerHTML = (period && typeof gradeEditPeriodOf === 'function' && gradeEditPeriodOf(c) ? gradeEditBannerHtml() : '') + `
     <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' · الدرجة في الكشف = معدّل الفترات' : ''}</div>
     <div class="crm-grade-entry">
@@ -1195,6 +1192,8 @@ function openCrmGradeEntry(columnId){
 /* فترة الرصد اليدوي لعمود يُرصد مباشرة (null لغيره) — الجارية؛ بفترة واحدة: الأولى (الرصد دائمًا بدرجة فترة) */
 function crmGradeEntryPeriod(g, c){
   if(!isDirectPeriodColumn(c) || !(g.breakdown && g.breakdown.has(c.id))) return null;
+  const edit = typeof gradeEditPeriodOf === 'function' ? gradeEditPeriodOf(c) : null; /* وضع تعديل فترة منتهية مفتوحة */
+  if(edit) return edit;
   const cfg = gradeColumnPeriodCfg(g, c);
   return Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
 }

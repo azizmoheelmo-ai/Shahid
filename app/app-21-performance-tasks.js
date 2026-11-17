@@ -180,6 +180,7 @@ function taskScoreTone(score, max){
 
 function taskDbErrorMessage(error){
   const msg = (error && error.message) || '';
+  if(typeof isGradeLockedError === 'function' && isGradeLockedError(error)) return gradeSaveErrorText(error);
   if(msg.indexOf('task_score_above_max') !== -1) return 'الدرجة أكبر من درجة المهمة — ربما عُدّلت المهمة من جهاز آخر. حدّث الصفحة.';
   if(msg.indexOf('task_max_below_scores') !== -1) return 'توجد درجات مرصودة أعلى من درجة المهمة الجديدة — عدّلها أولًا.';
   return msg || 'خطأ بالاتصال';
@@ -299,9 +300,8 @@ async function renderCrmTasks(students, selectId){
     </div>
     ${task.description ? `<div class="crm-task-desc">${escapeHtml(task.description)}</div>` : ''}
     <div id="crmTaskCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${gradeStartsFull('task')
-      ? `تبدأ المهمة <b>كاملة</b> (${formatScore(task.max_score)}) لكل المكلَّفين — اضغط على من قصّر فقط لتُنقص درجته${task.due_date ? ' · التسليم ' + shortDateAr(task.due_date) : ''}`
-      : `${glist.length ? 'اضغط على المجموعة لرصد درجة واحدة لكل أعضائها، أو على اسم طالب لتعديل درجته وحده' : 'اضغط على الطالب لرصد درجته'} من ${formatScore(task.max_score)}${task.due_date ? ' · التسليم ' + shortDateAr(task.due_date) : ''}. لا تُحسب المهمة للطالب حتى تُرصد درجته`}${column ? '، وتُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود مهام أدائية في الكشف ليُحسب تلقائيًا)'}.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${`${glist.length ? 'اضغط على المجموعة لرصد درجة واحدة لكل أعضائها، أو على اسم طالب لتعديل درجته وحده' : 'اضغط على الطالب لرصد درجته'} من ${formatScore(task.max_score)}${task.due_date ? ' · التسليم ' + shortDateAr(task.due_date) : ''}. لا تُحسب المهمة للطالب حتى تُرصد درجته`}${column ? '، وتُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود مهام أدائية في الكشف ليُحسب تلقائيًا)'}.</p>
+    ${assigned.length ? crmFillRowHtml('من لم يُقيَّم', [[`أعطِه ${formatScore(task.max_score)}`, `fillCrmTaskEmpty(${Number(task.max_score)})`], ['أعطِه 0', 'fillCrmTaskEmpty(0)']]) : ''}
     ${glist.map(g => `<div class="crm-task-group">
       <button type="button" class="crm-att-btn crm-task-group-head" id="crmTaskGroup_${g.no}" onclick="openCrmTaskScorePicker(null, ${g.no})">
         <span class="crm-att-name">المجموعة ${g.no} · ${arabicCountPhrase(g.members.length, CRM_STUDENT_COUNT_FORMS)}</span><span class="crm-att-state"></span></button>
@@ -436,6 +436,23 @@ function applyCrmTaskScore(score){
   persistCrmTaskScores(changed, score, prev);
 }
 
+/* «من لم يُقيَّم: أعطِه الكاملة/0» — كأنه رصد يدوي لكل مكلَّف بلا درجة، لا يمسّ من قُيِّم (بدل «يبدأ من» الملغى).
+   الحفظ بنفس مسار الرصد الفردي (طابور الطالب، والتراجع عند الفشل، والسجل، وإعادة حساب العمود) */
+function fillCrmTaskEmpty(score){
+  const t = crmSheet && crmSheet.task;
+  const task = t && crmSelectedTask();
+  if(!task) return;
+  score = Number(score);
+  if(!(score >= 0 && score <= Number(task.max_score))) return;
+  const ids = [...t.scores.keys()].filter(id => t.scores.get(id) === null || t.scores.get(id) === undefined);
+  if(!ids.length){ showToast('كل المكلَّفين قُيِّموا', 'ok'); return; }
+  const prev = new Map(ids.map(id => [id, null]));
+  ids.forEach(id => t.scores.set(id, score));
+  paintCrmTaskAll(ids);
+  paintCrmTaskCounts();
+  return persistCrmTaskScores(ids, score, prev);
+}
+
 /* حفظ درجة (طالب أو أعضاء مجموعة) ثم إعادة حساب عمودهم — بعد أي حفظ معلّق لهم */
 function persistCrmTaskScores(ids, score, prev){
   const s = crmSheet;
@@ -555,7 +572,9 @@ function crmTaskFormHtml(sectionId, task){
         ${students.map(st => `<button type="button" class="crm-task-pick${d.selected.has(st.id) ? ' is-on' : ''}" id="crmTaskPick_${st.id}" onclick="toggleCrmTaskPick('${st.id}')">${escapeHtml(st.full_name)}</button>`).join('')}
       </div>` : '<div class="crm-today-empty">لا طلاب في هذه الشعبة.</div>'}
       <div id="crmTaskGroupsBox">${crmTaskGroupsHtml()}</div>
-      ${gradeStartsFull('task') ? `<p style="font-size:11px;color:var(--muted);margin:6px 0 0;">${task ? 'من يُضاف الآن' : 'المكلَّفون'} يبدؤون بالدرجة <b>كاملة</b> (من إعداد الدرجات).</p>` : ''}
+      ${task ? '' : `<label class="crm-field-label" style="margin-top:8px;">تبدأ المهمة</label>
+      <div class="crm-seg" id="crmTaskStartSeg">${[['empty', 'بلا تقييم'], ['full', 'الجميع الكاملة'], ['zero', 'الجميع 0']].map(([v, l]) =>
+        `<button type="button" data-v="${v}" class="${(d.startWith || 'empty') === v ? 'is-on' : ''}" aria-pressed="${(d.startWith || 'empty') === v}" onclick="setCrmTaskStart('${v}')">${l}</button>`).join('')}</div>`}
       <div id="crmTaskError" style="display:none;color:#8A2C2C;font-size:12px;margin:8px 0;line-height:1.7;"></div>
       <button class="btn btn-primary" id="crmTaskSaveBtn" style="width:100%;justify-content:center;margin-top:10px;" onclick="saveCrmTask()">${task ? 'حفظ التعديل' : 'حفظ المهمة'}</button>
       ${task && appSectionOn('shahid') ? `<button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:8px;" onclick="openShahidDraftFromTask('${task.id}')">📄 حوّل إلى شاهد${task.shahid_id ? ' (موثّقة مسبقًا)' : ''}</button>` : ''}
@@ -563,10 +582,22 @@ function crmTaskFormHtml(sectionId, task){
     </div>`;
 }
 
+/* سؤال الإنشاء: يُكتب مرة واحدة عند الحفظ للمكلَّفين (ثم تُعدّل لكل طالب) */
+function setCrmTaskStart(v){
+  const d = crmTaskDraft;
+  if(!d || d.editId || !['empty', 'full', 'zero'].includes(v)) return;
+  d.startWith = v;
+  document.querySelectorAll('#crmTaskStartSeg button').forEach(b => {
+    const on = b.dataset.v === v;
+    b.className = on ? 'is-on' : '';
+    b.setAttribute('aria-pressed', String(on));
+  });
+}
+
 function openCrmTaskModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  crmTaskDraft = { sectionId, selected: new Set(), groups: null, groupCount: 2, saving: false };
+  crmTaskDraft = { sectionId, selected: new Set(), groups: null, groupCount: 2, saving: false, startWith: 'empty' };
   showInfoModal(crmTaskFormHtml(sectionId, null), '460px');
 }
 
@@ -703,27 +734,13 @@ async function saveCrmTask(){
   const unlock = () => { d.saving = false; btns.forEach(b => { b.disabled = false; }); };
   const uid = currentUser.id;
   const payload = { title, description, max_score: Math.round(max * 100) / 100, due_date: due };
-  /* "يبدأ من الكاملة" (إعداد الدرجات): المكلَّف الجديد يأخذ درجة المهمة كاملة */
-  const fullStart = gradeStartsFull('task');
-  const startScore = fullStart ? { score: payload.max_score } : {};
+  /* سؤال الإنشاء (بدل «يبدأ من» الملغى): المهمة الجديدة تبدأ فارغة، أو الجميع الكاملة/0 — يُكتب مرة واحدة كأنه رصد يدوي */
+  const startScore = !d.editId && (d.startWith === 'full' || d.startWith === 'zero') ? { score: d.startWith === 'full' ? payload.max_score : 0 } : {};
   let id = d.editId;
   try{
     if(d.editId){
       const { data: cur, error: cErr } = await sb.from('classroom_task_students').select('student_id, score, group_no').eq('teacher_id', uid).eq('task_id', d.editId);
       if(cErr) throw cErr;
-      /* من الكاملة: تغيير درجة المهمة ينقل من معه الكاملة القديمة إلى الجديدة (لا يبقى 10 من 20) */
-      let oldMax = null;
-      if(fullStart){
-        const { data: t0, error: tErr } = await sb.from('classroom_tasks').select('max_score').eq('teacher_id', uid).eq('id', d.editId).maybeSingle();
-        if(tErr) throw tErr;
-        oldMax = t0 ? Number(t0.max_score) : null;
-      }
-      const followMax = oldMax !== null && oldMax !== payload.max_score;
-      const moveFullScores = async () => {
-        const { error: mErr } = await sb.from('classroom_task_students').update({ score: payload.max_score })
-          .eq('teacher_id', uid).eq('task_id', d.editId).eq('score', oldMax);
-        if(mErr) throw mErr;
-      };
       const plan = planTaskAssigneeChange(cur, selected, sectionIds);
       /* إزالة طالب له درجة تحذف درجته — تأكيد بنقرة ثانية على "حفظ" */
       const sig = plan.removeScored.slice().sort().join(',');
@@ -736,12 +753,9 @@ async function saveCrmTask(){
         const { error: rErr } = await sb.from('classroom_task_students').delete().eq('teacher_id', uid).eq('task_id', d.editId).in('student_id', plan.remove);
         if(rErr) throw rErr;
       }
-      /* التخفيض: الدرجات أولًا (القاعدة لا تقبل درجة مهمة أقل من المرصود)، والرفع: المهمة أولًا */
-      if(followMax && payload.max_score < oldMax) await moveFullScores();
       const { data: upd, error: uErr } = await sb.from('classroom_tasks').update(payload).eq('teacher_id', uid).eq('id', d.editId).select('id');
       if(uErr) throw uErr;
       if(!(upd || []).length) throw new Error('المهمة غير موجودة — ربما حُذفت من جهاز آخر');
-      if(followMax && payload.max_score > oldMax) await moveFullScores();
       /* تغيير المجموعات لا يمسّ الدرجات المرصودة */
       const byGroup = new Map();
       planTaskRegroup(cur, selected, groups).forEach(r => {

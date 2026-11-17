@@ -357,6 +357,7 @@ async function onLoggedIn(user){
 
   /* تخصيص التطبيق (الأقسام والأدوات الظاهرة) — فشل التحميل = كل شيء ظاهر */
   try{ await loadAppFeatures(user.id); } catch(e){ appFeatures = {}; appFeaturesSaved = {}; }
+  try{ await loadPeriodLocks(user.id); } catch(e){}
   /* أدوات المعلم الخاصة — فشل التحميل = أعمدتها ظاهرة ولا أوضاع لها في ورقة الحصة */
   try{ await loadCustomTools(user.id); } catch(e){ crmCustomTools = []; crmCustomToolsLoaded = false; }
 
@@ -483,6 +484,8 @@ async function checkAdminStatus(){
   if(typeof refreshLeaderBadge === 'function') refreshLeaderBadge(); /* شارة إجابات المسؤولين بدرج الحساب (app-50) */
   /* تنظيف المحذوفات المنتهية (مع صورها) بعد استقرار الدخول — لا يؤخّر شيئًا */
   if(typeof trashPurgeExpired === 'function') setTimeout(() => { trashPurgeExpired(); }, 5000);
+  /* وسجل الدرجات بعد 30 يومًا (app-55) */
+  if(typeof gradeHistoryCleanup === 'function') setTimeout(() => { gradeHistoryCleanup(); }, 6000);
   /* شارة "إدارة الصف" = بطاقات الانتباه العاجلة والمهمة (app-16) — مصدر
      واحد لتنبيهات الطلاب بدل تكرارها هنا وفي مركز التنبيهات */
   refreshAttention();
