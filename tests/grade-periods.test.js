@@ -634,3 +634,54 @@ test('انحدار: الرجوع لفترة سابقة يُنبّه أن رصد 
   assert.equal(get(app2, 'window.__confirm.length'), 0);
   assert.deepEqual([...get(app2, `appFeatures.periods['${TK}']['kind:participation'].starts`)], []);
 });
+
+/* ============ علامة «؟» في ترويسة الكشف — شرح الحساب (فرع تجربة) ============ */
+test('علامة ؟: تظهر في ترويسة المكوّن ذي الفترات فقط، وتمنع فتح قائمة العمود', async () => {
+  const seed = { classroom_grade_columns: [col('P', 'participation', 10), col('H', 'homework', 10), col('T', 'manual', 20, { category: 'tests', name: 'اختبار' })] };
+  const { app, g } = await gradeSheet(seed, withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }));
+  const html = app.crmGradeDetailHtml(g);
+  assert.equal((html.match(/class="crm-period-q"/g) || []).length, 1, 'المشاركة فقط (الواجبات فترة واحدة، والاختبار بلا فترات)');
+  assert.match(html, /مشاركة[\s\S]{0,40}class="crm-period-q"[^>]*onclick="event\.stopPropagation\(\);openCrmPeriodHelp\('P'\)"/);
+  const off = await gradeSheet(seed, OFF);
+  assert.doesNotMatch(off.app.crmGradeDetailHtml(off.g), /crm-period-q/, 'بلا فترات: لا علامة');
+});
+
+test('علامة ؟: نص الشرح بحسب إعداد المكوّن — الكاملة تُحسب الجارية، والصفر لا، وبعد الإنهاء الكل', () => {
+  const app = loadApp();
+  const html = cfg => app.periodHelpHtml('المشاركة', 'kind:participation', cfg);
+  const live = html({ n: 3, starts: ['a'], live: true });
+  assert.match(live, /الفترة الأولى<\/span><span>تُحسب<\/span>[\s\S]*الفترة الثانية<\/span><span>تُحسب \(جارية\)[\s\S]*الفترة الثالثة<\/span><span>لم تبدأ/);
+  assert.match(live, /الجارية تُحسب فورًا/);
+  assert.doesNotMatch(live, /أنهِ|ابدأ الفترة/, 'لا زر انتقال: لا شيء معلّق');
+  const zero = html({ n: 3, starts: ['a'] });
+  assert.match(zero, /الفترة الثانية<\/span><span>جارية — لا تُحسب بعد/);
+  assert.match(zero, /تدخل الفترة الثانية حين تبدأ الفترة الثالثة/);
+  assert.match(zero, /goToComponentPeriod\('kind:participation', 3\)">ابدأ الفترة الثالثة/);
+  const last = html({ n: 2, starts: ['a'] });
+  assert.match(last, /تدخل الفترة الثانية حين تنهيها/);
+  assert.match(last, /endComponentPeriods\('kind:participation', true\)">أنهِ الفترة الثانية/);
+  const done = html({ n: 2, starts: ['a'], ended: true });
+  assert.match(done, /انتهت كل الفترات/);
+  assert.doesNotMatch(done, /جارية/);
+  assert.match(done, /openGradeSettingsFromPeriodPicker\(\)">تغيير الفترات والإعدادات/);
+});
+
+test('علامة ؟: اسم المكوّن ومفتاحه يُهرَّبان، والفتح يعرض النافذة، وعمود بلا فترات لا يفتح شيئًا', async () => {
+  const bad = `x');alert(1);//<b>`;
+  const seed = { classroom_grade_columns: [col('P', 'manual', 10, { name: bad }), col('H', 'homework', 10)] };
+  const { app, g } = await gradeSheet(seed, withPeriods({ ['name:' + bad]: { n: 2, starts: ['2026-10-25'] } }));
+  app.__g = g;
+  runInAppContext(app, 'crmGrades = __g; window.__modal = null;');
+  const head = app.crmGradeDetailHtml(g);
+  assert.doesNotMatch(head, /<b>"|alert\(1\);\/\/<b>/, 'الاسم مهرَّب في الترويسة');
+  assert.match(head, /aria-label="كيف تُحسب x(&#39;|&#039;|')?\)?;?alert/);
+  app.openCrmPeriodHelp('P');
+  const m = get(app, 'window.__modal');
+  assert.match(m, /كيف تُحسب «x/);
+  assert.doesNotMatch(m, /<b>/, 'لا وسم من الاسم');
+  runInAppContext(app, 'window.__modal = null;');
+  app.openCrmPeriodHelp('H');
+  assert.equal(get(app, 'window.__modal'), null, 'فترة واحدة: لا نافذة');
+  app.openCrmPeriodHelp('ZZZ');
+  assert.equal(get(app, 'window.__modal'), null);
+});

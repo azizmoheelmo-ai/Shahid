@@ -394,6 +394,60 @@ async function pickCrmPeriod(p){
   await setCrmSheetMode(s.mode);
 }
 
+/* ============ علامة «؟» في ترويسة عمود الكشف: كيف تُحسب الفترات (شرح فقط، لا يغيّر حسابًا) ============ */
+const PERIOD_HELP_STATE_TEXT = { on: 'تُحسب', cur: 'تُحسب (جارية)', wip: 'جارية — لا تُحسب بعد', off: 'لم تبدأ' };
+
+/* حالة كل فترة من إعداد المكوّن: on محسوبة، cur محسوبة وجارية، wip جارية ولا تُحسب بعد، off لم تبدأ */
+function periodHelpState(cfg){
+  const now = currentPeriodOf(cfg);
+  const counted = countedPeriodsOf(cfg) || cfg.n;
+  const rows = [];
+  for(let p = 1; p <= cfg.n; p++){
+    rows.push({ p, state: p > now ? 'off' : p <= counted ? (p === now && !cfg.ended ? 'cur' : 'on') : 'wip' });
+  }
+  return { rows, now, counted, pending: !cfg.ended && now > counted };
+}
+
+function periodHelpNote(cfg, st){
+  if(cfg.ended) return 'انتهت كل الفترات — الدرجة = معدّل الفترات كلها.';
+  if(cfg.live) return 'الدرجة = معدّل الفترات المحسوبة. الجارية تُحسب فورًا لأن كل فترة جديدة تبدأ كاملة.';
+  if(st.pending) return `الدرجة الآن = معدّل الفترات المنتهية فقط. تدخل ${PERIOD_NAMES[st.now]} ${st.now === cfg.n ? 'حين تنهيها' : 'حين تبدأ ' + PERIOD_NAMES[st.now + 1]}.`;
+  return 'الدرجة = الفترة الأولى (الجارية). وكل فترة تدخل الدرجة بعد انتهائها.';
+}
+
+function periodHelpHtml(name, key, cfg){
+  const st = periodHelpState(cfg);
+  const k = escapeHtml(key).replace(/'/g, '&#39;');
+  const act = !cfg.live && st.pending
+    ? (st.now === cfg.n
+      ? `<button type="button" class="tlx-btn is-navy" onclick="closeCrmModal();endComponentPeriods('${k}', true)">أنهِ ${PERIOD_NAMES[st.now]}</button>`
+      : `<button type="button" class="tlx-btn is-navy" onclick="closeCrmModal();goToComponentPeriod('${k}', ${st.now + 1})">ابدأ ${PERIOD_NAMES[st.now + 1]}</button>`)
+    : '';
+  return `<div class="pq-sheet" style="text-align:right;">
+    <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">كيف تُحسب «${escapeHtml(name)}»؟</h3>
+    ${st.rows.map(r => `<div class="pq-row is-${r.state}"><span>${PERIOD_NAMES[r.p]}</span><span>${PERIOD_HELP_STATE_TEXT[r.state]}</span></div>`).join('')}
+    <p class="tlx-note" style="margin:10px 0;">${escapeHtml(periodHelpNote(cfg, st))}</p>
+    ${act}
+    <button type="button" class="tlx-btn is-ghost" style="margin-top:8px;" onclick="closeCrmModal();openGradeSettingsFromPeriodPicker()">تغيير الفترات والإعدادات</button>
+  </div>`;
+}
+
+/* الزر داخل ترويسة العمود: للمكوّن الذي له أكثر من فترة فقط */
+function periodHelpBtnHtml(g, c){
+  if(!isPeriodColumn(c) || gradeColumnPeriodCfg(g, c).n < 2) return '';
+  return ` <button type="button" class="crm-period-q" aria-label="كيف تُحسب ${escapeHtml(c.name)}؟" onclick="event.stopPropagation();openCrmPeriodHelp('${c.id}')">؟</button>`;
+}
+
+function openCrmPeriodHelp(columnId){
+  const g = crmGrades;
+  const c = g && (g.columns || []).find(x => x.id === columnId);
+  const key = c && periodCompKeyOfColumn(c);
+  if(!key) return;
+  const cfg = gradeColumnPeriodCfg(g, c);
+  if(cfg.n < 2) return;
+  showInfoModal(periodHelpHtml(c.name, key, cfg), '420px');
+}
+
 /* ============ "يبدأ من الدرجة كاملة": من لا درجة له في الفترة يأخذ الكاملة ============ */
 async function fillStartFullPeriodScores(column, studentIds, period, current){
   const missing = (studentIds || []).filter(id => !current.has(id));
