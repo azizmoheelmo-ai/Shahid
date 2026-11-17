@@ -129,6 +129,7 @@ test('SQL: الجدول للقراءة فقط لصاحبه، والمشغّل و
   assert.match(BLK, /create table if not exists public\.grade_history \(/);
   assert.match(BLK, /on public\.grade_history for select to authenticated using \(auth\.uid\(\) = teacher_id\);/);
   assert.match(BLK, /grant select on public\.grade_history to authenticated;/);
+  assert.match(BLK, /revoke all on public\.grade_history from anon, authenticated;/, 'الصلاحيات الافتراضية تُسحب من المستخدم أيضًا قبل منح القراءة');
   assert.doesNotMatch(BLK.replace(/--[^\n]*/g, ''), /grant (insert|update|delete|all)[^;]*grade_history/i, 'لا كتابة مباشرة');
   assert.doesNotMatch(BLK, /is_admin/, 'ولا المسؤول');
   assert.match(fnBody('grade_history_log'), /returns trigger\s+language plpgsql security definer set search_path = ''/);

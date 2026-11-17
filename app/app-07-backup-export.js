@@ -1174,7 +1174,7 @@ alter table public.grade_history enable row level security;
 drop policy if exists "سجل الدرجات: قراءة المالك فقط" on public.grade_history;
 create policy "سجل الدرجات: قراءة المالك فقط"
   on public.grade_history for select to authenticated using (auth.uid() = teacher_id);
-revoke all on public.grade_history from anon;
+revoke all on public.grade_history from anon, authenticated; -- Supabase يمنح الجداول الجديدة كل الصلاحيات افتراضيًا: المشغّل وحده يكتب
 grant select on public.grade_history to authenticated;
 
 -- المشغّل: صف لكل تغيير (التعديل الذي لا يغيّر إلا updated_at لا يُسجَّل)
