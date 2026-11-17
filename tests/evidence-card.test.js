@@ -77,3 +77,31 @@ test('الرسم: كل نص مهرّب، وعبارة «مولّدة من بيا
   }
   assert.equal(app.buildEvidenceCardHtml(null), '');
 });
+
+/* ============ صفحة التقرير الرسمي (الدفعة الثانية) ============ */
+const { runInAppContext } = require('./load-app');
+
+test('تقرير الاستبانة صورةً: بلا أسئلة النص الحر (قد يكتب ولي الأمر فيها اسم طالب)', async () => {
+  const app = loadApp({ currentUser: { id: 'u1', user_metadata: { full_name: 'معلم' } } });
+  runInAppContext(app, `shahidWarmLogos = async () => {};`);
+  const an = { ok: true, valid: 6, invalid: 0, items: [
+    { id: 'q1', type: 'rating', label: 'التواصل', n: 6, avg: 4.2 },
+    { id: 'q2', type: 'text', label: 'ملاحظاتك', n: 1, texts: ['ابني سالم العتيبي يحتاج اهتمامًا'] }] };
+  const r = await app.buildInboxReportHtml({ kind: 'survey', campaign: { title: 'رضا', audience: 'guardian', min_results: 5 }, analysis: an, counts: { total: 10, answered: 6, sent: 4, unsent: 0 } });
+  assert.match(r.html, /التواصل/);
+  assert.doesNotMatch(r.html, /سالم|ملاحظاتك/);
+  assert.equal(an.items.length, 2, 'التحليل الأصلي لا يُعدَّل');
+});
+
+test('تقرير الشعبة للبند صورةً: بلا أسماء طلاب أبدًا، ولو وصلت الأسماء في البيانات', async () => {
+  const app = loadApp({ currentUser: { id: 'u1' } });
+  runInAppContext(app, `gradeReportLogoData = async () => ''; gradeReportSchoolLogoData = async () => ''; srEnsureFonts = async () => {};`);
+  const col = { id: 'T1', section_id: 'S', academic_year: '1448-1449', semester: 1, category: 'tests', name: 'اختبار القراءة', max_score: 10, tool_id: null };
+  const students = ['سالم', 'فهد', 'نواف', 'ماجد', 'خالد', 'بدر'].map((n, i) => ({ id: 's' + i, full_name: n, section_id: 'S' }));
+  const scores = students.slice(0, 5).map((s, i) => ({ column_id: 'T1', student_id: s.id, score: [2, 4, 6, 8, 10][i] }));
+  const r = await app.buildInboxReportHtml({ kind: 'section', column: col, scores, students, sectionLabel: 'الرابع — الشعبة 2' });
+  assert.match(r.html, /تقرير أداء الشعبة/);
+  assert.match(r.html, /اختبار القراءة/);
+  for(const n of ['سالم', 'فهد', 'نواف', 'ماجد', 'خالد', 'بدر']) assert.doesNotMatch(r.html, new RegExp(n), n);
+  assert.doesNotMatch(r.html, /قائمة الطلاب/);
+});

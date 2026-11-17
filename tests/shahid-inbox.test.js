@@ -762,3 +762,31 @@ test('بطاقة الدليل: لكل مصدر بطاقة، ومفعّلة اف�
     for(const it of r.items){ const s = await inboxPrepareSheet(it); out[it.type] = !!(s.card && s.cardOn); } return out; })()`);
   assert.deepEqual(J(kinds), { task: true, lesson_plan: true, followup: true, program_session: true });
 });
+
+test('صفحة التقرير: غير مُرفقة افتراضيًا، وعند اختيارها تأتي بعد البطاقة وقبل صور المعلم، وفشلها لا يمنع الحفظ', async () => {
+  const log = [];
+  const uploads = [];
+  const { s } = seedPhase2();
+  const app = phase2App(s, log);
+  runInAppContext(app, `compressImage = async f => f; renderEvidenceCardFile = async () => ({ name: 'evidence-card.jpg' }); renderInboxReportFile = async () => ({ name: 'report-page.jpg' });`);
+  const sbo = runInAppContext(app, 'sb');
+  sbo.storage.from = () => ({ upload: async (p, f) => { uploads.push(f.name); return { error: null }; }, getPublicUrl: p => ({ data: { publicUrl: 'https://x.supabase.co/storage/v1/object/public/shawahid-photos/' + p } }), remove: async () => ({}) });
+  await runInAppContext(app, `(async () => { const r = await loadInboxItems(); inboxItems = r.items; document.getElementById('inboxView').style.display = 'block';
+    await inboxOpen(inboxItems.findIndex(i => i.key === 'test_analysis:T1')); document.getElementById('inboxElement').value = inboxSheet.elementKey; })()`);
+  assert.equal(runInAppContext(app, 'inboxSheet.report.kind'), 'section');
+  assert.equal(runInAppContext(app, 'inboxSheet.reportOn'), false, 'باختيار المعلم');
+  assert.ok(J(runInAppContext(app, 'inboxSheet.report.students.map(x => x.full_name)')).every(n => n === 'طالب'), 'لا أسماء تصل للتقرير');
+  runInAppContext(app, `inboxToggleReport(); inboxSheet.files.push({ name: 'mine.jpg', type: 'image/jpeg', size: 1 });`);
+  await runInAppContext(app, `document.getElementById('inboxQual').value = 'أثر'; inboxSave()`);
+  assert.deepEqual(uploads, ['evidence-card.jpg', 'report-page.jpg', 'mine.jpg']);
+
+  const log2 = [];
+  const p2 = seedPhase2();
+  const app2 = phase2App(p2.s, log2);
+  runInAppContext(app2, `renderEvidenceCardFile = async () => { throw new Error('x'); }; renderInboxReportFile = async () => { throw new Error('x'); };`);
+  await runInAppContext(app2, `(async () => { const r = await loadInboxItems(); inboxItems = r.items; document.getElementById('inboxView').style.display = 'block';
+    await inboxOpen(inboxItems.findIndex(i => i.key === 'test_analysis:T1')); document.getElementById('inboxElement').value = inboxSheet.elementKey; inboxToggleReport(); })()`);
+  await runInAppContext(app2, `document.getElementById('inboxQual').value = 'أثر'; inboxSave()`);
+  assert.equal(log2.filter(l => l.table === 'shawahid' && l.op === 'insert').length, 1);
+  assert.ok(app2.__toasts.some(t => /تعذّر تجهيز صفحة التقرير/.test(t)));
+});
