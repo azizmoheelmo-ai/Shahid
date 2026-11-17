@@ -214,7 +214,7 @@ async function renderCrmParticipation(students, tool){
   const s = crmSheet;
   const mode = tool ? 'tool:' + tool.id : 'participation';
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   let column = null, scores = new Map(), capError = null;
@@ -259,11 +259,17 @@ async function renderCrmParticipation(students, tool){
   const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
   const lockKey = crmSheetLockedKey(s, period);
   s.part.locked = !!lockKey;
-  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
-    ${lockKey ? crmLockBannerHtml(lockKey, shown) : crmFillRowHtml('من بلا درجة' + (shown ? ' في ' + PERIOD_NAMES[shown] : ''), [
-      [`أعطِه ${formatScore(column.max_score)}`, `fillCrmParticipationEmpty(${Number(column.max_score)})`],
-      ['أعطِه 0', 'fillCrmParticipationEmpty(0)']])}
+  const max = formatScore(column.max_score);
+  const counted = shown && shown <= (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n);
+  s.card = { kind: 'part', fill: [[Number(column.max_score), `الدرجة كاملة (${max})`], [0, '0']], help: [
+    '<b>+</b> يزيد درجة، و<b>−</b> ينقص درجة، ويُحفظ فورًا.',
+    `الدرجة من <b>${max}</b>، و«—» يعني لم يُرصد له بعد.`,
+    shown ? `الرصد اليوم في <b>${PERIOD_NAMES[shown]}</b>، و${counted ? `درجة «${escapeHtml(column.name)}» في الكشف = معدّل الفترات.` : 'تدخل درجة الكشف عند انتهائها.'}`
+      : `ما ترصده هنا هو درجة «${escapeHtml(column.name)}» في الكشف.`,
+    '«تعبئة الباقين» تعطي من بلا درجة فقط، ولا تغيّر من له درجة.',
+    ...(shown ? [`لتغيير الفترة أو إنهائها: اضغط «📅 ${PERIOD_NAMES[shown]}».`] : [])] };
+  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}
+    ${crmSheetCardHtml(s, lockKey, shown)}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <div class="crm-att-btn crm-part-tile${crmAbsentClass(s, st.id)}" id="crmPart_${st.id}">
@@ -282,6 +288,7 @@ async function renderCrmParticipation(students, tool){
       <button class="btn btn-outline" onclick="closeCrmLessonSheet()">رجوع</button>
     </div>`;
   students.forEach(st => paintCrmParticipation(st.id));
+  crmPartCardPaint();
 }
 
 function paintCrmParticipation(studentId){
@@ -300,6 +307,7 @@ function paintCrmParticipation(studentId){
   btn.classList.toggle('is-absent', !!crmAbsentClass(s, studentId));
   const undo = document.getElementById('crmPartUndoBtn');
   if(undo) undo.disabled = !s.part.undo.length;
+  crmPartCardPaint(); /* كم رُصد وزر «تعبئة الباقين» */
 }
 
 /* النقرات على نفس الطالب تُرسل بالتتابع (لا تتقاطع) — والقاعدة تجمعها ذرّيًا */
@@ -364,13 +372,98 @@ function crmFillRowHtml(label, buttons){
   return `<div class="crm-fill-row"><span>${escapeHtml(label)}:</span>${buttons.map(([t, call]) =>
     `<button type="button" class="btn btn-outline crm-mini-btn crm-fill-btn" onclick="${call}">${escapeHtml(t)}</button>`).join('')}</div>`;
 }
+/* ============ بطاقة أعلى ورقة الرصد (3.62) ============
+   الفترة (تفتح نافذة الفترات) · كم رُصد · زر واحد «تعبئة الباقين» (يظهر فقط إن بقي أحد) · «؟» للشرح بدل نصوص دائمة.
+   s.card = { help: [html…], fill: [[value, label]…], kind: 'part'|'tool', total } */
+function crmSheetCardHtml(s, lockKey, lockPeriod){
+  const info = sheetPeriodInfo(s);
+  const chip = info && info.cfg.n > 1
+    ? `<button type="button" class="csc-period" onclick="openCrmPeriodPicker()" aria-label="الفترات">📅 ${PERIOD_NAMES[info.period]}${info.cfg.ended ? ' ✓' : ''} ▾</button>` : '<span></span>';
+  return `<div class="csc" id="crmSheetCard">
+    <div class="csc-l1">${chip}<button type="button" class="csc-q" aria-label="كيف تعمل هذه الورقة؟" aria-expanded="false" onclick="toggleCrmSheetHelp()">؟</button></div>
+    <div class="csc-l2"><div class="csc-cnt" id="crmCardCount"></div><span id="crmCardFill"></span></div>
+    <div class="csc-sub" id="crmToolCounts"></div>
+    <div class="csc-bar"><i id="crmCardBar"></i></div>
+    ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : ''}
+  </div>
+  <div id="crmSheetHelp" class="csc-help" style="display:none;"></div>
+  <div id="crmFillPanel" class="csc-fill" style="display:none;"></div>`;
+}
+
+function paintCrmSheetCard(recorded, total, locked){
+  const s = crmSheet;
+  const cnt = document.getElementById('crmCardCount');
+  if(!cnt || !s || !s.card) return;
+  const missing = Math.max(0, total - recorded);
+  cnt.innerHTML = `<small>رُصد</small> ${recorded} <small>من ${total}</small>${missing ? '' : ' <small class="csc-ok">✓</small>'}`;
+  const bar = document.getElementById('crmCardBar');
+  if(bar) bar.style.width = (total ? Math.round(100 * recorded / total) : 0) + '%';
+  const fill = document.getElementById('crmCardFill');
+  if(fill) fill.innerHTML = !locked && missing
+    ? `<button type="button" class="csc-fillb crm-fill-btn" onclick="openCrmFillPanel()">${missing === 1 ? 'تعبئة الطالب الباقي' : `تعبئة الـ${missing} الباقين`}</button>` : '';
+  s.card.missing = missing;
+  if(!missing || locked) closeCrmFillPanel();
+}
+
+function toggleCrmSheetHelp(){
+  const s = crmSheet;
+  const box = document.getElementById('crmSheetHelp');
+  if(!box || !s || !s.card) return;
+  const open = !s.card.helpOpen; /* حالة صريحة (لا يُعتمد على style قبل أول رسم) */
+  s.card.helpOpen = open;
+  box.innerHTML = open ? `<button type="button" class="csc-x" aria-label="إغلاق" onclick="toggleCrmSheetHelp()">✕</button><b>كيف تعمل هذه الورقة؟</b>
+    <ul>${s.card.help.map(h => `<li>${h}</li>`).join('')}</ul>` : '';
+  box.style.display = open ? 'block' : 'none';
+  const q = document.querySelector('.csc-q');
+  if(q) q.setAttribute('aria-expanded', String(open));
+}
+
+function openCrmFillPanel(){
+  const s = crmSheet;
+  const box = document.getElementById('crmFillPanel');
+  if(!box || !s || !s.card || !s.card.missing) return;
+  s.card.pick = s.card.fill[0][0];
+  const n = s.card.missing;
+  box.innerHTML = `<div class="csc-fill-t">${n === 1 ? 'طالب واحد' : n === 2 ? 'طالبان' : n + ' طلاب'} بلا ${s.card.kind === 'tool' && s.tool && s.tool.tool.tool_type === 'status' ? 'رصد' : 'درجة'} — ${n === 1 ? 'أعطِه' : 'أعطِهم'}:</div>
+    <div class="tlx-seg" id="crmFillSeg">${s.card.fill.map(([v, l], i) => `<button type="button" class="${i ? '' : 'is-on'}" aria-pressed="${!i}" onclick="pickCrmFill(${i})">${escapeHtml(l)}</button>`).join('')}</div>
+    <button type="button" class="tlx-btn is-navy crm-fill-btn" style="margin-top:8px;" onclick="confirmCrmFill()">تأكيد</button>
+    <button type="button" class="tlx-btn is-ghost" style="margin-top:6px;" onclick="closeCrmFillPanel()">إلغاء</button>
+    <div class="csc-fill-n">من له ${s.card.kind === 'tool' && s.tool && s.tool.tool.tool_type === 'status' ? 'رصد' : 'درجة'} لا يتغيّر.</div>`;
+  box.style.display = 'block';
+}
+function pickCrmFill(i){
+  const s = crmSheet;
+  if(!s || !s.card || !s.card.fill[i]) return;
+  s.card.pick = s.card.fill[i][0];
+  document.querySelectorAll('#crmFillSeg button').forEach((b, j) => { b.className = j === i ? 'is-on' : ''; b.setAttribute('aria-pressed', String(j === i)); });
+}
+function closeCrmFillPanel(){
+  const box = document.getElementById('crmFillPanel');
+  if(box){ box.style.display = 'none'; box.innerHTML = ''; }
+}
+async function confirmCrmFill(){
+  const s = crmSheet;
+  if(!s || !s.card || s.card.pick === undefined) return;
+  const v = s.card.pick;
+  closeCrmFillPanel();
+  if(s.card.kind === 'part') await fillCrmParticipationEmpty(v, true);
+  else if(s.card.kind === 'tool' && typeof fillCrmToolEmpty === 'function') await fillCrmToolEmpty(v);
+}
+
+function crmPartCardPaint(){
+  const s = crmSheet, p = s && s.part;
+  if(!p) return;
+  const ids = crmStudentsOfSection(s.sectionId).map(x => x.id);
+  paintCrmSheetCard(ids.filter(id => p.scores.has(id)).length, ids.length, p.locked);
+}
+
 function setCrmFillBusy(on){
   document.querySelectorAll('.crm-fill-btn').forEach(b => { b.disabled = on; });
 }
 
 /* «أعطِه 10 / 0» لمن لا درجة له في فترة الورقة: كأنه رصد يدوي (لا يمسّ من له درجة، ويُحفظ في سجل الدرجات) */
 let crmPartFillBusy = false;
-async function fillCrmParticipationEmpty(value){
+async function fillCrmParticipationEmpty(value, confirmed){
   const s = crmSheet;
   const p = s && s.part;
   if(!p || crmPartFillBusy) return;
@@ -378,7 +471,7 @@ async function fillCrmParticipationEmpty(value){
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !p.scores.has(id));
   if(!ids.length){ showToast('لا أحد بلا درجة', 'ok'); return; }
   const where = p.period > 1 ? ' في ' + PERIOD_NAMES[p.period] : '';
-  if(!(await showConfirm(`أعطِ ${ids.length === 1 ? 'طالبًا واحدًا' : ids.length + ' طلاب'} بلا درجة${where} ${formatScore(value)} من ${formatScore(p.column.max_score)} في "${p.column.name}"؟ تُكتب كأنك رصدتها بيدك، ولا تمسّ من له درجة.`))) return;
+  if(!confirmed && !(await showConfirm(`أعطِ ${ids.length === 1 ? 'طالبًا واحدًا' : ids.length + ' طلاب'} بلا درجة${where} ${formatScore(value)} من ${formatScore(p.column.max_score)} في "${p.column.name}"؟ تُكتب كأنك رصدتها بيدك، ولا تمسّ من له درجة.`))) return;
   if(crmSheet !== s || s.part !== p || crmPartFillBusy) return; /* أُغلقت الورقة أو تغيّرت أثناء السؤال */
   crmPartFillBusy = true;
   setCrmFillBusy(true);
@@ -386,7 +479,7 @@ async function fillCrmParticipationEmpty(value){
     await Promise.all(ids.map(id => p.queue.get(id)).filter(Boolean)); /* نقرة معلّقة لنفس الطالب تسبق التعبئة */
     const missing = ids.filter(id => !p.scores.has(id));
     const done = await fillPeriodScoresMissing(p.column, missing, p.period, value);
-    if(crmSheet === s && s.part === p){ done.forEach(id => { p.scores.set(id, Number(value)); paintCrmParticipation(id); }); }
+    if(crmSheet === s && s.part === p){ done.forEach(id => { p.scores.set(id, Number(value)); paintCrmParticipation(id); }); crmPartCardPaint(); }
     if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
     showToast(`سُجّل ${formatScore(value)} لمن لا درجة له (${done.length}) ✓`, 'ok');
   } catch(e){

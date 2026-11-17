@@ -3263,3 +3263,26 @@ select.tlx-inp{min-height:44px;}
 .pt-edit-banner small{display:block;font-size:12px;font-weight:600;}
 .pt-edit-acts{display:flex;gap:8px;margin-top:8px;}
 .pt-edit-acts .tlx-btn{flex:1;min-height:38px;}
+/* بطاقة أعلى ورقة الرصد (3.62) */
+.csc{border:1px solid var(--ui-divider);border-radius:var(--ui-r-card);padding:10px 12px;margin:0 0 10px;background:var(--card);}
+.csc-l1,.csc-l2{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.csc-l2{margin-top:8px;}
+.csc-period{border:0;background:var(--ui-warn-bg);color:var(--gold-text);border-radius:var(--ui-r-pill);padding:4px 12px;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;}
+.csc-q{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--gold-text);background:var(--card);color:var(--gold-text);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer;flex:none;}
+.csc-cnt{font-size:22px;font-weight:800;color:var(--navy);line-height:1.2;}
+.csc-cnt small{font-size:13px;color:var(--ui-body);font-weight:700;}
+.csc-cnt .csc-ok{color:var(--ui-ok);}
+.csc-sub{font-size:12px;color:var(--ui-body);}
+.csc-sub:empty{display:none;}
+.csc-fillb{border:0;background:var(--navy);color:var(--ui-on-dark);border-radius:var(--ui-r-btn);padding:8px 12px;font-family:inherit;font-weight:800;font-size:13px;cursor:pointer;}
+.csc-fillb:disabled{opacity:.6;}
+.csc-bar{height:6px;background:var(--ui-track);border-radius:6px;overflow:hidden;margin-top:8px;}
+.csc-bar i{display:block;height:100%;width:0;background:var(--ui-ok);transition:width .2s;}
+.csc .crm-lock-banner{margin:10px 0 0;}
+.csc-help{position:relative;background:var(--ui-note-bg);border:1px solid var(--ui-note-line);color:var(--ui-note-ink);border-radius:var(--ui-r-card);padding:10px 12px;margin:0 0 10px;font-size:13px;line-height:1.9;}
+.csc-help b{color:var(--navy);}
+.csc-help ul{margin:4px 0 0;padding-inline-start:18px;}
+.csc-x{position:absolute;left:8px;top:6px;border:0;background:none;color:var(--gold-text);font-weight:800;font-size:15px;cursor:pointer;}
+.csc-fill{border:1px solid var(--line);border-radius:var(--ui-r-card);padding:10px 12px;margin:0 0 10px;background:var(--card);box-shadow:0 8px 20px var(--ui-shadow-lift);}
+.csc-fill-t{font-weight:800;color:var(--navy);font-size:14px;margin-bottom:8px;}
+.csc-fill-n{font-size:11.5px;color:var(--ui-body);margin-top:6px;}

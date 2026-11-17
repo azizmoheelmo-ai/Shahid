@@ -85,19 +85,33 @@ test('انحدار: الإعداد القديم المحفوظ لا يعمل —
   assert.doesNotMatch(sheetBody(app), /تبدأ الدرجة كاملة/);
 });
 
-test('المشاركة: «من بلا درجة: أعطِه 10 / 0» — بعد تأكيد، لمن لا درجة له فقط وبلا كتابة فوق رصد، ثم يُعرض', async () => {
+test('المشاركة: بطاقة الورقة — «رُصد 1 من 2» وزر «تعبئة الطالب الباقي» يفتح اختيارًا (الكاملة / 0) ثم «تأكيد»: لمن لا درجة له فقط، والإلغاء لا يكتب', async () => {
   const { app, log } = await partSheet([{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 6 }], { rpcValue: 10 });
-  assert.match(sheetBody(app), /class="crm-fill-row"><span>من بلا درجة:<\/span>[\s\S]*onclick="fillCrmParticipationEmpty\(10\)">أعطِه 10<[\s\S]*onclick="fillCrmParticipationEmpty\(0\)">أعطِه 0</);
-  runInAppContext(app, 'window.__answer = false;');
-  await app.fillCrmParticipationEmpty(10);
+  const el = id => get(app, `document.getElementById('${id}').innerHTML`);
+  assert.match(sheetBody(app), /id="crmSheetCard"[\s\S]*onclick="toggleCrmSheetHelp\(\)">؟/);
+  assert.doesNotMatch(sheetBody(app), /crm-fill-row|يزيد درجة و/, 'لا نصوص دائمة ولا سطر تعبئة');
+  assert.match(el('crmCardCount'), /رُصد<\/small> 1 <small>من 2/);
+  assert.match(el('crmCardFill'), /onclick="openCrmFillPanel\(\)">تعبئة الطالب الباقي</);
+  app.openCrmFillPanel();
+  assert.match(el('crmFillPanel'), /طالب واحد بلا درجة — أعطِه:[\s\S]*الدرجة كاملة \(10\)[\s\S]*>0<[\s\S]*confirmCrmFill\(\)">تأكيد[\s\S]*closeCrmFillPanel\(\)">إلغاء[\s\S]*من له درجة لا يتغيّر/);
+  app.closeCrmFillPanel();
   assert.deepEqual(writes(log), [], 'الإلغاء لا يكتب');
-  runInAppContext(app, 'window.__answer = true;');
-  await app.fillCrmParticipationEmpty(10);
-  assert.match(get(app, 'window.__confirm[1]'), /أعطِ طالبًا واحدًا بلا درجة 10 من 10 في "participation"؟ تُكتب كأنك رصدتها بيدك، ولا تمسّ من له درجة/);
+  app.openCrmFillPanel();
+  app.pickCrmFill(0);
+  await app.confirmCrmFill();
+  assert.equal(get(app, 'window.__confirm.length'), 0, 'التأكيد في اللوحة نفسها (لا سؤال ثانٍ)');
   const fills = log.filter(l => l.op === 'rpc' && l.name === 'set_period_score');
   assert.deepEqual(fills.map(l => JSON.parse(JSON.stringify(l.args))), [{ p_column_id: 'P', p_student_id: 'b', p_period: 1, p_score: 10, p_only_missing: true }]);
   assert.equal(get(app, 'crmSheet.part.scores.get("b")'), 10);
   assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 6, 'من له درجة لم يتغيّر');
+  assert.match(el('crmCardCount'), /رُصد<\/small> 2 <small>من 2<\/small> <small class="csc-ok">✓/);
+  assert.equal(el('crmCardFill'), '', 'رُصد للجميع: لا زر');
+  app.toggleCrmSheetHelp();
+  assert.match(el('crmSheetHelp'), /كيف تعمل هذه الورقة؟[\s\S]*يزيد درجة[\s\S]*الدرجة من <b>10<\/b>[\s\S]*لا تغيّر من له درجة/);
+  /* النداء المباشر (بلا لوحة) ما زال يسأل */
+  runInAppContext(app, 'window.__answer = false; crmSheet.part.scores.delete("b");');
+  await app.fillCrmParticipationEmpty(0);
+  assert.equal(get(app, 'window.__confirm.length'), 1);
 });
 
 test('المشاركة: التعبئة في فترة مقفلة — رسالة واضحة ولا تُعرض قيمة لم تُحفظ', async () => {
@@ -119,11 +133,14 @@ async function toolSheet(toolId, marks){
   return { app, log };
 }
 
-test('أداة «حالة»: فتح الحصة لا يكتب، و«من لم يُرصد له: تمّ / لم يتمّ» لمن لم يُرصد فقط وبلا كتابة فوق رصد متزامن', async () => {
+test('أداة «حالة»: فتح الحصة لا يكتب، والتعبئة (تمّ / لم يتمّ) لمن لم يُرصد فقط وبلا كتابة فوق رصد متزامن', async () => {
   const { app, log } = await toolSheet(STATUS_ID, [{ teacher_id: 'u1', tool_id: STATUS_ID, student_id: 'a', section_id: 'S', mark_date: '2026-10-19', period: 2, value: 1 }]);
   assert.equal(log.filter(l => l.table === 'classroom_tool_marks' && l.op !== 'select').length, 0, 'لا كتابة عند الفتح');
-  assert.match(sheetBody(app), /من لم يُرصد له:<\/span>[\s\S]*fillCrmToolEmpty\(1\)">تمّ<[\s\S]*fillCrmToolEmpty\(0\)">لم يتمّ</);
-  await app.fillCrmToolEmpty(0);
+  assert.match(get(app, `document.getElementById('crmCardCount').innerHTML`), /رُصد<\/small> 1 <small>من 2/);
+  app.openCrmFillPanel();
+  assert.match(get(app, `document.getElementById('crmFillPanel').innerHTML`), /طالب واحد بلا رصد — أعطِه:[\s\S]*>تمّ<[\s\S]*>لم يتمّ</);
+  app.pickCrmFill(1);
+  await app.confirmCrmFill();
   const up = log.find(l => l.op === 'upsert' && l.table === 'classroom_tool_marks');
   assert.deepEqual([...up.values].map(r => [r.student_id, r.value, r.teacher_id, r.mark_date, r.period].join(':')), ['b:0:u1:2026-10-19:2']);
   assert.equal(up.options.ignoreDuplicates, true);
@@ -133,10 +150,12 @@ test('أداة «حالة»: فتح الحصة لا يكتب، و«من لم ي�
   assert.equal(log.filter(l => l.op === 'upsert').length, 1, 'قيمة غير صالحة للحالة لا تُكتب');
 });
 
-test('أداة «درجة»: «أعطِه الكاملة / 0»', async () => {
+test('أداة «درجة»: التعبئة بالكاملة أو 0', async () => {
   const { app, log } = await toolSheet(SCORE_ID, []);
-  assert.match(sheetBody(app), /fillCrmToolEmpty\(4\)">أعطِه 4<[\s\S]*fillCrmToolEmpty\(0\)">أعطِه 0</);
-  await app.fillCrmToolEmpty(4);
+  assert.match(get(app, `document.getElementById('crmCardFill').innerHTML`), /تعبئة الـ2 الباقين/);
+  app.openCrmFillPanel();
+  assert.match(get(app, `document.getElementById('crmFillPanel').innerHTML`), /طالبان بلا درجة — أعطِهم:[\s\S]*الدرجة كاملة \(4\)[\s\S]*>0</);
+  await app.confirmCrmFill();
   const up = log.find(l => l.op === 'upsert' && l.table === 'classroom_tool_marks');
   assert.deepEqual([...up.values].map(r => r.student_id + ':' + r.value), ['a:4', 'b:4']);
 });
