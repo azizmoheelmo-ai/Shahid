@@ -357,6 +357,7 @@ async function onLoggedIn(user){
 
   /* تخصيص التطبيق (الأقسام والأدوات الظاهرة) — فشل التحميل = كل شيء ظاهر */
   try{ await loadAppFeatures(user.id); } catch(e){ appFeatures = {}; appFeaturesSaved = {}; }
+  try{ await loadPeriodLocks(user.id); } catch(e){}
   /* أدوات المعلم الخاصة — فشل التحميل = أعمدتها ظاهرة ولا أوضاع لها في ورقة الحصة */
   try{ await loadCustomTools(user.id); } catch(e){ crmCustomTools = []; crmCustomToolsLoaded = false; }
 

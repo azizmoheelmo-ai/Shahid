@@ -244,10 +244,7 @@ function paintGsCompSheet(){
       ${seg([[1, '1'], [2, '2'], [3, '3']], d.n, 'setGsCompPeriods')}
       ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now || cfg.ended ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
         ${cfg.ended ? '<b>انتهت كل الفترات — كلها محسوبة ✓</b>' : `الآن: <b>${PERIOD_NAMES[now]}</b>${now > (countedPeriodsOf(cfg) || cfg.n) ? ' <small>(تُحسب عند انتهائها)</small>' : ''}`}
-        ${now < cfg.n ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now + 1})">ابدأ ${PERIOD_NAMES[now + 1]} ←</button>` : ''}
-        ${now === cfg.n && !cfg.ended ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();endComponentPeriods('${id}', true)">✓ أنهِ ${PERIOD_NAMES[now]}</button>` : ''}
-        ${cfg.ended ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();endComponentPeriods('${id}', false)">→ رجوع</button>`
-          : now > 1 ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now - 1})">→ رجوع</button>` : ''}</div>` : ''}</div>
+        <button type="button" class="gs-period-btn gs-period-go" onclick="openPeriodsWindow('${id}')">الفترات ←</button></div>` : ''}</div>
     ${vis ? `<div class="gs-sheet-sec gs-sheet-sw"><span>ظاهر في الكشف ونافذة الرصد</span>
       <button type="button" class="cust-switch${d.visible ? ' is-on' : ''}" role="switch" aria-checked="${d.visible}" onclick="toggleGsCompVisible()"><span></span></button></div>` : ''}
     <button type="button" class="gs-save" id="gsCompSaveBtn" onclick="saveGsComp()">حفظ</button>

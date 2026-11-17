@@ -222,6 +222,8 @@ async function renderCrmToolMode(students, tool){
     filled.forEach(id => s.tool.queue.set(id, sync));
   }
   const status = tool.tool_type === 'status';
+  const lockKey = crmSheetLockedKey(s, period);
+  s.tool.locked = !!lockKey;
   body.innerHTML = head + `
     ${colRes.error ? `<div class="cust-sheet-hidden">${toolCapMessage(tool, colRes.remaining)}</div>` : ''}
     <div id="crmToolCounts" class="crm-sheet-counts"></div>
@@ -231,7 +233,7 @@ async function renderCrmToolMode(students, tool){
       : status
       ? 'اضغط: تمّ ← لم يتمّ ← لم يُرصد. يُحفظ فورًا، و"لم يُرصد" لا يُحسب.'
       : `اضغط على الطالب لرصد درجته من ${formatScore(tool.max_score)}. ما لم يُرصد لا يُحسب.`}${s.tool.column ? ' يُحسب في عمود "' + escapeHtml(s.tool.column.name) + '".' : ''}</p>
-    ${crmFillRowHtml('من لم يُرصد له', status
+    ${lockKey ? crmLockBannerHtml(lockKey, null) : crmFillRowHtml('من لم يُرصد له', status
       ? [['تمّ', 'fillCrmToolEmpty(1)'], ['لم يتمّ', 'fillCrmToolEmpty(0)']]
       : [[`أعطِه ${formatScore(tool.max_score)}`, `fillCrmToolEmpty(${Number(tool.max_score)})`], ['أعطِه 0', 'fillCrmToolEmpty(0)']])}
     <div class="crm-att-grid">
@@ -284,6 +286,7 @@ function paintCrmToolCounts(){
 function tapCrmTool(studentId){
   const t = crmSheet && crmSheet.tool;
   if(!t) return;
+  if(t.locked){ crmLockedToast(); return; }
   if(t.tool.tool_type === 'status'){
     const prev = t.values.has(studentId) ? t.values.get(studentId) : null;
     setCrmToolValue(studentId, nextToolStatus(prev, t.full));
@@ -388,6 +391,7 @@ async function fillCrmToolEmpty(value){
   const s = crmSheet;
   const t = s && s.tool;
   if(!t || crmToolBulkBusy) return;
+  if(t.locked){ crmLockedToast(); return; }
   value = Number(value);
   if(!(value === 0 || (t.tool.tool_type === 'status' ? value === 1 : value > 0 && value <= Number(t.tool.max_score)))) return;
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !t.values.has(id));

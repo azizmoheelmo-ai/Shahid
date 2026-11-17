@@ -3243,3 +3243,12 @@ select.tlx-inp{min-height:44px;}
 /* سطر التعبئة الصريحة في أوراق الرصد (بدل «يبدأ من» الملغى — 3.61) */
 .crm-fill-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;font-size:12px;color:var(--ui-body);}
 .crm-fill-row > span{font-weight:700;}
+/* نافذة «الفترات» وشريط الفترة المقفلة (3.61) */
+.pw-card{border:1px solid var(--ui-divider);border-radius:var(--ui-r-card);padding:10px 12px;margin-bottom:8px;background:var(--card);}
+.pw-card.is-cur{border-color:var(--gold);box-shadow:0 2px 8px var(--ui-shadow-navy);}
+.pw-top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;color:var(--navy);}
+.pw-meta{font-size:12px;color:var(--ui-body);margin-top:4px;}
+.pw-acts{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
+.pt-seg{margin-bottom:6px;}
+.crm-lock-banner{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;background:var(--ui-neutral-bg);color:var(--ui-neutral);border-radius:var(--ui-r-btn);padding:8px 10px;margin:0 0 10px;font-size:12.5px;font-weight:700;}
+.crm-lock-banner .tlx-btn{width:auto;min-height:32px;padding:4px 12px;}

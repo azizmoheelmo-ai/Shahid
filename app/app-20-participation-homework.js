@@ -257,9 +257,11 @@ async function renderCrmParticipation(students, tool){
     chgKey: `part:${tool ? tool.id : column.id}:${lessonKey(s.sectionId, s.dateIso, s.period)}:${period}` };
   /* الشارة والشرح للمكوّن الذي له أكثر من فترة */
   const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
+  const lockKey = crmSheetLockedKey(s, period);
+  s.part.locked = !!lockKey;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
     <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
-    ${crmFillRowHtml('من بلا درجة' + (shown ? ' في ' + PERIOD_NAMES[shown] : ''), [
+    ${lockKey ? crmLockBannerHtml(lockKey, shown) : crmFillRowHtml('من بلا درجة' + (shown ? ' في ' + PERIOD_NAMES[shown] : ''), [
       [`أعطِه ${formatScore(column.max_score)}`, `fillCrmParticipationEmpty(${Number(column.max_score)})`],
       ['أعطِه 0', 'fillCrmParticipationEmpty(0)']])}
     <div class="crm-att-grid">
@@ -372,6 +374,7 @@ async function fillCrmParticipationEmpty(value){
   const s = crmSheet;
   const p = s && s.part;
   if(!p || crmPartFillBusy) return;
+  if(p.locked){ crmLockedToast(); return; }
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !p.scores.has(id));
   if(!ids.length){ showToast('لا أحد بلا درجة', 'ok'); return; }
   const where = p.period > 1 ? ' في ' + PERIOD_NAMES[p.period] : '';
@@ -400,6 +403,7 @@ function tapCrmParticipation(studentId, dir){
   const s = crmSheet;
   if(!s || !s.part) return;
   const p = s.part;
+  if(p.locked){ crmLockedToast(); return; }
   const max = Number(p.column.max_score);
   const step = p.step || 1; /* اتجاه الوضع: +1 (يبدأ من 0) أو −1 (يبدأ من الكاملة) */
   dir = dir === 1 || dir === -1 ? dir : step;
@@ -418,6 +422,7 @@ function undoCrmParticipation(){
   const s = crmSheet;
   if(!s || !s.part || !s.part.undo.length) return;
   const p = s.part;
+  if(p.locked){ crmLockedToast(); return; }
   const entry = p.undo.pop();
   const opposite = entry.charAt(0) === '~';
   const studentId = opposite ? entry.slice(1) : entry;
