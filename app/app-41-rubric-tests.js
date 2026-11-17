@@ -186,7 +186,7 @@ async function rubricCreateForColumns(columns, rows){
 
 async function rubricDropFreshColumns(ids){
   if(!ids.length) return;
-  try{ await sb.from('classroom_grade_columns').delete().eq('teacher_id', currentUser.id).in('id', ids); } catch(e){}
+  try{ await gradeSrc(sb.from('classroom_grade_columns').delete().eq('teacher_id', currentUser.id).in('id', ids), 'rubric_drop_fresh'); } catch(e){}
 }
 
 /* ============ الرصد في ورقة الحصة ← اختبار ============ */
@@ -339,9 +339,9 @@ async function rubricApprove(){
   const rows = R.criteria.map(c => ({ teacher_id: uid, column_id: testId, criterion_id: c.id, student_id: studentId, level: picks.get(c.id) }));
   let err = null;
   try{
-    const r1 = await sb.from('classroom_rubric_marks').upsert(rows, { onConflict: 'criterion_id,student_id' });
+    const r1 = await gradeSrc(sb.from('classroom_rubric_marks').upsert(rows, { onConflict: 'criterion_id,student_id' }), 'rubric_save');
     if(r1.error) throw r1.error;
-    const r2 = await sb.from('classroom_grade_scores').upsert({ teacher_id: uid, column_id: testId, student_id: studentId, score: total }, { onConflict: 'column_id,student_id' });
+    const r2 = await gradeSrc(sb.from('classroom_grade_scores').upsert({ teacher_id: uid, column_id: testId, student_id: studentId, score: total }, { onConflict: 'column_id,student_id' }), 'rubric_save');
     if(r2.error) throw r2.error;
   } catch(e){ err = e; }
   R.busy = false;
@@ -377,9 +377,9 @@ async function rubricClearStudent(){
   const uid = currentUser.id;
   let err = null;
   try{
-    const r1 = await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', testId).eq('student_id', studentId);
+    const r1 = await gradeSrc(sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', testId).eq('student_id', studentId), 'rubric_clear');
     if(r1.error) throw r1.error;
-    const r2 = await sb.from('classroom_rubric_marks').delete().eq('teacher_id', uid).eq('column_id', testId).eq('student_id', studentId);
+    const r2 = await gradeSrc(sb.from('classroom_rubric_marks').delete().eq('teacher_id', uid).eq('column_id', testId).eq('student_id', studentId), 'rubric_clear');
     if(r2.error) throw r2.error;
   } catch(e){ err = e; }
   R.busy = false;

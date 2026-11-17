@@ -297,7 +297,7 @@ async function loadCrmGradeSheet(sectionId){
       /* عمود أُنشئ بعد ضبط الفترات (أو من جهاز آخر): الفترات المحسوبة تُصحَّح قبل العرض */
       const want = countedPeriodsOf(cfg);
       if((c.counted_periods == null ? null : Number(c.counted_periods)) !== want){
-        const { error: cErr } = await sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want });
+        const { error: cErr } = await gradeSrc(sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want }), 'counted_periods_load');
         if(!cErr) c.counted_periods = want;
       }
       let pd = await load();
@@ -867,13 +867,13 @@ async function saveCrmGradeCell(step){
     btns.forEach(b => { b.disabled = true; });
     let error = null;
     if(period){
-      ({ error } = await sb.rpc('set_period_score', { p_column_id: c.id, p_student_id: studentId, p_period: period, p_score: parsed.value, p_only_missing: false }));
+      ({ error } = await gradeSrc(sb.rpc('set_period_score', { p_column_id: c.id, p_student_id: studentId, p_period: period, p_score: parsed.value, p_only_missing: false }), 'cell_edit'));
     } else if(parsed.value !== null){
-      ({ error } = await sb.from('classroom_grade_scores').upsert(
-        [{ teacher_id: currentUser.id, column_id: c.id, student_id: studentId, score: parsed.value }], { onConflict: 'column_id,student_id' }));
+      ({ error } = await gradeSrc(sb.from('classroom_grade_scores').upsert(
+        [{ teacher_id: currentUser.id, column_id: c.id, student_id: studentId, score: parsed.value }], { onConflict: 'column_id,student_id' }), 'cell_edit'));
     } else {
-      ({ error } = await sb.from('classroom_grade_scores').delete()
-        .eq('teacher_id', currentUser.id).eq('column_id', c.id).eq('student_id', studentId));
+      ({ error } = await gradeSrc(sb.from('classroom_grade_scores').delete()
+        .eq('teacher_id', currentUser.id).eq('column_id', c.id).eq('student_id', studentId), 'cell_clear'));
     }
     cell.saving = false;
     if(error){
@@ -1081,7 +1081,7 @@ async function saveCrmGradeColumn(){
   const payload = { name: draft.name, max_score: Number(draft.max_score), measures: draft.measures, kind };
   if(d.id && computed && before && (before.kind !== kind || Number(before.max_score) !== payload.max_score)){
     /* تُحذف الدرجات المحسوبة ثم تُعاد بعد الحفظ بالحد الجديد (وإلا منعت القاعدة خفض الحد) */
-    const { error: dErr } = await sb.from('classroom_grade_scores').delete().eq('teacher_id', currentUser.id).eq('column_id', d.id);
+    const { error: dErr } = await gradeSrc(sb.from('classroom_grade_scores').delete().eq('teacher_id', currentUser.id).eq('column_id', d.id), 'column_edit_recompute');
     if(dErr){ errBox.textContent = 'تعذّر الحفظ: ' + dErr.message; errBox.style.display = 'block'; d.saving = false; if(btn) btn.disabled = false; return; }
   }
   const allEl = document.getElementById('crmGradeColAll');
@@ -1133,7 +1133,7 @@ async function deleteCrmGradeColumn(columnId){
   const uid = currentUser.id;
   const prot = await trashProtect(() => trashCaptureGradeColumns([columnId], uid, c.name));
   if(!prot){ crmGradeBusy = false; return; }
-  const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).eq('id', columnId);
+  const { error } = await gradeSrc(sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).eq('id', columnId), 'column_delete');
   crmGradeBusy = false;
   if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + gradeDbErrorMessage(error), 'error'); return; }
   afterCrmGradesChanged();
@@ -1247,18 +1247,18 @@ async function saveCrmGradeEntry(){
   if(entry.period){
     /* درجة الفترة (القاعدة تنسخ الرصد القديم للأولى أولًا، وتحدّث المعدّل) */
     const res = await Promise.all(plan.upserts.map(u => ({ id: u.student_id, score: u.score })).concat(plan.clears.map(id => ({ id, score: null })))
-      .map(x => sb.rpc('set_period_score', { p_column_id: c.id, p_student_id: x.id, p_period: entry.period, p_score: x.score, p_only_missing: false })));
+      .map(x => gradeSrc(sb.rpc('set_period_score', { p_column_id: c.id, p_student_id: x.id, p_period: entry.period, p_score: x.score, p_only_missing: false }), 'entry_save')));
     const bad = res.find(r => r.error);
     error = bad ? bad.error : null;
   } else if(plan.upserts.length){
-    ({ error } = await sb.from('classroom_grade_scores').upsert(
+    ({ error } = await gradeSrc(sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: currentUser.id, column_id: c.id, student_id: u.student_id, score: u.score })),
       { onConflict: 'column_id,student_id' }
-    ));
+    ), 'entry_save'));
   }
   if(!error && !entry.period && plan.clears.length){
-    ({ error } = await sb.from('classroom_grade_scores').delete()
-      .eq('teacher_id', currentUser.id).eq('column_id', c.id).in('student_id', plan.clears));
+    ({ error } = await gradeSrc(sb.from('classroom_grade_scores').delete()
+      .eq('teacher_id', currentUser.id).eq('column_id', c.id).in('student_id', plan.clears), 'entry_clear'));
   }
   if(error){
     /* الإدخالات تبقى في الشاشة — لا يضيع ما كُتب */
@@ -1366,12 +1366,12 @@ async function moveStudentGrades(studentId, targetSectionId){
     plan = planGradeTransfer(d.scores, d.allColumns, targetSectionId, d.targetColumns);
   }
   for(const mv of plan.moves){
-    const { error } = await sb.from('classroom_grade_scores').update({ column_id: mv.toColumnId })
-      .eq('teacher_id', uid).eq('id', mv.scoreId);
+    const { error } = await gradeSrc(sb.from('classroom_grade_scores').update({ column_id: mv.toColumnId })
+      .eq('teacher_id', uid).eq('id', mv.scoreId), 'student_move');
     if(error) throw error;
     /* درجتا الفترتين تتبعان درجة الكشف (بعدها — وإلا كتب المشغّل درجة في الهدف قبل نقلها فتتعارض) */
-    const { error: pErr } = await sb.from('classroom_grade_period_scores').update({ column_id: mv.toColumnId })
-      .eq('teacher_id', uid).eq('student_id', studentId).eq('column_id', mv.fromColumnId);
+    const { error: pErr } = await gradeSrc(sb.from('classroom_grade_period_scores').update({ column_id: mv.toColumnId })
+      .eq('teacher_id', uid).eq('student_id', studentId).eq('column_id', mv.fromColumnId), 'student_move');
     if(pErr) throw pErr;
   }
   return { moved: plan.moves.length, stay: plan.stay };
@@ -1670,8 +1670,8 @@ async function saveCrmGradeImport(){
   const viaPeriod = plan.upserts.filter(u => periodOf.has(u.column_id));
   const direct = plan.upserts.filter(u => !periodOf.has(u.column_id));
   if(viaPeriod.length){
-    const res = await Promise.all(viaPeriod.map(u => sb.rpc('set_period_score',
-      { p_column_id: u.column_id, p_student_id: u.student_id, p_period: periodOf.get(u.column_id), p_score: u.score, p_only_missing: false })));
+    const res = await Promise.all(viaPeriod.map(u => gradeSrc(sb.rpc('set_period_score',
+      { p_column_id: u.column_id, p_student_id: u.student_id, p_period: periodOf.get(u.column_id), p_score: u.score, p_only_missing: false }), 'excel_import')));
     const bad = res.find(r => r.error);
     if(bad){
       showToast('تعذّر إكمال الاستيراد: ' + gradeDbErrorMessage(bad.error), 'error');
@@ -1682,9 +1682,9 @@ async function saveCrmGradeImport(){
     }
   }
   for(const part of chunkArray(direct, 500)){
-    const { error } = await sb.from('classroom_grade_scores').upsert(
+    const { error } = await gradeSrc(sb.from('classroom_grade_scores').upsert(
       part.map(u => ({ teacher_id: currentUser.id, column_id: u.column_id, student_id: u.student_id, score: u.score })),
-      { onConflict: 'column_id,student_id' });
+      { onConflict: 'column_id,student_id' }), 'excel_import');
     if(error){
       /* ما حُفظ قبل الخطأ يبقى؛ إعادة الاستيراد آمنة (المطابق للموجود لا يُعاد) */
       showToast('تعذّر إكمال الاستيراد: ' + gradeDbErrorMessage(error), 'error');

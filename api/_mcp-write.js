@@ -26,6 +26,11 @@ const WRITE_WINDOW_SECONDS = 300;
 const CONFIRM_TTL_SECONDS = 600;
 const PROCESS_SECRET = crypto.randomBytes(32).toString('hex');
 
+/* بطاقة مصدر لسجل نقص الدرجات (grade_change_log): نقص درجة عبر الموصل يُعرف مصدره (نظير gradeSrc بـapp-01) */
+function mcpGradeSrc(q){
+  return q && typeof q.setHeader === 'function' ? q.setHeader('x-grade-source', 'mcp_set_grades') : q;
+}
+
 function stableStringify(v){
   if(Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
   if(v && typeof v === 'object'){
@@ -241,7 +246,7 @@ function registerWriteTools(server, ctx){
       changes.push({ what, op: cur ? 'update' : 'insert', before: cur ? Number(cur.score) : null, after: e.score,
         apply: async () => {
           const { error } = cur
-            ? await supabase.from('classroom_grade_scores').update({ score: e.score, updated_at: new Date().toISOString() }).eq('teacher_id', userId).eq('id', cur.id)
+            ? await mcpGradeSrc(supabase.from('classroom_grade_scores').update({ score: e.score, updated_at: new Date().toISOString() }).eq('teacher_id', userId).eq('id', cur.id))
             : await supabase.from('classroom_grade_scores').insert({ teacher_id: userId, column_id: col.id, student_id: st.id, score: e.score });
           if(error) throw new Error(error.message);
         } });

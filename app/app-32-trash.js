@@ -324,7 +324,7 @@ async function trashRestoreItem(id, ownerId){
   if(trashRestoring.has(id)) return { error: 'جارٍ استرجاع هذا العنصر...' };
   trashRestoring.add(id);
   try{
-    const { data, error } = await sb.rpc('restore_deleted_item', { p_id: id });
+    const { data, error } = await gradeSrc(sb.rpc('restore_deleted_item', { p_id: id }), 'trash_restore');
     if(error) return { error: trashRestoreErrorMessage(error) };
     await trashAfterRestore(data || {}, ownerId);
     return { data: data || {} };

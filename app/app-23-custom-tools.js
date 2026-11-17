@@ -70,10 +70,10 @@ async function fillToolLessonFull(tool, s, term, period, studentIds, values){
   const missing = (studentIds || []).filter(id => !values.has(id));
   if(!missing.length) return [];
   const value = toolFullValue(tool);
-  const { error } = await sb.from('classroom_tool_marks').upsert(missing.map(id => ({
+  const { error } = await gradeSrc(sb.from('classroom_tool_marks').upsert(missing.map(id => ({
     teacher_id: currentUser.id, tool_id: tool.id, student_id: id, section_id: s.sectionId, academic_year: term.year, semester: term.semester,
     mark_date: s.dateIso, period, value
-  })), { onConflict: 'tool_id,student_id,mark_date,period', ignoreDuplicates: true });
+  })), { onConflict: 'tool_id,student_id,mark_date,period', ignoreDuplicates: true }), 'tool_lesson_full');
   if(error) throw error;
   missing.forEach(id => values.set(id, value));
   return missing;
@@ -182,14 +182,14 @@ async function syncToolColumn(column, tool, sectionId, term, studentIds){
   const existing = new Map((rows || []).map(r => [r.student_id, Number(r.score)]));
   const plan = planComputedScoreSync(ids, id => toolPeriodScores(tool, byStudent.get(id), column.max_score, pcfg).final, existing);
   if(plan.upserts.length){
-    const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
+    const { error: uErr } = await gradeSrc(sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
-      { onConflict: 'column_id,student_id' });
+      { onConflict: 'column_id,student_id' }), 'tool_sync');
     if(uErr) throw uErr;
   }
   if(plan.deletes.length){
-    const { error: dErr } = await sb.from('classroom_grade_scores').delete()
-      .eq('teacher_id', uid).eq('column_id', column.id).in('student_id', plan.deletes);
+    const { error: dErr } = await gradeSrc(sb.from('classroom_grade_scores').delete()
+      .eq('teacher_id', uid).eq('column_id', column.id).in('student_id', plan.deletes), 'tool_sync');
     if(dErr) throw dErr;
   }
   if((plan.upserts.length || plan.deletes.length) && typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
@@ -366,11 +366,11 @@ function setCrmToolValue(studentId, value){
     const uid = currentUser.id;
     try{
       const q = value === null
-        ? sb.from('classroom_tool_marks').delete().eq('teacher_id', uid).eq('tool_id', toolId).eq('student_id', studentId).eq('mark_date', s.dateIso).eq('period', t.period)
-        : sb.from('classroom_tool_marks').upsert({
+        ? gradeSrc(sb.from('classroom_tool_marks').delete().eq('teacher_id', uid).eq('tool_id', toolId).eq('student_id', studentId).eq('mark_date', s.dateIso).eq('period', t.period), 'tool_mark_clear')
+        : gradeSrc(sb.from('classroom_tool_marks').upsert({
             teacher_id: uid, tool_id: toolId, student_id: studentId, section_id: s.sectionId, academic_year: t.term.year, semester: t.term.semester,
             mark_date: s.dateIso, period: t.period, value
-          }, { onConflict: 'tool_id,student_id,mark_date,period' });
+          }, { onConflict: 'tool_id,student_id,mark_date,period' }), 'tool_mark');
       const { error } = await q;
       if(error) throw error;
     } catch(e){
@@ -409,10 +409,10 @@ async function markAllCrmToolDone(){
   const bulk = (async () => {
     try{
       await Promise.all(pending);
-      const { error } = await sb.from('classroom_tool_marks').upsert(ids.map(id => ({
+      const { error } = await gradeSrc(sb.from('classroom_tool_marks').upsert(ids.map(id => ({
         teacher_id: uid, tool_id: t.tool.id, student_id: id, section_id: s.sectionId, academic_year: t.term.year, semester: t.term.semester,
         mark_date: s.dateIso, period: t.period, value: 1
-      })), { onConflict: 'tool_id,student_id,mark_date,period' });
+      })), { onConflict: 'tool_id,student_id,mark_date,period' }), 'tool_mark_all');
       if(error) throw error;
       crmLogSaved(t, ids);
       ids.forEach(id => crmLogChange(t, id, null, 1));
@@ -555,7 +555,7 @@ async function deleteCustomTool(id){
   try{
     const prot = await trashProtect(() => trashCaptureCustomTool(id, uid));
     if(!prot) return;
-    const { error } = await sb.from('classroom_custom_tools').delete().eq('teacher_id', uid).eq('id', id);
+    const { error } = await gradeSrc(sb.from('classroom_custom_tools').delete().eq('teacher_id', uid).eq('id', id), 'tool_delete');
     if(error){ await trashDiscard(prot.id); throw error; }
     await afterCustomToolsChanged(uid);
     trashOfferUndo('حُذفت الأداة', prot.id, async () => { await afterCustomToolsChanged(uid); });

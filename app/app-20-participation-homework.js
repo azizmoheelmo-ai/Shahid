@@ -116,14 +116,14 @@ async function syncHomeworkColumn(column, sectionId, hw, studentIds){
   const counted = countedHomework(hw.homeworks, hw.statusRows, localIsoDate());
   const plan = planHomeworkScoreSync(ids, counted, homeworkStatusIndex(hw.statusRows), column.max_score, existing, periodCfg(hw.term || crmCurrentTerm(), 'kind:homework'));
   if(plan.upserts.length){
-    const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
+    const { error: uErr } = await gradeSrc(sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
-      { onConflict: 'column_id,student_id' });
+      { onConflict: 'column_id,student_id' }), 'homework_sync');
     if(uErr) throw uErr;
   }
   if(plan.deletes.length){
-    const { error: dErr } = await sb.from('classroom_grade_scores').delete()
-      .eq('teacher_id', uid).eq('column_id', column.id).in('student_id', plan.deletes);
+    const { error: dErr } = await gradeSrc(sb.from('classroom_grade_scores').delete()
+      .eq('teacher_id', uid).eq('column_id', column.id).in('student_id', plan.deletes), 'homework_sync');
     if(dErr) throw dErr;
   }
   if(plan.upserts.length || plan.deletes.length) afterCrmGradesChanged();
@@ -313,10 +313,10 @@ function queueCrmParticipation(studentId, delta, kind){
     /* "يبدأ من الكاملة": الصفر درجة حقيقية لا "لم تُرصد" (وإلا أُعيد للكاملة).
        المشاركة: النقرة على درجة الفترة، والقاعدة تحدّث معدّل الكشف */
     const { data, error } = p.period
-      ? await sb.rpc('increment_period_score', { p_column_id: p.column.id, p_student_id: studentId, p_period: p.period, p_delta: delta, p_full: !!p.full })
-      : await sb.rpc('increment_grade_score', p.full
+      ? await gradeSrc(sb.rpc('increment_period_score', { p_column_id: p.column.id, p_student_id: studentId, p_period: p.period, p_delta: delta, p_full: !!p.full }), 'participation_tap')
+      : await gradeSrc(sb.rpc('increment_grade_score', p.full
         ? { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta, p_keep_zero: true }
-        : { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta });
+        : { p_column_id: p.column.id, p_student_id: studentId, p_delta: delta }), 'participation_tap');
     if(error) throw error;
     crmLogSaved(p, [studentId]);
     crmLogTouch(p, studentId);

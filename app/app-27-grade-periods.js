@@ -210,7 +210,7 @@ async function applyCountedPeriods(term, key, cfg){
   const cols = await termColumnsMatching(c => periodCompKeyOfColumn(c) === key && isDirectPeriodColumn(c));
   for(const c of cols){
     if((c.counted_periods == null ? null : Number(c.counted_periods)) === want) continue;
-    const { error } = await sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want });
+    const { error } = await gradeSrc(sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want }), 'counted_periods');
     if(error) throw error;
   }
 }
@@ -256,8 +256,8 @@ async function setComponentPeriodCount(key, n){
   }
   const ok = await withPeriodBusy(async () => {
     if(later.length){
-      const { error } = await sb.from('classroom_grade_period_scores').delete()
-        .eq('teacher_id', currentUser.id).in('id', later.map(r => r.id));
+      const { error } = await gradeSrc(sb.from('classroom_grade_period_scores').delete()
+        .eq('teacher_id', currentUser.id).in('id', later.map(r => r.id)), 'period_reduce');
       if(error) throw error;
     }
     return savePeriodCfg(term, key, next);
@@ -272,7 +272,7 @@ async function setComponentPeriodCount(key, n){
 /* تراجع: يعود الرصد المحذوف والإعداد كما كانا */
 async function undoPeriodReduce(term, key, prevCfg, rows){
   await withPeriodBusy(async () => {
-    const { error } = await sb.from('classroom_grade_period_scores').insert(rows);
+    const { error } = await gradeSrc(sb.from('classroom_grade_period_scores').insert(rows), 'period_reduce_undo');
     if(error) throw error;
     return savePeriodCfg(term, key, prevCfg);
   }, 'عاد الرصد كما كان ✓');
@@ -398,8 +398,8 @@ async function pickCrmPeriod(p){
 async function fillStartFullPeriodScores(column, studentIds, period, current){
   const missing = (studentIds || []).filter(id => !current.has(id));
   if(!missing.length) return [];
-  const res = await Promise.all(missing.map(id => sb.rpc('set_period_score',
-    { p_column_id: column.id, p_student_id: id, p_period: period, p_score: Number(column.max_score), p_only_missing: true })));
+  const res = await Promise.all(missing.map(id => gradeSrc(sb.rpc('set_period_score',
+    { p_column_id: column.id, p_student_id: id, p_period: period, p_score: Number(column.max_score), p_only_missing: true }), 'start_full_fill')));
   const err = res.find(r => r.error);
   if(err) throw err.error;
   return missing;

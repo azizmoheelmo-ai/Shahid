@@ -233,14 +233,14 @@ async function syncTaskColumn(column, sectionId, term, studentIds){
   const existing = new Map((scoresRes.data || []).map(r => [r.student_id, Number(r.score)]));
   const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing, periodCfg(term, 'kind:task'));
   if(plan.upserts.length){
-    const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
+    const { error: uErr } = await gradeSrc(sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
-      { onConflict: 'column_id,student_id' });
+      { onConflict: 'column_id,student_id' }), 'task_sync');
     if(uErr) throw uErr;
   }
   if(plan.deletes.length){
-    const { error: dErr } = await sb.from('classroom_grade_scores').delete()
-      .eq('teacher_id', uid).eq('column_id', column.id).in('student_id', plan.deletes);
+    const { error: dErr } = await gradeSrc(sb.from('classroom_grade_scores').delete()
+      .eq('teacher_id', uid).eq('column_id', column.id).in('student_id', plan.deletes), 'task_sync');
     if(dErr) throw dErr;
   }
   if(plan.upserts.length || plan.deletes.length) afterCrmGradesChanged();

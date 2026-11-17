@@ -411,17 +411,17 @@ async function applySectionWeights(sectionId, term, cols, plan){
   const loadPeriodScores = async c => isDirectPeriodColumn(c) ? await loadPeriodRows(c.id) : [];
   const rescale = async (ch, rows, perRows) => {
     if((perRows || []).length){
-      const { error } = await sb.from('classroom_grade_period_scores').upsert(
+      const { error } = await gradeSrc(sb.from('classroom_grade_period_scores').upsert(
         perRows.map(r => ({ teacher_id: uid, column_id: ch.column.id, student_id: r.student_id, period: r.period, score: scaleGradeScore(r.score, ch.old, ch.max) })),
-        { onConflict: 'column_id,student_id,period' });
+        { onConflict: 'column_id,student_id,period' }), 'max_rescale');
       if(error) throw error;
     }
     const withPer = new Set((perRows || []).map(r => r.student_id));
     const direct = rows.filter(r => !withPer.has(r.student_id));
     if(!direct.length) return;
-    const { error } = await sb.from('classroom_grade_scores').upsert(
+    const { error } = await gradeSrc(sb.from('classroom_grade_scores').upsert(
       direct.map(r => ({ teacher_id: uid, column_id: ch.column.id, student_id: r.student_id, score: scaleGradeScore(r.score, ch.old, ch.max) })),
-      { onConflict: 'column_id,student_id' });
+      { onConflict: 'column_id,student_id' }), 'max_rescale');
     if(error) throw error;
   };
   const setMax = async ch => {
@@ -431,7 +431,7 @@ async function applySectionWeights(sectionId, term, cols, plan){
   /* خفض: الدرجات أولًا (لا تبقى فوق الحد الجديد) ثم الحد */
   for(const ch of plan.decrease){
     if(isComputedGradeColumn(ch.column)){
-      const { error } = await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', ch.column.id);
+      const { error } = await gradeSrc(sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', ch.column.id), 'max_recompute');
       if(error) throw error;
     } else {
       await rescale(ch, await loadScores(ch.column.id), await loadPeriodScores(ch.column));
@@ -539,7 +539,7 @@ function deleteGradeComponent(key){
     const toolWasOn = !!(toolKey && appToolOn(toolKey));
     const prot = await trashProtect(() => trashCaptureGradeColumns(cols.map(c => c.id), uid, comp.name, toolWasOn ? { reenableTool: toolKey } : null));
     if(!prot) return;
-    const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).in('id', cols.map(c => c.id));
+    const { error } = await gradeSrc(sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).in('id', cols.map(c => c.id)), 'component_delete');
     if(error){ await trashDiscard(prot.id); throw error; }
     if(toolWasOn) await setAppToolOn(toolKey, false);
     if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
@@ -594,7 +594,7 @@ function deleteGradeTestEverywhere(columnId){
     const uid = currentUser.id;
     const prot = await trashProtect(() => trashCaptureGradeColumns(cols.map(c => c.id), uid, t.name));
     if(!prot) return;
-    const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).in('id', cols.map(c => c.id));
+    const { error } = await gradeSrc(sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).in('id', cols.map(c => c.id)), 'test_delete_all');
     if(error){ await trashDiscard(prot.id); throw error; }
     if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
     renderCrmGrades();
@@ -712,7 +712,7 @@ async function resetToolMarksStart(uid, term, sectionIds, tool, full){
   const lessons = new Map();
   (marks || []).forEach(m => lessons.set(m.section_id + '|' + m.mark_date + '|' + m.period, m));
   for(const ids of chunkArray((marks || []).map(m => m.id), 200)){
-    const { error: dErr } = await sb.from('classroom_tool_marks').delete().eq('teacher_id', uid).eq('tool_id', tool.id).in('id', ids);
+    const { error: dErr } = await gradeSrc(sb.from('classroom_tool_marks').delete().eq('teacher_id', uid).eq('tool_id', tool.id).in('id', ids), 'start_mode_reset');
     if(dErr) throw dErr;
   }
   if(!full) return true;
@@ -722,7 +722,7 @@ async function resetToolMarksStart(uid, term, sectionIds, tool, full){
     mark_date: m.mark_date, period: m.period, value: toolFullValue(tool)
   })));
   for(const part of chunkArray(rows, 500)){
-    const { error: uErr } = await sb.from('classroom_tool_marks').upsert(part, { onConflict: 'tool_id,student_id,mark_date,period' });
+    const { error: uErr } = await gradeSrc(sb.from('classroom_tool_marks').upsert(part, { onConflict: 'tool_id,student_id,mark_date,period' }), 'start_mode_reset');
     if(uErr) throw uErr;
   }
   return true;
@@ -749,18 +749,18 @@ async function resetDirectScoresStart(uid, key, full){
   /* درجات الفترات تُمسح أولًا (وإلا عادت درجة الكشف منها) */
   const perCols = cols.filter(isDirectPeriodColumn);
   if(perCols.length){
-    const { error: pErr } = await sb.from('classroom_grade_period_scores').delete().eq('teacher_id', uid).in('column_id', perCols.map(c => c.id));
+    const { error: pErr } = await gradeSrc(sb.from('classroom_grade_period_scores').delete().eq('teacher_id', uid).in('column_id', perCols.map(c => c.id)), 'start_mode_reset');
     if(pErr) throw pErr;
   }
   if(cols.length){
-    const { error: dErr } = await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).in('column_id', cols.map(c => c.id));
+    const { error: dErr } = await gradeSrc(sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).in('column_id', cols.map(c => c.id)), 'start_mode_reset');
     if(dErr) throw dErr;
   }
   if(!full) return;
   const rows = [];
   cols.forEach(c => crmStudentsOfSection(c.section_id).forEach(st => rows.push({ teacher_id: uid, column_id: c.id, student_id: st.id, score: Number(c.max_score) })));
   for(const part of chunkArray(rows, 500)){
-    const { error: uErr } = await sb.from('classroom_grade_scores').upsert(part, { onConflict: 'column_id,student_id' });
+    const { error: uErr } = await gradeSrc(sb.from('classroom_grade_scores').upsert(part, { onConflict: 'column_id,student_id' }), 'start_mode_reset');
     if(uErr) throw uErr;
   }
 }

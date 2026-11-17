@@ -145,8 +145,8 @@ function saveCrmTestInput(input){
   const next = before.then(async () => {
     const uid = currentUser.id;
     const { error } = value === null
-      ? await sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', columnId).eq('student_id', studentId)
-      : await sb.from('classroom_grade_scores').upsert({ teacher_id: uid, column_id: columnId, student_id: studentId, score: value }, { onConflict: 'column_id,student_id' });
+      ? await gradeSrc(sb.from('classroom_grade_scores').delete().eq('teacher_id', uid).eq('column_id', columnId).eq('student_id', studentId), 'test_sheet_clear')
+      : await gradeSrc(sb.from('classroom_grade_scores').upsert({ teacher_id: uid, column_id: columnId, student_id: studentId, score: value }, { onConflict: 'column_id,student_id' }), 'test_sheet_edit');
     if(error) throw error;
     crmLogSaved(t, [studentId]);
     crmLogChange(t, studentId, prev, value);

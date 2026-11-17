@@ -1734,7 +1734,7 @@ async function deleteCrmStudent(id){
     const uid = currentUser.id;
     const prot = await trashProtect(() => trashCaptureStudent(id, uid));
     if(!prot) return;
-    const { error } = await sb.from('classroom_students').delete().eq('id', id).eq('teacher_id', uid);
+    const { error } = await gradeSrc(sb.from('classroom_students').delete().eq('id', id).eq('teacher_id', uid), 'student_delete');
     if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + error.message, 'error'); return; }
     await loadCrmStudents();
     renderCrmStudentsList();

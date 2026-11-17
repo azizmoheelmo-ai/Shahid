@@ -2412,6 +2412,9 @@ revoke execute on function public.trash_soft_refs(text, jsonb) from public, anon
 -- - يُسجَّل المسح والنقص ونقل الصف (تغيّر عموده/طالبه/فترته) فقط؛ الإضافة والزيادة لا تُسجَّلان.
 -- - parent_gone = المسح تبع حذف صاحب الدرجة (student/column/tool/criterion — حذف مقصود يمرّ بالسلة)؛ فارغ = مسح الدرجة نفسها.
 --   tx = رقم المعاملة: صفوف كثيرة بنفس الرقم = عملية واحدة جماعية. actor فارغ = من خارج جلسة معلم (الموصل/SQL).
+-- - source = بطاقة المصدر التي يرسلها التطبيق مع الطلب (ترويسة x-grade-source، دالة gradeSrc بـapp-01):
+--   أي عملية سوّت المسح (cell_clear = المعلم مسح الخانة، homework_sync = إعادة حساب الواجبات...).
+--   مسح بلا بطاقة أو ببطاقة لا تناسبه = مشبوه. البطاقة للتشخيص فقط (يرسلها العميل، فلا تُعامَل دليلَ صلاحية).
 -- - بلا مفاتيح أجنبية عمدًا: السجل يبقى بعد حذف الطالب أو العمود (وإلا ضاع الدليل معه).
 -- - المسؤول وحده يقرؤه، ولا يكتب فيه إلا التريجر. يُنظَّف تلقائيًا بعد 90 يومًا.
 -- - خارج النسخة الشاملة عمدًا: سجل مراقبة مؤقت لا قيمة لاستعادته.
@@ -2436,6 +2439,7 @@ create table if not exists public.grade_change_log (
   parent_gone text check (parent_gone in ('student', 'column', 'tool', 'criterion')),
   tx bigint not null default txid_current()
 );
+alter table public.grade_change_log add column if not exists source text check (source ~ '^[a-z_]{1,40}$');
 create index if not exists grade_change_log_teacher_idx on public.grade_change_log(teacher_id, changed_at);
 create index if not exists grade_change_log_changed_idx on public.grade_change_log(changed_at);
 alter table public.grade_change_log enable row level security;
@@ -2453,6 +2457,7 @@ declare
   v_new numeric;
   v_op text := 'delete';
   v_gone text;
+  v_src text;
 begin
   if tg_op = 'UPDATE' then
     v_n := to_jsonb(new);
@@ -2477,11 +2482,17 @@ begin
     end;
   end if;
   begin
+    v_src := nullif(current_setting('request.headers', true), '')::json->>'x-grade-source';
+    if v_src !~ '^[a-z_]{1,40}$' then v_src := null; end if;
+  exception when others then
+    v_src := null;
+  end;
+  begin
     insert into public.grade_change_log (teacher_id, actor, source_table, op, column_id, tool_id, criterion_id, student_id,
-      period, mark_date, old_value, new_value, old_updated_at, parent_gone)
+      period, mark_date, old_value, new_value, old_updated_at, parent_gone, source)
     values ((v_o->>'teacher_id')::uuid, auth.uid(), tg_table_name, v_op, (v_o->>'column_id')::uuid, (v_o->>'tool_id')::uuid,
       (v_o->>'criterion_id')::uuid, (v_o->>'student_id')::uuid, (v_o->>'period')::smallint, (v_o->>'mark_date')::date,
-      v_old, v_new, (v_o->>'updated_at')::timestamptz, v_gone);
+      v_old, v_new, (v_o->>'updated_at')::timestamptz, v_gone, v_src);
     if random() < 0.002 then
       delete from public.grade_change_log where changed_at < now() - interval '90 days';
     end if;

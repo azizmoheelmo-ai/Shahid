@@ -21,6 +21,13 @@ const IS_PRODUCTION_HOST = typeof location !== 'undefined' && PRODUCTION_HOSTNAM
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
   IS_PRODUCTION_HOST ? undefined : { db: { schema: 'staging' } });
 
+/* بطاقة مصدر لكل كتابة تمسّ الدرجات: تُرسَل مع الطلب، وسجل نقص الدرجات (grade_change_log) يحفظها مع كل
+   مسح/نقص — فيُعرف أي عملية سوّته (مسح المعلم للخانة، إعادة حساب، "يبدأ من"...)، والمسح بلا بطاقة = مشبوه.
+   لا تغيّر الطلب نفسه؛ وبلا setHeader (بيئة اختبار) يعود الطلب كما هو. */
+function gradeSrc(query, tag){
+  return query && typeof query.setHeader === 'function' ? query.setHeader('x-grade-source', tag) : query;
+}
+
 /* ============ تحميل كسول للمكتبات الثقيلة (تُحمّل فقط وقت الحاجة الفعلية) ============ */
 const _loadedScripts = {};
 function loadScriptOnce(src){
