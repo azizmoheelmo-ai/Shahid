@@ -411,19 +411,12 @@ function crmLockedToast(){ showToast('الفترة مقفلة — افتحها �
 
 /* ============ نافذة «الفترات» ============ */
 let periodWinCtx = null;      /* { key } */
-let periodTransDraft = null;  /* { key, now, last, fill: 'none'|'full'|'zero', start: 'empty'|'full'|'zero' } */
+let periodTransDraft = null;  /* { key, now, last, start: 'empty'|'full'|'zero' } */
 
-/* أعمدة المكوّن المرصود بفترة في كل الشعب، ومن لا درجة له في فترة */
+/* أعمدة المكوّن المرصود بفترة في كل الشعب */
 async function directPeriodColumns(key){
   return periodKeyIsDirect(key) && typeof termColumnsMatching === 'function'
     ? termColumnsMatching(c => periodCompKeyOfColumn(c) === key && isDirectPeriodColumn(c)) : [];
-}
-async function studentsMissingInPeriod(c, period){
-  const { data, error } = await sb.from('classroom_grade_period_scores').select('student_id')
-    .eq('teacher_id', currentUser.id).eq('column_id', c.id).eq('period', period);
-  if(error) throw error;
-  const has = new Set((data || []).map(r => r.student_id));
-  return crmStudentsOfSection(c.section_id).map(st => st.id).filter(id => !has.has(id));
 }
 
 /* إحصاء كل فترة للمرصود بفترة: { [p]: { n, avg } } عبر الشعب */
@@ -488,23 +481,44 @@ async function openPeriodsWindow(key){
   } catch(e){} /* الإحصاء تكميلي */
 }
 
-const PERIOD_TRANS_FILL = [['none', 'اتركهم بلا درجة'], ['full', 'أعطِهم الكاملة'], ['zero', 'أعطِهم 0']];
-const PERIOD_TRANS_START = [['empty', 'فارغة'], ['full', 'الجميع الكاملة'], ['zero', 'الجميع 0']];
+const PERIOD_TRANS_START = [['empty', 'فارغة'], ['full', 'الجميع درجة كاملة'], ['zero', 'الجميع 0']];
 
-function periodTransHtml(d, missing){
+/* الخطوة ١: ملخص الفترة التي تُغلق — تبليغ فقط، لا يُكتب لمن بلا درجة شيء (يرصده المعلم بيده من الكشف إن شاء) */
+function periodTransSummaryHtml(d, sum){
+  const now = PERIOD_NAMES[d.now];
+  const lockTxt = isLockableKey(d.key) ? 'تُقفل كما هي' : 'تبقى كما هي';
+  if(!periodKeyIsDirect(d.key)) return `<div class="pt-sum">${escapeHtml(`ما تاريخه قبل اليوم يبقى في ${now} — ${lockTxt}.`)}</div>`;
+  if(!sum) return '<div class="pt-sum">…</div>';
+  const missing = sum.total - sum.n;
+  const head = `${missing ? '' : '✓ '}رُصد ${sum.n} من ${sum.total}${sum.n ? ` · المتوسط ${sum.pct}٪` : ''}`;
+  return `<div class="pt-sum${missing ? '' : ' is-ok'}"><b>${head}</b><small>${missing ? 'التطبيق لا يكتب لهم شيئًا' : 'لا أحد بلا درجة'} — ${lockTxt}.</small></div>
+    ${missing ? `<div class="pt-warn"><b>⚠ ${missing === 1 ? 'طالب واحد' : missing === 2 ? 'طالبان' : missing + ' طلاب'} بلا درجة في ${now}</b><small>تبقى بلا درجة — إن أردت رصدها فارجع للكشف قبل القفل.</small></div>` : ''}`;
+}
+
+function periodTransHtml(d, sum){
   const name = escapeHtml(periodCompName(d.key));
   const seg = (field, opts) => `<div class="tlx-seg pt-seg" data-f="${field}">${opts.map(([v, l]) =>
     `<button type="button" class="${d[field] === v ? 'is-on' : ''}" aria-pressed="${d[field] === v}" onclick="setPeriodTrans('${field}', '${v}')">${l}</button>`).join('')}</div>`;
   const direct = periodKeyIsDirect(d.key);
+  const step = (n, t) => `<div class="pt-step"><i>${n}</i>${t}</div>`;
   return `<div style="text-align:right;">
     <h3 style="margin:0 0 4px;font-size:16px;color:var(--navy);">${d.last ? `إنهاء ${PERIOD_NAMES[d.now]}` : `من ${PERIOD_NAMES[d.now]} إلى ${PERIOD_NAMES[d.now + 1]}`}</h3>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">«${name}» · في كل شعبك</div>
-    ${direct ? `<div class="tlx-sec" style="margin-top:0;">من لا درجة له في ${PERIOD_NAMES[d.now]}: <span id="ptMissing">${missing === null ? '…' : missing}</span></div>${seg('fill', PERIOD_TRANS_FILL)}` : ''}
-    ${direct && !d.last ? `<div class="tlx-sec">كيف تبدأ ${PERIOD_NAMES[d.now + 1]}؟</div>${seg('start', PERIOD_TRANS_START)}` : ''}
-    <p class="tlx-note" style="margin:10px 0;">${isLockableKey(d.key) ? `تُقفل ${PERIOD_NAMES[d.now]} كما هي: لا يتغيّر فيها شيء إلا بـ«فتح للتعديل». ` : ''}${direct ? 'اختيارك يُكتب مرة واحدة كأنه رصد يدوي، ولا يمسّ من له درجة.' : `ما تاريخه قبل اليوم يبقى في ${PERIOD_NAMES[d.now]}.`}</p>
-    <button type="button" class="tlx-btn is-navy" id="ptGoBtn" onclick="applyPeriodTransition()">${d.last ? `أنهِ وأقفل ${PERIOD_NAMES[d.now]}` : `أقفل ${PERIOD_NAMES[d.now]} وابدأ ${PERIOD_NAMES[d.now + 1]}`}</button>
+    <div style="font-size:12px;color:var(--muted);">«${name}» · في كل شعبك</div>
+    ${step('١', `${PERIOD_NAMES[d.now]} — ${isLockableKey(d.key) ? 'تُغلق وتُقفل' : 'تُغلق'}`)}
+    <div id="ptSummary">${periodTransSummaryHtml(d, sum)}</div>
+    <a href="#" class="pt-link" onclick="event.preventDefault();reviewPeriodInSheet()">راجع درجات ${PERIOD_NAMES[d.now].replace('الفترة ', '')} في الكشف ←</a>
+    ${direct && !d.last ? `${step('٢', `كيف تبدأ ${PERIOD_NAMES[d.now + 1]}؟`)}${seg('start', PERIOD_TRANS_START)}` : ''}
+    ${isLockableKey(d.key) ? `<p class="tlx-note" style="margin:12px 0 10px;">بعد القفل لا يتغيّر في ${PERIOD_NAMES[d.now]} شيء إلا بـ«فتح للتعديل».</p>` : '<div style="height:12px;"></div>'}
+    <button type="button" class="tlx-btn is-navy" id="ptGoBtn" onclick="applyPeriodTransition()">${d.last ? `أنهِ ${isLockableKey(d.key) ? 'وأقفل ' : ''}${PERIOD_NAMES[d.now]}` : `${isLockableKey(d.key) ? 'أقفل' : 'أنهِ'} ${PERIOD_NAMES[d.now]} وابدأ ${PERIOD_NAMES[d.now + 1]}`}</button>
     <button type="button" class="tlx-btn is-ghost" style="margin-top:8px;" onclick="openPeriodsWindow(periodTransDraft && periodTransDraft.key)">→ رجوع</button>
   </div>`;
+}
+
+/* من الانتقال إلى الكشف (قبل القفل) — المسودة تُلغى ويعود المعلم للنافذة متى شاء */
+function reviewPeriodInSheet(){
+  periodTransDraft = null;
+  closeCrmModal();
+  if(typeof switchCrmTab === 'function' && document.getElementById('crmTabGrades')) switchCrmTab('grades');
 }
 
 async function openPeriodTransition(){
@@ -513,21 +527,26 @@ async function openPeriodTransition(){
   const cfg = periodCfg(crmCurrentTerm(), key);
   const now = currentPeriodOf(cfg);
   if(cfg.n < 2 || cfg.ended) return;
-  const d = { key, now, last: now === cfg.n, fill: 'none', start: 'empty' };
+  const d = { key, now, last: now === cfg.n, start: 'empty' };
   periodTransDraft = d;
   showInfoModal(periodTransHtml(d, null), '440px');
+  if(!periodKeyIsDirect(key)) return;
   try{
     const cols = await directPeriodColumns(key);
-    let n = 0;
-    for(const c of cols) n += (await studentsMissingInPeriod(c, now)).length;
-    const el = periodTransDraft === d && document.getElementById('ptMissing');
-    if(el) el.textContent = n === 0 ? 'لا أحد' : String(n);
-  } catch(e){}
+    const stats = await directPeriodStats(cols);
+    const st = stats[now] || { n: 0, pct: 0 };
+    const sum = { n: st.n, pct: st.pct, total: cols.reduce((t, c) => t + crmStudentsOfSection(c.section_id).length, 0) };
+    const el = periodTransDraft === d && document.getElementById('ptSummary');
+    if(el) el.innerHTML = periodTransSummaryHtml(d, sum);
+  } catch(e){
+    const el = periodTransDraft === d && document.getElementById('ptSummary');
+    if(el) el.innerHTML = '<div class="pt-sum">تعذّر الإحصاء — راجع الكشف</div>';
+  }
 }
 
 function setPeriodTrans(field, v){
   const d = periodTransDraft;
-  const opts = field === 'fill' ? PERIOD_TRANS_FILL : field === 'start' ? PERIOD_TRANS_START : null;
+  const opts = field === 'start' ? PERIOD_TRANS_START : null;
   if(!d || !opts || !opts.some(o => o[0] === v)) return;
   d[field] = v;
   document.querySelectorAll(`.pt-seg[data-f="${field}"] button`).forEach((b, i) => {
@@ -537,7 +556,8 @@ function setPeriodTrans(field, v){
   });
 }
 
-/* الانتقال بالترتيب: تعبئة الفارغ في المنتهية ← حفظ الفترات ← القفل ← بداية الجديدة. كل خطوة تُكتب كرصد يدوي (في سجل الدرجات) */
+/* الانتقال بالترتيب: حفظ الفترات ← القفل ← بداية الجديدة (إن اختارها المعلم، كرصد يدوي في سجل الدرجات).
+   المنتهية لا يُكتب فيها شيء: من بلا درجة يبقى بلا درجة (تبليغ فقط) */
 async function applyPeriodTransition(){
   const d = periodTransDraft;
   if(!d || gradePeriodSaving || !currentUser) return false;
@@ -550,9 +570,6 @@ async function applyPeriodTransition(){
   let lockFailed = false;
   const ok = await withPeriodBusy(async () => {
     const cols = await directPeriodColumns(d.key);
-    if(d.fill !== 'none'){
-      for(const c of cols) await fillPeriodScoresMissing(c, await studentsMissingInPeriod(c, d.now), d.now, valueOf(c, d.fill));
-    }
     const next = d.last ? Object.assign({}, cfg, { ended: true }) : { n: cfg.n, starts: periodStartsFor(cfg, d.now + 1, localIsoDate()) };
     if(!(await savePeriodCfg(term, d.key, next))) return false;
     if(isLockableKey(d.key)){

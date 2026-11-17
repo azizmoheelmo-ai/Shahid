@@ -662,37 +662,54 @@ test('انحدار: إعداد «يبدأ من الكاملة» القديم ا�
 const rpcs = (log, name) => log.filter(l => l.op === 'rpc' && l.name === name).map(l => l.args);
 const LOCKED_DATA = { [TK]: { 'kind:participation': { p: 1, before: '2026-10-27' } } };
 
-test('الانتقال — يسأل عن الفارغين في المنتهية وعن بداية الجديدة، ثم يكتب بالترتيب: تعبئة ← حفظ ← قفل ← بداية', async () => {
+test('الانتقال — يبلّغ بمن بلا درجة في المنتهية (لا يكتب لهم شيئًا)، ويسأل عن بداية الجديدة؛ ثم: حفظ ← قفل ← بداية', async () => {
   const log = [];
   const seed = { classroom_grade_period_scores: [{ id: 'r1', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 6 }] };
   const app = settingsApp(withPeriods({ 'kind:participation': { n: 3, starts: [] } }), seed, log);
-  runInAppContext(app, `{ const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? (log.push({ op: 'rpc', name: n, args: a }), Promise.resolve({ data: ${JSON.stringify(LOCKED_DATA)}, error: null })) : _r(n, a); }`.replace('log.push', 'window.__log.push'));
   app.__log = log; runInAppContext(app, 'window.__log = __log;');
+  runInAppContext(app, `{ const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? (window.__log.push({ op: 'rpc', name: n, args: a }), Promise.resolve({ data: ${JSON.stringify(LOCKED_DATA)}, error: null })) : _r(n, a); }
+    { const _q = document.getElementById; window.__sum = { innerHTML: '' }; document.getElementById = id => id === 'ptSummary' ? window.__sum : _q(id); }`);
   await app.openPeriodsWindow('kind:participation');
   await app.openPeriodTransition();
   const m = get(app, 'window.__modal');
   assert.match(m, /من الفترة الأولى إلى الفترة الثانية/);
-  assert.match(m, /من لا درجة له في الفترة الأولى[\s\S]*اتركهم بلا درجة[\s\S]*أعطِهم الكاملة[\s\S]*أعطِهم 0/);
-  assert.match(m, /كيف تبدأ الفترة الثانية؟[\s\S]*فارغة[\s\S]*الجميع الكاملة[\s\S]*الجميع 0/);
-  assert.match(m, /تُقفل الفترة الأولى كما هي/);
-  app.setPeriodTrans('fill', 'zero');
+  assert.match(m, /١<\/i>الفترة الأولى — تُغلق وتُقفل[\s\S]*راجع درجات الأولى في الكشف[\s\S]*٢<\/i>كيف تبدأ الفترة الثانية؟[\s\S]*فارغة[\s\S]*الجميع درجة كاملة[\s\S]*الجميع 0/);
+  assert.doesNotMatch(m, /أعطِهم|اتركهم/, 'لا خيار يكتب لمن بلا درجة في المنتهية');
+  const sum = get(app, 'window.__sum.innerHTML');
+  assert.match(sum, /رُصد 1 من 3 · المتوسط 60٪[\s\S]*التطبيق لا يكتب لهم شيئًا[\s\S]*⚠ طالبان بلا درجة في الفترة الأولى[\s\S]*ارجع للكشف قبل القفل/);
   app.setPeriodTrans('start', 'full');
   app.setPeriodTrans('start', 'evil');
+  app.setPeriodTrans('fill', 'full');
   assert.equal(get(app, 'periodTransDraft.start'), 'full', 'قيمة غير معروفة تُرفض');
+  assert.equal(get(app, 'periodTransDraft.fill'), undefined);
   const before = log.length;
   assert.equal(await app.applyPeriodTransition(), true);
   const writes = log.slice(before).filter(l => l.op === 'rpc').map(l => l.name === 'set_period_score' ? `fill:${l.args.p_student_id}:${l.args.p_period}:${l.args.p_score}:${l.args.p_only_missing}` : l.name === 'set_period_lock' ? `lock:${l.args.p_term}:${l.args.p_key}:${l.args.p_period}:${l.args.p_before}` : l.name);
-  assert.deepEqual(writes.filter(w => w.startsWith('fill:') && w.includes(':1:')).sort(), ['fill:b:1:0:true', 'fill:c:1:0:true'], 'الفارغون فقط في المنتهية (أحمد له درجة)');
+  assert.equal(writes.filter(w => w.startsWith('fill:') && w.includes(':1:')).length, 0, 'المنتهية: لا يُكتب فيها شيء');
   const iLock = writes.findIndex(w => w.startsWith('lock:'));
   assert.equal(writes[iLock], `lock:${TK}:kind:participation:1:2026-10-27`);
-  assert.ok(writes.findIndex(w => w.startsWith('fill:') && w.includes(':1:')) < iLock, 'التعبئة قبل القفل');
-  assert.deepEqual(writes.slice(iLock + 1).filter(w => w.startsWith('fill:')).sort(), ['fill:a:2:10:true', 'fill:b:2:10:true', 'fill:c:2:10:true'], 'الجديدة: الجميع الكاملة بعد القفل');
+  assert.deepEqual(writes.slice(iLock + 1).filter(w => w.startsWith('fill:')).sort(), ['fill:a:2:10:true', 'fill:b:2:10:true', 'fill:c:2:10:true'], 'الجديدة: الجميع درجة كاملة بعد القفل');
   assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 3, starts: ['2026-10-27'] });
   assert.equal(get(app, `isPeriodLocked(${JSON.stringify(TERM)}, 'kind:participation', { period: 1 })`), true);
   assert.equal(get(app, `isPeriodLocked(${JSON.stringify(TERM)}, 'kind:participation', { period: 2 })`), false);
 });
 
-test('الانتقال — «اتركهم» و«فارغة» لا يكتبان أي درجة؛ والأخيرة تُنهى وتُقفل كلها', async () => {
+test('الانتقال — الكل مرصود: ملخص أخضر بلا تنبيه؛ والمحسوب (الواجبات) بلا سؤال بداية', async () => {
+  const seed = { classroom_grade_period_scores: ['a', 'b', 'c'].map(st => ({ id: st, teacher_id: 'u1', column_id: 'P', student_id: st, period: 1, score: 10 })) };
+  const app = settingsApp(withPeriods({ 'kind:participation': { n: 2, starts: [] }, 'kind:homework': { n: 2, starts: [] } }), seed, []);
+  runInAppContext(app, `{ const _q = document.getElementById; window.__sum = { innerHTML: '' }; document.getElementById = id => id === 'ptSummary' ? window.__sum : _q(id); } periodWinCtx = { key: 'kind:participation' };`);
+  await app.openPeriodTransition();
+  const sum = get(app, 'window.__sum.innerHTML');
+  assert.match(sum, /pt-sum is-ok[\s\S]*✓ رُصد 3 من 3 · المتوسط 100٪[\s\S]*لا أحد بلا درجة — تُقفل كما هي/);
+  assert.doesNotMatch(sum, /⚠/);
+  runInAppContext(app, `periodWinCtx = { key: 'kind:homework' };`);
+  await app.openPeriodTransition();
+  const hw = get(app, 'window.__modal');
+  assert.match(hw, /ما تاريخه قبل اليوم يبقى في الفترة الأولى — تُقفل كما هي/);
+  assert.doesNotMatch(hw, /كيف تبدأ/);
+});
+
+test('الانتقال — «فارغة» لا تكتب أي درجة؛ والأخيرة تُنهى وتُقفل كلها', async () => {
   const log = [];
   const app = settingsApp(withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-01'] } }), { classroom_grade_period_scores: [] }, log);
   runInAppContext(app, `periodWinCtx = { key: 'kind:participation' };`);
