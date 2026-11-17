@@ -242,8 +242,12 @@ test('ختم المصدر: نصه، وظهوره مهرّبًا بالبطاقة
   assert.match(card, /rec-source/);
   assert.doesNotMatch(card, /<img src=x/);
   const pdf = app.buildPdfHtml(rec, []);
-  assert.match(pdf, /مصدر الشاهد/);
+  assert.match(pdf, /الدليل من بيانات التطبيق/, 'بلا صور: المصدر في قسم الدليل (ق31)');
+  assert.doesNotMatch(pdf, /مصدر الشاهد/, 'لا تكرار في صف البيانات');
   assert.doesNotMatch(pdf, /<img src=x/);
+  const withPhoto = app.buildPdfHtml(Object.assign({}, rec, { photo_urls: ['https://x.supabase.co/storage/v1/object/public/shawahid-photos/u/a.jpg'] }), ['data:image/jpeg;base64,AA']);
+  assert.match(withPhoto, /مصدر الشاهد/);
+  assert.doesNotMatch(withPhoto, /الدليل من بيانات التطبيق/);
   assert.doesNotMatch(app.buildPdfHtml({ id: '2', steps: [], photo_urls: [] }, []), /مصدر الشاهد/);
 });
 
@@ -719,4 +723,42 @@ test('الإخفاء ينقل العمل لقائمة «الأعمال المخ�
   await runInAppContext(app, 'inboxDismiss()');
   assert.ok(J(runInAppContext(app, 'inboxHidden.map(i => i.key)')).includes('task:t1'));
   assert.ok(!J(runInAppContext(app, 'inboxItems.map(i => i.key)')).includes('task:t1'));
+});
+
+/* ============ بطاقة الدليل في الحفظ ============ */
+
+async function saveWithCard(setup){
+  const log = [];
+  const uploads = [];
+  const app = inboxApp(SEED(), log);
+  runInAppContext(app, `compressImage = async f => f;`);
+  const sbo = runInAppContext(app, 'sb');
+  sbo.storage.from = () => ({ upload: async (path, file) => { uploads.push(file.name); return { error: null }; }, getPublicUrl: p => ({ data: { publicUrl: 'https://x.supabase.co/storage/v1/object/public/shawahid-photos/' + p } }), remove: async () => ({}) });
+  await openTaskSheet(app);
+  runInAppContext(app, setup);
+  await runInAppContext(app, `document.getElementById('inboxQual').value = 'أثر'; inboxSave()`);
+  return { app, log, uploads };
+}
+
+test('بطاقة الدليل: تُرفق افتراضيًا أول صورة', async () => {
+  const { uploads, log, app } = await saveWithCard(`renderEvidenceCardFile = async () => ({ name: 'evidence-card.jpg', type: 'image/jpeg' }); inboxSheet.files.push({ name: 'mine.jpg', type: 'image/jpeg', size: 1 });`);
+  assert.deepEqual(uploads, ['evidence-card.jpg', 'mine.jpg']);
+  assert.equal(log.filter(l => l.table === 'shawahid' && l.op === 'insert')[0].rows[0].photo_urls.length, 2);
+  assert.equal(runInAppContext(app, 'true'), true);
+});
+
+test('بطاقة الدليل: إزالتها = لا تُرفع، وفشل رسمها لا يمنع الحفظ', async () => {
+  const off = await saveWithCard(`renderEvidenceCardFile = async () => ({ name: 'evidence-card.jpg' }); inboxBusy = false; inboxToggleCard();`);
+  assert.deepEqual(off.uploads, []);
+  assert.equal(off.log.filter(l => l.table === 'shawahid' && l.op === 'insert').length, 1);
+  const bad = await saveWithCard(`renderEvidenceCardFile = async () => { throw new Error('no canvas'); };`);
+  assert.equal(bad.log.filter(l => l.table === 'shawahid' && l.op === 'insert').length, 1, 'الشاهد حُفظ');
+  assert.ok(bad.app.__toasts.some(t => /تعذّر رسم بطاقة الدليل/.test(t)));
+});
+
+test('بطاقة الدليل: لكل مصدر بطاقة، ومفعّلة افتراضيًا', async () => {
+  const app = inboxApp(SEED(), []);
+  const kinds = await runInAppContext(app, `(async () => { const r = await loadInboxItems(); const out = {};
+    for(const it of r.items){ const s = await inboxPrepareSheet(it); out[it.type] = !!(s.card && s.cardOn); } return out; })()`);
+  assert.deepEqual(J(kinds), { task: true, lesson_plan: true, followup: true, program_session: true });
 });

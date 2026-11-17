@@ -342,14 +342,14 @@ function buildTestAnalysisShahidDraft(o){
     title: 'تحليل نتائج اختبار: ' + c.name,
     classLabel: sec,
     date: o.date || null,
-    description: `حلّلتُ نتائج اختبار «${c.name}»${c.measures ? ` (يقيس: ${c.measures})` : ''} لـ${n} طلاب${sec ? ' في ' + sec : ''}، وصنّفتهم بحدود ثابتة: ضعاف دون ${pass}%، ومتفوقون من ${top}%.`,
+    description: `حلّلتُ نتائج اختبار «${c.name}»${c.measures ? ` (يقيس: ${c.measures})` : ''} لـ${evcStudents(n)}${sec ? ' في ' + sec : ''}، وصنّفتهم بحدود ثابتة: ضعاف دون ${pass}%، ومتفوقون من ${top}%.`,
     goal: 'تشخيص مستويات الطلاب بعد الاختبار لتحديد من يحتاج دعمًا ومن يحتاج إثراءً.',
     steps: ['رصد درجات الاختبار في كشف الدرجات', `تصنيف الطلاب بحدود ثابتة (ضعاف دون ${pass}%، متفوقون من ${top}%)`],
     quant: `المتوسط ${r2(avg)} من ${r2(max)} (${n ? Math.round(100 * avg / max) : 0}%) · أعلى ${n ? r2(Math.max(...vals)) : 0} · أدنى ${n ? r2(Math.min(...vals)) : 0}\n`
       + `ضعاف: ${low} · متوسطون: ${n - low - hi} · متفوقون: ${hi}`,
     qual: '',
     reflection: '',
-    sourceNote: `اختبار رُصد لـ${n} طلاب`
+    sourceNote: `اختبار رُصد لـ${evcStudents(n)}`
   };
 }
 
@@ -373,13 +373,13 @@ function buildRubricTestShahidDraft(o){
     title: 'اختبار بسلّم تقدير: ' + c.name,
     classLabel: sec,
     date: o.date || null,
-    description: `قوّمتُ ${students} طلاب${sec ? ' في ' + sec : ''} في «${c.name}» بسلّم تقدير من ${crit.length} معايير، ولكل معيار مستوى إنجاز (كامل، كبير، جزئي، بداية، صفر).`,
+    description: `قوّمتُ ${evcStudents(students)}${sec ? ' في ' + sec : ''} في «${c.name}» بسلّم تقدير من ${crit.length} معايير، ولكل معيار مستوى إنجاز (كامل، كبير، جزئي، بداية، صفر).`,
     goal: 'تقويم أداء الطلاب بمعايير واضحة بدل درجة واحدة، لتحديد مواطن القوة والضعف في كل معيار.',
     steps: crit.map(k => `${k.name} (${r2(k.points)} ${Number(k.points) === 1 ? 'درجة' : 'درجات'})`),
     quant: rated.map(x => `${x.name}: أتقنه ${x.good} من ${x.n} (كامل أو كبير)`).join('\n'),
     qual: '',
     reflection: weakest ? `أضعف معيار في النتائج: «${weakest.name}» (أتقنه ${weakest.good} من ${weakest.n}).` : '',
-    sourceNote: `سلّم تقدير من ${crit.length} معايير لـ${students} طلاب`
+    sourceNote: `سلّم تقدير من ${crit.length} معايير لـ${evcStudents(students)}`
   };
 }
 
@@ -627,7 +627,7 @@ async function inboxLoadPhase2(uid, f, todayIso, secLabel){
       const n = scored.get(c.id);
       const tKey = 'test_analysis:' + c.id;
       if(!done.has(tKey)) items.push({ key: tKey, type: 'test_analysis', ref: { columnId: c.id }, elementKey: 'تحليل نتائج المتعلمين وتشخيص مستوياتهم',
-        title: 'تحليل نتائج اختبار: ' + c.name, date: String(c.created_at || '').slice(0, 10), sub: `رُصد لـ${n} طلاب` + (sl ? ' · ' + sl : '') });
+        title: 'تحليل نتائج اختبار: ' + c.name, date: String(c.created_at || '').slice(0, 10), sub: `رُصد لـ${evcStudents(n)}` + (sl ? ' · ' + sl : '') });
       const rKey = 'rubric_test:' + c.id;
       if(rubric.has(c.id) && !done.has(rKey)) items.push({ key: rKey, type: 'rubric_test', ref: { columnId: c.id }, elementKey: 'تنوع أساليب التقويم',
         title: 'اختبار بسلّم تقدير: ' + c.name, date: String(c.created_at || '').slice(0, 10), sub: 'سلّم تقدير بمعايير' + (sl ? ' · ' + sl : '') });
@@ -799,6 +799,7 @@ async function inboxPrepareSheet(it){
     const sl = p.section_id ? await inboxSectionLabel(p.section_id) : '';
     sheet.draft = Object.assign({ elementKey: p.element_key, title: p.title, classLabel: sl,
       sourceNote: 'خطة سُجّلت في ' + String(p.created_at || p.planned_date || '').slice(0, 10) + ' لموعد ' + p.planned_date }, fl);
+    sheet.card = evidenceCardPlan({ title: p.title, steps: fl.steps, date: p.planned_date, sectionLabel: sl });
   } else if(it.type === 'task'){
     const [tRes, rRes] = await Promise.all([
       sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, shahid_id').eq('teacher_id', uid).eq('id', it.ref.taskId).maybeSingle(),
@@ -813,6 +814,7 @@ async function inboxPrepareSheet(it){
     const sl = await inboxSectionLabel(tRes.data.section_id);
     sheet.draft = Object.assign(buildTaskShahidDraft({ task: tRes.data, rows, sectionLabel: sl, todayIso }),
       { sourceNote: `رُصدت درجات ${graded} من ${rows.length}` });
+    sheet.card = evidenceCardTask({ title: tRes.data.title, max: tRes.data.max_score, rows, sectionLabel: sl });
   } else if(it.type === 'followup'){
     const q = sb.from('classroom_followups').select('*').eq('teacher_id', uid).eq('status', 'closed');
     const { data: fus, error } = it.ref.groupId ? await q.eq('group_id', it.ref.groupId) : await q.in('id', it.ref.followupIds);
@@ -828,11 +830,15 @@ async function inboxPrepareSheet(it){
     sheet.actions = aRes.data || [];
     sheet.sectionLabel = fus[0].section_id ? await inboxSectionLabel(fus[0].section_id) : '';
     inboxRebuildFollowupDraft(sheet);
+    /* البطاقة بلا أسماء أبدًا، حتى لو اختار المعلم إظهارها في النص */
+    sheet.card = evidenceCardFollowup({ members: sheet.members, reason: fus[0].reason_text, sectionLabel: sheet.sectionLabel });
   } else if(it.type === 'program_session'){
     const p = activityPrograms.find(x => x.id === it.ref.programId);
     if(!p) throw new Error('البرنامج غير موجود — ربما حُذف');
     sheet.draft = buildProgramSessionShahidDraft({ program: p, sessionNo: it.ref.sessionNo, sectionId: it.ref.sectionId,
       sectionLabel: it.ref.sectionLabel, weekStart: it.ref.weekStart, createdIso: it.ref.createdIso, todayIso });
+    sheet.card = evidenceCardProgram({ name: p.name, total: p.total_sessions || (p.sessions || []).length, done: inboxProgramDoneCount(p, it.ref.sectionId || null),
+      sessionNo: it.ref.sessionNo, sectionLabel: it.ref.sectionLabel });
   } else if(it.type === 'survey'){
     const [cRes, rRes, iRes, sRes] = await Promise.all([
       sb.from('survey_campaigns').select('id, title, audience, questions, min_results, created_at').eq('teacher_id', uid).eq('id', it.ref.campaignId).maybeSingle(),
@@ -846,6 +852,7 @@ async function inboxPrepareSheet(it){
     if(!an.ok || an.valid < svMinResults(cRes.data)) throw new Error('نتائج الاستبانة لم تكتمل بعد (الحد الأدنى من الردود الصالحة)');
     sheet.draft = buildSurveyShahidDraft({ campaign: cRes.data, analysis: an, sent: (iRes.data || []).filter(x => x.sent_at).length,
       sections: sRes.error ? 0 : (sRes.data || []).length, date: (rRes.data || []).map(x => x.created_on).filter(Boolean).sort().pop() || todayIso });
+    sheet.card = evidenceCardSurvey({ title: cRes.data.title, analysis: an });
   } else if(it.type === 'lessons_month'){
     const from = it.ref.month + '-01';
     const [y, m] = it.ref.month.split('-').map(Number);
@@ -856,6 +863,7 @@ async function inboxPrepareSheet(it){
     const labels = new Map();
     for(const id of new Set((lRes.data || []).map(l => l.section_id))) labels.set(id, await inboxSectionLabel(id));
     sheet.draft = buildLessonsMonthShahidDraft({ month: it.ref.month, lessons: lRes.data || [], sectionLabel: id => labels.get(id) || '' });
+    sheet.card = evidenceCardLessons({ month: it.ref.month, lessons: lRes.data || [] });
   } else if(it.type === 'test_analysis' || it.type === 'rubric_test'){
     const [cRes, scRes] = await Promise.all([
       sb.from('classroom_grade_columns').select('*').eq('teacher_id', uid).eq('id', it.ref.columnId).maybeSingle(),
@@ -870,6 +878,7 @@ async function inboxPrepareSheet(it){
     if(it.type === 'test_analysis'){
       const rules = typeof gradeRulesNow === 'function' ? gradeRulesNow() : { pass: 50, top: 90 };
       sheet.draft = buildTestAnalysisShahidDraft({ column: cRes.data, scores: scores.map(x => x.score), rules, sectionLabel: sl, date });
+      sheet.card = evidenceCardTest({ name: cRes.data.name, max: cRes.data.max_score, scores: scores.map(x => x.score), rules, sectionLabel: sl });
     } else {
       const [kRes, mRes] = await Promise.all([
         sb.from('classroom_rubric_criteria').select('id, name, points, position').eq('teacher_id', uid).eq('column_id', it.ref.columnId),
@@ -878,9 +887,12 @@ async function inboxPrepareSheet(it){
       if(kRes.error || mRes.error) throw new Error('تعذّر تحميل معايير الاختبار');
       if(!(kRes.data || []).length) throw new Error('لم تعد لهذا الاختبار معايير');
       sheet.draft = buildRubricTestShahidDraft({ column: cRes.data, criteria: kRes.data, marks: mRes.data || [], sectionLabel: sl, date });
+      sheet.card = evidenceCardRubric({ name: cRes.data.name, criteria: kRes.data, marks: mRes.data || [], sectionLabel: sl });
     }
   }
   if(!sheet.draft) throw new Error('نوع عمل غير معروف');
+  /* بطاقة الدليل تُرفق افتراضيًا (قرار المستخدم)، ويزيلها المعلم بنقرة */
+  sheet.cardOn = !!sheet.card;
   /* الأثر الذي لاحظه يكتبه المعلم دائمًا: لا تعبئة مسبقة تُغني عن كتابته */
   sheet.qual = '';
   sheet.elementKey = sheet.draft.elementKey;
@@ -976,14 +988,39 @@ function renderInboxSheet(){
     ${names}
     <div class="tlx-lbl">الأثر الذي لاحظته <small>مطلوب — سطر يكفي</small></div>
     <textarea id="inboxQual" class="tlx-inp" rows="3" maxlength="${INBOX_QUAL_MAX}" placeholder="مثال: تفاعل الطلاب أكثر، وتحسّنت مشاركة المجموعة الثالثة..." oninput="inboxSyncInputs()">${escapeHtml(s.qual || '')}</textarea>
-    <div class="tlx-lbl">صور أو مستند <small>اختياري — حتى ${INBOX_MAX_FILES}، والصورة تقوّي الشاهد</small></div>
-    <div class="tlx-chips">${files}${s.files.length < INBOX_MAX_FILES && !inboxBusy ? `<label class="tlx-chip ibx-add">＋ إرفاق<input type="file" accept="image/*,application/pdf" multiple hidden onchange="inboxAddFiles(this)"></label>` : ''}</div>
+    ${s.card ? `<div class="tlx-lbl">بطاقة الدليل <small>${s.cardOn ? 'تُرفق أول صورة في الشاهد' : 'لن تُرفق'}</small></div>
+    ${s.cardOn ? `<div class="ibx-card-prev" aria-label="معاينة بطاقة الدليل"><div class="ibx-card-zoom">${buildEvidenceCardHtml(s.card)}</div></div>` : ''}
+    <button type="button" class="tlx-chip${s.cardOn ? '' : ' is-on'}" ${inboxBusy ? 'disabled' : ''} onclick="inboxToggleCard()">${s.cardOn ? 'إزالة البطاقة' : 'إرفاق بطاقة الدليل'}</button>` : ''}
+    <div class="tlx-lbl">صور أخرى أو مستند <small>اختياري — حتى ${INBOX_MAX_FILES}</small></div>
+    ${INBOX_PHOTO_TIPS[s.item.type] ? `<p class="ibx-tip">${escapeHtml(INBOX_PHOTO_TIPS[s.item.type])}</p>` : ''}
+    <div class="tlx-chips">${files}${s.files.length < INBOX_MAX_FILES && !inboxBusy
+      ? `<label class="tlx-chip ibx-add">تصوير<input type="file" accept="image/*" capture="environment" hidden onchange="inboxAddFiles(this)"></label>`
+      + `<label class="tlx-chip ibx-add">＋ إرفاق<input type="file" accept="image/*,application/pdf" multiple hidden onchange="inboxAddFiles(this)"></label>` : ''}</div>
     <div class="tlx-sec">خيارات أخرى</div>
     <div class="tlx-box">
       <button type="button" id="inboxFullBtn" class="tlx-mi" onclick="inboxOpenFullForm()"><i><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></i><span>تعديل كامل في نموذج الشاهد</span></button>
       <button type="button" id="inboxHideBtn" class="tlx-mi is-danger" onclick="inboxDismiss()"><i><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6c2 0 3.7.8 5 1.8M21 12s-3.5 6-9 6c-2 0-3.7-.8-5-1.8M4 4l16 16"/></svg></i><span>ليس عملًا يُوثَّق — أخفِه من القائمة</span></button>
     </div>
     <div class="tlx-cta"><button type="button" id="inboxSaveBtn" class="tlx-btn is-navy" onclick="inboxSave()">حفظ الشاهد</button></div>`;
+}
+
+/* ما يمكن تصويره بلا وجوه طلاب، لكل نوع عمل (مقترح 4) */
+const INBOX_PHOTO_TIPS = {
+  lesson_plan: 'تصوّر بلا وجوه: السبورة، أو ورقة العمل، أو نشاطًا كتابيًا.',
+  program_session: 'تصوّر بلا وجوه: منتجات الطلاب، أو مطوية البرنامج، أو مكان النشاط.',
+  task: 'تصوّر بلا وجوه: منتج المهمة، أو ورقة طالب بلا اسم.',
+  followup: 'تصوّر بلا أسماء: خطة المتابعة، أو ورقة التواصل مع ولي الأمر.',
+  survey: 'تصوّر: شاشة النتائج، أو رسالة الإرسال.',
+  lessons_month: 'تصوّر: ورقة الرصد، أو جدول الحصص.',
+  test_analysis: 'تصوّر: نموذج الاختبار، أو أوراق مصحّحة بلا أسماء.',
+  rubric_test: 'تصوّر: ورقة سلّم التقدير المطبوعة، أو ورقة طالب بلا اسم.'
+};
+
+function inboxToggleCard(){
+  if(!inboxSheet || !inboxSheet.card || inboxBusy) return;
+  inboxSyncInputs();
+  inboxSheet.cardOn = !inboxSheet.cardOn;
+  renderInboxSheet();
 }
 
 function inboxBackToList(){
@@ -1093,6 +1130,11 @@ async function inboxSave(){
       return;
     }
     const files = await Promise.all(s.files.map(compressImage));
+    /* بطاقة الدليل أول صورة؛ فشل رسمها لا يمنع حفظ الشاهد */
+    if(s.card && s.cardOn){
+      try{ files.unshift(await renderEvidenceCardFile(s.card)); }
+      catch(e){ showToast('تعذّر رسم بطاقة الدليل — يُحفظ الشاهد بدونها', 'error'); }
+    }
     const urls = await Promise.all(files.map(async (file) => {
       const rawExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
       const ext = /^[a-z0-9]{1,5}$/.test(rawExt) ? rawExt : 'jpg';
@@ -1205,7 +1247,7 @@ async function inboxOpenFullForm(){
         descBox.value = s.draft.description || '';
         quantBox.value = s.draft.quant || '';
       }
-      if(s.files.length) showToast('أعد إرفاق الصور في النموذج — المرفقة في الورقة السريعة لا تنتقل إليه', 'error');
+      if(s.files.length || (s.card && s.cardOn)) showToast('الصور وبطاقة الدليل لا تنتقل للنموذج الكامل — أرفق صورك فيه', 'error');
       inboxSheet = null;
     }
   } catch(e){

@@ -1390,7 +1390,7 @@ function buildPdfHtml(rec, photoDataUrls, opts){
   const framesHtml = shown.map(u => frame(`<img src="${escapeHtml(u)}" style="max-width:100%;max-height:100%;display:block;">`)).join('');
   const photosBody = shown.length
     ? `<div style="display:flex;flex-wrap:wrap;gap:10px;">${framesHtml}</div>`
-    : (docItems.length ? '' : `<div style="font-size:11px;color:#51636d;">لا توجد صور مرفقة</div>`);
+    : ''; /* بلا صور: لا يُطبع «لا توجد صور مرفقة» (REPORTS.md ق31) — القسم يُحذف أو يحل محله «الدليل من بيانات التطبيق» */
   const photosNote = (imgItems.length > shown.length
       ? `<div style="font-size:10px;color:#51636d;margin-top:5px;">+ ${imgItems.length - shown.length} صور أخرى محفوظة في التطبيق</div>` : '')
     + (docItems.length
@@ -1406,13 +1406,16 @@ function buildPdfHtml(rec, photoDataUrls, opts){
     has(rec.qual_impact) ? `<div style="flex:1;"><div style="font-size:9.5px;color:#3d7eb9;font-weight:700;margin-bottom:3px;">ملاحظة نوعية</div>${idBoxPdf(rec.qual_impact)}</div>` : ''
   ].join('');
 
+  const stamp = typeof shahidSourceStamp === 'function' ? shahidSourceStamp(rec) : '';
+  const hasMedia = shown.length > 0 || docItems.length > 0;
   const sections = [
     has(rec.description) ? idSectionPdf('الوصف', idBoxPdf(rec.description)) : '',
     has(rec.goal) ? idSectionPdf('الهدف من هذا الإجراء', idBoxPdf(rec.goal)) : '',
     steps.length ? idSectionPdf('خطوات التنفيذ الفعلية', stepsHtml) : '',
     impactCells ? idSectionPdf('الأثر / النتيجة الملاحظة', `<div style="display:flex;gap:10px;">${impactCells}</div>`) : '',
     has(rec.reflection) ? idSectionPdf('تأمل المعلم', idBoxPdf(rec.reflection)) : '',
-    idSectionPdf('الشاهد المصوّر', photosBody + photosNote)
+    hasMedia ? idSectionPdf('الشاهد المصوّر', photosBody + photosNote)
+      : (stamp ? idSectionPdf('الدليل من بيانات التطبيق', idBoxPdf('هذا الشاهد مبني على عمل مسجّل في التطبيق: ' + stamp)) : '')
   ].filter(Boolean).map(h => `<div style="padding:0 30px;margin-top:13px;">${h}</div>`).join('');
 
   const moe = shahidLogos.moe ? `<img src="${escapeHtml(shahidLogos.moe)}" alt="" style="width:83px;display:block;">` : '';
@@ -1421,8 +1424,8 @@ function buildPdfHtml(rec, photoDataUrls, opts){
   const metaExtra = (has(rec.ref_number) || has(dateDisplay))
     ? `<div style="display:flex;border-top:1px solid ${SH_LINE};">${idMetaPdf('الرقم المرجعي', rec.ref_number)}${idMetaPdf('التاريخ', dateDisplay)}</div>` : '';
   /* ختم المصدر (REPORTS.md ق29): الشاهد مبني على عمل مسجّل في التطبيق */
-  const stamp = typeof shahidSourceStamp === 'function' ? shahidSourceStamp(rec) : '';
-  const sourceRow = stamp ? `<div style="display:flex;border-top:1px solid ${SH_LINE};">${idMetaPdf('مصدر الشاهد', stamp)}</div>` : '';
+  /* بلا صور ومع مصدر: يظهر المصدر في قسم «الدليل من بيانات التطبيق» بدل صف البيانات (لا تكرار) */
+  const sourceRow = stamp && hasMedia ? `<div style="display:flex;border-top:1px solid ${SH_LINE};">${idMetaPdf('مصدر الشاهد', stamp)}</div>` : '';
 
   return `
   <div dir="rtl" style="width:794px;background:#fff;font-family:${SH_FONT};color:#15445a;box-sizing:border-box;padding-top:22px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">

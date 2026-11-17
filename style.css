@@ -3218,3 +3218,8 @@ select.tlx-inp{min-height:44px;}
 .ibx-hidden-row > span{display:flex;flex-direction:column;}
 .ibx-hidden-row b{font-size:13px;color:var(--navy);font-weight:800;}
 .ibx-hidden-row small{font-size:11.5px;color:var(--muted);}
+/* بطاقة الدليل في ورقة التوثيق (app-53): معاينة مصغّرة لعرض 720px */
+.ibx-card-prev{border:1px solid var(--line);border-radius:var(--ui-r-btn);overflow:hidden;background:var(--card);margin-bottom:8px;}
+.ibx-card-zoom{zoom:0.42;}
+@media (min-width:520px){.ibx-card-zoom{zoom:0.6;}}
+.ibx-tip{margin:0 2px 8px;font-size:12px;line-height:1.8;color:var(--ui-body);}
