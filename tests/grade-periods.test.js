@@ -586,3 +586,51 @@ test('حذف طالب — لقطة السلة تحوي درجتي الفترتي
   assert.deepEqual(store.restored, ['T1']);
 });
 
+
+/* ============ انحدار: "يبدأ من الكاملة" + فترات — الكشف كان يبقى على الأولى (كاملة تلقائيًا)
+   فيختفي كل إنقاص في الجارية ويظن المعلم أن الدرجة "رجعت كاملة" ============ */
+const FULL_PART = (starts, n) => withPeriods({ 'kind:participation': { n: n || 3, starts } }, { startFull: { participation: true } });
+
+test('انحدار: مع "يبدأ من الكاملة" الفترة الجارية تُحسب فورًا؛ وبدونه تبقى القاعدة القديمة', () => {
+  const app = loadApp();
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a'], live: true }), 2);
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: [], live: true }), 1);
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a', 'b'], live: true }), 3);
+  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a'] }), 1, 'من 0: الجارية لا تُحسب حتى تنتهي');
+  const f = FULL_PART(['2026-10-25']);
+  assert.equal(app.periodCfgOf(f, TERM, 'kind:participation').live, true);
+  assert.equal(app.periodCfgOf(withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }), TERM, 'kind:participation').live, undefined);
+  const tf = withPeriods({ ['tool:' + TOOL_ID]: { n: 2, starts: ['x'] } }, { startFull: { ['tool:' + TOOL_ID]: true } });
+  assert.equal(app.periodCfgOf(tf, TERM, 'tool:' + TOOL_ID).live, true);
+  assert.equal(app.periodCfgOf(tf, TERM, 'kind:participation').live, undefined, 'فترة واحدة: لا شيء');
+});
+
+test('انحدار: الكشف يصحّح عدد الفترات المحسوبة ويعرض الجارية في المعدّل (10 ثم 7 = 8.5، لا 10)', async () => {
+  const seed = {
+    classroom_grade_columns: [col('P', 'participation', 10, { counted_periods: 1 })],
+    classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 10 }],
+    classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 10 }, { teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 7 }],
+  };
+  const { app, log, g } = await gradeSheet(seed, FULL_PART(['2026-10-25']));
+  const rpc = log.filter(l => l.op === 'rpc' && l.name === 'set_column_counted_periods').map(l => l.args.p_column_id + ':' + l.args.p_counted);
+  assert.deepEqual(rpc, ['P:2']);
+  const html = app.crmGradeStudentPageHtml(g, 'a');
+  assert.match(html, /\(10 \+ 7\) ÷ 2 = <b>8\.5<\/b>/);
+  assert.doesNotMatch(html, /تُحسب عند انتهائها/);
+});
+
+test('انحدار: الرجوع لفترة سابقة يُنبّه أن رصد ما بعدها يُخفى (لا يُحذف)، والإلغاء لا يغيّر شيئًا', async () => {
+  const later = [{ id: 'r1', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 7 }];
+  const log = [];
+  const app = settingsApp(FULL_PART(['2026-10-25']), { classroom_grade_period_scores: later }, log, false);
+  assert.equal(await app.goToComponentPeriod('kind:participation', 1), false);
+  assert.equal(get(app, 'window.__confirm.length'), 1);
+  assert.match(get(app, 'window.__confirm[0]'), /يُخفي ما رصدته في الفترة الثانية[\s\S]*لا يُحذف شيء/);
+  assert.deepEqual([...get(app, `appFeatures.periods['${TK}']['kind:participation'].starts`)], ['2026-10-25']);
+  assert.equal(log.filter(l => l.op === 'delete').length, 0);
+  /* بلا رصد لاحق: لا سؤال */
+  const app2 = settingsApp(FULL_PART(['2026-10-25']), { classroom_grade_period_scores: [] }, [], false);
+  await app2.goToComponentPeriod('kind:participation', 1);
+  assert.equal(get(app2, 'window.__confirm.length'), 0);
+  assert.deepEqual([...get(app2, `appFeatures.periods['${TK}']['kind:participation'].starts`)], []);
+});

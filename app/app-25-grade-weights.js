@@ -245,10 +245,10 @@ function paintGsCompSheet(){
       ${tool ? `<a href="#" class="gs-sheet-edit" onclick="event.preventDefault();closeCrmModal();openCustomToolEditor('${tool.id}')">تعديل الاسم</a>` : ''}</div>
     <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>الدرجة</span><span>المتاح ${formatScore(room)} من ${formatScore(gradeCap('performance'))}</span></div>
       <div class="gs-step"><button type="button" onclick="stepGsCompWeight(-1)" ${d.weight - GRADE_WEIGHT_STEP < min ? 'disabled' : ''} aria-label="أنقص">−</button><b>${formatScore(d.weight)}</b><button type="button" onclick="stepGsCompWeight(1)" ${d.weight + GRADE_WEIGHT_STEP > room ? 'disabled' : ''} aria-label="زد">+</button></div></div>
-    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>عدد الفترات</span><span>الدرجة = معدّل الفترات المنتهية</span></div>
+    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>عدد الفترات</span><span>${cfg.live ? 'الدرجة = معدّل الفترات' : 'الدرجة = معدّل الفترات المنتهية'}</span></div>
       ${seg([[1, '1'], [2, '2'], [3, '3']], d.n, 'setGsCompPeriods')}
       ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now || cfg.ended ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
-        ${cfg.ended ? '<b>انتهت كل الفترات — كلها محسوبة ✓</b>' : `الآن: <b>${PERIOD_NAMES[now]}</b>${now > 1 ? ' <small>(تُحسب عند انتهائها)</small>' : ''}`}
+        ${cfg.ended ? '<b>انتهت كل الفترات — كلها محسوبة ✓</b>' : `الآن: <b>${PERIOD_NAMES[now]}</b>${now > (countedPeriodsOf(cfg) || cfg.n) ? ' <small>(تُحسب عند انتهائها)</small>' : ''}`}
         ${now < cfg.n ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now + 1})">ابدأ ${PERIOD_NAMES[now + 1]} ←</button>` : ''}
         ${now === cfg.n && !cfg.ended ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();endComponentPeriods('${id}', true)">✓ أنهِ ${PERIOD_NAMES[now]}</button>` : ''}
         ${cfg.ended ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();endComponentPeriods('${id}', false)">→ رجوع</button>`
@@ -797,7 +797,10 @@ async function applyGradeStartMode(key, tool, name, full){
   appFeatures = next;
   afterAppFeaturesChanged();
   await saveAppFeatures();
-  if(changed) await resyncStartModeColumns(key, tool, term);
+  /* "يبدأ من الكاملة" يغيّر عدد الفترات المحسوبة (الجارية تُحسب فورًا) — المرصود مباشرة يُحدَّث بالقاعدة */
+  const pk = key.indexOf('tool:') === 0 ? key : 'kind:' + key;
+  try{ if(typeof applyCountedPeriods === 'function') await applyCountedPeriods(term, pk, periodCfg(term, pk)); } catch(e){} /* يُصحَّح عند فتح الكشف */
+  if(changed || periodCfg(term, pk).n > 1) await resyncStartModeColumns(key, tool, term);
   showToast(`"${name}" تبدأ الآن من ${full ? 'الدرجة كاملة' : '0'} ✓`, 'ok');
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
   renderCrmGrades();
