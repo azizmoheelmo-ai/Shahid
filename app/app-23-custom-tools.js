@@ -65,20 +65,6 @@ function nextToolStatus(v, full){
   return v === undefined || v === null ? 1 : (v >= 1 ? 0 : null); /* لم يُرصد ← تمّ ← لم يتمّ ← لم يُرصد */
 }
 
-/* "يبدأ من الكاملة" لأداة حالة/درجة: من لم يُرصد له في هذه الحصة يأخذ الكاملة (لا يكتب فوق رصد قائم أو متزامن) */
-async function fillToolLessonFull(tool, s, term, period, studentIds, values){
-  const missing = (studentIds || []).filter(id => !values.has(id));
-  if(!missing.length) return [];
-  const value = toolFullValue(tool);
-  const { error } = await sb.from('classroom_tool_marks').upsert(missing.map(id => ({
-    teacher_id: currentUser.id, tool_id: tool.id, student_id: id, section_id: s.sectionId, academic_year: term.year, semester: term.semester,
-    mark_date: s.dateIso, period, value
-  })), { onConflict: 'tool_id,student_id,mark_date,period', ignoreDuplicates: true });
-  if(error) throw error;
-  missing.forEach(id => values.set(id, value));
-  return missing;
-}
-
 function sheetModeLabel(mode){
   if(String(mode).indexOf('tool:') === 0){
     const t = customToolById(mode.slice(5));
@@ -93,6 +79,7 @@ function enabledCustomToolModes(){
 
 function toolDbErrorMessage(error){
   const msg = (error && error.message) || '';
+  if(typeof isGradeLockedError === 'function' && isGradeLockedError(error)) return gradeSaveErrorText(error);
   if(msg.indexOf('tool_mark_above_max') !== -1) return 'الدرجة أكبر من درجة الأداة — ربما عُدّلت من جهاز آخر';
   if(msg.indexOf('tool_max_below_marks') !== -1) return 'توجد درجات مرصودة أعلى من الدرجة الجديدة';
   if(msg.indexOf('tool_type_locked') !== -1) return 'لا يمكن تغيير نوع الأداة بعد إنشائها';
@@ -244,6 +231,9 @@ async function renderCrmToolMode(students, tool){
       : status
       ? 'اضغط: تمّ ← لم يتمّ ← لم يُرصد. يُحفظ فورًا، و"لم يُرصد" لا يُحسب.'
       : `اضغط على الطالب لرصد درجته من ${formatScore(tool.max_score)}. ما لم يُرصد لا يُحسب.`}${s.tool.column ? ' يُحسب في عمود "' + escapeHtml(s.tool.column.name) + '".' : ''}</p>
+    ${crmFillRowHtml('من لم يُرصد له', status
+      ? [['تمّ', 'fillCrmToolEmpty(1)'], ['لم يتمّ', 'fillCrmToolEmpty(0)']]
+      : [[`أعطِه ${formatScore(tool.max_score)}`, `fillCrmToolEmpty(${Number(tool.max_score)})`], ['أعطِه 0', 'fillCrmToolEmpty(0)']])}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn${crmAbsentClass(s, st.id)}" id="crmTool_${st.id}" onclick="tapCrmTool('${st.id}')">
@@ -252,8 +242,7 @@ async function renderCrmToolMode(students, tool){
     </div>
     <div class="crm-sheet-bar">
       ${crmSheetFinishBtnHtml()}
-      ${status && !full ? '<button class="btn btn-outline" style="flex:1;" onclick="markAllCrmToolDone()">الكل تمّ</button>' : ''}
-      <button class="btn btn-outline"${status && !full ? '' : ' style="flex:1;"'} onclick="closeCrmLessonSheet()">رجوع</button>
+      <button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button>
     </div>`;
   students.forEach(st => paintCrmTool(st.id));
   paintCrmToolCounts();
@@ -392,15 +381,20 @@ function setCrmToolValue(studentId, value){
   return next;
 }
 
+/* «من لم يُرصد له: تمّ/لم يتمّ» أو «أعطِه الكاملة/0» في هذه الحصة — كأنه رصد يدوي، لا يمسّ من رُصد له (بدل «يبدأ من» الملغى) */
 let crmToolBulkBusy = false;
-async function markAllCrmToolDone(){
+function markAllCrmToolDone(){ return fillCrmToolEmpty(1); }
+async function fillCrmToolEmpty(value){
   const s = crmSheet;
   const t = s && s.tool;
-  if(!t || t.tool.tool_type !== 'status' || crmToolBulkBusy) return;
+  if(!t || crmToolBulkBusy) return;
+  value = Number(value);
+  if(!(value === 0 || (t.tool.tool_type === 'status' ? value === 1 : value > 0 && value <= Number(t.tool.max_score)))) return;
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !t.values.has(id));
-  if(!ids.length) return;
+  if(!ids.length){ showToast('رُصد للجميع في هذه الحصة', 'ok'); return; }
   crmToolBulkBusy = true;
-  ids.forEach(id => { t.values.set(id, 1); paintCrmTool(id); });
+  setCrmFillBusy(true);
+  ids.forEach(id => { t.values.set(id, value); paintCrmTool(id); });
   paintCrmToolCounts();
   const uid = currentUser.id;
   /* حفظ فردي معلّق لنفس الطالب (كمسح رصده) يسبق الحفظ الجماعي، ونقرة فردية بعده تنتظره — وإلا سبق أحدهما الآخر وخالف المحفوظُ المعروض */
@@ -410,21 +404,21 @@ async function markAllCrmToolDone(){
       await Promise.all(pending);
       const { error } = await sb.from('classroom_tool_marks').upsert(ids.map(id => ({
         teacher_id: uid, tool_id: t.tool.id, student_id: id, section_id: s.sectionId, academic_year: t.term.year, semester: t.term.semester,
-        mark_date: s.dateIso, period: t.period, value: 1
-      })), { onConflict: 'tool_id,student_id,mark_date,period' });
+        mark_date: s.dateIso, period: t.period, value
+      })), { onConflict: 'tool_id,student_id,mark_date,period', ignoreDuplicates: true }); /* لا يكتب فوق رصد متزامن */
       if(error) throw error;
       crmLogSaved(t, ids);
-      ids.forEach(id => crmLogChange(t, id, null, 1));
+      ids.forEach(id => crmLogChange(t, id, null, value));
       await syncToolColumn(t.column, t.tool, s.sectionId, t.term, ids);
-      showToast('سُجّل "تمّ" للباقين — اضغط على من لم يتمّ لتعديله', 'ok');
+      showToast(t.tool.tool_type === 'status' ? `سُجّل "${value ? 'تمّ' : 'لم يتمّ'}" للباقين ✓` : `سُجّل ${formatScore(value)} للباقين ✓`, 'ok');
     } catch(e){
       markCrmSheetFailure();
-      showToast('تعذّر الحفظ: ' + toolDbErrorMessage(e), 'error');
+      showToast('تعذّر الحفظ: ' + (isGradeLockedError(e) ? gradeSaveErrorText(e) : toolDbErrorMessage(e)), 'error');
       if(crmSheet === s) setCrmSheetMode('tool:' + t.tool.id);
     }
   })();
   ids.forEach(id => t.queue.set(id, bulk));
-  try{ await bulk; } finally { crmToolBulkBusy = false; }
+  try{ await bulk; } finally { crmToolBulkBusy = false; setCrmFillBusy(false); }
 }
 
 /* ============ المكوّنات الخاصة (من "⚙ إعداد الدرجات" ← + مكوّن) ============ */

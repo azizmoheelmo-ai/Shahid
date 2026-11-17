@@ -13,7 +13,6 @@
    ============================================================ */
 
 const HOMEWORK_CYCLE = ['missing', 'submitted', 'partial', 'late'];
-/* "يبدأ من الكاملة" (إعداد الدرجات): الكل سلّم، والنقرة الأولى = لم يسلّم */
 const HOMEWORK_LABELS = { missing: 'لم يسلّم', submitted: 'سلّم', partial: 'ناقص', late: 'متأخر' };
 const HOMEWORK_CREDIT = { submitted: 1, late: 0.75, partial: 0.5, missing: 0 };
 
@@ -260,6 +259,9 @@ async function renderCrmParticipation(students, tool){
   const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
     <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
+    ${crmFillRowHtml('من بلا درجة' + (shown ? ' في ' + PERIOD_NAMES[shown] : ''), [
+      [`أعطِه ${formatScore(column.max_score)}`, `fillCrmParticipationEmpty(${Number(column.max_score)})`],
+      ['أعطِه 0', 'fillCrmParticipationEmpty(0)']])}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <div class="crm-att-btn crm-part-tile${crmAbsentClass(s, st.id)}" id="crmPart_${st.id}">
@@ -325,7 +327,7 @@ function queueCrmParticipation(studentId, delta, kind){
     markCrmSheetFailure();
     const isTap = kind !== 'undo';
     crmLogFailed(p, [studentId], (isTap ? 'نقرة لم تُحفظ' : 'تراجع لم يُحفظ') + ' (' + (e.message || 'خطأ بالاتصال') + ')');
-    showToast((isTap ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + (e.message || 'خطأ بالاتصال'), 'error');
+    showToast((isTap ? 'لم تُحفظ النقرة: ' : 'لم يُحفظ التراجع: ') + gradeSaveErrorText(e), 'error');
     /* إرجاع كل أثر العرض المتفائل: الدرجة والعدّاد وسجل التراجع. لو بقيت نقرة
        فاشلة في السجل، أنقص "تراجع" لاحقًا درجة حقيقية لم تُضف أصلًا */
     const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
@@ -355,6 +357,45 @@ function participationUndoEntry(p, studentId, dir){
 }
 
 /* dir: +1 أو −1 (زرّا المستطيل)؛ بلا dir = اتجاه الوضع */
+/* سطر التعبئة الصريحة (بدل «يبدأ من» الملغى) — يُستعمل في كل أوراق الرصد. buttons: [[نص، استدعاء]] */
+function crmFillRowHtml(label, buttons){
+  return `<div class="crm-fill-row"><span>${escapeHtml(label)}:</span>${buttons.map(([t, call]) =>
+    `<button type="button" class="btn btn-outline crm-mini-btn crm-fill-btn" onclick="${call}">${escapeHtml(t)}</button>`).join('')}</div>`;
+}
+function setCrmFillBusy(on){
+  document.querySelectorAll('.crm-fill-btn').forEach(b => { b.disabled = on; });
+}
+
+/* «أعطِه 10 / 0» لمن لا درجة له في فترة الورقة: كأنه رصد يدوي (لا يمسّ من له درجة، ويُحفظ في سجل الدرجات) */
+let crmPartFillBusy = false;
+async function fillCrmParticipationEmpty(value){
+  const s = crmSheet;
+  const p = s && s.part;
+  if(!p || crmPartFillBusy) return;
+  const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !p.scores.has(id));
+  if(!ids.length){ showToast('لا أحد بلا درجة', 'ok'); return; }
+  const where = p.period > 1 ? ' في ' + PERIOD_NAMES[p.period] : '';
+  if(!(await showConfirm(`أعطِ ${ids.length === 1 ? 'طالبًا واحدًا' : ids.length + ' طلاب'} بلا درجة${where} ${formatScore(value)} من ${formatScore(p.column.max_score)} في "${p.column.name}"؟ تُكتب كأنك رصدتها بيدك، ولا تمسّ من له درجة.`))) return;
+  if(crmSheet !== s || s.part !== p || crmPartFillBusy) return; /* أُغلقت الورقة أو تغيّرت أثناء السؤال */
+  crmPartFillBusy = true;
+  setCrmFillBusy(true);
+  try{
+    await Promise.all(ids.map(id => p.queue.get(id)).filter(Boolean)); /* نقرة معلّقة لنفس الطالب تسبق التعبئة */
+    const missing = ids.filter(id => !p.scores.has(id));
+    const done = await fillPeriodScoresMissing(p.column, missing, p.period, value);
+    if(crmSheet === s && s.part === p){ done.forEach(id => { p.scores.set(id, Number(value)); paintCrmParticipation(id); }); }
+    if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
+    showToast(`سُجّل ${formatScore(value)} لمن لا درجة له (${done.length}) ✓`, 'ok');
+  } catch(e){
+    markCrmSheetFailure();
+    showToast('تعذّر الحفظ: ' + gradeSaveErrorText(e), 'error');
+    if(crmSheet === s) setCrmSheetMode(s.mode);
+  } finally {
+    crmPartFillBusy = false;
+    setCrmFillBusy(false);
+  }
+}
+
 function tapCrmParticipation(studentId, dir){
   const s = crmSheet;
   if(!s || !s.part) return;
@@ -530,7 +571,7 @@ async function markAllCrmHomeworkSubmitted(){
   } catch(e){
     markCrmSheetFailure();
     if(!stored) crmLogFailed(h, ids, e.message || 'خطأ بالاتصال');
-    showToast('تعذّر الحفظ: ' + (e.message || '') , 'error');
+    showToast('تعذّر الحفظ: ' + gradeSaveErrorText(e), 'error');
     if(crmSheet === s) setCrmSheetMode('homework');
   } finally {
     crmHwBulkBusy = false;
@@ -550,15 +591,30 @@ function crmHomeworkFormHtml(sectionId, h){
       <input class="goal-input" id="crmHwTitle" maxlength="200" placeholder="مثال: تمارين الوحدة 2 صفحة 34" value="${edit ? escapeHtml(h.title) : ''}" style="margin-bottom:8px;">
       <label class="crm-field-label">موعد التسليم</label>
       <input type="date" class="goal-input" id="crmHwDue" value="${escapeHtml(h ? h.due_date : (crmSheet && crmSheet.sectionId === sectionId ? crmSheet.dateIso : localIsoDate()))}" style="margin-bottom:10px;">
+      ${edit ? '' : `<label class="crm-field-label">يبدأ الطلاب</label>
+      <div class="crm-seg" style="margin-bottom:10px;">
+        <button type="button" id="crmHwStart0" class="is-on" aria-pressed="true" onclick="setCrmHwStart(false)">لم يُرصد</button>
+        <button type="button" id="crmHwStart1" aria-pressed="false" onclick="setCrmHwStart(true)">الجميع سلّم</button>
+      </div>`}
       <button class="btn btn-primary" id="crmHwSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmHomework()">${edit ? 'حفظ التعديل' : 'حفظ الواجب'}</button>
       ${edit ? `<button class="btn btn-outline" id="crmHwDeleteBtn" style="width:100%;justify-content:center;margin-top:8px;color:#8A2C2C;" onclick="deleteCrmHomework('${h.id}', '${sectionId}')">حذف الواجب</button>` : ''}
     </div>`;
 }
 
+/* سؤال الإنشاء: «الجميع سلّم» يُكتب مرة واحدة عند الحفظ (ثم تضغط على المقصّرين) */
+function setCrmHwStart(on){
+  if(!crmHomeworkDraft || crmHomeworkDraft.editId) return;
+  crmHomeworkDraft.startSubmitted = !!on;
+  [['crmHwStart0', !on], ['crmHwStart1', !!on]].forEach(([id, v]) => {
+    const b = document.getElementById(id);
+    if(b){ b.className = v ? 'is-on' : ''; b.setAttribute('aria-pressed', String(v)); }
+  });
+}
+
 function openCrmHomeworkModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  crmHomeworkDraft = { sectionId, saving: false };
+  crmHomeworkDraft = { sectionId, saving: false, startSubmitted: false };
   showInfoModal(crmHomeworkFormHtml(sectionId, null), '420px');
 }
 

@@ -436,15 +436,24 @@ function openCrmPeriodHelp(columnId){
   showInfoModal(periodHelpHtml(c.name, key, cfg), '420px');
 }
 
-/* ============ "يبدأ من الدرجة كاملة": من لا درجة له في الفترة يأخذ الكاملة ============ */
-async function fillStartFullPeriodScores(column, studentIds, period, current){
-  const missing = (studentIds || []).filter(id => !current.has(id));
-  if(!missing.length) return [];
-  const res = await Promise.all(missing.map(id => sb.rpc('set_period_score',
-    { p_column_id: column.id, p_student_id: id, p_period: period, p_score: Number(column.max_score), p_only_missing: true })));
+/* ============ تعبئة صريحة (بدل «يبدأ من» الملغى): من لا درجة له في الفترة يأخذ value ============ */
+/* لا تكتب فوق رصد قائم أو متزامن (only_missing بالقاعدة). ترجع من كُتبت لهم. يرمي عند الفشل (ومنه الفترة المقفلة) */
+async function fillPeriodScoresMissing(column, studentIds, period, value){
+  const ids = studentIds || [];
+  if(!ids.length) return [];
+  const res = await Promise.all(ids.map(id => sb.rpc('set_period_score',
+    { p_column_id: column.id, p_student_id: id, p_period: period, p_score: Number(value), p_only_missing: true })));
   const err = res.find(r => r.error);
   if(err) throw err.error;
-  return missing;
+  return ids;
+}
+
+/* رسالة خطأ الحفظ: الفترة المقفلة (grade_lock_guard بالقاعدة) بلغة المعلم */
+function isGradeLockedError(e){
+  return /grade_period_locked/.test(String((e && (e.message || e.details || e.hint)) || e || ''));
+}
+function gradeSaveErrorText(e){
+  return isGradeLockedError(e) ? 'الفترة مقفلة — افتحها للتعديل من نافذة الفترات' : ((e && e.message) || 'خطأ بالاتصال');
 }
 
 async function loadPeriodRows(columnId){
