@@ -843,7 +843,7 @@ async function inboxPrepareSheet(it){
     const [cRes, rRes, iRes, sRes] = await Promise.all([
       sb.from('survey_campaigns').select('id, title, audience, questions, min_results, created_at').eq('teacher_id', uid).eq('id', it.ref.campaignId).maybeSingle(),
       fetchAllRows((from, to) => sb.from('survey_responses').select('id, answers, created_on').eq('teacher_id', uid).eq('campaign_id', it.ref.campaignId).order('id', { ascending: true }).range(from, to)),
-      fetchAllRows((from, to) => sb.from('survey_invites').select('id, sent_at').eq('teacher_id', uid).eq('campaign_id', it.ref.campaignId).order('id', { ascending: true }).range(from, to)),
+      fetchAllRows((from, to) => sb.from('survey_invites').select('id, sent_at, answered_on').eq('teacher_id', uid).eq('campaign_id', it.ref.campaignId).order('id', { ascending: true }).range(from, to)),
       sb.from('survey_campaign_sections').select('section_id').eq('teacher_id', uid).eq('campaign_id', it.ref.campaignId)
     ]);
     if(cRes.error || rRes.error || iRes.error) throw new Error('تعذّر تحميل الاستبانة');
@@ -853,6 +853,7 @@ async function inboxPrepareSheet(it){
     sheet.draft = buildSurveyShahidDraft({ campaign: cRes.data, analysis: an, sent: (iRes.data || []).filter(x => x.sent_at).length,
       sections: sRes.error ? 0 : (sRes.data || []).length, date: (rRes.data || []).map(x => x.created_on).filter(Boolean).sort().pop() || todayIso });
     sheet.card = evidenceCardSurvey({ title: cRes.data.title, analysis: an });
+    sheet.report = { kind: 'survey', label: 'تقرير نتائج الاستبانة', campaign: cRes.data, analysis: an, counts: svCounts(iRes.data || []) };
   } else if(it.type === 'lessons_month'){
     const from = it.ref.month + '-01';
     const [y, m] = it.ref.month.split('-').map(Number);
@@ -875,6 +876,15 @@ async function inboxPrepareSheet(it){
     if(scores.length < INBOX_TEST_MIN) throw new Error(`يُحلَّل الاختبار بعد رصده لـ${INBOX_TEST_MIN} طلاب على الأقل`);
     const date = scores.map(x => String(x.updated_at || '').slice(0, 10)).filter(Boolean).sort().pop() || todayIso;
     const sl = await inboxSectionLabel(cRes.data.section_id);
+    /* تقرير الشعبة لهذا البند: الطلاب بلا أسمائهم (دفاع إضافي فوق withNames: false — لا اسم يصل للتقرير أصلًا) */
+    const stRes = await sb.from('classroom_students').select('id').eq('teacher_id', uid).eq('section_id', cRes.data.section_id);
+    if(!stRes.error){
+      const ids = new Set((stRes.data || []).map(x => x.id));
+      scores.forEach(x => ids.add(x.student_id));
+      sheet.report = { kind: 'section', label: 'تقرير الشعبة لهذا الاختبار', column: cRes.data, sectionLabel: sl,
+        scores: scores.map(x => ({ column_id: cRes.data.id, student_id: x.student_id, score: x.score })),
+        students: [...ids].map(id => ({ id, full_name: 'طالب', section_id: cRes.data.section_id })) };
+    }
     if(it.type === 'test_analysis'){
       const rules = typeof gradeRulesNow === 'function' ? gradeRulesNow() : { pass: 50, top: 90 };
       sheet.draft = buildTestAnalysisShahidDraft({ column: cRes.data, scores: scores.map(x => x.score), rules, sectionLabel: sl, date });
@@ -893,6 +903,8 @@ async function inboxPrepareSheet(it){
   if(!sheet.draft) throw new Error('نوع عمل غير معروف');
   /* بطاقة الدليل تُرفق افتراضيًا (قرار المستخدم)، ويزيلها المعلم بنقرة */
   sheet.cardOn = !!sheet.card;
+  /* صفحة التقرير الرسمي: باختيار المعلم (زر)، لا تلقائيًا */
+  sheet.reportOn = false;
   /* الأثر الذي لاحظه يكتبه المعلم دائمًا: لا تعبئة مسبقة تُغني عن كتابته */
   sheet.qual = '';
   sheet.elementKey = sheet.draft.elementKey;
@@ -991,6 +1003,8 @@ function renderInboxSheet(){
     ${s.card ? `<div class="tlx-lbl">بطاقة الدليل <small>${s.cardOn ? 'تُرفق أول صورة في الشاهد' : 'لن تُرفق'}</small></div>
     ${s.cardOn ? `<div class="ibx-card-prev" aria-label="معاينة بطاقة الدليل"><div class="ibx-card-zoom">${buildEvidenceCardHtml(s.card)}</div></div>` : ''}
     <button type="button" class="tlx-chip${s.cardOn ? '' : ' is-on'}" ${inboxBusy ? 'disabled' : ''} onclick="inboxToggleCard()">${s.cardOn ? 'إزالة البطاقة' : 'إرفاق بطاقة الدليل'}</button>` : ''}
+    ${s.report ? `<div class="tlx-lbl">صفحة التقرير الرسمي <small>${s.report.kind === 'survey' ? 'بلا التعليقات الحرة' : 'بلا أسماء طلاب'}</small></div>
+    <button type="button" class="tlx-chip${s.reportOn ? ' is-on' : ''}" ${inboxBusy ? 'disabled' : ''} onclick="inboxToggleReport()">${s.reportOn ? '✓ ' + escapeHtml(s.report.label) + ' — تُرفق' : 'أرفق ' + escapeHtml(s.report.label)}</button>` : ''}
     <div class="tlx-lbl">صور أخرى أو مستند <small>اختياري — حتى ${INBOX_MAX_FILES}</small></div>
     ${INBOX_PHOTO_TIPS[s.item.type] ? `<p class="ibx-tip">${escapeHtml(INBOX_PHOTO_TIPS[s.item.type])}</p>` : ''}
     <div class="tlx-chips">${files}${s.files.length < INBOX_MAX_FILES && !inboxBusy
@@ -1015,6 +1029,13 @@ const INBOX_PHOTO_TIPS = {
   test_analysis: 'تصوّر: نموذج الاختبار، أو أوراق مصحّحة بلا أسماء.',
   rubric_test: 'تصوّر: ورقة سلّم التقدير المطبوعة، أو ورقة طالب بلا اسم.'
 };
+
+function inboxToggleReport(){
+  if(!inboxSheet || !inboxSheet.report || inboxBusy) return;
+  inboxSyncInputs();
+  inboxSheet.reportOn = !inboxSheet.reportOn;
+  renderInboxSheet();
+}
 
 function inboxToggleCard(){
   if(!inboxSheet || !inboxSheet.card || inboxBusy) return;
@@ -1131,6 +1152,11 @@ async function inboxSave(){
     }
     const files = await Promise.all(s.files.map(compressImage));
     /* بطاقة الدليل أول صورة؛ فشل رسمها لا يمنع حفظ الشاهد */
+    /* صفحة التقرير بعد البطاقة؛ فشل رسمها لا يمنع الحفظ */
+    if(s.report && s.reportOn){
+      try{ files.unshift(await renderInboxReportFile(s.report)); }
+      catch(e){ showToast('تعذّر تجهيز صفحة التقرير — يُحفظ الشاهد بدونها', 'error'); }
+    }
     if(s.card && s.cardOn){
       try{ files.unshift(await renderEvidenceCardFile(s.card)); }
       catch(e){ showToast('تعذّر رسم بطاقة الدليل — يُحفظ الشاهد بدونها', 'error'); }

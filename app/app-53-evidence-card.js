@@ -181,20 +181,73 @@ function buildEvidenceCardHtml(card){
   </div>`;
 }
 
-/* يرسم البطاقة صورة JPEG (File) عبر html2canvas. يرمي عند الفشل — المستدعي يحفظ الشاهد بدونها */
-async function renderEvidenceCardFile(card){
+/* يرسم HTML صورة JPEG (File) عبر html2canvas داخل pdfRenderArea المخفي. يرمي عند الفشل.
+   opts: { width (عرض التصميم)، name (اسم الملف)، maxHeight (قصّ الطول: الصفحة الأولى من تقرير طويل) } */
+async function renderHtmlImageFile(html, opts){
   await ensurePdfLibs();
   const area = document.getElementById('pdfRenderArea');
   if(!area || typeof html2canvas !== 'function') throw new Error('no_renderer');
+  const pad = Number(opts.pad) || 0; /* هامش أبيض حول تصميم صُمّم للطباعة بهوامش الورقة */
+  const width = opts.width + 2 * pad;
   const holder = document.createElement('div');
-  holder.innerHTML = buildEvidenceCardHtml(card);
+  holder.style.width = width + 'px';
+  holder.style.background = '#fff';
+  holder.style.padding = pad + 'px';
+  holder.style.boxSizing = 'border-box';
+  holder.innerHTML = html;
   area.appendChild(holder);
   try{
-    const canvas = await html2canvas(holder.firstElementChild, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    const full = holder.scrollHeight || holder.offsetHeight || 0;
+    const height = opts.maxHeight && full > opts.maxHeight ? opts.maxHeight : undefined;
+    const canvas = await html2canvas(holder, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, width, height, windowWidth: width });
     const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.9));
     if(!blob) throw new Error('no_blob');
-    return new File([blob], 'evidence-card.jpg', { type: 'image/jpeg' });
+    return new File([blob], opts.name || 'image.jpg', { type: 'image/jpeg' });
   } finally {
     holder.remove();
   }
+}
+
+async function renderEvidenceCardFile(card){
+  return renderHtmlImageFile(buildEvidenceCardHtml(card), { width: EVC_W, name: 'evidence-card.jpg' });
+}
+
+/* ============ صفحة التقرير الرسمي صورةً (الدفعة الثانية) ============
+   - الاستبانة: تقرير نتائجها (svrReportHtml، app-47) بلا أسئلة النص الحر — قد يكتب ولي الأمر فيها اسم طالب.
+   - الاختبار (تحليل/سلّم): تقرير الشعبة لهذا البند وحده (ssBuildFromAnalysis، app-38، ق11) بلا أسماء أبدًا
+     (withNames: false = لا قائمة طلاب ولا أسماء في «الرصد غير المكتمل» ولا المقارنة).
+   - الصفحة الأولى فقط (بنسبة A4)؛ والإرفاق باختيار المعلم (زر)، لا تلقائيًا. */
+const EVR_PAGE_RATIO = 1.414;
+
+/* تحليل الاستبانة بلا أسئلة النص الحر (دالة صرفة) */
+function surveyAnalysisWithoutText(an){
+  return Object.assign({}, an, { items: (an.items || []).filter(a => a.type !== 'text') });
+}
+
+/* HTML صفحة التقرير لبند في الورقة: report = { kind: 'survey', campaign, analysis, counts } | { kind: 'section', column, scores, students, sectionLabel } */
+async function buildInboxReportHtml(report){
+  if(report.kind === 'survey'){
+    if(typeof shahidWarmLogos === 'function') await shahidWarmLogos();
+    const meta = (currentUser && currentUser.user_metadata) || {};
+    const who = { name: meta.full_name || '', org: [typeof getProfileSchool === 'function' ? getProfileSchool() : '', typeof getProfileSubject === 'function' ? getProfileSubject() : ''].filter(Boolean).join(' — ') };
+    return { html: svrReportHtml(report.campaign, surveyAnalysisWithoutText(report.analysis), report.counts, who), width: 794 };
+  }
+  if(report.kind === 'section'){
+    const col = report.column;
+    const g = { sectionId: col.section_id, year: col.academic_year, semester: Number(col.semester), columns: [col], scores: report.scores, breakdown: null };
+    const a = { g, students: report.students, key: col.id, label: report.sectionLabel || '' };
+    const v = gradeAnalysisView(a);
+    const html = await ssBuildFromAnalysis(a, v, gradeReportPrefsNow(), {
+      date: localIsoDate(), logo: await gradeReportLogoData(), schoolLogo: await gradeReportSchoolLogoData(),
+      withNames: false, prev: null, noDx: typeof reportDxOn === 'function' ? !reportDxOn() : false
+    });
+    return { html, width: typeof PRINT_DESIGN_W !== 'undefined' ? PRINT_DESIGN_W : 794, pad: 24 };
+  }
+  throw new Error('unknown_report');
+}
+
+async function renderInboxReportFile(report){
+  const r = await buildInboxReportHtml(report);
+  const pad = r.pad || 0;
+  return renderHtmlImageFile(r.html, { width: r.width, pad, name: 'report-page.jpg', maxHeight: Math.round((r.width + 2 * pad) * EVR_PAGE_RATIO) });
 }
