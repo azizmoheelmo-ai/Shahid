@@ -304,7 +304,8 @@ async function loadCrmGradeSheet(sectionId){
       const fk = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
       if(fk && gradeStartsFull(fk)){
         const period = Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
-        if((await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
+        /* الأولى فقط — ما بعدها تُكتب كاملته عند انتهائها (لا يتغيّر المعدّل لمجرد بدء فترة) */
+        if(period === 1 && (await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
       }
       breakdown.set(c.id, participationPeriodBreakdown(pd.main, pd.rows));
     } catch(e){}
@@ -724,7 +725,7 @@ function crmGradeDetailHtml(g){
   g.columns.forEach(c => {
     const st = gradeColumnStats(c.id, g.scores, ids);
     html += `<th class="crm-grade-col cat-${c.category}" onclick="openCrmGradeColumnMenu('${c.id}')" title="${escapeHtml(c.measures || '')}">
-      ${escapeHtml(c.name)}${c.tool_id ? ' <span title="أداة خاصة">🧩</span>' : c.kind === 'homework' ? ' <span title="محسوب من الواجبات">⚙</span>' : c.kind === 'task' ? ' <span title="محسوب من المهام">⚙</span>' : c.kind === 'participation' ? ' <span title="+1 من ورقة الحصة">👆</span>' : ''}<span class="crm-grade-max">من ${formatScore(c.max_score)}</span>${st.missing ? `<span class="crm-grade-missing">${st.missing} بلا درجة</span>` : ''}</th>`;
+      ${escapeHtml(c.name)}${periodHelpBtnHtml(g, c)}${c.tool_id ? ' <span title="أداة خاصة">🧩</span>' : c.kind === 'homework' ? ' <span title="محسوب من الواجبات">⚙</span>' : c.kind === 'task' ? ' <span title="محسوب من المهام">⚙</span>' : c.kind === 'participation' ? ' <span title="+1 من ورقة الحصة">👆</span>' : ''}<span class="crm-grade-max">من ${formatScore(c.max_score)}</span>${st.missing ? `<span class="crm-grade-missing">${st.missing} بلا درجة</span>` : ''}</th>`;
   });
   html += `<th class="crm-grade-total">${GRADE_CATEGORY_SHORT.performance}<span class="crm-grade-max">${formatScore(perfMax)}</span></th>
     <th class="crm-grade-total">${GRADE_CATEGORY_SHORT.tests}<span class="crm-grade-max">${formatScore(caps.tests)}</span></th></tr></thead><tbody>`;

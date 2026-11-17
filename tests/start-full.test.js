@@ -4,7 +4,7 @@
    والمهام والمكوّنات الخاصة (عدّاد/حالة/درجة)
    - من الكاملة: الكل يبدأ بالدرجة الكاملة، والنقرة −1 (والصفر درجة حقيقية).
    - الواجبات من الكاملة: الكل "سلّم"، والنقرة الأولى "لم يسلّم".
-   - تغيير الخيار يعيد الكل لنقطة البداية في كل الشعب — بعد تأكيد صريح.
+   - تغيير الخيار لا يمسح ولا يكتب أي درجة: يسري على ما لم يُرصد بعد (كان يمسح كل الرصد — انحدار حقيقي).
    ============================================================ */
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -119,35 +119,50 @@ test('واجب جديد والواجبات من الكاملة — كل طلاب
   assert.deepEqual([...up.values].map(r => r.student_id + ':' + r.status + ':' + r.teacher_id + ':' + r.homework_id), ['a:submitted:u1:HW-NEW', 'b:submitted:u1:HW-NEW']);
 });
 
-test('تغيير "يبدأ من" للمشاركة — بعد تأكيد: يُمسح المرصود في كل الشعب ويأخذ الكل الكاملة، ويُحفظ الخيار؛ والإلغاء لا يكتب', async () => {
-  const log = [];
-  const seed = { classroom_grade_columns: [col('P', 'S', 'participation', 10), col('P2', 'S2', 'participation', 5), col('H', 'S', 'homework', 10), col('X', 'S', 'participation', 10, { teacher_id: 'u2' })] };
-  const app = appWith(seed, log);
-  runInAppContext(app, 'window.__answer = false;');
-  await app.setGradeStartMode('participation', true);
-  assert.equal(log.filter(l => l.op !== 'select').length, 0, 'الإلغاء لا يكتب');
-  assert.match(get(app, 'window.__confirm[0]'), /يأخذ كل الطلاب الدرجة الكاملة الآن في كل شعبك لهذا الفصل، ويُمسح ما رصدته/);
-  runInAppContext(app, 'window.__answer = true;');
-  await app.setGradeStartMode('participation', true);
-  const del = log.find(l => l.op === 'delete');
-  assert.deepEqual(Object.fromEntries(del.filters.map(([c, v]) => [c, Array.isArray(v) ? [...v].sort() : v])), { teacher_id: 'u1', column_id: ['P', 'P2'] });
-  const up = log.find(l => l.op === 'upsert');
-  assert.deepEqual([...up.values].map(r => r.column_id + ':' + r.student_id + ':' + r.score + ':' + r.teacher_id), ['P:a:10:u1', 'P:b:10:u1', 'P2:c:5:u1']);
-  assert.equal(get(app, 'appFeatures.startFull.participation'), true);
-  assert.equal(get(app, 'window.__saved'), 1);
-  assert.deepEqual([...get(app, 'window.__synced')], [], 'لا إعادة تحميل للكشف كله — المشاركة لا عمود محسوب لها');
+/* انحدار (معلم حقيقي): تبديل "يبدأ من" كان يمسح كل الرصد ويكتب الكاملة — فضاعت فترة أولى رصدها كاملةً.
+   الآن: لا يمسح ولا يكتب أي درجة؛ يُحفظ الخيار فقط ويسري على ما لم يُرصد بعد */
+const DATA_TABLES = ['classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_homework_status', 'classroom_task_students', 'classroom_tool_marks'];
+const dataWrites = log => log.filter(l => DATA_TABLES.includes(l.table) && l.op !== 'select');
+
+test('انحدار: تغيير "يبدأ من" لا يمسح ولا يكتب أي درجة — لكل المكوّنات وفي الاتجاهين، والإلغاء لا يغيّر الخيار', async () => {
+  const seed = {
+    classroom_grade_columns: [col('P', 'S', 'participation', 10), col('H', 'S', 'homework', 10), col('K', 'S', 'task', 10), col('B', 'S', 'manual', 2, { tool_id: STATUS_ID })],
+    classroom_grade_period_scores: [{ id: 1, teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 7 }],
+    classroom_homework: [{ id: 'h1', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1 }],
+    classroom_tasks: [{ id: 'T1', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, max_score: 10 }],
+    classroom_tool_marks: [{ id: 'm1', teacher_id: 'u1', tool_id: STATUS_ID, student_id: 'a', section_id: 'S', academic_year: TERM.year, semester: 1, mark_date: '2026-10-01', period: 1, value: 0 }]
+  };
+  for(const key of ['participation', 'homework', 'task', 'tool:' + STATUS_ID, 'tool:' + TOOL_ID]){
+    for(const full of [true, false]){
+      const log = [];
+      const app = appWith(seed, log, { sections: {}, tools: {}, startFull: full ? {} : { [key]: true } });
+      runInAppContext(app, `crmCustomTools = ${TOOLS}; crmCustomToolsLoaded = true;`);
+      runInAppContext(app, 'window.__answer = false;');
+      await app.setGradeStartMode(key, full);
+      assert.equal(get(app, `gradeStartsFull(${JSON.stringify(key)})`), !full, key + ': الإلغاء لا يغيّر الخيار');
+      runInAppContext(app, 'window.__answer = true;');
+      await app.setGradeStartMode(key, full);
+      assert.deepEqual(dataWrites(log), [], key + ':' + full + ' — لا كتابة ولا حذف على أي درجة');
+      assert.equal(get(app, `gradeStartsFull(${JSON.stringify(key)})`), full, key + ': حُفظ الخيار');
+      assert.equal(get(app, 'window.__saved'), 1);
+      assert.match(get(app, 'window.__confirm[0]'), /ما رصدته يبقى كما هو — لا تُمسح أي درجة/);
+      assert.doesNotMatch(get(app, 'window.__confirm[0]'), /يُمسح ما رصدته/);
+      assert.match(get(app, 'window.__toasts.join("|")'), /ما رصدته لم يتغيّر/);
+    }
+  }
 });
 
-test('تغيير "يبدأ من" للواجبات إلى 0 — يُمسح التسليم في واجبات الفصل لشعب المعلم، ولا "سلّم" جديد', async () => {
-  const log = [];
-  const seed = { classroom_homework: [{ id: 'h1', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1 }, { id: 'h9', teacher_id: 'u1', section_id: 'S', academic_year: '1447-1448', semester: 1 }] };
-  const app = appWith(seed, log, { sections: {}, tools: {}, startFull: { homework: true } });
-  await app.setGradeStartMode('homework', false);
-  const del = log.find(l => l.op === 'delete');
-  assert.deepEqual(Object.fromEntries(del.filters.map(([c, v]) => [c, Array.isArray(v) ? [...v] : v])), { teacher_id: 'u1', homework_id: ['h1'] });
-  assert.equal(log.filter(l => l.op === 'upsert').length, 0);
-  assert.equal(get(app, 'gradeStartsFull("homework")'), false);
+test('تغيير "يبدأ من": نص التأكيد يقول ما يسري من الآن لكل نوع', async () => {
+  const app = appWith({}, []);
+  runInAppContext(app, `crmCustomTools = ${TOOLS}; crmCustomToolsLoaded = true;`);
+  const t = (k, f) => app.startModeConfirmText(k, f).text;
+  assert.match(t('homework', true), /كل واجب جديد يبدأ "سلّم"/);
+  assert.match(t('task', true), /يبدأ بدرجتها كاملة/);
+  assert.match(t('tool:' + STATUS_ID, true), /كل حصة جديدة تبدأ "تمّ"/);
+  assert.match(t('participation', true), /من لم يُرصد له شيء في الفترة الجارية يبدأ من الكاملة/);
+  assert.match(t('participation', false), /"المشاركة" تبدأ من 0؟/);
 });
+
 
 const STATUS_ID = '22222222-3333-4444-5555-666666666666';
 const SCORE_ID = '33333333-4444-5555-6666-777777777777';
@@ -295,42 +310,7 @@ test('تعديل مهمة والمهام من الكاملة — المضاف ي
   assert.deepEqual([...add.values].map(r => r.student_id + ':' + r.score), ['b:10']);
 });
 
-test('تغيير "يبدأ من" للمهام — الكاملة: كل مكلَّف درجة مهمته (مهام الفصل في شعبي فقط)؛ و0: "لم يُقيَّم"', async () => {
-  const task = (id, s, max, extra) => Object.assign({ id, teacher_id: 'u1', section_id: s, academic_year: TERM.year, semester: 1, max_score: max }, extra || {});
-  const seed = { classroom_tasks: [task('T1', 'S', 10), task('T2', 'S2', 10), task('T3', 'S', 5), task('T9', 'S', 10, { academic_year: '1447-1448' }), task('TZ', 'Z', 10)] };
-  const log = [];
-  const app = appWith(seed, log);
-  await app.setGradeStartMode('task', true);
-  assert.match(get(app, 'window.__confirm[0]'), /يأخذ كل المكلَّفين الدرجة الكاملة في كل المهام/);
-  const ups = log.filter(l => l.table === 'classroom_task_students' && l.op === 'update')
-    .map(l => l.values.score + ':' + [...l.filters.find(([c]) => c === 'task_id')[1]].sort().join(','));
-  assert.deepEqual(ups.sort(), ['10:T1,T2', '5:T3']);
-  assert.ok(log.filter(l => l.op === 'update').every(l => l.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1')));
-  assert.equal(get(app, 'gradeStartsFull("task")'), true);
-  log.length = 0;
-  await app.setGradeStartMode('task', false);
-  const back = log.filter(l => l.table === 'classroom_task_students' && l.op === 'update');
-  assert.deepEqual(back.map(l => l.values.score), [null]);
-});
 
-test('تغيير "يبدأ من" لأداة "حالة" — يُمسح رصدها، ومن الكاملة يأخذ كل طلاب الشعبة "تمّ" في كل حصة سبق رصدها', async () => {
-  const m = (id, st, s, d, p, extra) => Object.assign({ id, teacher_id: 'u1', tool_id: STATUS_ID, student_id: st, section_id: s, academic_year: TERM.year, semester: 1, mark_date: d, period: p, value: 0 }, extra || {});
-  const seed = { classroom_tool_marks: [m('m1', 'a', 'S', '2026-10-01', 1), m('m2', 'b', 'S', '2026-10-01', 1), m('m3', 'c', 'S2', '2026-10-02', 3), m('m9', 'a', 'S', '2026-09-01', 1, { academic_year: '1447-1448' })] };
-  const log = [];
-  const app = appWith(seed, log);
-  runInAppContext(app, `crmCustomTools = ${TOOLS}; crmCustomToolsLoaded = true;`);
-  await app.setGradeStartMode('tool:' + STATUS_ID, true);
-  assert.match(get(app, 'window.__confirm[0]'), /"بحوث" تبدأ من الدرجة كاملة؟ يصير كل الطلاب "تمّ" في كل حصة رُصدت/);
-  const del = log.find(l => l.table === 'classroom_tool_marks' && l.op === 'delete');
-  assert.deepEqual([...del.filters.find(([c]) => c === 'id')[1]].sort(), ['m1', 'm2', 'm3']);
-  const up = log.find(l => l.table === 'classroom_tool_marks' && l.op === 'upsert');
-  assert.deepEqual([...up.values].map(r => [r.student_id, r.section_id, r.mark_date, r.period, r.value].join(':')), ['a:S:2026-10-01:1:1', 'b:S:2026-10-01:1:1', 'c:S2:2026-10-02:3:1']);
-  assert.equal(log.filter(l => l.table === 'classroom_grade_scores' && l.op !== 'select').length, 0, 'العمود المحسوب لا يُكتب مباشرة');
-  log.length = 0;
-  await app.setGradeStartMode('tool:' + STATUS_ID, false);
-  assert.equal(log.filter(l => l.op === 'upsert').length, 0);
-  assert.equal(get(app, 'gradeStartsFull("tool:' + STATUS_ID + '")'), false);
-});
 
 function stubResync(app){
   runInAppContext(app, `crmCustomTools = ${TOOLS}; crmCustomToolsLoaded = true; window.__resync = []; window.__busy = [];
@@ -353,23 +333,6 @@ test('سرعة تغيير "يبدأ من": أداة بلا رصد سابق — �
   assert.equal(get(app, 'window.__saved'), 1);
 });
 
-test('سرعة تغيير "يبدأ من": أداة لها رصد — يُعاد حساب عمودها فقط في شعبي (لا كشف كامل)، و"جارٍ التطبيق" يظهر ثم يزول', async () => {
-  const log = [];
-  const seed = {
-    classroom_grade_columns: [col('B', 'S', 'manual', 2, { tool_id: STATUS_ID }), col('B2', 'S2', 'manual', 2, { tool_id: STATUS_ID }), col('BZ', 'Z', 'manual', 2, { tool_id: STATUS_ID }), col('P', 'S', 'participation', 10)],
-    classroom_tool_marks: [{ id: 'm1', teacher_id: 'u1', tool_id: STATUS_ID, student_id: 'a', section_id: 'S', academic_year: TERM.year, semester: 1, mark_date: '2026-10-01', period: 1, value: 0 }]
-  };
-  const app = appWith(seed, log);
-  stubResync(app);
-  runInAppContext(app, `window.__answer = false;`);
-  await app.setGradeStartMode('tool:' + STATUS_ID, true);
-  assert.deepEqual([...get(app, 'window.__busy')], [], 'الإلغاء لا يظهر "جارٍ"');
-  runInAppContext(app, `window.__answer = true;`);
-  await app.setGradeStartMode('tool:' + STATUS_ID, true);
-  assert.deepEqual([...get(app, 'window.__resync')].sort(), ['tool:B2:S2', 'tool:B:S']);
-  assert.deepEqual([...get(app, 'window.__synced')], []);
-  assert.deepEqual([...get(app, 'window.__busy')], ['tool:' + STATUS_ID + ':true', 'tool:' + STATUS_ID + ':false']);
-});
 
 test('"جارٍ التطبيق" يزول حتى لو فشل الحفظ', async () => {
   const app = appWith({ classroom_tool_marks: [] }, []);
@@ -380,17 +343,6 @@ test('"جارٍ التطبيق" يزول حتى لو فشل الحفظ', async (
   assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر/);
 });
 
-test('سرعة تغيير "يبدأ من": المهام — يُعاد حساب عمود المهام فقط في كل شعبة', async () => {
-  const log = [];
-  const seed = {
-    classroom_grade_columns: [col('K', 'S', 'task', 10), col('K2', 'S2', 'task', 10), col('H', 'S', 'homework', 10)],
-    classroom_tasks: [{ id: 'T1', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, max_score: 10 }]
-  };
-  const app = appWith(seed, log);
-  stubResync(app);
-  await app.setGradeStartMode('task', true);
-  assert.deepEqual([...get(app, 'window.__resync')].sort(), ['task:K2:S2', 'task:K:S']);
-});
 
 test('setStartModeBusy — يعطّل زرّي الخيار ويظهر "جارٍ التطبيق" ثم يعيدهما', async () => {
   const app = loadApp();
