@@ -372,6 +372,105 @@ begin
 end $b$;
 create or replace trigger trg_touch_rubric_note before insert or update on public.classroom_rubric_notes for each row execute function public.touch_rubric_note();
 
+-- ============================================================
+-- سجل نقص الدرجات (للمراجعة وضبط الجودة — لا يظهر للمعلمين)
+-- الغرض: كشف أي ضياع للدرجات (درجة رُصدت ثم اختفت أو نقصت) ومعرفة متى وكيف حدث.
+-- - تريجر في القاعدة نفسها، فيلتقط أي مسح مهما كان مصدره: التطبيق، الموصل، أو حذف تابع لحذف طالب/عمود.
+-- - يُسجَّل المسح والنقص ونقل الصف (تغيّر عموده/طالبه/فترته) فقط؛ الإضافة والزيادة لا تُسجَّلان.
+-- - parent_gone = المسح تبع حذف صاحب الدرجة (student/column/tool/criterion — حذف مقصود يمرّ بالسلة)؛ فارغ = مسح الدرجة نفسها.
+--   tx = رقم المعاملة: صفوف كثيرة بنفس الرقم = عملية واحدة جماعية. actor فارغ = من خارج جلسة معلم (الموصل/SQL).
+-- - بلا مفاتيح أجنبية عمدًا: السجل يبقى بعد حذف الطالب أو العمود (وإلا ضاع الدليل معه).
+-- - المسؤول وحده يقرؤه، ولا يكتب فيه إلا التريجر. يُنظَّف تلقائيًا بعد 90 يومًا.
+-- - خارج النسخة الشاملة عمدًا: سجل مراقبة مؤقت لا قيمة لاستعادته.
+-- - فشل التسجيل لا يُفشل حفظ الدرجة أبدًا (يُبلَّغ تحذيرًا فقط).
+-- ============================================================
+create table if not exists public.grade_change_log (
+  id bigint generated always as identity primary key,
+  changed_at timestamptz not null default now(),
+  teacher_id uuid not null,
+  actor uuid,
+  source_table text not null,
+  op text not null check (op in ('delete', 'decrease', 'move')),
+  column_id uuid,
+  tool_id uuid,
+  criterion_id uuid,
+  student_id uuid,
+  period smallint,
+  mark_date date,
+  old_value numeric(5,2),
+  new_value numeric(5,2),
+  old_updated_at timestamptz,
+  parent_gone text check (parent_gone in ('student', 'column', 'tool', 'criterion')),
+  tx bigint not null default txid_current()
+);
+create index if not exists grade_change_log_teacher_idx on public.grade_change_log(teacher_id, changed_at);
+create index if not exists grade_change_log_changed_idx on public.grade_change_log(changed_at);
+alter table public.grade_change_log enable row level security;
+drop policy if exists "المسؤول وحده يقرأ سجل نقص الدرجات" on public.grade_change_log;
+create policy "المسؤول وحده يقرأ سجل نقص الدرجات" on public.grade_change_log for select using (public.is_admin(auth.uid()));
+revoke all on public.grade_change_log from anon;
+revoke insert, update, delete, truncate on public.grade_change_log from authenticated;
+
+create or replace function public.log_grade_change() returns trigger
+language plpgsql security definer set search_path = '' as $fn$
+declare
+  v_o jsonb := to_jsonb(old);
+  v_n jsonb;
+  v_old numeric := coalesce(v_o->>'score', v_o->>'value', v_o->>'level')::numeric;
+  v_new numeric;
+  v_op text := 'delete';
+  v_gone text;
+begin
+  if tg_op = 'UPDATE' then
+    v_n := to_jsonb(new);
+    v_new := coalesce(v_n->>'score', v_n->>'value', v_n->>'level')::numeric;
+    if (v_o - 'score' - 'value' - 'level' - 'updated_at') is distinct from (v_n - 'score' - 'value' - 'level' - 'updated_at') then
+      v_op := 'move';
+    elsif v_new < v_old then
+      v_op := 'decrease';
+    else
+      return null;
+    end if;
+  end if;
+  if tg_op = 'DELETE' then
+    begin
+      if v_o ? 'student_id' and not exists (select 1 from public.classroom_students s where s.id = (v_o->>'student_id')::uuid) then v_gone := 'student';
+      elsif v_o ? 'column_id' and not exists (select 1 from public.classroom_grade_columns c where c.id = (v_o->>'column_id')::uuid) then v_gone := 'column';
+      elsif v_o ? 'tool_id' and not exists (select 1 from public.classroom_custom_tools t where t.id = (v_o->>'tool_id')::uuid) then v_gone := 'tool';
+      elsif v_o ? 'criterion_id' and not exists (select 1 from public.classroom_rubric_criteria r where r.id = (v_o->>'criterion_id')::uuid) then v_gone := 'criterion';
+      end if;
+    exception when others then
+      v_gone := null;
+    end;
+  end if;
+  begin
+    insert into public.grade_change_log (teacher_id, actor, source_table, op, column_id, tool_id, criterion_id, student_id,
+      period, mark_date, old_value, new_value, old_updated_at, parent_gone)
+    values ((v_o->>'teacher_id')::uuid, auth.uid(), tg_table_name, v_op, (v_o->>'column_id')::uuid, (v_o->>'tool_id')::uuid,
+      (v_o->>'criterion_id')::uuid, (v_o->>'student_id')::uuid, (v_o->>'period')::smallint, (v_o->>'mark_date')::date,
+      v_old, v_new, (v_o->>'updated_at')::timestamptz, v_gone);
+    if random() < 0.002 then
+      delete from public.grade_change_log where changed_at < now() - interval '90 days';
+    end if;
+  exception when others then
+    raise warning 'grade_change_log: %', sqlerrm;
+  end;
+  return null;
+end
+$fn$;
+revoke execute on function public.log_grade_change() from public, anon, authenticated;
+
+do $do$
+declare v_t text;
+begin
+  foreach v_t in array array['classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_tool_marks', 'classroom_rubric_marks'] loop
+    if to_regclass(format('public.%I', v_t)) is null then continue; end if;
+    execute format('drop trigger if exists trg_log_grade_change on public.%I', v_t);
+    execute format('create trigger trg_log_grade_change after update or delete on public.%I for each row execute function public.log_grade_change()', v_t);
+  end loop;
+end
+$do$;
+
 -- جوال الطالب وولي الأمر (اختياريان، أرقام دولية فقط). للتواصل بواتساب؛ لا يدخلان أي تقرير.
 alter table public.classroom_students add column if not exists student_phone text;
 alter table public.classroom_students add column if not exists guardian_phone text;
@@ -1284,7 +1383,7 @@ begin
     'classroom_timetable_slots', 'classroom_tool_marks', 'deleted_items', 'lesson_plans', 'performance_goals',
     'personal_access_tokens', 'plan_header', 'portfolio_shares', 'program_sections', 'self_assessment', 'shahid_drafts', 'shawahid',
     'leader_followups', 'leader_templates', 'student_report_shares', 'support_messages', 'survey_campaign_sections', 'survey_campaigns', 'survey_invites',
-    'survey_responses', 'tasks', 'user_app_settings'
+    'survey_responses', 'tasks', 'user_app_settings', 'grade_change_log'
   ] loop
     if to_regclass(format('public.%I', v_t)) is null then continue; end if;
     execute format('drop policy if exists %I on public.%I', 'block_disabled_accounts', v_t);
