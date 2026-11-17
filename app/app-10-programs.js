@@ -677,13 +677,13 @@ function renderProgramDetail(programId, weekLabel){
         const st = (s.section_status && s.section_status[sec.id]) || {};
         return st.done
           ? `<span class="pg-sc-grp"><button type="button" class="pg-sc ok" onclick="viewProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}')">✓ ${escapeHtml(sec.label)}</button><button type="button" class="pg-del" aria-label="حذف الشاهد" title="حذف الشاهد" onclick="deleteProgramSessionShahid('${escapeHtml(String(st.shahid_id || ''))}', '${pid}')">🗑</button></span>`
-          : `<button type="button" class="pg-sc todo" onclick="documentProgramSessionForSection('${pid}', ${s.session_no}, '${escapeHtml(String(sec.id))}')">+ وثّق ${escapeHtml(sec.label)}</button>`;
+          : `<span class="pg-sc-grp"><button type="button" class="pg-sc todo" onclick="documentProgramSessionForSection('${pid}', ${s.session_no}, '${escapeHtml(String(sec.id))}')">+ وثّق ${escapeHtml(sec.label)}</button><button type="button" class="pg-sc pg-link" title="وثّقتها سابقًا — اربطها بشاهد موجود" onclick="linkProgramSessionFromDetail('${pid}', ${s.session_no}, '${escapeHtml(String(sec.id))}', '${escapeHtml(String(sec.label).replace(/'/g, ''))}')">ربط</button></span>`;
       }).join('');
       inner = `<div class="pg-sbox-h"><b>${title}</b>${weekChip}<small>${doneCount} من ${sectionIds.length} شُعب</small></div><div class="pg-secrow">${chips}</div>`;
     } else {
       const act = s.done
         ? `<button type="button" class="pg-sbtn o" onclick="viewProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}')">عرض الشاهد</button><button type="button" class="pg-del" aria-label="حذف الشاهد" title="حذف الشاهد" onclick="deleteProgramSessionShahid('${escapeHtml(String(s.shahid_id || ''))}', '${pid}')">🗑</button>`
-        : `<button type="button" class="pg-sbtn" onclick="documentProgramSession('${pid}', ${s.session_no})">وثّق</button>`;
+        : `<button type="button" class="pg-sbtn" onclick="documentProgramSession('${pid}', ${s.session_no})">وثّق</button><button type="button" class="pg-sbtn o pg-link" title="وثّقتها سابقًا — اربطها بشاهد موجود" onclick="linkProgramSessionFromDetail('${pid}', ${s.session_no})">ربط</button>`;
       const sub = s.done ? `<small>✓ وُثّقت${s.done_date ? ' — ' + escapeHtml(s.done_date) : ''}</small>` : '<small>لم تُوثَّق بعد</small>';
       inner = `<div class="pg-sbox-h"><b>${title}</b>${weekChip}${sub}${act}</div>`;
     }
@@ -753,11 +753,13 @@ function documentProgramSessionForSection(programId, sessionNo, sectionId){
    بالذاكرة) حتى تعمل الدالة حتى لو لم تُفتح شاشة "برامجي" أصلًا بهذه
    الجلسة، وحتى لا تُكتب فوق أي تعديل حصل على الجدول من مكان آخر (تبويب/جهاز
    آخر) بين وقت تحميل البرنامج ووقت حفظ الشاهد. */
+/* يُرجع true عند النجاح وfalse عند الفشل (يستعمله ربط شاهد قائم بحصة، app-54، ليتراجع عن الربط) */
 async function markProgramSessionDone(programId, sessionNo, shahidId, doneDate, sectionId){
-  const { data: prog, error: fetchErr } = await sb.from('activity_programs').select('sessions').eq('id', programId).maybeSingle();
+  const uid = currentUser && currentUser.id;
+  const { data: prog, error: fetchErr } = await sb.from('activity_programs').select('sessions').eq('id', programId).eq('user_id', uid).maybeSingle();
   if(fetchErr || !prog){
     showToast('تم حفظ الشاهد، لكن تعذّر تحديث تقدّم البرنامج.', 'error');
-    return;
+    return false;
   }
   const resolvedDate = doneDate || new Date().toISOString().slice(0, 10);
 
@@ -770,13 +772,14 @@ async function markProgramSessionDone(programId, sessionNo, shahidId, doneDate, 
     return { ...s, done: true, done_date: resolvedDate, shahid_id: shahidId };
   });
 
-  const { error } = await sb.from('activity_programs').update({ sessions }).eq('id', programId);
+  const { error } = await sb.from('activity_programs').update({ sessions }).eq('id', programId).eq('user_id', uid);
   if(error){
     showToast('تم حفظ الشاهد، لكن تعذّر تحديث تقدّم البرنامج: ' + error.message, 'error');
-    return;
+    return false;
   }
   const local = activityPrograms.find(p => String(p.id) === String(programId));
   if(local) local.sessions = sessions;
+  return true;
 }
 
 /* قراءة فقط: حالة الحصة (أو شعبتها) كما هي الآن بالقاعدة — {done, done_date, shahid_id} أو null.

@@ -135,6 +135,10 @@ function inboxResolveWeekStart(weekOcc, label, createdIso){
   return list.find(d => !createdIso || addDaysIso(d, 6) >= createdIso) || null;
 }
 
+/* لا تُقترح إلا حصة الأسبوع الحالي والماضي: مرور الأسبوع لا يعني أن الحصة نُفّذت (تتأجل وتُلغى)،
+   والأقدم يبقى «لم تُوثَّق» في «برامجي» — بيانات المستخدم الفعلية: 12 حصة قديمة اقتُرحت كأنها نُفّذت */
+const INBOX_PROGRAM_RECENT_DAYS = 13;
+
 /* حصص البرامج غير الموثّقة التي حلّ أسبوعها — برامج الدورة الحالية فقط.
    weekOcc من inboxWeekOccurrences؛ null = بلا تقويم. حصة لا يُعرف أسبوعها (بلا تقويم، أو اسم لا
    يطابق التقويم) تُقترح فقط إن كانت أول حصة ناقصة — لا نفترض أن ما بعدها حدث. */
@@ -152,7 +156,7 @@ function inboxDueProgramSessions(programs, sectionIdsMap, weekOcc, todayIso, cyc
         : !s.done);
       pending.forEach((s, i) => {
         const start = inboxResolveWeekStart(weekOcc, s.week_label, createdIso);
-        const due = start ? start <= todayIso : i === 0;
+        const due = start ? (start <= todayIso && start >= addDaysIso(todayIso, -INBOX_PROGRAM_RECENT_DAYS)) : i === 0;
         if(due) out.push({ programId: p.id, sessionNo: s.session_no, sectionId: secId, weekStart: start, weekLabel: s.week_label || '', createdIso });
       });
     });
@@ -534,9 +538,10 @@ async function loadInboxItems(){
       items.push({
         key: `program:${s.programId}:${s.sessionNo}:${s.sectionId || '-'}`, type: 'program_session',
         ref: { programId: s.programId, sessionNo: s.sessionNo, sectionId: s.sectionId, weekStart: s.weekStart, createdIso: s.createdIso, sectionLabel: sl },
-        elementKey: p.element_key || '', title: `${p.name} — الحصة ${s.sessionNo}`,
+        /* سؤال لا افتراض: المعلم يؤكد أنها نُفّذت */
+        elementKey: p.element_key || '', title: `هل نفّذت الحصة ${s.sessionNo}؟ — ${p.name}`,
         date: s.weekStart || todayIso,
-        sub: 'حصة برنامج لم تُوثَّق' + (s.weekLabel ? ' · ' + s.weekLabel : '') + (sl ? ' · ' + sl : '')
+        sub: 'حصة برنامج مجدولة' + (s.weekLabel ? ' · ' + s.weekLabel : '') + (sl ? ' · ' + sl : '')
       });
     });
   }
@@ -968,6 +973,7 @@ function renderInboxSheet(){
   const s = inboxSheet;
   if(!body || !s) return;
   const d = s.draft;
+  const isProg = s.item.type === 'program_session';
   const elements = typeof getElementsOrder === 'function' ? getElementsOrder() : [];
   const hasEl = elements.some(e => e.key === s.elementKey);
   const opts = `<option value=""${hasEl ? '' : ' selected'}>— اختر عنصر الأداء —</option>`
@@ -1013,9 +1019,10 @@ function renderInboxSheet(){
     <div class="tlx-sec">خيارات أخرى</div>
     <div class="tlx-box">
       <button type="button" id="inboxFullBtn" class="tlx-mi" onclick="inboxOpenFullForm()"><i><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></i><span>تعديل كامل في نموذج الشاهد</span></button>
-      <button type="button" id="inboxHideBtn" class="tlx-mi is-danger" onclick="inboxDismiss()"><i><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6c2 0 3.7.8 5 1.8M21 12s-3.5 6-9 6c-2 0-3.7-.8-5-1.8M4 4l16 16"/></svg></i><span>ليس عملًا يُوثَّق — أخفِه من القائمة</span></button>
+      ${isProg ? `<button type="button" id="inboxLinkBtn" class="tlx-mi" onclick="inboxLinkExisting()"><i><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></i><span>وثّقتها سابقًا — اربطها بشاهد موجود</span></button>` : ''}
+      <button type="button" id="inboxHideBtn" class="tlx-mi is-danger" onclick="inboxDismiss()"><i><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6c2 0 3.7.8 5 1.8M21 12s-3.5 6-9 6c-2 0-3.7-.8-5-1.8M4 4l16 16"/></svg></i><span>${isProg ? 'لم أنفّذها — أخفِها من القائمة' : 'ليس عملًا يُوثَّق — أخفِه من القائمة'}</span></button>
     </div>
-    <div class="tlx-cta"><button type="button" id="inboxSaveBtn" class="tlx-btn is-navy" onclick="inboxSave()">حفظ الشاهد</button></div>`;
+    <div class="tlx-cta"><button type="button" id="inboxSaveBtn" class="tlx-btn is-navy" onclick="inboxSave()">${isProg ? 'نفّذتها — احفظ الشاهد' : 'حفظ الشاهد'}</button></div>`;
 }
 
 /* ما يمكن تصويره بلا وجوه طلاب، لكل نوع عمل (مقترح 4) */
@@ -1079,8 +1086,17 @@ function inboxRemoveFile(i){
   renderInboxSheet();
 }
 
+/* «وثّقتها سابقًا»: نافذة الربط بشاهد قائم (app-54)، ثم تُحدَّث القائمة */
+function inboxLinkExisting(){
+  const s = inboxSheet;
+  if(!s || inboxBusy || s.item.type !== 'program_session') return;
+  const r = s.item.ref;
+  openLinkShahidPicker({ programId: r.programId, sessionNo: r.sessionNo, sectionId: r.sectionId || null, sectionLabel: r.sectionLabel || '',
+    onDone: () => { if(isInboxViewOpen() && inboxSheet === s) return showInbox(); } });
+}
+
 function inboxSetButtons(disabled){
-  ['inboxSaveBtn', 'inboxFullBtn', 'inboxHideBtn'].forEach(id => { const b = document.getElementById(id); if(b) b.disabled = disabled; });
+  ['inboxSaveBtn', 'inboxFullBtn', 'inboxHideBtn', 'inboxLinkBtn'].forEach(id => { const b = document.getElementById(id); if(b) b.disabled = disabled; });
 }
 
 /* هل ما زال العمل بانتظار التوثيق؟ قراءة أحدث حالة من القاعدة قبل الحفظ مباشرة
