@@ -161,7 +161,6 @@ const GS_COMP_ICONS = { participation: '👆', homework: '📝', task: '🎯', c
 function gsCompTool(c){ return c.tool || (c.column && c.column.tool_id ? customToolById(c.column.tool_id) : null); }
 
 /* مفتاح "يبدأ من" للمكوّن (أو null لليدوي) */
-function gsCompStartKey(c){ return c.tool ? 'tool:' + c.tool.id : startFullKeyOfColumn(c.column); }
 
 /* مفتاح الإظهار: أداة التخصيص (المشاركة/الواجبات/المهام) أو أداة المعلم الخاصة؛ اليدوي دائمًا ظاهر */
 function gsCompVisibility(c){
@@ -185,11 +184,9 @@ function gsCompIcon(c){
 function gsCompCardHtml(c, hiddenCol){
   const value = c.tool ? formatScore(c.tool.max_score) : formatScore(c.max);
   const cfg = typeof periodCfg === 'function' ? periodCfg(crmCurrentTerm(), perfComponentIdentity(c)) : { n: 1, starts: [] };
-  const sk = gsCompStartKey(c);
   const vis = gsCompVisibility(c);
   const chips = [];
   if(cfg.n > 1) chips.push(`<span class="gs-chip per">📅 ${PERIOD_COUNT_LABELS[cfg.n]}</span><span class="gs-chip now">${cfg.ended ? 'انتهت كلها ✓' : 'الآن: ' + PERIOD_NAMES[currentPeriodOf(cfg)].replace('الفترة ', '')}</span>`);
-  if(sk && gradeStartsFull(sk)) chips.push('<span class="gs-chip full">يبدأ من الدرجة كاملة</span>');
   if(hiddenCol || (vis && !vis.on)) chips.push('<span class="gs-chip off">مخفي — بياناته محفوظة</span>');
   if(c.tool) chips.push('<span class="gs-chip">جديد — أعطه درجة</span>');
   return `<div class="gs-card${hiddenCol || (vis && !vis.on) ? ' is-off' : ''}" role="button" tabindex="0" data-comp="${escapeHtml(c.key)}" onclick="openGsCompSheet('${c.key}')">
@@ -212,9 +209,8 @@ function openGsCompSheet(key){
   const weight = Number(String(raw).replace(/[٠-٩]/g, x => String('٠١٢٣٤٥٦٧٨٩'.indexOf(x))).replace(/[٫,]/g, '.')) || 0;
   const id = perfComponentIdentity(c);
   const cfg = periodCfg(crmCurrentTerm(), id);
-  const sk = gsCompStartKey(c);
   const vis = gsCompVisibility(c);
-  const orig = { weight, n: cfg.n, full: sk ? gradeStartsFull(sk) : false, visible: vis ? vis.on : true };
+  const orig = { weight, n: cfg.n, visible: vis ? vis.on : true };
   gsCompDraft = Object.assign({ key, comp: c, id, orig }, orig);
   paintGsCompSheet();
 }
@@ -233,7 +229,6 @@ function paintGsCompSheet(){
   const c = d.comp;
   const room = gsCompWeightRoom(d.key);
   const min = c.column ? GRADE_WEIGHT_STEP : 0;
-  const sk = gsCompStartKey(c);
   const vis = gsCompVisibility(c);
   const cfg = periodCfg(crmCurrentTerm(), d.id);
   const now = currentPeriodOf(cfg);
@@ -245,7 +240,7 @@ function paintGsCompSheet(){
       ${tool ? `<a href="#" class="gs-sheet-edit" onclick="event.preventDefault();closeCrmModal();openCustomToolEditor('${tool.id}')">تعديل الاسم</a>` : ''}</div>
     <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>الدرجة</span><span>المتاح ${formatScore(room)} من ${formatScore(gradeCap('performance'))}</span></div>
       <div class="gs-step"><button type="button" onclick="stepGsCompWeight(-1)" ${d.weight - GRADE_WEIGHT_STEP < min ? 'disabled' : ''} aria-label="أنقص">−</button><b>${formatScore(d.weight)}</b><button type="button" onclick="stepGsCompWeight(1)" ${d.weight + GRADE_WEIGHT_STEP > room ? 'disabled' : ''} aria-label="زد">+</button></div></div>
-    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>عدد الفترات</span><span>${cfg.live ? 'الدرجة = معدّل الفترات' : 'الدرجة = معدّل الفترات المنتهية'}</span></div>
+    <div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>عدد الفترات</span><span>الدرجة = معدّل الفترات المنتهية</span></div>
       ${seg([[1, '1'], [2, '2'], [3, '3']], d.n, 'setGsCompPeriods')}
       ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now || cfg.ended ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
         ${cfg.ended ? '<b>انتهت كل الفترات — كلها محسوبة ✓</b>' : `الآن: <b>${PERIOD_NAMES[now]}</b>${now > (countedPeriodsOf(cfg) || cfg.n) ? ' <small>(تُحسب عند انتهائها)</small>' : ''}`}
@@ -253,7 +248,6 @@ function paintGsCompSheet(){
         ${now === cfg.n && !cfg.ended ? `<button type="button" class="gs-period-btn gs-period-go" onclick="closeCrmModal();endComponentPeriods('${id}', true)">✓ أنهِ ${PERIOD_NAMES[now]}</button>` : ''}
         ${cfg.ended ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();endComponentPeriods('${id}', false)">→ رجوع</button>`
           : now > 1 ? `<button type="button" class="gs-period-btn gs-period-back" onclick="closeCrmModal();goToComponentPeriod('${id}', ${now - 1})">→ رجوع</button>` : ''}</div>` : ''}</div>
-    ${sk ? `<div class="gs-sheet-sec"><div class="gs-sheet-lb"><span>يبدأ الطالب من</span></div>${seg([[false, '0'], [true, 'الدرجة كاملة']], d.full, 'setGsCompFull')}</div>` : ''}
     ${vis ? `<div class="gs-sheet-sec gs-sheet-sw"><span>ظاهر في الكشف ونافذة الرصد</span>
       <button type="button" class="cust-switch${d.visible ? ' is-on' : ''}" role="switch" aria-checked="${d.visible}" onclick="toggleGsCompVisible()"><span></span></button></div>` : ''}
     <button type="button" class="gs-save" id="gsCompSaveBtn" onclick="saveGsComp()">حفظ</button>
@@ -271,10 +265,9 @@ function stepGsCompWeight(dir){
   paintGsCompSheet();
 }
 function setGsCompPeriods(n){ if(gsCompDraft){ gsCompDraft.n = n; paintGsCompSheet(); } }
-function setGsCompFull(full){ if(gsCompDraft){ gsCompDraft.full = !!full; paintGsCompSheet(); } }
 function toggleGsCompVisible(){ if(gsCompDraft){ gsCompDraft.visible = !gsCompDraft.visible; paintGsCompSheet(); } }
 
-/* حفظ ما تغيّر فقط، كلٌّ بمساره القائم: الدرجة (كل الشعب) ← الإظهار ← "يبدأ من" (بتأكيده) ← الفترات */
+/* حفظ ما تغيّر فقط، كلٌّ بمساره القائم: الدرجة (كل الشعب) ← الإظهار ← الفترات */
 let gsCompSaving = false;
 async function saveGsComp(){
   const d = gsCompDraft;
@@ -300,8 +293,6 @@ async function saveGsComp(){
     if(vis && d.visible !== d.orig.visible){
       if(vis.type === 'app') await setAppToolOn(vis.id, d.visible); else await toggleCustomToolHidden(vis.id);
     }
-    const sk = gsCompStartKey(d.comp);
-    if(sk && d.full !== d.orig.full) await setGradeStartMode(sk, d.full);
     if(d.n !== d.orig.n) await setComponentPeriodCount(d.id, d.n);
   } finally {
     gsCompSaving = false;
@@ -602,59 +593,15 @@ function deleteGradeTestEverywhere(columnId){
   });
 }
 
-/* ============ "يبدأ من": 0 (الأصل) أو الكاملة ============ */
-/* مفتاح الخيار لعمود أداء: المشاركة، والواجبات، والمهام، وكل مكوّن خاص (عدّاد/حالة/درجة) */
-function startFullKeyOfColumn(c){
-  if(!c) return null;
-  if(c.tool_id){
-    const t = typeof customToolById === 'function' ? customToolById(c.tool_id) : null;
-    return t ? 'tool:' + t.id : null;
-  }
-  return c.kind === 'participation' || c.kind === 'homework' || c.kind === 'task' ? c.kind : null;
-}
-
-/* عمود تُكتب فيه الكاملة مباشرة (المشاركة والعدّاد). المحسوب (واجبات/مهام/حالة/درجة)
-   يمتلئ من رصده نفسه — الكتابة فيه مباشرة تُمحى عند المزامنة وتعطي من لا رصد له الكاملة */
-function directStartFullKey(c){
-  return c && !isComputedGradeColumn(c) ? startFullKeyOfColumn(c) : null;
-}
+/* ============ «يبدأ من» أُلغي (3.61) ============
+   كان قاعدة خفية تكتب الكاملة وحدها (عند فتح الورقة، وانتهاء الفترة، وإنشاء واجب/مهمة)، فلا يعرف المعلم
+   أي درجة رصدها هو وأيها كتبها التطبيق، وتبديلها مسح درجات معلمين. بدلها: أزرار تعبئة صريحة في ورقة الحصة
+   («أعطِ الفارغ ...») وسؤال عند بدء الفترة وعند إنشاء الواجب/المهمة — كلها تُكتب كأنها رصد يدوي. */
 
 /* قيمة "الكاملة" لرصد أداة حالة/درجة في حصة */
 function toolFullValue(tool){
   return tool.tool_type === 'status' ? 1 : Number(tool.max_score);
 }
-
-function startModeToggleHtml(key){
-  const full = gradeStartsFull(key);
-  return `<span class="gs-start" role="group" aria-label="تبدأ الدرجة من" data-start-key="${key}">يبدأ من
-    <span class="gs-seg"><button type="button" class="${full ? '' : 'is-on'}" aria-pressed="${!full}" onclick="setGradeStartMode('${key}', false)">${full ? '' : '✓ '}0</button><button type="button" class="${full ? 'is-on' : ''}" aria-pressed="${full}" onclick="setGradeStartMode('${key}', true)">${full ? '✓ ' : ''}الدرجة كاملة</button></span>
-    <small class="gs-start-busy"></small></span>`;
-}
-
-/* أثناء التطبيق: الزرّان معطّلان ورسالة ظاهرة (التطبيق على كل الشعب قد يأخذ ثواني) */
-function setStartModeBusy(key, on){
-  const el = document.querySelector(`[data-start-key="${key}"]`);
-  if(!el) return;
-  el.querySelectorAll('button').forEach(b => { b.disabled = on; });
-  const note = el.querySelector('.gs-start-busy');
-  if(note) note.textContent = on ? '⏳ جارٍ التطبيق على شعبك…' : '';
-}
-
-/* نص تأكيد تغيير "يبدأ من" — لا يمسح شيئًا: ما رُصد يبقى، والتغيير يسري على ما لم يُرصد بعد */
-function startModeConfirmText(key, full){
-  const toolId = key.indexOf('tool:') === 0 ? key.slice(5) : null;
-  const tool = toolId ? customToolById(toolId) : null;
-  const kind = toolId ? (tool ? tool.tool_type : 'counter') : key;
-  const name = toolId ? ((tool || {}).name || 'المكوّن') : { participation: 'المشاركة', homework: 'الواجبات', task: 'المهام الأدائية' }[key];
-  const next = {
-    homework: full ? 'كل واجب جديد يبدأ "سلّم" للجميع، فتضغط على من لم يسلّم.' : 'كل واجب جديد يبدأ "لم يسلّم".',
-    task: full ? 'كل من تكلّفه بمهمة من الآن يبدأ بدرجتها كاملة.' : 'كل من تكلّفه بمهمة من الآن يبدأ "لم يُقيَّم".',
-    status: full ? 'كل حصة جديدة تبدأ "تمّ" للجميع.' : 'كل حصة جديدة تبدأ "لم يُرصد".',
-    score: full ? 'كل حصة جديدة تبدأ بالدرجة كاملة للجميع.' : 'كل حصة جديدة تبدأ "لم يُرصد".'
-  }[kind] || (full ? 'من لم يُرصد له شيء في الفترة الجارية يبدأ من الكاملة، وكل نقرة تُنقص درجة.' : 'من الآن كل نقرة تزيد درجة.');
-  return { name, text: `"${name}" تبدأ من ${full ? 'الدرجة كاملة' : '0'}؟ ما رصدته يبقى كما هو — لا تُمسح أي درجة. ${next}` };
-}
-
 
 /* إعادة حساب عمود المكوّن الذي تغيّر فقط، في كل الشعب معًا (لا الكشف كله شعبةً شعبة).
    المشاركة والعدّاد: لا عمود محسوب — كُتبت درجاتهما مباشرة */
@@ -671,37 +618,3 @@ async function resyncStartModeColumns(key, tool, term){
   }));
 }
 
-/* تغيير "يبدأ من" لا يمسح شيئًا (كان يمسح كل الرصد ويكتب الكاملة — فضاعت فترة أولى رصدها معلم كاملةً):
-   يُحفظ الخيار فقط، فيسري على ما لم يُرصد بعد، وما رُصد يبقى كما هو */
-function setGradeStartMode(key, full){
-  if(!isStartFullKey(key) || gradeStartsFull(key) === full) return;
-  return withGradeComponentBusy(async () => {
-    const toolId = key.indexOf('tool:') === 0 ? key.slice(5) : null;
-    const tool = toolId ? customToolById(toolId) : null;
-    if(toolId && !tool) return;
-    const { name, text } = startModeConfirmText(key, full);
-    if(!(await showConfirm(text))) return;
-    setStartModeBusy(key, true);
-    try{ await applyGradeStartMode(key, tool, name, full); }
-    finally { setStartModeBusy(key, false); }
-  });
-}
-
-async function applyGradeStartMode(key, tool, name, full){
-  const uid = currentUser.id;
-  const term = crmCurrentTerm();
-  const next = normalizeFeatures(appFeatures);
-  const sf = Object.assign({}, next.startFull);
-  if(full) sf[key] = true; else delete sf[key];
-  next.startFull = sf;
-  appFeatures = next;
-  afterAppFeaturesChanged();
-  await saveAppFeatures();
-  if(!currentUser || currentUser.id !== uid) return;
-  /* المرصود مباشرة بفترات: "من الكاملة" يحسب الجارية بما رُصد فيها (live) — عدد الفترات المحسوبة يُحدَّث بالقاعدة */
-  const pk = key.indexOf('tool:') === 0 ? key : 'kind:' + key;
-  try{ if(typeof applyCountedPeriods === 'function') await applyCountedPeriods(term, pk, periodCfg(term, pk)); } catch(e){} /* يُصحَّح عند فتح الكشف */
-  showToast(`"${name}" تبدأ الآن من ${full ? 'الدرجة كاملة' : '0'} ✓ — ما رصدته لم يتغيّر`, 'ok');
-  if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
-  renderCrmGrades();
-}

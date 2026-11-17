@@ -284,8 +284,8 @@ async function loadCrmGradeSheet(sectionId){
       } catch(e){}
     }
   }
-  /* المرصود مباشرة (المشاركة، العدّاد، اليدوي): "يبدأ من الدرجة كاملة" يملأ الفترة الجارية لمن لا درجة
-     له فيها (القاعدة تحدّث المعدّل)، ثم درجات الفترات — للرصد اليدوي دائمًا، وللعرض متى كان له أكثر من فترة */
+  /* المرصود مباشرة (المشاركة، العدّاد، اليدوي): درجات الفترات — للرصد اليدوي دائمًا، وللعرض متى كان له أكثر من فترة.
+     فتح الكشف لا يكتب أي درجة (أُلغي ملء «يبدأ من الكاملة» — 3.61) */
   for(const c of visible.filter(isDirectPeriodColumn)){
     try{
       const load = async () => {
@@ -300,13 +300,7 @@ async function loadCrmGradeSheet(sectionId){
         const { error: cErr } = await sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want });
         if(!cErr) c.counted_periods = want;
       }
-      let pd = await load();
-      const fk = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
-      if(fk && gradeStartsFull(fk)){
-        const period = Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
-        /* الأولى فقط — ما بعدها تُكتب كاملته عند انتهائها (لا يتغيّر المعدّل لمجرد بدء فترة) */
-        if(period === 1 && (await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
-      }
+      const pd = await load();
       breakdown.set(c.id, participationPeriodBreakdown(pd.main, pd.rows));
     } catch(e){}
   }

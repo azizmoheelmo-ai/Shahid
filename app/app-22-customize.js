@@ -96,8 +96,10 @@ function isStartFullKey(k){
   return k === 'participation' || k === 'homework' || k === 'task' || /^tool:[0-9a-f-]{36}$/i.test(k);
 }
 
+/* «يبدأ من الكاملة» أُلغي (3.61): قاعدة خفية كانت تكتب الكاملة وحدها. يبقى الإعداد القديم محفوظًا في القاعدة
+   (لا يُمسح) لكنه لا يعمل؛ بدله أزرار تعبئة صريحة وسؤال عند بدء الفترة وإنشاء الواجب/المهمة */
 function gradeStartsFull(key){
-  return !!(appFeatures && appFeatures.startFull && appFeatures.startFull[key] === true);
+  return false;
 }
 
 /* توزيع المعلم، وإلا الرسمي 40/20 */

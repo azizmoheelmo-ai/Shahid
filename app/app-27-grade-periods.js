@@ -14,10 +14,7 @@
    - الفترة الجارية لا تدخل المعدّل حتى تنتهي (لا هبوط مفاجئ عند بدء فترة):
      في الأولى تُحسب الأولى؛ بعدها تُحسب الفترات المنتهية فقط، والأخيرة عند
      "أنهِ الفترة". للمرصود مباشرة: classroom_grade_columns.counted_periods.
-     إلا المرصود مباشرة الذي "يبدأ من الدرجة كاملة" (cfg.live): الجارية تُحسب فورًا
-     **بما رُصد فيها فعلًا فقط** — لا تُملأ الكاملة مقدّمًا في الفترة الثانية فما بعدها،
-     فالانتقال لفترة لا يغيّر أي درجة (كان الطالب 7 فيصير 8.5 لمجرد بدء فترة كاملة).
-     ومن لم تُنقص درجته يأخذ الكاملة في الفترة عند انتهائها (closeFullPeriods).
+     («يبدأ من الكاملة» وحسابها الفوري أُلغيا في 3.61: لا قاعدة خفية تكتب درجات. التعبئة بأزرار صريحة.)
    - تقليل الفترات يحذف رصد ما بعدها فقط (ترجع الدرجة لما قبلها)، مع "تراجع".
      هوية المكوّن كما في إعداد الدرجات: kind:participation، tool:<id>، name:<اسم>.
    - الاختبارات بلا فترات (كل اختبار عمود مستقل أصلًا).
@@ -46,20 +43,14 @@ function normalizePeriodCfg(raw){
 }
 
 /* كم فترة تُحسب في الدرجة: null = الكل (فترة واحدة)؛ في الأولى: الأولى؛ بعدها: المنتهية فقط؛
-   وبعد "أنهِ الفترة الأخيرة": كلها. "يبدأ من الكاملة" (live): الجارية تُحسب فورًا */
+   وبعد "أنهِ الفترة الأخيرة": كلها */
 function countedPeriodsOf(cfg){
   if(!cfg || cfg.n < 2) return null;
   if(cfg.ended) return cfg.n;
   const cur = currentPeriodOf(cfg);
-  if(cfg.live) return cur;
   return cur === 1 ? 1 : cur - 1;
 }
 
-/* مفتاح "يبدأ من" (إعداد الدرجات) لهوية مكوّن فترات: kind:participation ← participation، tool:<id> كما هو */
-function startFullKeyOfPeriodKey(key){
-  if(key === 'kind:participation' || key === 'kind:homework' || key === 'kind:task') return key.slice(5);
-  return typeof key === 'string' && key.indexOf('tool:') === 0 ? key : null;
-}
 
 /* القيمة القديمة (الإصدار 1.5: "later" أو تاريخ لكل فصل) = المشاركة والواجبات بفترتين */
 function normalizeTermPeriods(v){
@@ -88,11 +79,7 @@ function normalizePeriodsFeature(raw){
 function periodCfgOf(features, term, key){
   const t = features && features.periods && features.periods[termPeriodKey(term)];
   const c = t && normalizePeriodCfg(t[key]);
-  if(!c) return { n: 1, starts: [] };
-  /* live: المرصود مباشرة (المشاركة والعدّاد) فقط — المحسوب يبقى على القاعدة الأصلية */
-  const sk = startFullKeyOfPeriodKey(key);
-  if(sk && features.startFull && features.startFull[sk] === true && periodKeyIsDirect(key)) c.live = true;
-  return c;
+  return c || { n: 1, starts: [] };
 }
 
 function currentPeriodOf(cfg){ return Math.min(cfg.n, (cfg.starts || []).length + 1); }
@@ -217,26 +204,6 @@ async function applyCountedPeriods(term, key, cfg){
   }
 }
 
-/* "يبدأ من الكاملة" + فترات: عند انتهاء فترة، من لم يُرصد له شيء فيها يأخذ الكاملة (لا شيء يُكتب فوق رصد قائم).
-   قبلها لا تُملأ (فلا يتغيّر المعدّل لمجرد بدء فترة). يرمي عند الفشل فلا يُحفظ الانتقال */
-async function closeFullPeriods(term, key, periods){
-  const cfg = periodCfg(term, key);
-  if(!cfg.live || !periods.length || typeof termColumnsMatching !== 'function') return;
-  const cols = await termColumnsMatching(c => periodCompKeyOfColumn(c) === key && isDirectPeriodColumn(c));
-  for(const c of cols){
-    const ids = crmStudentsOfSection(c.section_id).map(st => st.id);
-    if(!ids.length) continue;
-    const { data, error } = await sb.from('classroom_grade_period_scores').select('student_id, period')
-      .eq('teacher_id', currentUser.id).eq('column_id', c.id).in('period', periods);
-    if(error) throw error;
-    const has = new Set((data || []).map(r => r.student_id + '|' + Number(r.period)));
-    for(const p of periods){
-      const missing = ids.filter(id => !has.has(id + '|' + p));
-      if(missing.length) await fillStartFullPeriodScores(c, missing, p, new Map());
-    }
-  }
-}
-
 /* رصد الفترات بعد n في أعمدة مكوّن مرصود مباشرة (للحذف مع إمكانية التراجع) */
 async function laterPeriodRows(key, n){
   const cols = await termColumnsMatching(c => periodCompKeyOfColumn(c) === key && isDirectPeriodColumn(c));
@@ -306,10 +273,7 @@ async function endComponentPeriods(key, ended){
   const term = crmCurrentTerm();
   const cfg = periodCfg(term, key);
   if(cfg.n < 2 || currentPeriodOf(cfg) !== cfg.n || !!cfg.ended === !!ended) return false;
-  return withPeriodBusy(async () => {
-    if(ended) await closeFullPeriods(term, key, [cfg.n]);
-    return savePeriodCfg(term, key, Object.assign({}, cfg, { ended: !!ended }));
-  },
+  return withPeriodBusy(() => savePeriodCfg(term, key, Object.assign({}, cfg, { ended: !!ended })),
     ended ? `انتهت ${PERIOD_NAMES[cfg.n]} — صارت تُحسب في الدرجة ✓` : `${PERIOD_NAMES[cfg.n]} جارية من جديد`);
 }
 
@@ -341,12 +305,7 @@ async function goToComponentPeriod(key, target, dateIso){
       if(gradePeriodSaving || again.n !== cfg.n || again.starts.join() !== cfg.starts.join() || !!again.ended !== !!cfg.ended) return false;
     }
   }
-  /* الفترات التي تنتهي بهذا الانتقال: من لم يُنقص له شيء فيها يأخذ الكاملة (يبدأ من الكاملة) */
-  const closing = target > now ? [1, 2, 3].filter(p => p >= now && p < target) : [];
-  return withPeriodBusy(async () => {
-    await closeFullPeriods(term, key, closing);
-    return savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }); /* الانتقال يلغي "انتهت" */
-  },
+  return withPeriodBusy(() => savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }), /* الانتقال يلغي "انتهت" */
     target > now ? `بدأت ${PERIOD_NAMES[target]} في "${periodCompName(key)}" ✓` : `رجعت إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}"`);
 }
 
@@ -398,7 +357,7 @@ function openCrmPeriodPicker(){
       <h3 style="margin:0;font-size:15px;color:var(--navy);">فترات "${escapeHtml(periodCompName(info.key))}"</h3>
       <button type="button" class="crm-ic-btn" aria-label="إعداد الدرجات" title="إعداد الدرجات: التوزيع والفترات" onclick="openGradeSettingsFromPeriodPicker()">⚙</button>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">${info.cfg.live ? 'الدرجة في الكشف = معدّل الفترات. ما تُنقصه في الجارية يُحسب فورًا، ومن لم تُنقصه يأخذ الكاملة عند انتهائها.' : 'الدرجة في الكشف = معدّل الفترات المنتهية (الجارية تُحسب عند انتهائها).'} ما رصدته سابقًا يبقى في فترته.</p>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.7;">الدرجة في الكشف = معدّل الفترات المنتهية (الجارية تُحسب عند انتهائها). ما رصدته سابقًا يبقى في فترته.</p>
     ${opts}
     ${now === info.cfg.n ? `<button type="button" class="crm-period-opt" onclick="closeCrmModal();endComponentPeriods('${escapeHtml(info.key).replace(/'/g, '&#39;')}', ${!info.cfg.ended})">
       <span><b>${info.cfg.ended ? '↺ ' + PERIOD_NAMES[now] + ' جارية من جديد' : '✓ أنهِ ' + PERIOD_NAMES[now]}</b><small>${info.cfg.ended ? 'لا تُحسب حتى تنهيها' : 'فتُحسب في الدرجة'}</small></span></button>` : ''}
@@ -426,7 +385,6 @@ async function pickCrmPeriod(p){
 
 /* ============ علامة «؟» في ترويسة عمود الكشف: كيف تُحسب الفترات (شرح فقط، لا يغيّر حسابًا) ============ */
 const PERIOD_HELP_STATE_TEXT = { on: 'تُحسب', cur: 'تُحسب (جارية)', wip: 'جارية — لا تُحسب بعد', off: 'لم تبدأ' };
-const PERIOD_HELP_LIVE_CUR = 'جارية — يُحسب ما رصدته فيها';
 
 /* حالة كل فترة من إعداد المكوّن: on محسوبة، cur محسوبة وجارية، wip جارية ولا تُحسب بعد، off لم تبدأ */
 function periodHelpState(cfg){
@@ -441,9 +399,6 @@ function periodHelpState(cfg){
 
 function periodHelpNote(cfg, st){
   if(cfg.ended) return 'انتهت كل الفترات — الدرجة = معدّل الفترات كلها.';
-  if(cfg.live) return st.now > 1
-    ? `الدرجة = معدّل الفترات. ما تُنقصه في ${PERIOD_NAMES[st.now]} يُحسب فورًا، ومن لم تُنقص درجته يأخذ فيها الكاملة عند انتهائها — فبدء الفترة لا يغيّر أي درجة.`
-    : 'الدرجة = الفترة الأولى (الجارية). كل الطلاب يبدؤون بالكاملة، وما تُنقصه يُحسب فورًا.';
   if(st.pending) return `الدرجة الآن = معدّل الفترات المنتهية فقط. تدخل ${PERIOD_NAMES[st.now]} ${st.now === cfg.n ? 'حين تنهيها' : 'حين تبدأ ' + PERIOD_NAMES[st.now + 1]}.`;
   return 'الدرجة = الفترة الأولى (الجارية). وكل فترة تدخل الدرجة بعد انتهائها.';
 }
@@ -451,14 +406,14 @@ function periodHelpNote(cfg, st){
 function periodHelpHtml(name, key, cfg){
   const st = periodHelpState(cfg);
   const k = escapeHtml(key).replace(/'/g, '&#39;');
-  const act = !cfg.live && st.pending
+  const act = st.pending
     ? (st.now === cfg.n
       ? `<button type="button" class="tlx-btn is-navy" onclick="closeCrmModal();endComponentPeriods('${k}', true)">أنهِ ${PERIOD_NAMES[st.now]}</button>`
       : `<button type="button" class="tlx-btn is-navy" onclick="closeCrmModal();goToComponentPeriod('${k}', ${st.now + 1})">ابدأ ${PERIOD_NAMES[st.now + 1]}</button>`)
     : '';
   return `<div class="pq-sheet" style="text-align:right;">
     <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">كيف تُحسب «${escapeHtml(name)}»؟</h3>
-    ${st.rows.map(r => `<div class="pq-row is-${r.state}"><span>${PERIOD_NAMES[r.p]}</span><span>${r.state === 'cur' && cfg.live && r.p > 1 ? PERIOD_HELP_LIVE_CUR : PERIOD_HELP_STATE_TEXT[r.state]}</span></div>`).join('')}
+    ${st.rows.map(r => `<div class="pq-row is-${r.state}"><span>${PERIOD_NAMES[r.p]}</span><span>${PERIOD_HELP_STATE_TEXT[r.state]}</span></div>`).join('')}
     <p class="tlx-note" style="margin:10px 0;">${escapeHtml(periodHelpNote(cfg, st))}</p>
     ${act}
     <button type="button" class="tlx-btn is-ghost" style="margin-top:8px;" onclick="closeCrmModal();openGradeSettingsFromPeriodPicker()">تغيير الفترات والإعدادات</button>

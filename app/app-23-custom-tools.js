@@ -211,7 +211,7 @@ async function renderCrmToolMode(students, tool){
   const token = s.token;
   const term = crmCurrentTerm();
   const period = s.period || 0;
-  const full = gradeStartsFull(mode);
+  const full = false; /* «يبدأ من» أُلغي (3.61): فتح الحصة لا يكتب شيئًا، والتعبئة بزر صريح */
   let colRes, marks, values, filled = [];
   try{
     [colRes, marks] = await Promise.all([
@@ -221,7 +221,6 @@ async function renderCrmToolMode(students, tool){
     ]);
     if(marks.error) throw marks.error;
     values = new Map((marks.data || []).map(m => [m.student_id, Number(m.value)]));
-    if(full) filled = await fillToolLessonFull(tool, s, term, period, students.map(st => st.id), values);
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== mode) return;
     body.innerHTML = head + `<div class="empty-state">تعذّر التحميل. <button class="btn btn-outline crm-mini-btn" onclick="setCrmSheetMode('${mode}')">إعادة المحاولة</button></div>`;

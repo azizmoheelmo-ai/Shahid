@@ -14,15 +14,13 @@
 
 const HOMEWORK_CYCLE = ['missing', 'submitted', 'partial', 'late'];
 /* "يبدأ من الكاملة" (إعداد الدرجات): الكل سلّم، والنقرة الأولى = لم يسلّم */
-const HOMEWORK_CYCLE_FULL = ['submitted', 'missing', 'partial', 'late'];
 const HOMEWORK_LABELS = { missing: 'لم يسلّم', submitted: 'سلّم', partial: 'ناقص', late: 'متأخر' };
 const HOMEWORK_CREDIT = { submitted: 1, late: 0.75, partial: 0.5, missing: 0 };
 
 /* ============ دوال صرفة ============ */
-function nextHomeworkState(state, full){
-  const cycle = full ? HOMEWORK_CYCLE_FULL : HOMEWORK_CYCLE;
-  const i = cycle.indexOf(state || 'missing');
-  return cycle[(i + 1) % cycle.length];
+function nextHomeworkState(state){
+  const i = HOMEWORK_CYCLE.indexOf(state || 'missing');
+  return HOMEWORK_CYCLE[(i + 1) % HOMEWORK_CYCLE.length];
 }
 
 function homeworkStatusIndex(rows){
@@ -173,10 +171,9 @@ function crmSheetHeaderText(s){
 /* ============ وضع المشاركة ============ */
 /* toolId: أداة "عدّاد" خاصة (app-23) — لكل أداة سجلها؛ المفتاح ينتهي دومًا بـ شعبة|تاريخ|حصة */
 function participationTodayKey(s, toolId, period){
-  /* "يبدأ من الكاملة" له سجل نقرات وتراجع مستقل (اتجاه النقرة مختلف)، وكذلك كل فترة بعد الأولى */
-  const full = gradeStartsFull(toolId ? 'tool:' + toolId : 'participation') ? 'full:' : '';
+  /* كل فترة بعد الأولى لها سجل نقرات وتراجع مستقل */
   const per = period > 1 ? 'p' + period + ':' : '';
-  return 'crm_part:' + (currentUser && currentUser.id) + ':' + full + per + (toolId ? toolId + ':' : '') + lessonKey(s.sectionId, s.dateIso, s.period);
+  return 'crm_part:' + (currentUser && currentUser.id) + ':' + per + (toolId ? toolId + ':' : '') + lessonKey(s.sectionId, s.dateIso, s.period);
 }
 
 /* حالة المشاركة لكل حصة على هذا الجهاز: عدّاد اليوم + سجل التراجع، فيبقى
@@ -237,12 +234,8 @@ async function renderCrmParticipation(students, tool){
       const { data, error } = await sb.from('classroom_grade_scores').select('student_id, score')
         .eq('teacher_id', currentUser.id).eq('column_id', column.id);
       if(error) throw error;
+      /* فتح الورقة لا يكتب أي درجة: الفارغ يبقى فارغًا حتى يُرصد أو يُعبَّأ بزر صريح */
       scores = currentPeriodScores(new Map((data || []).map(r => [r.student_id, Number(r.score)])), await loadPeriodRows(column.id), period);
-      /* "يبدأ من الكاملة": تُملأ الكاملة مقدّمًا في الأولى فقط. من الثانية فما بعدها لا تُكتب حتى تنتهي الفترة
-         (closeFullPeriods) — وإلا رفع بدءُ الفترة معدّلَ من أُنقصت درجته (7 ثم 10 = 8.5). تُعرض كاملة وتُحسب بما يُرصد */
-      if(gradeStartsFull(tool ? 'tool:' + tool.id : 'participation') && period === 1){
-        (await fillStartFullPeriodScores(column, students.map(st => st.id), period, scores)).forEach(id => scores.set(id, Number(column.max_score)));
-      }
     }
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== mode) return;
@@ -261,13 +254,12 @@ async function renderCrmParticipation(students, tool){
     return;
   }
   const saved = readParticipationState(s, tool ? tool.id : null, period);
-  const full = gradeStartsFull(tool ? 'tool:' + tool.id : 'participation');
-  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full, step: full ? -1 : 1, period,
+  s.part = { column, scores, today: saved.counts, undo: saved.undo, queue: new Map(), toolId: tool ? tool.id : null, full: false, step: 1, period,
     chgKey: `part:${tool ? tool.id : column.id}:${lessonKey(s.sectionId, s.dateIso, s.period)}:${period}` };
   /* الشارة والشرح للمكوّن الذي له أكثر من فترة */
   const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : pinfo.cfg.live && shown > 1 ? 'ما تُنقصه هنا يُحسب في الكشف فورًا، ومن لم تُنقصه يأخذ الكاملة عند انتهاء الفترة. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <div class="crm-att-btn crm-part-tile${crmAbsentClass(s, st.id)}" id="crmPart_${st.id}">
@@ -442,7 +434,7 @@ async function renderCrmHomework(students, selectId){
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}${gradeStartsFull('homework') ? 'الأصل "سلّم" — اضغط: <b style="color:#8A2C2C;">لم يسلّم</b> ← ناقص ← متأخر ← سلّم' : 'الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم'}. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">
@@ -505,7 +497,7 @@ function tapCrmHomework(studentId){
   const s = crmSheet;
   if(!s || !s.hw || !s.hw.selectedId) return;
   const before = s.hw.statuses.get(studentId) || 'missing';
-  const st = nextHomeworkState(before, gradeStartsFull('homework'));
+  const st = nextHomeworkState(before);
   if(st === 'missing') s.hw.statuses.delete(studentId); else s.hw.statuses.set(studentId, st);
   paintCrmHomework(studentId);
   paintCrmHomeworkCounts();
@@ -617,8 +609,8 @@ async function saveCrmHomework(){
     return;
   }
   const id = d.editId || (res.data && res.data.id);
-  /* "يبدأ من الكاملة": كل طلاب الشعبة "سلّم" في الواجب الجديد */
-  if(!d.editId && id && gradeStartsFull('homework')){
+  /* سؤال الإنشاء (بدل «يبدأ من» الملغى): «الجميع سلّم» تُكتب مرة واحدة كأنها رصد يدوي */
+  if(!d.editId && id && d.startSubmitted === true){
     const ids = crmStudentsOfSection(d.sectionId).map(st => st.id);
     if(ids.length){
       const { error: sErr } = await sb.from('classroom_homework_status').upsert(

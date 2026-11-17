@@ -292,19 +292,6 @@ test('الكشف — الواجبات بفترتين تُفصَّل ويُحسب
   assert.deepEqual([...up.values].filter(r => r.student_id === 'a').map(r => r.score), [5]);
 });
 
-test('الكشف "يبدأ من الدرجة كاملة" — تُملأ الأولى لمن لا درجة له فيها؛ ومن الثانية لا تُملأ مقدّمًا (انحدار: 7 ثم 10 = 8.5)', async () => {
-  const seed = {
-    classroom_grade_columns: [col('P', 'participation', 10)],
-    classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 8 }],
-    classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'b', period: 2, score: 3 }],
-  };
-  const fillsOf = log => log.filter(l => l.op === 'rpc' && l.name === 'set_period_score').map(l => l.args.p_student_id + ':' + l.args.p_period + ':' + l.args.p_only_missing).sort();
-  const p2 = await gradeSheet(seed, Object.assign({}, PART2, { startFull: { participation: true } }));
-  assert.deepEqual(fillsOf(p2.log), [], 'الثانية جارية: لا تُكتب الكاملة قبل انتهائها');
-  const p1 = await gradeSheet(seed, withPeriods({ 'kind:participation': { n: 2, starts: [] } }, { startFull: { participation: true } }));
-  assert.deepEqual(fillsOf(p1.log), ['b:1:true', 'c:1:true'], 'الأولى: من لا درجة له فيها (أحمد درجته القديمة = الأولى)');
-  assert.equal(p1.log.filter(l => l.table === 'classroom_grade_scores' && l.op === 'upsert').length, 0);
-});
 
 async function entry(features, seed){
   const { app, log, g } = await gradeSheet(Object.assign({ classroom_grade_columns: [col('P', 'participation', 10)], classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 8 }], classroom_grade_period_scores: [] }, seed || {}), features);
@@ -349,12 +336,6 @@ test('انحدار: تغيير وزن المشاركة يحوّل درجتي ا�
   assert.ok(order.indexOf('classroom_grade_columns:update') > order.indexOf('classroom_grade_period_scores:upsert'), 'الخفض: الدرجات قبل الحد');
 });
 
-test('انحدار: "يبدأ من" للمشاركة لا يمسح درجات الفترات ولا الكشف', async () => {
-  const log = [];
-  const app = appWith({ classroom_grade_columns: [col('P', 'participation', 10)], classroom_grade_period_scores: [{ id: 1, teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 7 }] }, log, null, { code: 'showConfirm = async () => true; renderCrmGrades = () => {};' });
-  await app.setGradeStartMode('participation', true);
-  assert.deepEqual(log.filter(l => (l.table === 'classroom_grade_period_scores' || l.table === 'classroom_grade_scores') && l.op !== 'select'), []);
-});
 
 /* ============ إعداد الدرجات ============ */
 test('إعداد الدرجات — الأقسام مطوية بملخص، وبطاقة لكل مكوّن أداء بشارات إعداده (لا للاختبارات)', async () => {
@@ -368,7 +349,7 @@ test('إعداد الدرجات — الأقسام مطوية بملخص، وب�
   assert.match(html, /class="gs-acc-s">مشاركة 10 · واجبات 10</);
   assert.equal((html.match(/class="gs-card[^"]*" role="button"/g) || []).length, 2, 'بطاقة لكل مكوّن أداء فقط');
   assert.match(html, /data-comp="c:P"[\s\S]*?📅 ثلاث فترات<\/span><span class="gs-chip now">الآن: الثانية/);
-  assert.match(html, /data-comp="c:H"[\s\S]*?يبدأ من الدرجة كاملة/);
+  assert.doesNotMatch(html, /يبدأ من/, '«يبدأ من» أُلغي (3.61)');
   assert.match(html, /class="crm-weight-input" data-key="c:P" value="10"/, 'الوزن محفوظ في البطاقة لحفظ واحد');
   runInAppContext(app, `crmGsOpen.comps = true;`);
   assert.match(app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] }), /data-gs="comps" open/);
@@ -376,7 +357,7 @@ test('إعداد الدرجات — الأقسام مطوية بملخص، وب�
   assert.equal(get(app, 'crmGsOpen.comps'), false, 'فتح الشاشة من جديد = مطوية');
 });
 
-test('نافذة المكوّن — الدرجة بـ − و +، والفترات ١/٢/٣ مع الانتقال، و"يبدأ من"، والإظهار، والحذف', async () => {
+test('نافذة المكوّن — الدرجة بـ − و +، والفترات ١/٢/٣ مع الانتقال، والإظهار، والحذف (بلا «يبدأ من»)', async () => {
   const app = appWith({}, [], withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }), { code: `crmCustomTools = []; crmCustomToolsLoaded = true;` });
   const cols = [col('P', 'participation', 10), col('H', 'homework', 10), col('K', 'task', 20)];
   app.crmGradeSettingsHtml({ sectionId: 'S', columns: cols, allColumns: cols, hiddenColumns: [], scores: [] });
@@ -385,7 +366,7 @@ test('نافذة المكوّن — الدرجة بـ − و +، والفترا�
   assert.match(m, /الدرجة[\s\S]*stepGsCompWeight\(-1\)[\s\S]*<b>10<\/b>[\s\S]*stepGsCompWeight\(1\)/);
   assert.match(m, /عدد الفترات[\s\S]*class="is-on" aria-pressed="true" onclick="setGsCompPeriods\(3\)">3/);
   assert.match(m, /الآن: <b>الفترة الثانية<\/b>[\s\S]*goToComponentPeriod\('kind:participation', 3\)">ابدأ الفترة الثالثة/);
-  assert.match(m, /يبدأ الطالب من/);
+  assert.doesNotMatch(m, /يبدأ الطالب من|الدرجة كاملة/, '«يبدأ من» أُلغي (3.61)');
   assert.match(m, /ظاهر في الكشف ونافذة الرصد/);
   assert.match(m, /deleteGradeComponent\('c:P'\)/);
   app.setGsCompPeriods(2);
@@ -397,7 +378,6 @@ function sheetApp(features, extra){
     renderCrmGrades = () => window.__calls.push('render');
     saveCrmGradeSettings = async o => { window.__calls.push('weights:' + window.__w.value + ':' + JSON.stringify(o)); return ${extra && extra.weightFails ? 'false' : 'true'}; };
     setAppToolOn = async (k, on) => window.__calls.push('tool:' + k + ':' + on);
-    setGradeStartMode = async (k, f) => window.__calls.push('start:' + k + ':' + f);
     setComponentPeriodCount = async (k, n) => window.__calls.push('periods:' + k + ':' + n);
     window.__w = { value: '10', dataset: { key: 'c:P' } };
     document.querySelector = q => q.indexOf('c:P') !== -1 ? window.__w : null;
@@ -417,15 +397,14 @@ test('نافذة المكوّن — الدرجة لا تتجاوز المتاح 
   assert.equal(get(app, 'gsCompDraft.weight'), 0.5);
 });
 
-test('نافذة المكوّن — "حفظ" يطبّق ما تغيّر فقط بالترتيب: الدرجة ← الإظهار ← "يبدأ من" ← الفترات', async () => {
+test('نافذة المكوّن — "حفظ" يطبّق ما تغيّر فقط بالترتيب: الدرجة ← الإظهار ← الفترات', async () => {
   const app = sheetApp();
   app.openGsCompSheet('c:P');
   app.stepGsCompWeight(1);
   app.toggleGsCompVisible();
-  app.setGsCompFull(true);
   app.setGsCompPeriods(2);
   await app.saveGsComp();
-  assert.deepEqual([...get(app, 'window.__calls')], ['weights:10.5:{"stay":true}', 'tool:participation:false', 'start:participation:true', 'periods:kind:participation:2', 'render']);
+  assert.deepEqual([...get(app, 'window.__calls')], ['weights:10.5:{"stay":true}', 'tool:participation:false', 'periods:kind:participation:2', 'render']);
   assert.equal(get(app, 'gsCompDraft'), null);
   const app2 = sheetApp();
   app2.openGsCompSheet('c:P');
@@ -590,37 +569,7 @@ test('حذف طالب — لقطة السلة تحوي درجتي الفترتي
    فيختفي كل إنقاص في الجارية ويظن المعلم أن الدرجة "رجعت كاملة" ============ */
 const FULL_PART = (starts, n) => withPeriods({ 'kind:participation': { n: n || 3, starts } }, { startFull: { participation: true } });
 
-test('انحدار: مع "يبدأ من الكاملة" الفترة الجارية تُحسب فورًا؛ وبدونه تبقى القاعدة القديمة', () => {
-  const app = loadApp();
-  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a'], live: true }), 2);
-  assert.equal(app.countedPeriodsOf({ n: 3, starts: [], live: true }), 1);
-  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a', 'b'], live: true }), 3);
-  assert.equal(app.countedPeriodsOf({ n: 3, starts: ['a'] }), 1, 'من 0: الجارية لا تُحسب حتى تنتهي');
-  const f = FULL_PART(['2026-10-25']);
-  assert.equal(app.periodCfgOf(f, TERM, 'kind:participation').live, true);
-  assert.equal(app.periodCfgOf(withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }), TERM, 'kind:participation').live, undefined);
-  runInAppContext(app, `crmCustomTools = ${TOOLS}; crmCustomToolsLoaded = true;`);
-  const tf = withPeriods({ ['tool:' + TOOL_ID]: { n: 2, starts: ['x'] }, ['tool:' + STATUS_ID]: { n: 2, starts: ['x'] }, 'kind:homework': { n: 2, starts: ['x'] } },
-    { startFull: { ['tool:' + TOOL_ID]: true, ['tool:' + STATUS_ID]: true, homework: true } });
-  assert.equal(app.periodCfgOf(tf, TERM, 'tool:' + TOOL_ID).live, true, 'العدّاد مرصود مباشرة');
-  assert.equal(app.periodCfgOf(tf, TERM, 'tool:' + STATUS_ID).live, undefined, 'الحالة محسوبة: القاعدة الأصلية');
-  assert.equal(app.periodCfgOf(tf, TERM, 'kind:homework').live, undefined, 'الواجبات محسوبة: القاعدة الأصلية');
-  assert.equal(app.periodCfgOf(tf, TERM, 'kind:participation').live, undefined, 'فترة واحدة: لا شيء');
-});
 
-test('انحدار: الكشف يصحّح عدد الفترات المحسوبة ويعرض الجارية في المعدّل (10 ثم 7 = 8.5، لا 10)', async () => {
-  const seed = {
-    classroom_grade_columns: [col('P', 'participation', 10, { counted_periods: 1 })],
-    classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 10 }],
-    classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 10 }, { teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 7 }],
-  };
-  const { app, log, g } = await gradeSheet(seed, FULL_PART(['2026-10-25']));
-  const rpc = log.filter(l => l.op === 'rpc' && l.name === 'set_column_counted_periods').map(l => l.args.p_column_id + ':' + l.args.p_counted);
-  assert.deepEqual(rpc, ['P:2']);
-  const html = app.crmGradeStudentPageHtml(g, 'a');
-  assert.match(html, /\(10 \+ 7\) ÷ 2 = <b>8\.5<\/b>/);
-  assert.doesNotMatch(html, /تُحسب عند انتهائها/);
-});
 
 test('انحدار: الرجوع لفترة سابقة يُنبّه أن رصد ما بعدها يُخفى (لا يُحذف)، والإلغاء لا يغيّر شيئًا', async () => {
   const later = [{ id: 'r1', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 7 }];
@@ -649,13 +598,9 @@ test('علامة ؟: تظهر في ترويسة المكوّن ذي الفترا
   assert.doesNotMatch(off.app.crmGradeDetailHtml(off.g), /crm-period-q/, 'بلا فترات: لا علامة');
 });
 
-test('علامة ؟: نص الشرح بحسب إعداد المكوّن — الكاملة تُحسب الجارية، والصفر لا، وبعد الإنهاء الكل', () => {
+test('علامة ؟: نص الشرح بحسب حالة الفترات — الجارية لا تُحسب بعد، وبعد الإنهاء الكل', () => {
   const app = loadApp();
   const html = cfg => app.periodHelpHtml('المشاركة', 'kind:participation', cfg);
-  const live = html({ n: 3, starts: ['a'], live: true });
-  assert.match(live, /الفترة الأولى<\/span><span>تُحسب<\/span>[\s\S]*الفترة الثانية<\/span><span>جارية — يُحسب ما رصدته فيها[\s\S]*الفترة الثالثة<\/span><span>لم تبدأ/);
-  assert.match(live, /ما تُنقصه في الفترة الثانية يُحسب فورًا، ومن لم تُنقص درجته يأخذ فيها الكاملة عند انتهائها — فبدء الفترة لا يغيّر أي درجة/);
-  assert.doesNotMatch(live, /أنهِ|ابدأ الفترة/, 'لا زر انتقال: لا شيء معلّق');
   const zero = html({ n: 3, starts: ['a'] });
   assert.match(zero, /الفترة الثانية<\/span><span>جارية — لا تُحسب بعد/);
   assert.match(zero, /تدخل الفترة الثانية حين تبدأ الفترة الثالثة/);
@@ -694,29 +639,13 @@ const LIVE3 = (starts, extra) => withPeriods({ 'kind:participation': Object.assi
 const pRow = (st, p, score) => ({ id: st + p, teacher_id: 'u1', column_id: 'P', student_id: st, period: p, score });
 const fillsIn = log => log.filter(l => l.op === 'rpc' && l.name === 'set_period_score').map(l => l.args.p_column_id + ':' + l.args.p_student_id + ':' + l.args.p_period + ':' + l.args.p_score + ':' + l.args.p_only_missing).sort();
 
-test('انحدار: الانتقال للثانية لا يمسّ رصد الأولى — ومن لم يُرصد له فيها (لم تُفتح ورقته) يأخذ الكاملة فيها، ولا شيء يُكتب في الثانية', async () => {
-  const log = [];
-  const app = settingsApp(LIVE3([]), { classroom_grade_period_scores: [pRow('a', 1, 7), pRow('b', 1, 6)] }, log);
-  assert.equal(await app.goToComponentPeriod('kind:participation', 2), true);
-  assert.deepEqual(fillsIn(log), ['P:c:1:10:true'], 'جابر فقط: الأولى انتهت بلا رصد له');
-  assert.equal(log.filter(l => l.table === 'classroom_grade_period_scores' && (l.op === 'delete' || l.op === 'update' || l.op === 'upsert')).length, 0);
-  assert.deepEqual([...get(app, `appFeatures.periods['${TK}']['kind:participation'].starts`)], ['2026-10-27']);
-});
 
-test('انحدار: انتهاء الفترة الأخيرة يعطي الكاملة لمن لم يُرصد له فيها؛ والقفز من الأولى للثالثة يُنهي الأولى والثانية', async () => {
-  const log = [];
-  const app = settingsApp(LIVE3(['2026-10-01', '2026-10-20']), { classroom_grade_period_scores: [pRow('a', 3, 4)] }, log);
-  await app.endComponentPeriods('kind:participation', true);
-  assert.deepEqual(fillsIn(log), ['P:b:3:10:true', 'P:c:3:10:true']);
-  const log2 = [];
-  const app2 = settingsApp(LIVE3([]), { classroom_grade_period_scores: [pRow('a', 1, 7)] }, log2);
-  await app2.goToComponentPeriod('kind:participation', 3);
-  assert.deepEqual(fillsIn(log2), ['P:b:1:10:true', 'P:b:2:10:true', 'P:c:1:10:true', 'P:c:2:10:true', 'P:a:2:10:true'].sort());
-});
 
-test('انتهاء فترة بلا "يبدأ من الكاملة" لا يكتب شيئًا، والرجوع لفترة سابقة لا يكتب شيئًا', async () => {
+test('انحدار: إعداد «يبدأ من الكاملة» القديم المحفوظ لا يعمل — الانتقال والرجوع بين الفترات لا يكتبان أي درجة', async () => {
   const log = [];
-  const app = settingsApp(withPeriods({ 'kind:participation': { n: 3, starts: [] } }), { classroom_grade_period_scores: [] }, log);
+  const app = settingsApp(LIVE3([]), { classroom_grade_period_scores: [] }, log);
+  assert.equal(get(app, 'gradeStartsFull("participation")'), false);
+  assert.equal(get(app, `periodCfg(${JSON.stringify(TERM)}, 'kind:participation').live`), undefined);
   await app.goToComponentPeriod('kind:participation', 2);
   assert.deepEqual(fillsIn(log), []);
   const log2 = [];
@@ -725,20 +654,3 @@ test('انتهاء فترة بلا "يبدأ من الكاملة" لا يكتب 
   assert.deepEqual(fillsIn(log2), []);
 });
 
-test('انحدار: ورقة الحصة في الثانية (من الكاملة) — لا تُكتب الكاملة مقدّمًا، وتُعرض كاملة، والنقرة تُنقص منها', async () => {
-  const seed = { classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 7 }], classroom_grade_period_scores: [pRow('a', 1, 7)] };
-  const { app, log } = await partSheet('2026-10-27', seed, LIVE3(['2026-10-25']), { code: TODAY, rpc: { increment_period_score: 9 } });
-  assert.deepEqual(fillsIn(log), [], 'لا ملء للفترة الثانية');
-  assert.equal(get(app, 'crmSheet.part.period'), 2);
-  assert.match(sheetHtml(app), /ما تُنقصه هنا يُحسب في الكشف فورًا، ومن لم تُنقصه يأخذ الكاملة عند انتهاء الفترة/);
-  runInAppContext(app, `window.__painted = {}; document.getElementById = id => id.indexOf('crmPart_') === 0 ? { classList: { toggle(){} }, querySelector: q => q === '.crm-part-val' ? (window.__painted[id] = { set innerHTML(v){ window.__painted[id + ':v'] = v; } }) : null } : null;`);
-  app.paintCrmParticipation('a');
-  assert.match(get(app, "window.__painted['crmPart_a:v']"), /<b>10<\/b>/, 'يُعرض كاملًا في الفترة الجديدة');
-  app.tapCrmParticipation('a', -1);
-  await get(app, 'crmSheet.part.queue.get("a")');
-  const inc = log.find(l => l.op === 'rpc' && l.name === 'increment_period_score');
-  assert.equal(inc.args.p_period, 2);
-  assert.equal(inc.args.p_delta, -1);
-  assert.equal(inc.args.p_full, true, 'القاعدة تبدأ من الكاملة لمن لا صف له');
-  assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 9);
-});
