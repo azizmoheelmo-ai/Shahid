@@ -3223,3 +3223,7 @@ select.tlx-inp{min-height:44px;}
 .ibx-card-zoom{zoom:0.42;}
 @media (min-width:520px){.ibx-card-zoom{zoom:0.6;}}
 .ibx-tip{margin:0 2px 8px;font-size:12px;line-height:1.8;color:var(--ui-body);}
+/* ربط حصة برنامج بشاهد قائم (app-54) */
+.lk-row.is-on{background:var(--ui-ok-bg);}
+.lk-row .lk-legacy{color:var(--ui-warn);}
+.pg-sc.pg-link,.pg-sbtn.pg-link{font-size:11.5px;}
