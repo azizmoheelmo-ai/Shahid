@@ -238,7 +238,9 @@ async function renderCrmParticipation(students, tool){
         .eq('teacher_id', currentUser.id).eq('column_id', column.id);
       if(error) throw error;
       scores = currentPeriodScores(new Map((data || []).map(r => [r.student_id, Number(r.score)])), await loadPeriodRows(column.id), period);
-      if(gradeStartsFull(tool ? 'tool:' + tool.id : 'participation')){
+      /* "يبدأ من الكاملة": تُملأ الكاملة مقدّمًا في الأولى فقط. من الثانية فما بعدها لا تُكتب حتى تنتهي الفترة
+         (closeFullPeriods) — وإلا رفع بدءُ الفترة معدّلَ من أُنقصت درجته (7 ثم 10 = 8.5). تُعرض كاملة وتُحسب بما يُرصد */
+      if(gradeStartsFull(tool ? 'tool:' + tool.id : 'participation') && period === 1){
         (await fillStartFullPeriodScores(column, students.map(st => st.id), period, scores)).forEach(id => scores.set(id, Number(column.max_score)));
       }
     }
@@ -265,7 +267,7 @@ async function renderCrmParticipation(students, tool){
   /* الشارة والشرح للمكوّن الذي له أكثر من فترة */
   const shown = pinfo && pinfo.cfg.n > 1 ? period : null;
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}${shown ? ' ' + crmPeriodChipHtml(s) : ''}</div>${crmSheetModeSwitchHtml()}
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${shown ? `الرصد في <b>${PERIOD_NAMES[shown]}</b> — ${shown > (countedPeriodsOf(pinfo.cfg) || pinfo.cfg.n) ? 'تُحسب في الكشف عند انتهائها، وحتى ذلك الحين الدرجة = الفترات المنتهية. ' : pinfo.cfg.live && shown > 1 ? 'ما تُنقصه هنا يُحسب في الكشف فورًا، ومن لم تُنقصه يأخذ الكاملة عند انتهاء الفترة. ' : `درجة "${escapeHtml(column.name)}" في الكشف = معدّل الفترات. `}` : ''}${full ? `تبدأ الدرجة كاملة (${formatScore(column.max_score)}). ` : ''}<b style="color:#2F6B3A;">+</b> يزيد درجة و<b style="color:#8A2C2C;">−</b> ينقص درجة${shown ? '' : ` في "${escapeHtml(column.name)}"`} (من ${formatScore(column.max_score)}) — تُحفظ فورًا.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <div class="crm-att-btn crm-part-tile${crmAbsentClass(s, st.id)}" id="crmPart_${st.id}">
@@ -290,7 +292,8 @@ function paintCrmParticipation(studentId){
   const s = crmSheet;
   const btn = document.getElementById('crmPart_' + studentId);
   if(!btn || !s || !s.part) return;
-  const score = s.part.scores.has(studentId) ? s.part.scores.get(studentId) : null;
+  /* من الكاملة ولم يُرصد له في هذه الفترة: يُعرض كاملًا (لا يُكتب حتى تنتهي) */
+  const score = s.part.scores.has(studentId) ? s.part.scores.get(studentId) : (s.part.full ? Number(s.part.column.max_score) : null);
   /* صافي تغيّر اليوم: today يعدّ النقرات باتجاه الوضع (+1، أو −1 لمن يبدأ من الكاملة) */
   const net = (s.part.today[studentId] || 0) * (s.part.step || 1);
   btn.querySelector('.crm-part-val').innerHTML =
@@ -387,7 +390,7 @@ function undoCrmParticipation(){
   const studentId = opposite ? entry.slice(1) : entry;
   const step = p.step || 1;
   const dir = opposite ? -step : step; /* اتجاه النقرة التي نتراجع عنها */
-  const cur = p.scores.has(studentId) ? p.scores.get(studentId) : 0;
+  const cur = p.scores.has(studentId) ? p.scores.get(studentId) : (p.full ? Number(p.column.max_score) : 0);
   const back = cur - dir;
   if(back <= 0 && dir > 0 && !p.full) p.scores.delete(studentId); else p.scores.set(studentId, Math.max(0, Math.min(Number(p.column.max_score), back)));
   p.today[studentId] = (p.today[studentId] || 0) - (opposite ? -1 : 1);

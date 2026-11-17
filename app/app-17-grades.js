@@ -304,7 +304,8 @@ async function loadCrmGradeSheet(sectionId){
       const fk = typeof directStartFullKey === 'function' ? directStartFullKey(c) : null;
       if(fk && gradeStartsFull(fk)){
         const period = Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
-        if((await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
+        /* الأولى فقط — ما بعدها تُكتب كاملته عند انتهائها (لا يتغيّر المعدّل لمجرد بدء فترة) */
+        if(period === 1 && (await fillStartFullPeriodScores(c, ids, period, currentPeriodScores(pd.main, pd.rows, period))).length) pd = await load();
       }
       breakdown.set(c.id, participationPeriodBreakdown(pd.main, pd.rows));
     } catch(e){}
