@@ -409,6 +409,67 @@ function crmLockBannerHtml(key, period){
 }
 function crmLockedToast(){ showToast('الفترة مقفلة — افتحها للتعديل من نافذة الفترات', 'error'); }
 
+/* ============ تعديل فترة منتهية مفتوحة من الكشف ============
+   «فتح للتعديل» يرفع القفل فقط؛ والكشف يرصد عادةً في الفترة الجارية. هذا الوضع يجعل رصد الكشف (الخانة، «رصد»، الاستيراد)
+   لأعمدة هذا المكوّن في الفترة المختارة، بشريط ظاهر أعلى الكشف حتى يُنهيه المعلم. في الذاكرة فقط (لا يبقى بعد إعادة الفتح). */
+let gradeEditPeriod = null; /* { key, period, term } */
+
+function gradeEditPeriodOf(c){
+  const m = gradeEditPeriod;
+  if(!m || !c || periodCompKeyOfColumn(c) !== m.key || !isDirectPeriodColumn(c)) return null;
+  if(termPeriodKey({ year: c.academic_year, semester: c.semester }) !== m.term) return null;
+  const cfg = periodCfg(crmCurrentTerm(), m.key);
+  const now = currentPeriodOf(cfg);
+  if(!(m.period < now || (m.period === now && cfg.ended))) return null; /* لم تعد منتهية (تراجع من جهاز آخر) */
+  return m.period;
+}
+
+function gradeEditBannerHtml(){
+  const m = gradeEditPeriod;
+  if(!m) return '';
+  const term = crmCurrentTerm();
+  if(termPeriodKey(term) !== m.term){ gradeEditPeriod = null; return ''; }
+  const name = escapeHtml(periodCompName(m.key));
+  const locked = isPeriodLocked(term, m.key, { period: m.period });
+  return `<div class="pt-edit-banner" role="status"><b>✏️ تعدّل الآن درجات ${PERIOD_NAMES[m.period]} في «${name}»</b>
+    <small>${locked ? `${PERIOD_NAMES[m.period]} مقفلة — افتحها للتعديل من نافذة الفترات.` : `ما ترصده في «${name}» من الكشف يُحفظ في ${PERIOD_NAMES[m.period]}، لا في الجارية.`}</small>
+    <div class="pt-edit-acts">${isLockableKey(m.key) && !locked ? `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="finishGradeEditPeriod(true)">✓ انتهيت — أقفل ${PERIOD_NAMES[m.period].replace('الفترة ', '')}</button>` : ''}
+      <button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="finishGradeEditPeriod(false)">${locked || !isLockableKey(m.key) ? 'انتهيت' : 'خروج بلا قفل'}</button></div></div>`;
+}
+
+/* من نافذة الفترات: يفتح كشف الشعبة الحالية على رصد هذا المكوّن في الفترة المختارة */
+async function startGradeEditPeriod(p){
+  const key = periodWinCtx && periodWinCtx.key;
+  if(!key || !periodKeyIsDirect(key)) return;
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key);
+  const now = currentPeriodOf(cfg);
+  p = Number(p);
+  if(!(p >= 1 && (p < now || (p === now && cfg.ended)))) return;
+  if(isPeriodLocked(term, key, { period: p })){ crmLockedToast(); return; }
+  gradeEditPeriod = { key, period: p, term: termPeriodKey(term) };
+  closeCrmModal();
+  if(typeof switchCrmTab === 'function' && document.getElementById('crmTabGrades')) switchCrmTab('grades');
+  else if(typeof renderCrmGrades === 'function') await renderCrmGrades();
+  showToast(`وضع تعديل ${PERIOD_NAMES[p]} — اضغط «رصد» على «${periodCompName(key)}»`, 'ok');
+}
+
+async function finishGradeEditPeriod(lock){
+  const m = gradeEditPeriod;
+  if(!m || gradePeriodSaving) return;
+  if(lock && isLockableKey(m.key)){
+    const term = crmCurrentTerm();
+    const cfg = periodCfg(term, m.key);
+    const cur = periodLockOf(term, m.key);
+    if(!cur || cur.p < m.period){
+      const ok = await withPeriodBusy(async () => { await setPeriodLock(term, m.key, m.period, lockBeforeFor(cfg, m.period)); return true; }, `أُقفلت ${PERIOD_NAMES[m.period]} ✓`);
+      if(!ok) return;
+    }
+  }
+  gradeEditPeriod = null;
+  if(typeof renderCrmGrades === 'function') renderCrmGrades();
+}
+
 /* ============ نافذة «الفترات» ============ */
 let periodWinCtx = null;      /* { key } */
 let periodTransDraft = null;  /* { key, now, last, start: 'empty'|'full'|'zero' } */
@@ -441,7 +502,7 @@ function periodCardsHtml(key, cfg, lock, stats, total){
     const ended = p < now || (p === now && cfg.ended);
     const locked = ended && lock && p <= lock.p;
     const pill = locked ? '<span class="tlx-pill">🔒 مقفلة</span>'
-      : ended ? '<span class="tlx-pill is-gold">منتهية — غير مقفلة</span>'
+      : ended ? `<span class="tlx-pill is-gold">${isLockableKey(key) ? 'مفتوحة للتعديل' : 'منتهية'}</span>`
       : p === now ? '<span class="tlx-pill is-gold">جارية</span>' : '<span class="tlx-pill is-blue">لم تبدأ</span>';
     const st = stats && stats[p];
     const meta = p > now ? '—' : stats ? (st ? `رُصد ${st.n}${total ? ' من ' + total : ''} · المتوسط ${st.pct}٪` : 'لا رصد بعد')
@@ -450,7 +511,10 @@ function periodCardsHtml(key, cfg, lock, stats, total){
     if(p === now && !cfg.ended) acts = `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="openPeriodTransition()">${p < cfg.n ? `أنهِ ${PERIOD_NAMES[p]} وأقفلها ← ابدأ ${PERIOD_NAMES[p + 1]}` : `أنهِ ${PERIOD_NAMES[p]} وأقفلها`}</button>`;
     if(p === now && !cfg.ended && p > 1 && !(stats && stats[p])) acts += '<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="undoPeriodStart()">تراجع عن بدئها</button>';
     else if(locked && p === lock.p) acts = '<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="unlockLatestPeriod()">فتح للتعديل</button>';
-    else if(ended && !locked && isLockableKey(key) && p === (lock ? lock.p : 0) + 1) acts = '<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="lockNextEndedPeriod()">🔒 أقفلها</button>';
+    else if(ended && !locked){
+      if(periodKeyIsDirect(key)) acts += `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="startGradeEditPeriod(${p})">✏️ عدّل درجات ${PERIOD_NAMES[p].replace('الفترة ', '')} في الكشف ←</button>`;
+      if(isLockableKey(key) && p === (lock ? lock.p : 0) + 1) acts += '<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="lockNextEndedPeriod()">🔒 أقفلها</button>';
+    }
     return `<div class="pw-card${p === now && !cfg.ended ? ' is-cur' : ''}"><div class="pw-top"><b>${PERIOD_NAMES[p]}</b>${pill}</div>
       <div class="pw-meta">${escapeHtml(meta)}</div>${acts ? `<div class="pw-acts">${acts}</div>` : ''}</div>`;
   }).join('');

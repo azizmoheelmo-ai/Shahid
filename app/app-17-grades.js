@@ -505,7 +505,7 @@ function crmGradesPageHtml(g){
   }
   /* الجدول الكامل لم يعد يُعرض (مرهق على الجوال): الرصد من أزرار «رصد» وتعديل الدرجة من صفحة الطالب، والجدول الكامل في «تصدير الكشف» */
   const plus = hasBaseGradeColumns(g.allColumns || g.columns) ? '<button type="button" class="crm-gs-plus" aria-label="إضافة ونقل الدرجات" title="إضافة اختبار، استيراد، قالب، تصدير" onclick="openCrmGradeToolsMenu()">＋</button>' : '';
-  return crmGradesSectionPickerHtml(g.sectionId, plus) + crmGradesViewSwitchHtml() + crmGradeSimpleHtml(g);
+  return (typeof gradeEditBannerHtml === 'function' ? gradeEditBannerHtml() : '') + crmGradesSectionPickerHtml(g.sectionId, plus) + crmGradesViewSwitchHtml() + crmGradeSimpleHtml(g);
 }
 
 function crmGradeBarHtml(score, max){
@@ -1171,7 +1171,7 @@ function openCrmGradeEntry(columnId){
   crmGradeEntry = { columnId, saving: false, period };
   const students = crmStudentsOfSection(crmGrades.sectionId);
   const scoreOf = crmGradeEntryScores(crmGrades, c, period);
-  box.innerHTML = `
+  box.innerHTML = (period && typeof gradeEditPeriodOf === 'function' && gradeEditPeriodOf(c) ? gradeEditBannerHtml() : '') + `
     <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' · الدرجة في الكشف = معدّل الفترات' : ''}</div>
     <div class="crm-grade-entry">
@@ -1192,6 +1192,8 @@ function openCrmGradeEntry(columnId){
 /* فترة الرصد اليدوي لعمود يُرصد مباشرة (null لغيره) — الجارية؛ بفترة واحدة: الأولى (الرصد دائمًا بدرجة فترة) */
 function crmGradeEntryPeriod(g, c){
   if(!isDirectPeriodColumn(c) || !(g.breakdown && g.breakdown.has(c.id))) return null;
+  const edit = typeof gradeEditPeriodOf === 'function' ? gradeEditPeriodOf(c) : null; /* وضع تعديل فترة منتهية مفتوحة */
+  if(edit) return edit;
   const cfg = gradeColumnPeriodCfg(g, c);
   return Math.min(cfg.n, periodOfDateFor(localIsoDate(), cfg.starts));
 }

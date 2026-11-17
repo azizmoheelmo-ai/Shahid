@@ -216,7 +216,7 @@ test('شارة الفترة تفتح نافذة «الفترات» (3.61) — ل
   app.openCrmPeriodPicker();
   await new Promise(r => setTimeout(r, 0));
   const modal = get(app, 'window.__modal');
-  assert.match(modal, /فترات «المشاركة»[\s\S]*الفترة الأولى[\s\S]*منتهية — غير مقفلة[\s\S]*الفترة الثانية[\s\S]*جارية[\s\S]*الفترة الثالثة[\s\S]*لم تبدأ/);
+  assert.match(modal, /فترات «المشاركة»[\s\S]*الفترة الأولى[\s\S]*مفتوحة للتعديل[\s\S]*الفترة الثانية[\s\S]*جارية[\s\S]*الفترة الثالثة[\s\S]*لم تبدأ/);
   assert.match(modal, /openPeriodTransition\(\)">أنهِ الفترة الثانية وأقفلها ← ابدأ الفترة الثالثة/);
   assert.match(modal, /lockNextEndedPeriod\(\)">🔒 أقفلها/, 'المنتهية غير المقفلة: زر قفل');
   assert.doesNotMatch(modal, /pickCrmPeriod|goToComponentPeriod\('kind:participation', 1\)/, 'لا رجوع بنقرة');
@@ -807,4 +807,61 @@ test('نافذة الفترات تهرّب اسم المكوّن اليدوي، 
   runInAppContext(app, `periodWinCtx = { key: ${JSON.stringify('name:' + evil)} };`);
   await app.openPeriodTransition();
   assert.doesNotMatch(get(app, 'window.__modal'), /تُقفل/, 'اليدوي: لا قفل');
+});
+
+/* ============ تعديل فترة منتهية مفتوحة من الكشف (بعد «فتح للتعديل») ============ */
+test('فترة منتهية مفتوحة — زر «عدّل درجاتها في الكشف» يظهر لها فقط (لا للمقفلة ولا للواجبات)', async () => {
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] }, 'kind:homework': { n: 2, starts: ['2026-10-20'] } });
+  const app = settingsApp(f, { classroom_grade_period_scores: [] }, []);
+  await app.openPeriodsWindow('kind:participation');
+  let m = get(app, 'window.__modal');
+  assert.match(m, /مفتوحة للتعديل[\s\S]*startGradeEditPeriod\(1\)">✏️ عدّل درجات الأولى في الكشف ←[\s\S]*lockNextEndedPeriod/);
+  assert.doesNotMatch(m, /startGradeEditPeriod\(2\)/, 'الجارية تُرصد عاديًا');
+  runInAppContext(app, `gradePeriodLocks = { '${TK}': { 'kind:participation': { p: 1, before: '2026-10-20' } } };`);
+  await app.openPeriodsWindow('kind:participation');
+  assert.doesNotMatch(get(app, 'window.__modal'), /startGradeEditPeriod/, 'المقفلة: افتحها أولًا');
+  await app.openPeriodsWindow('kind:homework');
+  assert.doesNotMatch(get(app, 'window.__modal'), /startGradeEditPeriod/, 'المحسوب: يُعدَّل من رصده بتاريخه');
+});
+
+test('وضع تعديل الأولى — رصد الكشف لعمود المكوّن يذهب للأولى، وشريط ظاهر، والأعمدة الأخرى كما هي؛ «انتهيت» يقفلها ويخرج', async () => {
+  const seed = { classroom_grade_columns: [col('P', 'participation', 10), col('M', 'manual', 5)], classroom_grade_scores: [],
+    classroom_grade_period_scores: [pRow('a', 1, 6), pRow('a', 2, 9)] };
+  const f = withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } });
+  const { app, log, g } = await gradeSheet(seed, f);
+  app.__g = g; runInAppContext(app, 'crmGrades = __g;');
+  const P = g.columns.find(c => c.id === 'P');
+  assert.equal(app.crmGradeEntryPeriod(g, P), 2, 'عادةً: الجارية');
+  runInAppContext(app, `periodWinCtx = { key: 'kind:participation' }; renderCrmGrades = async () => {}; switchCrmTab = () => {};`);
+  await app.startGradeEditPeriod(1);
+  assert.equal(app.crmGradeEntryPeriod(g, P), 1, 'في الوضع: الأولى');
+  assert.equal(get(app, 'crmGradeEntryScores(crmGrades, crmGrades.columns.find(c => c.id === "P"), 1).get("a")'), 6);
+  assert.equal(app.crmGradeEntryPeriod(g, g.columns.find(c => c.id === 'M')), 1, 'اليدوي بفترة واحدة كما هو');
+  const banner = app.gradeEditBannerHtml();
+  assert.match(banner, /✏️ تعدّل الآن درجات الفترة الأولى في «المشاركة»[\s\S]*يُحفظ في الفترة الأولى، لا في الجارية[\s\S]*finishGradeEditPeriod\(true\)">✓ انتهيت — أقفل الأولى[\s\S]*finishGradeEditPeriod\(false\)">خروج بلا قفل/);
+  await app.finishGradeEditPeriod(true);
+  assert.deepEqual(rpcs(log, 'set_period_lock').map(a => a.p_key + ':' + a.p_period + ':' + a.p_before), ['kind:participation:1:2026-10-20']);
+  assert.equal(get(app, 'gradeEditPeriod'), null);
+  assert.equal(app.crmGradeEntryPeriod(g, P), 2, 'بعد الخروج: الجارية');
+  assert.equal(app.gradeEditBannerHtml(), '');
+});
+
+test('وضع التعديل — «خروج بلا قفل» لا يكتب شيئًا، والفترة المقفلة لا تدخله، وتراجع الفترات يُبطله', async () => {
+  const log = [];
+  const app = settingsApp(withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } }), { classroom_grade_period_scores: [] }, log);
+  runInAppContext(app, `periodWinCtx = { key: 'kind:participation' }; renderCrmGrades = async () => {}; switchCrmTab = () => {};`);
+  await app.startGradeEditPeriod(1);
+  const n = log.filter(l => l.op !== 'select').length;
+  await app.finishGradeEditPeriod(false);
+  assert.equal(log.filter(l => l.op !== 'select').length, n, 'لا كتابة');
+  assert.equal(get(app, 'gradeEditPeriod'), null);
+  runInAppContext(app, `gradePeriodLocks = { '${TK}': { 'kind:participation': { p: 1, before: '2026-10-20' } } };`);
+  await app.startGradeEditPeriod(1);
+  assert.equal(get(app, 'gradeEditPeriod'), null);
+  runInAppContext(app, `gradePeriodLocks = {};`);
+  await app.startGradeEditPeriod(2);
+  assert.equal(get(app, 'gradeEditPeriod'), null, 'الجارية ليست منتهية');
+  await app.startGradeEditPeriod(1);
+  runInAppContext(app, `appFeatures = normalizeFeatures(Object.assign({}, appFeatures, { periods: { '${TK}': { 'kind:participation': { n: 2, starts: [] } } } }));`);
+  assert.equal(get(app, `gradeEditPeriodOf(${JSON.stringify(col('P', 'participation', 10))})`), null, 'رجعت جارية: يُبطل الوضع');
 });
