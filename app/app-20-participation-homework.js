@@ -145,9 +145,60 @@ function crmSheetModeSwitchHtml(){
   return `<div class="crm-seg${modes.length > 4 ? ' is-wrap' : ''}">${modes.map(k => `<button class="${m === k ? 'is-on' : ''}" onclick="setCrmSheetMode('${k}')">${escapeHtml(sheetModeLabel(k))}</button>`).join('')}</div>`;
 }
 
+/* ============ تذكّر التبويبات داخل نفس الحصة ============
+   الرجوع لتبويب فُتح قبل قليل في نفس الورقة فوري من الذاكرة (لا تحميل). الذاكرة فيها كل ما رصده المعلم (النقرات تعدّل حالتها
+   مباشرة). لا تحديث في الخلفية: كان سيكتب فوق نقرة جديدة بقيمة قديمة. تُستعمل 5 دقائق فقط، وبنفس الفترات والأقفال، وإلا تحميل جديد.
+   تُمسح بإغلاق الورقة (crmSheet جديدة). الحضور حالته في الذاكرة أصلًا فلا يحتاجها. */
+const CRM_MODE_CACHE_MS = 5 * 60 * 1000;
+const CRM_MODE_STATE = ['part', 'card', 'hw', 'task', 'test', 'rubric', 'help', 'helpOpen', 'perExtra', 'tool'];
+
+/* ما يغيّر شكل التبويب من خارجه: الفترة المعروضة، والأقفال، والحضور (شارة «غائب») — تغيّر أيٌّ منها: تحميل جديد */
+function crmModeCacheSig(){ return JSON.stringify([crmSheet && crmSheet.viewPeriods || {}, typeof gradePeriodLocks === 'undefined' ? null : gradePeriodLocks, crmSheet && crmSheet.states || {}]); }
+
+function saveCrmSheetModeCache(s){
+  const body = document.getElementById('crmLessonSheetBody');
+  if(!s || !body || !s.mode || s.mode === 'attendance' || s.mode === 'none') return;
+  const html = body.innerHTML;
+  if(!html || /class="loading-state"|class="empty-state">تعذّر التحميل/.test(html)) return; /* لم يكتمل تحميله: لا يُتذكَّر */
+  const st = {};
+  CRM_MODE_STATE.forEach(f => { st[f] = s[f]; });
+  (s.modeCache = s.modeCache || {})[s.mode] = { html, st, sig: crmModeCacheSig(), at: Date.now() };
+}
+
+function restoreCrmSheetModeCache(s, mode){
+  const c = s.modeCache && s.modeCache[mode];
+  const body = document.getElementById('crmLessonSheetBody');
+  if(!c || !body || Date.now() - c.at > CRM_MODE_CACHE_MS || c.sig !== crmModeCacheSig()) return false;
+  delete s.modeCache[mode];
+  body.innerHTML = c.html;
+  CRM_MODE_STATE.forEach(f => { s[f] = c.st[f]; });
+  s.mode = mode;
+  /* القيم من الذاكرة لا من لقطة الشاشة: حفظ انتهى أو فشل بعد مغادرة التبويب يظهر صحيحًا، وخانات الكتابة تُملأ */
+  const ids = crmStudentsOfSection(s.sectionId).map(st => st.id);
+  if(s.part && (mode === 'participation' || mode.indexOf('tool:') === 0) && document.getElementById('crmPartUndoBtn')) ids.forEach(paintCrmParticipation);
+  if(mode === 'homework' && s.hw && s.hw.statuses){ ids.forEach(paintCrmHomework); paintCrmHomeworkCounts(); }
+  if(mode === 'task' && s.task && s.task.selectedId && typeof paintCrmTaskAll === 'function'){ paintCrmTaskAll(ids.filter(id => s.task.scores.has(id))); paintCrmTaskCounts(); }
+  if(mode === 'test' && s.test){
+    if(s.rubric && typeof rubricPaint === 'function') rubricPaint();
+    else {
+      document.querySelectorAll('.crm-test-input').forEach(inp => {
+        const id = inp.getAttribute ? inp.getAttribute('data-student') : (inp.dataset && inp.dataset.student);
+        inp.value = s.test.values.has(id) ? formatScore(s.test.values.get(id)) : '';
+      });
+      if(typeof paintCrmTestCounts === 'function') paintCrmTestCounts();
+    }
+  }
+  return true;
+}
+
 function setCrmSheetMode(mode, selectId){
   if(!crmSheet) return;
   if(!enabledSheetModes().includes(mode)) mode = enabledSheetModes()[0] || 'none';
+  const from = crmSheet.mode;
+  if(from !== mode){
+    saveCrmSheetModeCache(crmSheet);
+    if(!selectId && restoreCrmSheetModeCache(crmSheet, mode)) return;
+  }
   crmSheet.mode = mode;
   if(mode === 'none'){
     document.getElementById('crmLessonSheetBody').innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(crmSheet)}</div>
@@ -231,11 +282,13 @@ async function renderCrmParticipation(students, tool){
       column = await findKindColumn(s.sectionId, crmCurrentTerm(), 'participation');
     }
     if(column){
-      const { data, error } = await sb.from('classroom_grade_scores').select('student_id, score')
-        .eq('teacher_id', currentUser.id).eq('column_id', column.id);
+      /* الدرجات ودرجات الفترات معًا (لا واحدة بعد الأخرى) */
+      const [{ data, error }, rows] = await Promise.all([
+        sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', currentUser.id).eq('column_id', column.id),
+        loadPeriodRows(column.id)]);
       if(error) throw error;
       /* فتح الورقة لا يكتب أي درجة: الفارغ يبقى فارغًا حتى يُرصد أو يُعبَّأ بزر صريح */
-      scores = currentPeriodScores(new Map((data || []).map(r => [r.student_id, Number(r.score)])), await loadPeriodRows(column.id), period);
+      scores = currentPeriodScores(new Map((data || []).map(r => [r.student_id, Number(r.score)])), rows, period);
     }
   } catch(e){
     if(crmSheet !== s || s.token !== token || s.mode !== mode) return;

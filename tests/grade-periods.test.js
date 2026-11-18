@@ -1522,3 +1522,88 @@ test('الفتح/القفل الفوري — الشاشة تتغيّر قبل ر
   assert.match(get(app, `document.getElementById('crmPerState').innerHTML`), /الفترة الأولى مقفلة/);
   assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر الحفظ/);
 });
+
+/* ============ التنقل بين تبويبات ورقة الحصة: تذكّر داخل نفس الحصة + تحميل متوازٍ ============ */
+async function tabsApp(extraSeed, features){
+  const reads = [];
+  const seed = Object.assign({ classroom_grade_columns: [col('P', 'participation', 10), col('H', 'homework', 10)], classroom_grade_scores: [],
+    classroom_grade_period_scores: [pRow('a', 1, 4)], classroom_homework: [HW('h1', '2026-10-25')], classroom_homework_status: [] }, extraSeed || {});
+  const app = appWith(seed, [], features || OFF, { rpc: { increment_period_score: 5 },
+    wrap: c => Object.assign({}, c, { from(t){ reads.push(t); return c.from(t); } }),
+    code: `${TODAY} enabledSheetModes = () => ['attendance', 'participation', 'homework', 'test']; syncHomeworkColumn = async () => {};` });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'attendance', states: {} };`);
+  return { app, reads };
+}
+const sheetBody = app => get(app, `document.getElementById('crmLessonSheetBody').innerHTML`);
+
+test('تبويبات الورقة — الرجوع لتبويب فُتح في نفس الحصة فوري بلا قراءة من القاعدة، وفيه ما رُصد (ولو انتهى حفظه بعد المغادرة)', async () => {
+  const { app, reads } = await tabsApp();
+  await app.setCrmSheetMode('participation');
+  assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 4);
+  app.tapCrmParticipation('a', 1);                 /* الحفظ ما زال جاريًا */
+  await app.setCrmSheetMode('homework');
+  assert.match(sheetBody(app), /واجب h1/);
+  await get(app, 'crmSheet.part.queue.get("a")');  /* انتهى الحفظ وهو على تبويب الواجب */
+  const n = reads.length;
+  const r = app.setCrmSheetMode('participation');
+  assert.equal(r, undefined, 'رجوع فوري (لا وعد تحميل)');
+  assert.equal(reads.length, n, 'لا قراءة من القاعدة');
+  assert.equal(get(app, 'crmSheet.mode'), 'participation');
+  assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 5, 'قيمة الحفظ الأخير من الذاكرة');
+  const n2 = reads.length;
+  app.setCrmSheetMode('homework');
+  assert.equal(reads.length, n2, 'والواجب كذلك');
+  assert.match(sheetBody(app), /واجب h1/);
+});
+
+test('تبويبات الورقة — تغيّر الحضور أو الفترة المعروضة أو مرور 5 دقائق: تحميل جديد (لا شكل قديم)', async () => {
+  const { app, reads } = await tabsApp();
+  await app.setCrmSheetMode('participation');
+  await app.setCrmSheetMode('homework');
+  runInAppContext(app, `crmSheet.states = { a: 'absent' };`);
+  let n = reads.length;
+  await app.setCrmSheetMode('participation');
+  assert.ok(reads.length > n, 'الحضور تغيّر: تحميل');
+  await app.setCrmSheetMode('homework');
+  runInAppContext(app, `crmSheet.modeCache.participation.at -= 6 * 60 * 1000;`);
+  n = reads.length;
+  await app.setCrmSheetMode('participation');
+  assert.ok(reads.length > n, 'أقدم من 5 دقائق: تحميل');
+});
+
+test('تبويبات الورقة — تبويب غادره المعلم أثناء تحميله لا يُتذكَّر؛ وإعادة رسم نفس التبويب (تبديل الفترة) لا تستعمل الذاكرة', async () => {
+  const { app, reads } = await tabsApp();
+  const p = app.setCrmSheetMode('participation');   /* يغادر قبل انتهاء التحميل */
+  await app.setCrmSheetMode('homework');
+  await p;
+  assert.equal(get(app, 'crmSheet.modeCache && crmSheet.modeCache.participation'), undefined);
+  const n = reads.length;
+  await app.setCrmSheetMode('participation');
+  assert.ok(reads.length > n);
+  const n2 = reads.length;
+  await app.setCrmSheetMode('participation');
+  assert.ok(reads.length > n2, 'نفس التبويب: تحميل جديد كالمعتاد');
+});
+
+test('تبويب الاختبار — الرجوع إليه يملأ خانات الدرجات من الذاكرة (لا من لقطة الشاشة)', async () => {
+  const T = { id: 'X', teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, category: 'tests', kind: 'manual', tool_id: null, name: 'قصير', max_score: 10, position: 1, created_at: '2026-10-01' };
+  const { app, reads } = await tabsApp({ classroom_grade_columns: [col('P', 'participation', 10), T], classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'X', student_id: 'a', score: 7 }] });
+  runInAppContext(app, `rubricOn = () => false;`);
+  await app.setCrmSheetMode('test');
+  runInAppContext(app, `crmSheet.test.values.set('b', 9);`);  /* حُفظت درجة بعد الرسم */
+  await app.setCrmSheetMode('participation');
+  const n = reads.length;
+  app.setCrmSheetMode('test');
+  assert.equal(reads.length, n);
+  assert.equal(get(app, 'crmSheet.test.values.get("b")'), 9);
+});
+
+test('تحميل متوازٍ — المشاركة: الدرجات ودرجات الفترات تُطلب معًا', async () => {
+  let inflight = 0, peak = 0;
+  const app = appWith({ classroom_grade_columns: [col('P', 'participation', 10)], classroom_grade_scores: [], classroom_grade_period_scores: [] }, [], OFF, {
+    wrap: c => Object.assign({}, c, { from(t){ const q = c.from(t); if(t !== 'classroom_grade_scores' && t !== 'classroom_grade_period_scores') return q;
+      const th = q.then.bind(q); q.then = (res, rej) => { inflight++; peak = Math.max(peak, inflight); return new Promise(r => setTimeout(r, 5)).then(() => { inflight--; return th(res, rej); }); }; return q; } }) });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'participation', states: {} };`);
+  await app.renderCrmParticipation(get(app, 'crmStudentsOfSection("S")'));
+  assert.equal(peak, 2, 'الطلبان معًا لا واحدًا بعد الآخر');
+});
