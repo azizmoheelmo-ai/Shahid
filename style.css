@@ -3267,7 +3267,20 @@ select.tlx-inp{min-height:44px;}
 .csc{border:1px solid var(--ui-divider);border-radius:var(--ui-r-card);padding:10px 12px;margin:0 0 10px;background:var(--card);}
 .csc-l1,.csc-l2{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .csc-l2{margin-top:8px;}
-.csc-period{border:0;background:var(--ui-warn-bg);color:var(--gold-text);border-radius:var(--ui-r-pill);padding:4px 12px;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;}
+/* مبدّل الفترة: ورقة الحصة والكشف (tlx-seg بسطر حالة صغير تحت كل فترة) */
+.crm-per-bar{display:flex;align-items:center;gap:6px;margin:0 0 10px;flex:1;min-width:0;}
+.csc-l1 .crm-per-bar{margin:0;}
+.crm-per-seg{flex:1;min-width:0;}
+.crm-per-seg button{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.25;padding:3px 2px;}
+.crm-per-seg button small{font-size:10.5px;font-weight:700;opacity:.8;}
+.crm-per-seg button:disabled{opacity:.45;cursor:default;}
+.crm-per-gear{flex:none;width:38px;height:38px;border:1px solid var(--line);border-radius:var(--ui-r-btn);background:var(--card);color:var(--navy);font-size:16px;cursor:pointer;}
+.crm-per-note{background:var(--ui-info-bg);color:var(--navy);border-radius:var(--ui-r-btn);padding:8px 10px;margin:0 0 10px;font-size:12.5px;font-weight:700;line-height:1.7;}
+.csc .crm-per-note{margin:10px 0 0;}
+.crm-per-note button{display:block;margin-top:4px;border:0;background:none;padding:0;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--gold-text);text-decoration:underline;cursor:pointer;min-height:28px;}
+.crm-per-grp{margin:12px 0 4px;}
+.crm-per-lock{border:0;background:none;padding:0 2px;font-size:13px;cursor:pointer;}
+.crm-per-table .crm-grade-name{cursor:pointer;}
 .csc-q{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--gold-text);background:var(--card);color:var(--gold-text);font-family:inherit;font-weight:800;font-size:14px;cursor:pointer;flex:none;}
 .csc-cnt{font-size:22px;font-weight:800;color:var(--navy);line-height:1.2;}
 .csc-cnt small{font-size:13px;color:var(--ui-body);font-weight:700;}

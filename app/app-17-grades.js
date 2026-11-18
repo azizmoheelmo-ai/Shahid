@@ -505,7 +505,10 @@ function crmGradesPageHtml(g){
   }
   /* الجدول الكامل لم يعد يُعرض (مرهق على الجوال): الرصد من أزرار «رصد» وتعديل الدرجة من صفحة الطالب، والجدول الكامل في «تصدير الكشف» */
   const plus = hasBaseGradeColumns(g.allColumns || g.columns) ? '<button type="button" class="crm-gs-plus" aria-label="إضافة ونقل الدرجات" title="إضافة اختبار، استيراد، قالب، تصدير" onclick="openCrmGradeToolsMenu()">＋</button>' : '';
-  return (typeof gradeEditBannerHtml === 'function' ? gradeEditBannerHtml() : '') + crmGradesSectionPickerHtml(g.sectionId, plus) + crmGradesViewSwitchHtml() + crmGradeSimpleHtml(g);
+  /* مبدّل الفترة (app-27): «الكل» = المجاميع، أو فترة واحدة تُعرض درجاتها وتُرصد فيها */
+  const vp = typeof crmGradesViewPeriod === 'function' && hasBaseGradeColumns(g.allColumns || g.columns) ? crmGradesViewPeriod(g) : null;
+  return crmGradesSectionPickerHtml(g.sectionId, plus) + crmGradesViewSwitchHtml() + (typeof crmGradesPeriodBarHtml === 'function' ? crmGradesPeriodBarHtml(g) : '')
+    + (vp ? crmGradePeriodViewHtml(g, vp) : crmGradeSimpleHtml(g));
 }
 
 function crmGradeBarHtml(score, max){
@@ -1171,7 +1174,7 @@ function openCrmGradeEntry(columnId){
   crmGradeEntry = { columnId, saving: false, period };
   const students = crmStudentsOfSection(crmGrades.sectionId);
   const scoreOf = crmGradeEntryScores(crmGrades, c, period);
-  box.innerHTML = (period && typeof gradeEditPeriodOf === 'function' && gradeEditPeriodOf(c) ? gradeEditBannerHtml() : '') + `
+  box.innerHTML = (period && typeof gradeEditPeriodOf === 'function' && gradeEditPeriodOf(c) ? `<div class="pt-edit-banner" role="status"><b>تُرصد في ${PERIOD_NAMES[period]}</b><small>اخترتها من مبدّل الفترة أعلى الكشف.</small></div>` : '') + `
     <div class="crm-sheet-head">رصد: ${escapeHtml(c.name)}${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' — ' + PERIOD_NAMES[period] : ''} <span style="font-size:12px;color:var(--muted);font-weight:400;">من ${formatScore(c.max_score)}</span></div>
     <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">${escapeHtml(crmSectionLabel(crmGrades.sectionId))}${c.measures ? ' · يقيس: ' + escapeHtml(c.measures) : ''} · اتركها فارغة لمن لم يُرصد${period && gradeColumnPeriodCfg(crmGrades, c).n > 1 ? ' · الدرجة في الكشف = معدّل الفترات' : ''}</div>
     <div class="crm-grade-entry">

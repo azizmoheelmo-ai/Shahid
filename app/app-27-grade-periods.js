@@ -361,21 +361,98 @@ async function withPeriodBusy(fn, okMsg){
   return ok;
 }
 
-/* ============ شارة الفترة في ورقة الحصة (للمكوّن الذي له أكثر من فترة) ============ */
+/* ============ مبدّل الفترة في ورقة الحصة (للمكوّن الذي له أكثر من فترة) ============
+   الأصل: فترة تاريخ الحصة. والمعلم يبدّل بنقرة لأي فترة بدأت (لعرضها ورصدها) — العرض فقط، لا يغيّر إعداد الفترات
+   (الرجوع القديم كان يغيّر بدايات الفترات فيُخفي رصد ما بعدها؛ هذا لا يمسّ شيئًا محفوظًا).
+   المرصود بفترة (المشاركة/العدّاد): الرصد يذهب للفترة المعروضة (والمقفلة للعرض فقط).
+   الواجبات/المهام: القائمة تُفلتر بفترة موعدها. أداة الحالة/الدرجة: مؤرَّخة بالحصة، فلا تبديل (شارة فقط). */
+function sheetPeriodSwitchable(key){
+  return !!key && (key === 'kind:homework' || key === 'kind:task' || periodKeyIsDirect(key));
+}
+
 function sheetPeriodInfo(s){
   const key = s && periodCompKeyOfMode(s.mode);
   if(!key) return null;
   const cfg = periodCfg(crmCurrentTerm(), key);
-  return { key, cfg, period: Math.min(cfg.n, periodOfDateFor(s.dateIso, cfg.starts)) };
+  const now = currentPeriodOf(cfg);
+  const datePeriod = Math.min(cfg.n, periodOfDateFor(s.dateIso, cfg.starts));
+  const v = s.viewPeriods && Number(s.viewPeriods[key]);
+  const period = cfg.n > 1 && sheetPeriodSwitchable(key) && v >= 1 && v <= now ? v : datePeriod;
+  return { key, cfg, period, datePeriod, now };
 }
 
 function crmPeriodChipHtml(s){
   const info = sheetPeriodInfo(s);
   if(!info || info.cfg.n < 2) return '';
-  return `<button type="button" class="crm-period-chip${info.period > 1 ? ' is-p2' : ''}" onclick="openCrmPeriodPicker()" aria-label="تغيير الفترة">📅 ${PERIOD_NAMES[info.period]} من ${info.cfg.n}${info.cfg.ended ? ' ✓' : ''} ▾</button>`;
+  if(!sheetPeriodSwitchable(info.key)){
+    return `<button type="button" class="crm-period-chip${info.period > 1 ? ' is-p2' : ''}" onclick="openCrmPeriodPicker()" aria-label="الفترات">📅 ${PERIOD_NAMES[info.period]}${info.cfg.ended ? ' ✓' : ''}</button>`;
+  }
+  const term = crmCurrentTerm();
+  const btn = p => {
+    const started = p <= info.now;
+    const locked = started && isLockableKey(info.key) && isPeriodLocked(term, info.key, { period: p });
+    const tag = !started ? 'لم تبدأ' : locked ? '🔒' : p === info.now && !info.cfg.ended ? 'جارية' : 'منتهية';
+    return `<button type="button" class="${p === info.period ? 'is-on' : ''}" aria-pressed="${p === info.period}"${started ? ` onclick="setCrmSheetPeriod(${p})"` : ' disabled'}>${PERIOD_NAMES[p].replace('الفترة ', '')}<small>${tag}</small></button>`;
+  };
+  return `<div class="crm-per-bar"><div class="tlx-seg crm-per-seg" role="group" aria-label="الفترة">${[1, 2, 3].slice(0, info.cfg.n).map(btn).join('')}</div>
+    <button type="button" class="crm-per-gear" onclick="openCrmPeriodPicker()" aria-label="إدارة الفترات (إنهاء، قفل)" title="إدارة الفترات">⚙</button></div>`;
 }
 
-/* شارة الفترة في ورقة الحصة تفتح نافذة «الفترات» (لا رجوع بنقرة: الرجوع كان يُخفي رصد ما بعدها) */
+/* سطر تحت المبدّل حين تُعرض فترة غير فترة الحصة */
+function crmSheetPeriodNoteHtml(s){
+  const info = sheetPeriodInfo(s);
+  if(!info || info.cfg.n < 2 || info.period === info.datePeriod) return '';
+  const what = periodKeyIsDirect(info.key) ? `ما ترصده الآن يُحفظ في ${PERIOD_NAMES[info.period]}` : `القائمة تعرض ما موعده في ${PERIOD_NAMES[info.period]}`;
+  return `<div class="crm-per-note" role="status">تعرض ${PERIOD_NAMES[info.period]} — ${what}.
+    <button type="button" onclick="setCrmSheetPeriod(${info.datePeriod})">رجوع لفترة الحصة (${PERIOD_NAMES[info.datePeriod].replace('الفترة ', '')})</button></div>`;
+}
+
+/* تبديل الفترة المعروضة في الورقة: يعيد رسم الوضع نفسه */
+function setCrmSheetPeriod(p){
+  const s = crmSheet;
+  const info = sheetPeriodInfo(s);
+  p = Number(p);
+  if(!info || info.cfg.n < 2 || !sheetPeriodSwitchable(info.key) || !(p >= 1 && p <= info.now)) return;
+  s.viewPeriods = Object.assign({}, s.viewPeriods);
+  if(p === info.datePeriod) delete s.viewPeriods[info.key]; else s.viewPeriods[info.key] = p;
+  if(p === info.period) return;
+  return setCrmSheetMode(s.mode);
+}
+
+/* قائمة مؤرَّخة (واجبات/مهام) بالفترة المعروضة في الورقة. عنصر مختار صراحةً (أو أُنشئ للتو) في فترة أخرى: تنتقل الورقة لفترته.
+   ترجع { on, period, list, periodOf } — on=false لفترة واحدة (القائمة كما هي) */
+function sheetPeriodFilter(s, key, items, dateOf, selectId){
+  const cfg = periodCfg(crmCurrentTerm(), key);
+  const all = items || [];
+  if(cfg.n < 2) return { on: false, period: 1, list: all, periodOf: () => 1 };
+  const periodOf = it => Math.min(cfg.n, periodOfDateFor(dateOf(it), cfg.starts));
+  const sel = selectId && all.find(it => it.id === selectId);
+  const info0 = sheetPeriodInfo(s);
+  if(sel && info0 && periodOf(sel) !== info0.period && periodOf(sel) <= info0.now){
+    s.viewPeriods = Object.assign({}, s.viewPeriods);
+    if(periodOf(sel) === info0.datePeriod) delete s.viewPeriods[key]; else s.viewPeriods[key] = periodOf(sel);
+  }
+  const period = (sheetPeriodInfo(s) || { period: 1 }).period;
+  return { on: true, period, list: all.filter(it => periodOf(it) === period), periodOf };
+}
+
+/* قوائم إدارة الواجبات/المهام: بفترات تُجمَّع تحت عنوان كل فترة (الأحدث أولًا)، وبفترة واحدة كما هي */
+function periodGroupedListHtml(key, items, dateOf, rowHtml){
+  const cfg = periodCfg(crmCurrentTerm(), key);
+  if(cfg.n < 2) return items.map(rowHtml).join('');
+  const now = currentPeriodOf(cfg);
+  const pOf = it => Math.min(cfg.n, periodOfDateFor(dateOf(it), cfg.starts));
+  let html = '';
+  for(let p = now; p >= 1; p--){
+    const grp = items.filter(it => pOf(it) === p);
+    if(!grp.length) continue;
+    const st = p === now && !cfg.ended ? 'جارية' : 'منتهية';
+    html += `<div class="tlx-sec crm-per-grp">${PERIOD_NAMES[p]} · ${st} (${grp.length})</div>` + grp.map(rowHtml).join('');
+  }
+  return html;
+}
+
+/* ⚙ بجانب المبدّل يفتح نافذة «الفترات» (إنهاء الفترة، القفل، الفتح للتعديل) */
 function openCrmPeriodPicker(){
   const info = sheetPeriodInfo(crmSheet);
   if(!info || info.cfg.n < 2) return;
@@ -442,32 +519,121 @@ function crmLockBannerHtml(key, period){
 }
 function crmLockedToast(){ showToast('الفترة مقفلة — افتحها للتعديل من نافذة الفترات', 'error'); }
 
-/* ============ تعديل فترة منتهية مفتوحة من الكشف ============
-   «فتح للتعديل» يرفع القفل فقط؛ والكشف يرصد عادةً في الفترة الجارية. هذا الوضع يجعل رصد الكشف (الخانة، «رصد»، الاستيراد)
-   لأعمدة هذا المكوّن في الفترة المختارة، بشريط ظاهر أعلى الكشف حتى يُنهيه المعلم. في الذاكرة فقط (لا يبقى بعد إعادة الفتح). */
-let gradeEditPeriod = null; /* { key, period, term } */
+/* ============ الكشف بفترة واحدة (مبدّل «الكل / الأولى / الثانية…» أعلى الكشف) ============
+   الأصل «الكل»: قائمة المجاميع، و«رصد» يذهب للفترة الجارية. اختيار فترة يعرض درجاتها وحدها لكل مكوّن بفترات،
+   و«رصد» والخانة (للمرصود بفترة) يكتبان فيها — والمقفلة للعرض فقط. في الذاكرة فقط (لا يبقى بعد إعادة الفتح).
+   key: جاء من «عدّل درجات … في الكشف» بنافذة الفترات (فيظهر زر «انتهيت — أقفلها» لذلك المكوّن). */
+let gradeEditPeriod = null; /* { key|null, period, term } */
 
 function gradeEditPeriodOf(c){
   const m = gradeEditPeriod;
-  if(!m || !c || periodCompKeyOfColumn(c) !== m.key || !isDirectPeriodColumn(c)) return null;
-  if(termPeriodKey({ year: c.academic_year, semester: c.semester }) !== m.term) return null;
-  const cfg = periodCfg(crmCurrentTerm(), m.key);
-  const now = currentPeriodOf(cfg);
-  if(!(m.period < now || (m.period === now && cfg.ended))) return null; /* لم تعد منتهية (تراجع من جهاز آخر) */
+  if(!m || !c || !isDirectPeriodColumn(c)) return null;
+  const key = periodCompKeyOfColumn(c);
+  if(!key || termPeriodKey({ year: c.academic_year, semester: c.semester }) !== m.term) return null;
+  const cfg = periodCfg(crmCurrentTerm(), key);
+  if(cfg.n < 2 || m.period > currentPeriodOf(cfg)) return null; /* لا فترات له، أو الفترة لم تبدأ (أو تراجع من جهاز آخر) */
   return m.period;
 }
 
-function gradeEditBannerHtml(){
+/* أعمدة الكشف التي لها أكثر من فترة، والفترة الأبعد التي بدأت فيها */
+function gradePeriodColumns(g){
+  return (g && g.columns || []).filter(c => isPeriodColumn(c) && gradeColumnPeriodCfg(g, c).n > 1);
+}
+function gradeMaxStartedPeriod(g){
+  return gradePeriodColumns(g).reduce((m, c) => Math.max(m, currentPeriodOf(gradeColumnPeriodCfg(g, c))), 1);
+}
+function gradeMaxPeriodCount(g){
+  return gradePeriodColumns(g).reduce((m, c) => Math.max(m, gradeColumnPeriodCfg(g, c).n), 1);
+}
+
+/* الفترة المعروضة في الكشف الآن (null = الكل) — تُبطَل إن تغيّر الفصل */
+function crmGradesViewPeriod(g){
   const m = gradeEditPeriod;
-  if(!m) return '';
+  if(!m) return null;
+  if(termPeriodKey(crmCurrentTerm()) !== m.term){ gradeEditPeriod = null; return null; }
+  if(g && (!gradePeriodColumns(g).length || m.period > gradeMaxStartedPeriod(g))) return null;
+  return m.period;
+}
+
+function setCrmGradesPeriod(p){
+  p = Number(p) || 0;
+  const g = crmGrades;
+  if(!p) gradeEditPeriod = null;
+  else {
+    if(!g || p > gradeMaxStartedPeriod(g)) return;
+    const m = gradeEditPeriod;
+    gradeEditPeriod = { key: m && m.period === p ? m.key : null, period: p, term: termPeriodKey(crmCurrentTerm()) };
+  }
+  crmGradeStudentId = null;
+  if(typeof paintCrmGradesCached === 'function') paintCrmGradesCached();
+}
+
+/* المبدّل أعلى الكشف — يظهر فقط إن كان لمكوّن أكثر من فترة */
+function crmGradesPeriodBarHtml(g){
+  if(!g || !gradePeriodColumns(g).length || crmGradeStudentId) return '';
+  const cur = crmGradesViewPeriod(g);
+  const started = gradeMaxStartedPeriod(g);
+  const btn = (p, label, sub) => `<button type="button" class="${cur === p ? 'is-on' : ''}" aria-pressed="${cur === p}"${p && p > started ? ' disabled' : ` onclick="setCrmGradesPeriod(${p || 0})"`}>${label}<small>${sub}</small></button>`;
+  const segs = [btn(null, 'الكل', 'المجموع')].concat([1, 2, 3].slice(0, gradeMaxPeriodCount(g))
+    .map(p => btn(p, PERIOD_NAMES[p].replace('الفترة ', ''), p > started ? 'لم تبدأ' : p === started ? 'جارية' : 'منتهية')));
+  return `<div class="crm-per-bar crm-gs-perbar"><div class="tlx-seg crm-per-seg" role="group" aria-label="الفترة المعروضة">${segs.join('')}</div></div>${gradeEditBannerHtml()}`;
+}
+
+/* سطر تحت المبدّل حين تُعرض فترة: أين يذهب الرصد، وزر «انتهيت — أقفلها» إن جاء من نافذة الفترات */
+function gradeEditBannerHtml(){
+  const p = crmGradesViewPeriod(typeof crmGrades === 'undefined' ? null : crmGrades);
+  if(!p) return '';
+  const m = gradeEditPeriod;
   const term = crmCurrentTerm();
-  if(termPeriodKey(term) !== m.term){ gradeEditPeriod = null; return ''; }
-  const name = escapeHtml(periodCompName(m.key));
-  const locked = isPeriodLocked(term, m.key, { period: m.period });
-  return `<div class="pt-edit-banner" role="status"><b>✏️ تعدّل الآن درجات ${PERIOD_NAMES[m.period]} في «${name}»</b>
-    <small>${locked ? `${PERIOD_NAMES[m.period]} مقفلة — افتحها للتعديل من نافذة الفترات.` : `ما ترصده في «${name}» من الكشف يُحفظ في ${PERIOD_NAMES[m.period]}، لا في الجارية.`}</small>
-    <div class="pt-edit-acts">${isLockableKey(m.key) && !locked ? `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="finishGradeEditPeriod(true)">✓ انتهيت — أقفل ${PERIOD_NAMES[m.period].replace('الفترة ', '')}</button>` : ''}
-      <button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="finishGradeEditPeriod(false)">${locked || !isLockableKey(m.key) ? 'انتهيت' : 'خروج بلا قفل'}</button></div></div>`;
+  const name = m.key ? escapeHtml(periodCompName(m.key)) : '';
+  const locked = !!m.key && isPeriodLocked(term, m.key, { period: p });
+  const canLock = !!m.key && isLockableKey(m.key) && !locked && periodKeyIsDirect(m.key);
+  const ended = m.key ? (() => { const cfg = periodCfg(term, m.key); const now = currentPeriodOf(cfg); return p < now || (p === now && cfg.ended); })() : false;
+  return `<div class="pt-edit-banner" role="status"><b>تعرض درجات ${PERIOD_NAMES[p]} فقط</b>
+    <small>${locked ? `${PERIOD_NAMES[p]} مقفلة في «${name}» — افتحها للتعديل من نافذة الفترات.` : `ما ترصده هنا يُحفظ في ${PERIOD_NAMES[p]}. الواجبات والمهام تُحسب من رصدها بتواريخه.`}</small>
+    <div class="pt-edit-acts">${canLock && ended ? `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="finishGradeEditPeriod(true)">✓ انتهيت — أقفل ${PERIOD_NAMES[p].replace('الفترة ', '')} في «${name}»</button>` : ''}
+      <button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="finishGradeEditPeriod(false)">عرض الكل</button></div></div>`;
+}
+
+/* الكشف بفترة واحدة: طالب × مكوّن بفترات، درجة الفترة وحدها. المرصود بفترة يُعدَّل بالضغط (إلا المقفلة) */
+function crmGradePeriodViewHtml(g, p){
+  const term = { year: g.year, semester: g.semester };
+  const students = crmStudentsOfSection(g.sectionId);
+  const cols = gradePeriodColumns(g).filter(c => { const cfg = gradeColumnPeriodCfg(g, c); return cfg.n >= p && p <= currentPeriodOf(cfg); });
+  if(!cols.length) return `<div class="empty-state">لا مكوّن له ${PERIOD_NAMES[p]}.</div>`;
+  if(!students.length) return '<div class="empty-state">لا طلاب مربوطون بهذه الشعبة.</div>';
+  const info = cols.map(c => {
+    const key = periodCompKeyOfColumn(c);
+    const locked = isLockableKey(key) && isPeriodLocked(term, key, { period: p });
+    const edit = !locked && isDirectPeriodColumn(c) && crmGradeColumnEditable(c) && !!(g.breakdown && g.breakdown.has(c.id));
+    const per = g.breakdown && g.breakdown.get(c.id);
+    const val = id => { const b = per && per.get(id); const v = b ? b['p' + p] : null; return v === null || v === undefined ? null : Number(v); };
+    return { c, key, locked, edit, val };
+  });
+  const k = x => escapeHtml(x.key).replace(/'/g, '&#39;');
+  const rec = info.filter(x => x.edit);
+  let html = rec.length ? `<div class="crm-gs-rec"><span>رصد ${PERIOD_NAMES[p].replace('الفترة ', '')}:</span>${rec.map(x =>
+    `<button type="button" class="crm-gs-recchip" onclick="openCrmGradeEntry('${x.c.id}')">${escapeHtml(x.c.name)}</button>`).join('')}</div>` : '';
+  html += '<div class="crm-grade-holder"><div class="crm-grade-wrap"><table class="crm-grade-table crm-per-table"><thead><tr><th class="crm-grade-name">الطالب</th>';
+  info.forEach(x => {
+    const tag = x.locked ? `<button type="button" class="crm-per-lock" aria-label="${PERIOD_NAMES[p]} مقفلة — الفترات" onclick="openPeriodsWindow('${k(x)}')">🔒</button>`
+      : x.edit ? '' : ' <span title="محسوب تلقائيًا من رصده">⚙</span>';
+    html += `<th class="crm-grade-col cat-${x.c.category}">${escapeHtml(x.c.name)}${tag}<span class="crm-grade-max">من ${formatScore(x.c.max_score)}</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+  students.forEach(st => {
+    html += `<tr><td class="crm-grade-name" onclick="openCrmGradeStudentDetail('${st.id}')">${escapeHtml(st.full_name)}</td>`;
+    info.forEach(x => {
+      const v = x.val(st.id);
+      html += `<td class="crm-grade-cell${v === null ? '' : ' gc-' + gradeTone(v, x.c.max_score)}"${x.edit ? ` data-edit="1" onclick="openCrmGradeCell('${x.c.id}', '${st.id}')"` : ''}>${v === null ? '<span class="crm-grade-empty">—</span>' : formatScore(v)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody><tfoot><tr class="crm-grade-avg"><td class="crm-grade-name">متوسط الشعبة</td>';
+  info.forEach(x => { const a = periodAverage(students.map(st => x.val(st.id))); html += `<td>${a === null ? '—' : formatScore(a)}</td>`; });
+  html += '</tr></tfoot></table></div></div>';
+  html += `<p class="crm-gs-note">"—" = لم يُرصد في ${PERIOD_NAMES[p]} (لا يُحسب صفرًا). اضغط اسم الطالب لكل فتراته ومعدّله.${info.some(x => x.edit) ? ' اضغط خانة لتعديلها.' : ''}</p>`;
+  return html;
 }
 
 /* من نافذة الفترات: يفتح كشف الشعبة الحالية على رصد هذا المكوّن في الفترة المختارة */
@@ -484,7 +650,7 @@ async function startGradeEditPeriod(p){
   closeCrmModal();
   if(typeof switchCrmTab === 'function' && document.getElementById('crmTabGrades')) switchCrmTab('grades');
   else if(typeof renderCrmGrades === 'function') await renderCrmGrades();
-  showToast(`وضع تعديل ${PERIOD_NAMES[p]} — اضغط «رصد» على «${periodCompName(key)}»`, 'ok');
+  showToast(`الكشف يعرض ${PERIOD_NAMES[p]} — اضغط «${periodCompName(key)}» للرصد`, 'ok');
 }
 
 async function finishGradeEditPeriod(lock){

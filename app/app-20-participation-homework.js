@@ -242,6 +242,7 @@ async function renderCrmParticipation(students, tool){
     return;
   }
   if(crmSheet !== s || s.token !== token || s.mode !== mode) return; /* غيّر الوضع أو أغلق الورقة أثناء التحميل */
+  if((sheetPeriodInfo(s) || { period: 1 }).period !== period) return; /* بدّل الفترة أثناء التحميل: رسمها الأحدث يكفي */
   if(!column && capError){
     body.innerHTML = head + `<div class="empty-state">${toolCapMessage(tool, capError.remaining).replace('الرصد يُحفظ ولا يُحسب في الكشف حتى', 'لا يمكن الرصد حتى')}</div>
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
@@ -264,10 +265,10 @@ async function renderCrmParticipation(students, tool){
   s.card = { kind: 'part', fill: [[Number(column.max_score), `الدرجة كاملة (${max})`], [0, '0']], help: [
     '<b>+</b> يزيد درجة، و<b>−</b> ينقص درجة، ويُحفظ فورًا.',
     `الدرجة من <b>${max}</b>، و«—» يعني لم يُرصد له بعد.`,
-    shown ? `الرصد اليوم في <b>${PERIOD_NAMES[shown]}</b>، و${counted ? `درجة «${escapeHtml(column.name)}» في الكشف = معدّل الفترات.` : 'تدخل درجة الكشف عند انتهائها.'}`
+    shown ? `الرصد الآن في <b>${PERIOD_NAMES[shown]}</b>، و${counted ? `درجة «${escapeHtml(column.name)}» في الكشف = معدّل الفترات.` : 'تدخل درجة الكشف عند انتهائها.'}`
       : `ما ترصده هنا هو درجة «${escapeHtml(column.name)}» في الكشف.`,
     '«تعبئة الباقين» تعطي من بلا درجة فقط، ولا تغيّر من له درجة.',
-    ...(shown ? [`لتغيير الفترة أو إنهائها: اضغط «📅 ${PERIOD_NAMES[shown]}».`] : [])] };
+    ...(shown ? ['لعرض فترة أخرى ورصدها: اضغط اسمها أعلى الورقة. ولإنهاء الفترة أو قفلها: ⚙.'] : [])] };
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}
     ${crmSheetCardHtml(s, lockKey, shown)}
     <div class="crm-att-grid">
@@ -376,15 +377,14 @@ function crmFillRowHtml(label, buttons){
    الفترة (تفتح نافذة الفترات) · كم رُصد · زر واحد «تعبئة الباقين» (يظهر فقط إن بقي أحد) · «؟» للشرح بدل نصوص دائمة.
    s.card = { help: [html…], fill: [[value, label]…], kind: 'part'|'tool', total } */
 function crmSheetCardHtml(s, lockKey, lockPeriod){
-  const info = sheetPeriodInfo(s);
-  const chip = info && info.cfg.n > 1
-    ? `<button type="button" class="csc-period" onclick="openCrmPeriodPicker()" aria-label="الفترات">📅 ${PERIOD_NAMES[info.period]}${info.cfg.ended ? ' ✓' : ''} ▾</button>` : '<span></span>';
+  const chip = crmPeriodChipHtml(s) || '<span></span>';
   return `<div class="csc" id="crmSheetCard">
     <div class="csc-l1">${chip}<button type="button" class="csc-q" aria-label="كيف تعمل هذه الورقة؟" aria-expanded="false" onclick="toggleCrmSheetHelp()">؟</button></div>
     <div class="csc-l2"><div class="csc-cnt" id="crmCardCount"></div><span id="crmCardFill"></span></div>
     <div class="csc-sub" id="crmToolCounts"></div>
     <div class="csc-bar"><i id="crmCardBar"></i></div>
     ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : ''}
+    ${crmSheetPeriodNoteHtml(s)}
   </div>
   <div id="crmSheetHelp" class="csc-help" style="display:none;"></div>
   <div id="crmFillPanel" class="csc-fill" style="display:none;"></div>`;
@@ -541,7 +541,7 @@ function crmAbsentClass(s, studentId){
 async function renderCrmHomework(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
@@ -554,20 +554,24 @@ async function renderCrmHomework(students, selectId){
     return;
   }
   if(crmSheet !== s || s.token !== token || s.mode !== 'homework') return;
-  const selectedId = (selectId && hw.homeworks.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(hw.homeworks, s.dateIso);
+  /* بفترات: القائمة واجبات الفترة المعروضة فقط (بموعد التسليم)، والمبدّل أعلاها */
+  const pf = sheetPeriodFilter(s, 'kind:homework', hw.homeworks, h => h.due_date, selectId);
+  const list = pf.list;
+  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}${crmSheetPeriodNoteHtml(s)}`;
+  const selectedId = (selectId && list.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(list, s.dateIso);
   s.hw = { data: hw, column, selectedId, queue: new Map(), term, chgKey: 'hw:' + selectedId };
-  if(!hw.homeworks.length){
-    body.innerHTML = head + `<div class="empty-state">لا واجبات لهذه الشعبة بعد.</div>
+  if(!list.length){
+    body.innerHTML = top + `<div class="empty-state">${hw.homeworks.length ? `لا واجبات في ${PERIOD_NAMES[pf.period]}.` : 'لا واجبات لهذه الشعبة بعد.'}</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmHomeworkModal()">+ واجب جديد</button>
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
   const statuses = homeworkStatusIndex(hw.statusRows).get(selectedId) || new Map();
-  const hcfg = periodCfg(term, 'kind:homework'), perOn = hcfg.n > 1;
-  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}` + `
+  const perOn = pf.on;
+  body.innerHTML = top + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-      <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${perOn ? ' · ' + PERIOD_NAMES[Math.min(hcfg.n, periodOfDateFor(h.due_date, hcfg.starts))] : ''}</option>`).join('')}
+      <select class="goal-input" style="margin:0;flex:1;" aria-label="الواجب" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
+        ${list.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل أو حذف الواجب المختار" onclick="openCrmHomeworkEditor(crmSheet.hw && crmSheet.hw.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
@@ -813,7 +817,7 @@ async function openCrmHomeworkManager(){
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">الواجبات · ${escapeHtml(crmSectionLabel(sectionId))}</h3>
       <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">العمود يُحسب تلقائيًا: سلّم 100% · متأخر 75% · ناقص 50% · لم يسلّم 0. الواجب يُحسب بعد موعده أو متى بدأت رصده. الرصد من ورقة الحصة ← "واجب".</div>
-      ${hw.homeworks.length ? hw.homeworks.slice().reverse().map(h => {
+      ${hw.homeworks.length ? periodGroupedListHtml('kind:homework', hw.homeworks.slice().reverse(), h => h.due_date, h => {
         const c = homeworkCounts(idx.get(h.id) || new Map(), ids);
         return `<div class="crm-lesson-row"><span>${escapeHtml(h.title)} <span class="crm-tl-meta">· ${shortDateAr(h.due_date)}${counted.has(h.id) ? '' : ' · لم يُحسب بعد'}</span>
           <div class="crm-tl-meta">سلّم ${c.submitted} · ناقص ${c.partial} · متأخر ${c.late} · لم يسلّم ${c.missing}</div></span>
@@ -821,7 +825,7 @@ async function openCrmHomeworkManager(){
             <button class="crm-icon-btn" title="تعديل" onclick="openCrmHomeworkEditor('${h.id}')">✎</button>
             <button class="crm-icon-btn" title="حذف" onclick="deleteCrmHomework('${h.id}', '${sectionId}')">🗑</button>
           </span></div>`;
-      }).join('') : '<div class="crm-today-empty">لا واجبات بعد.</div>'}
+      }) : '<div class="crm-today-empty">لا واجبات بعد.</div>'}
       <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;" onclick="closeCrmModal();openCrmHomeworkModal('${sectionId}')">+ واجب جديد</button>
     </div>`, '460px');
 }

@@ -149,15 +149,17 @@ async function partSheet(dateIso, seed, features, extra){
 }
 const sheetHtml = app => get(app, `document.getElementById('crmLessonSheetBody').innerHTML`);
 
-test('المشاركة بفترتين — الشارة "الفترة الثانية من 2"، ودرجة الفترة لا معدّل الكشف، والنقرة على الثانية', async () => {
+test('المشاركة بفترتين — المبدّل على «الثانية»، ودرجة الفترة لا معدّل الكشف، والنقرة على الثانية', async () => {
   const seed = {
     classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 9 }, { teacher_id: 'u1', column_id: 'P', student_id: 'b', score: 5 }],
     classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'b', period: 1, score: 6 }, { teacher_id: 'u1', column_id: 'P', student_id: 'b', period: 2, score: 4 },
       { teacher_id: 'u2', column_id: 'P', student_id: 'c', period: 2, score: 9 }],
   };
   const { app, log } = await partSheet('2026-10-27', seed, PART2, { rpc: { increment_period_score: 1 } });
-  assert.match(sheetHtml(app), /class="csc-period" onclick="openCrmPeriodPicker\(\)"[^>]*>📅 الفترة الثانية ▾</);
-  assert.match(get(app, 'crmSheet.card.help.join()'), /الرصد اليوم في <b>الفترة الثانية<\/b>/);
+  assert.match(sheetHtml(app), /class="is-on" aria-pressed="true" onclick="setCrmSheetPeriod\(2\)">الثانية<small>جارية<\/small>/);
+  assert.match(sheetHtml(app), /onclick="setCrmSheetPeriod\(1\)">الأولى<small>منتهية<\/small>/);
+  assert.match(sheetHtml(app), /class="crm-per-gear" onclick="openCrmPeriodPicker\(\)"/);
+  assert.match(get(app, 'crmSheet.card.help.join()'), /الرصد الآن في <b>الفترة الثانية<\/b>/);
   assert.equal(get(app, 'crmSheet.part.period'), 2);
   assert.equal(get(app, 'crmSheet.part.scores.get("b")'), 4);
   assert.equal(get(app, 'crmSheet.part.scores.has("a")'), false, 'رصد أحمد القديم للأولى');
@@ -175,19 +177,19 @@ test('المشاركة بفترتين — الشارة "الفترة الثان�
 test('انحدار: الأصل فترة واحدة — لا شارة ولا انتقال، والرصد في الأولى بدرجة فترة', async () => {
   const seed = { classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 9 }], classroom_grade_period_scores: [] };
   const { app, log } = await partSheet('2026-11-15', seed, OFF);
-  assert.doesNotMatch(sheetHtml(app), /csc-period|الفترة/);
+  assert.doesNotMatch(sheetHtml(app), /crm-per-bar|الفترة/);
   assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 9);
   app.tapCrmParticipation('a', 1);
   await get(app, 'crmSheet.part.queue.get("a")');
   assert.equal(log.find(l => l.op === 'rpc').args.p_period, 1);
 });
 
-test('ثلاث فترات — حصة قديمة تُرصد في فترتها بتاريخها، والشارة "الفترة الثالثة من 3" للحصة الحالية', async () => {
+test('ثلاث فترات — حصة قديمة تُرصد في فترتها بتاريخها، والمبدّل على «الثالثة» للحصة الحالية', async () => {
   const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-01', '2026-10-20'] } });
   const old = await partSheet('2026-10-05', { classroom_grade_scores: [], classroom_grade_period_scores: [] }, f);
   assert.equal(get(old.app, 'crmSheet.part.period'), 2);
   const now = await partSheet('2026-10-27', { classroom_grade_scores: [], classroom_grade_period_scores: [] }, f);
-  assert.match(sheetHtml(now.app), /📅 الفترة الثالثة ▾/);
+  assert.match(sheetHtml(now.app), /class="is-on" aria-pressed="true" onclick="setCrmSheetPeriod\(3\)">الثالثة/);
 });
 
 test('الفترات لكل مكوّن — المشاركة بفترتين لا تجعل عدّاد "قراءة" بفترتين؛ والعدّاد بفترات يُرصد بدرجة فترة', async () => {
@@ -202,15 +204,15 @@ test('الفترات لكل مكوّن — المشاركة بفترتين لا 
     return { app, rpc: log.find(l => l.op === 'rpc') };
   };
   const a = await run(PART2);
-  assert.doesNotMatch(sheetHtml(a.app), /csc-period/);
+  assert.doesNotMatch(sheetHtml(a.app), /crm-per-bar/);
   assert.equal(a.rpc.name, 'increment_period_score');
   assert.equal(a.rpc.args.p_period, 1);
   const b = await run(withPeriods({ ['tool:' + TOOL_ID]: { n: 2, starts: ['2026-10-25'] } }));
-  assert.match(sheetHtml(b.app), /📅 الفترة الثانية ▾/);
+  assert.match(sheetHtml(b.app), /aria-pressed="true" onclick="setCrmSheetPeriod\(2\)">الثانية/);
   assert.equal(b.rpc.args.p_period, 2);
 });
 
-test('شارة الفترة تفتح نافذة «الفترات» (3.61) — لا اختيار فترة سابقة بنقرة، ولا تواريخ داخل الحصة', async () => {
+test('⚙ بجانب المبدّل يفتح نافذة «الفترات» (3.61) — والنافذة لا تغيّر بدايات الفترات بنقرة، ولا تواريخ داخل الحصة', async () => {
   const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
   const { app, log } = await partSheet('2026-10-26', { classroom_grade_scores: [], classroom_grade_period_scores: [] }, f, { code: TODAY });
   app.openCrmPeriodPicker();
@@ -857,7 +859,7 @@ test('وضع تعديل الأولى — رصد الكشف لعمود المكو
   assert.equal(get(app, 'crmGradeEntryScores(crmGrades, crmGrades.columns.find(c => c.id === "P"), 1).get("a")'), 6);
   assert.equal(app.crmGradeEntryPeriod(g, g.columns.find(c => c.id === 'M')), 1, 'اليدوي بفترة واحدة كما هو');
   const banner = app.gradeEditBannerHtml();
-  assert.match(banner, /✏️ تعدّل الآن درجات الفترة الأولى في «المشاركة»[\s\S]*يُحفظ في الفترة الأولى، لا في الجارية[\s\S]*finishGradeEditPeriod\(true\)">✓ انتهيت — أقفل الأولى[\s\S]*finishGradeEditPeriod\(false\)">خروج بلا قفل/);
+  assert.match(banner, /تعرض درجات الفترة الأولى فقط[\s\S]*يُحفظ في الفترة الأولى[\s\S]*finishGradeEditPeriod\(true\)">✓ انتهيت — أقفل الأولى في «المشاركة»[\s\S]*finishGradeEditPeriod\(false\)">عرض الكل/);
   await app.finishGradeEditPeriod(true);
   assert.deepEqual(rpcs(log, 'set_period_lock').map(a => a.p_key + ':' + a.p_period + ':' + a.p_before), ['kind:participation:1:2026-10-20']);
   assert.equal(get(app, 'gradeEditPeriod'), null);
@@ -880,7 +882,154 @@ test('وضع التعديل — «خروج بلا قفل» لا يكتب شيئ�
   runInAppContext(app, `gradePeriodLocks = {};`);
   await app.startGradeEditPeriod(2);
   assert.equal(get(app, 'gradeEditPeriod'), null, 'الجارية ليست منتهية');
-  await app.startGradeEditPeriod(1);
+  runInAppContext(app, `gradeEditPeriod = { key: null, period: 2, term: '${TK}' };`);
+  assert.equal(get(app, `gradeEditPeriodOf(${JSON.stringify(col('P', 'participation', 10))})`), 2, 'الجارية تُعرض وتُرصد من مبدّل الكشف');
   runInAppContext(app, `appFeatures = normalizeFeatures(Object.assign({}, appFeatures, { periods: { '${TK}': { 'kind:participation': { n: 2, starts: [] } } } }));`);
-  assert.equal(get(app, `gradeEditPeriodOf(${JSON.stringify(col('P', 'participation', 10))})`), null, 'رجعت جارية: يُبطل الوضع');
+  assert.equal(get(app, `gradeEditPeriodOf(${JSON.stringify(col('P', 'participation', 10))})`), null, 'الثانية لم تعد بدأت (تراجع من جهاز آخر): يُبطل');
+});
+
+/* ============ التنقّل بين الفترات (مبدّل الفترة في ورقة الحصة والكشف وقوائم الواجبات والمهام) ============ */
+const PART_SEED = () => ({
+  classroom_grade_scores: [],
+  classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 6 }, { teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 3 }],
+});
+
+test('ورقة الحصة — نقرة «الأولى» تعرضها وترصد فيها، بلا أي تغيير في إعداد الفترات؛ و«رجوع لفترة الحصة» يعيد الثانية', async () => {
+  const { app, log } = await partSheet('2026-10-27', PART_SEED(), PART2, { rpc: { increment_period_score: 7 } });
+  const before = JSON.stringify(get(app, 'appFeatures.periods'));
+  await app.setCrmSheetPeriod(1);
+  assert.equal(get(app, 'crmSheet.part.period'), 1);
+  assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 6, 'درجة الأولى لا الثانية');
+  assert.match(sheetHtml(app), /aria-pressed="true" onclick="setCrmSheetPeriod\(1\)">الأولى/);
+  assert.match(sheetHtml(app), /تعرض الفترة الأولى — ما ترصده الآن يُحفظ في الفترة الأولى[\s\S]*setCrmSheetPeriod\(2\)">رجوع لفترة الحصة \(الثانية\)/);
+  app.tapCrmParticipation('a', 1);
+  await get(app, 'crmSheet.part.queue.get("a")');
+  assert.equal(rpcs(log, 'increment_period_score')[0].p_period, 1);
+  assert.equal(JSON.stringify(get(app, 'appFeatures.periods')), before, 'العرض لا يغيّر بدايات الفترات');
+  assert.equal(get(app, 'window.__saved'), 0);
+  await app.setCrmSheetPeriod(2);
+  assert.equal(get(app, 'crmSheet.part.period'), 2);
+  assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 3);
+  assert.doesNotMatch(sheetHtml(app), /crm-per-note/);
+});
+
+test('ورقة الحصة — فترة لم تبدأ معطّلة ولا تُختار، والمقفلة تُعرض للعرض فقط', async () => {
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
+  const { app } = await partSheet('2026-10-27', PART_SEED(), f, { code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)};` });
+  assert.match(sheetHtml(app), /<button type="button" class="" aria-pressed="false" disabled>الثالثة<small>لم تبدأ<\/small>/);
+  assert.match(sheetHtml(app), /setCrmSheetPeriod\(1\)">الأولى<small>🔒<\/small>/);
+  await app.setCrmSheetPeriod(3);
+  assert.equal(get(app, 'crmSheet.part.period'), 2, 'الثالثة لم تبدأ');
+  await app.setCrmSheetPeriod(1);
+  assert.equal(get(app, 'crmSheet.part.locked'), true);
+  assert.match(sheetHtml(app), /crm-lock-banner[\s\S]*الفترة الأولى مقفلة/);
+});
+
+test('انحدار: تبديل الفترة بسرعة — تحميل الفترة الأقدم إن تأخّر لا يرسم فوق الأحدث', async () => {
+  const slow = `{ const _l = loadPeriodRows; let n = 0; loadPeriodRows = async id => { const k = ++n; if(k === 2) await new Promise(r => setTimeout(r, 30)); return _l(id); }; }`;
+  const { app } = await partSheet('2026-10-27', PART_SEED(), PART2, { code: slow });
+  const p1 = app.setCrmSheetPeriod(1);
+  const p2 = app.setCrmSheetPeriod(2);
+  await Promise.all([p1, p2]);
+  assert.equal(get(app, 'crmSheet.part.period'), 2);
+  assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 3);
+  assert.match(sheetHtml(app), /aria-pressed="true" onclick="setCrmSheetPeriod\(2\)"/);
+});
+
+const HW = (id, due) => ({ id, teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, title: 'واجب ' + id, due_date: due, created_at: due });
+const HW_PER = withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-20'] }, 'kind:task': { n: 2, starts: ['2026-10-20'] } });
+
+test('ورقة الواجب — القائمة واجبات الفترة المعروضة فقط، والمبدّل يبدّلها، واختيار واجب من فترة أخرى ينقل إليها', async () => {
+  const app = appWith({ classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: [HW('h1', '2026-10-10'), HW('h2', '2026-10-25'), HW('h3', '2026-10-26')], classroom_homework_status: [] }, [], HW_PER);
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} }; syncHomeworkColumn = async () => {};`);
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  let html = sheetHtml(app);
+  assert.match(html, /واجب h2/); assert.match(html, /واجب h3/); assert.doesNotMatch(html, /واجب h1/);
+  assert.equal(get(app, 'crmSheet.hw.selectedId'), 'h3');
+  await app.setCrmSheetPeriod(1);
+  html = sheetHtml(app);
+  assert.match(html, /واجب h1/); assert.doesNotMatch(html, /واجب h2/);
+  assert.match(html, /القائمة تعرض ما موعده في الفترة الأولى/);
+  await app.setCrmSheetPeriod(2);
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'), 'h1');
+  assert.equal(get(app, 'crmSheet.hw.selectedId'), 'h1', 'واجب أُنشئ/اختير في الأولى: الورقة تنتقل لها');
+  assert.match(sheetHtml(app), /aria-pressed="true" onclick="setCrmSheetPeriod\(1\)"/);
+});
+
+test('ورقة الواجب — فترة بلا واجبات: رسالة واضحة والمبدّل باقٍ؛ وبفترة واحدة لا مبدّل ولا فلترة', async () => {
+  const seed = { classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: [HW('h1', '2026-10-10')], classroom_homework_status: [] };
+  const app = appWith(seed, [], HW_PER);
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} }; syncHomeworkColumn = async () => {};`);
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  assert.match(sheetHtml(app), /لا واجبات في الفترة الثانية\.[\s\S]*\+ واجب جديد/);
+  assert.match(sheetHtml(app), /setCrmSheetPeriod\(1\)">الأولى/);
+  assert.equal(get(app, 'crmSheet.hw.selectedId'), null);
+  const one = appWith(seed, [], OFF);
+  runInAppContext(one, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} }; syncHomeworkColumn = async () => {};`);
+  await one.renderCrmHomework(get(one, 'crmStudentsOfSection("S")'));
+  assert.match(sheetHtml(one), /واجب h1/);
+  assert.doesNotMatch(sheetHtml(one), /crm-per-bar/);
+});
+
+test('ورقة المهام — مهام الفترة المعروضة فقط (بموعدها أو يوم إنشائها)', async () => {
+  const T = (id, due, created) => ({ id, teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, title: 'مهمة ' + id, description: '', max_score: 5, due_date: due, created_at: created, shahid_id: null });
+  const app = appWith({ classroom_grade_columns: [col('K', 'task', 10)], classroom_tasks: [T('t1', null, '2026-10-05T08:00:00Z'), T('t2', '2026-10-15', '2026-10-21T08:00:00Z'), T('t3', null, '2026-10-22T08:00:00Z')], classroom_task_students: [] }, [], HW_PER);
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'task', states: {} };`);
+  await app.renderCrmTasks(get(app, 'crmStudentsOfSection("S")'));
+  let html = sheetHtml(app);
+  assert.match(html, /مهمة t3/); assert.doesNotMatch(html, /مهمة t1|مهمة t2/);
+  await app.setCrmSheetPeriod(1);
+  html = sheetHtml(app);
+  assert.match(html, /مهمة t1/); assert.match(html, /مهمة t2/, 'موعدها في الأولى ولو أُنشئت في الثانية'); assert.doesNotMatch(html, /مهمة t3/);
+});
+
+test('قوائم إدارة الواجبات/المهام — مجمّعة تحت عنوان كل فترة (الأحدث أولًا)، وبفترة واحدة كما هي', () => {
+  const app = appWith({}, [], HW_PER, { code: TODAY });
+  const items = [HW('h3', '2026-10-26'), HW('h2', '2026-10-25'), HW('h1', '2026-10-10')];
+  const html = app.periodGroupedListHtml('kind:homework', items, h => h.due_date, h => `<i>${h.id}</i>`);
+  assert.match(html, /الفترة الثانية · جارية \(2\)<\/div><i>h3<\/i><i>h2<\/i><div class="tlx-sec crm-per-grp">الفترة الأولى · منتهية \(1\)<\/div><i>h1<\/i>/);
+  const one = appWith({}, [], OFF);
+  assert.equal(one.periodGroupedListHtml('kind:homework', items, h => h.due_date, h => h.id), 'h3h2h1');
+});
+
+test('الكشف — مبدّل «الكل / الأولى / الثانية»: الفترة تعرض درجاتها وحدها، والخانة و«رصد» يكتبان فيها؛ «الكل» يعيد القائمة', async () => {
+  const seed = { classroom_grade_columns: [col('P', 'participation', 10), col('M', 'manual', 5)], classroom_grade_scores: [],
+    classroom_grade_period_scores: [pRow('a', 1, 6), pRow('a', 2, 9), pRow('b', 1, 4)] };
+  const { app, g } = await gradeSheet(seed, withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } }));
+  app.__g = g; runInAppContext(app, 'crmGrades = __g; crmGradeScrollHint = () => {}; document.getElementById("crmGradesBody") || (() => { const d = document.createElement("div"); d.id = "crmGradesBody"; document.body.appendChild(d); })(); crmGradesSectionId = () => "S";');
+  let page = get(app, 'crmGradesPageHtml(crmGrades)');
+  assert.match(page, /class="is-on" aria-pressed="true" onclick="setCrmGradesPeriod\(0\)">الكل/);
+  assert.match(page, /disabled>الثالثة<small>لم تبدأ/);
+  assert.match(page, /crm-gs-list/, 'الأصل: قائمة المجاميع');
+  app.setCrmGradesPeriod(1);
+  page = get(app, 'crmGradesPageHtml(crmGrades)');
+  assert.match(page, /تعرض درجات الفترة الأولى فقط/);
+  assert.match(page, /crm-per-table/);
+  assert.doesNotMatch(page, /crm-gs-list/);
+  assert.match(page, /onclick="openCrmGradeCell\('P', 'a'\)">6</, 'درجة الأولى لا المعدّل');
+  assert.match(page, /onclick="openCrmGradeCell\('P', 'b'\)">4</);
+  assert.doesNotMatch(page, />يدوي</, 'المكوّن بفترة واحدة لا يظهر في عرض الفترة');
+  assert.match(page, /رصد الأولى:[\s\S]*openCrmGradeEntry\('P'\)/);
+  assert.equal(app.crmGradeEntryPeriod(g, g.columns.find(c => c.id === 'P')), 1);
+  app.setCrmGradesPeriod(3);
+  assert.equal(get(app, 'gradeEditPeriod.period'), 1, 'الثالثة لم تبدأ: لا تُختار');
+  app.setCrmGradesPeriod(0);
+  assert.equal(get(app, 'gradeEditPeriod'), null);
+  assert.equal(app.crmGradeEntryPeriod(g, g.columns.find(c => c.id === 'P')), 2, '«الكل»: الرصد في الجارية');
+});
+
+test('الكشف بفترة مقفلة — للعرض فقط (لا خانة ولا «رصد»)، و🔒 يفتح نافذة الفترات؛ واسم العمود مهرَّب', async () => {
+  const evil = '<img src=x onerror=alert(1)>';
+  const seed = { classroom_grade_columns: [col('P', 'participation', 10), col('M', 'manual', 5, { name: evil })], classroom_grade_scores: [],
+    classroom_grade_period_scores: [pRow('a', 1, 6)] };
+  const f = withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] }, ['name:' + evil]: { n: 2, starts: ['2026-10-20'] } });
+  const { app, g } = await gradeSheet(seed, f);
+  app.__g = g; runInAppContext(app, `crmGrades = __g; gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)};`);
+  app.setCrmGradesPeriod(1);
+  const page = get(app, 'crmGradePeriodViewHtml(crmGrades, 1)');
+  assert.doesNotMatch(page, /openCrmGradeCell\('P'/);
+  assert.doesNotMatch(page, /openCrmGradeEntry\('P'\)/);
+  assert.match(page, /class="crm-per-lock"[^>]*onclick="openPeriodsWindow\('kind:participation'\)">🔒/);
+  assert.ok(!page.includes(evil), 'الاسم مهرَّب');
+  assert.match(page, /openCrmGradeCell\('M', 'a'\)/, 'اليدوي غير المقفل يُرصد');
 });

@@ -258,7 +258,7 @@ function crmTaskCellHtml(st){
 async function renderCrmTasks(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  let head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
@@ -273,14 +273,18 @@ async function renderCrmTasks(students, selectId){
   if(crmSheet !== s || s.token !== token || s.mode !== 'task') return;
   const idx = taskRowsIndex(data.rows);
   const gidx = taskGroupIndex(data.rows);
-  if(!data.tasks.length){
+  /* بفترات: مهام الفترة المعروضة فقط (بموعد التسليم، أو يوم الإنشاء إن لم يُحدَّد)، والمبدّل أعلاها */
+  const pf = sheetPeriodFilter(s, 'kind:task', data.tasks, taskDateOf, selectId);
+  const list = pf.list;
+  head += crmPeriodChipHtml(s) + crmSheetPeriodNoteHtml(s);
+  if(!list.length){
     s.task = { data, column, selectedId: null, scores: new Map(), groups: new Map(), queue: new Map(), term };
-    body.innerHTML = head + `<div class="empty-state">لا مهام أدائية لهذه الشعبة بعد.</div>
+    body.innerHTML = head + `<div class="empty-state">${data.tasks.length ? `لا مهام أدائية في ${PERIOD_NAMES[pf.period]}.` : 'لا مهام أدائية لهذه الشعبة بعد.'}</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmTaskModal()">+ مهمة جديدة</button>
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
-  const selectedId = (selectId && data.tasks.some(t => t.id === selectId)) ? selectId : data.tasks[data.tasks.length - 1].id;
+  const selectedId = (selectId && list.some(t => t.id === selectId)) ? selectId : list[list.length - 1].id;
   const task = data.tasks.find(t => t.id === selectedId);
   const scores = idx.get(selectedId) || new Map();
   const groups = gidx.get(selectedId) || new Map();
@@ -293,7 +297,7 @@ async function renderCrmTasks(students, selectId){
   body.innerHTML = head + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmTasks(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${data.tasks.map(t => `<option value="${t.id}"${t.id === selectedId ? ' selected' : ''}>${escapeHtml(t.title)} · من ${formatScore(t.max_score)} · ${isGroupTask(t.id) ? 'جماعية' : 'لـ ' + (idx.get(t.id) || new Map()).size}</option>`).join('')}
+        ${list.map(t => `<option value="${t.id}"${t.id === selectedId ? ' selected' : ''}>${escapeHtml(t.title)} · من ${formatScore(t.max_score)} · ${isGroupTask(t.id) ? 'جماعية' : 'لـ ' + (idx.get(t.id) || new Map()).size}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل المهمة أو حذفها" onclick="openCrmTaskEditor(crmSheet.task && crmSheet.task.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmTaskModal()">+ مهمة</button>
@@ -827,7 +831,7 @@ async function openCrmTaskManager(){
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">المهام الأدائية · ${escapeHtml(crmSectionLabel(sectionId))}</h3>
       <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">العمود يُحسب تلقائيًا بالوزن: مجموع ما حصّله الطالب ÷ مجموع درجات مهامه المقيَّمة. من لم يُكلَّف بمهمة لا تُحسب عليه، والمهمة لا تُحسب حتى تُرصد درجتها. الرصد من ورقة الحصة ← "مهمة".</div>
-      ${data.tasks.length ? data.tasks.slice().reverse().map(t => {
+      ${data.tasks.length ? periodGroupedListHtml('kind:task', data.tasks.slice().reverse(), taskDateOf, t => {
         const m = idx.get(t.id) || new Map();
         const c = taskGradeSummary(m, ids.filter(id => m.has(id)));
         const k = taskGroupsList(gidx.get(t.id) || new Map(), ids).length;
@@ -838,7 +842,7 @@ async function openCrmTaskManager(){
             <button class="crm-icon-btn" title="تعديل" onclick="openCrmTaskEditor('${t.id}')">✎</button>
             <button class="crm-icon-btn" title="حذف" onclick="deleteCrmTask('${t.id}', '${sectionId}')">🗑</button>
           </span></div>`;
-      }).join('') : '<div class="crm-today-empty">لا مهام بعد.</div>'}
+      }) : '<div class="crm-today-empty">لا مهام بعد.</div>'}
       <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;" onclick="closeCrmModal();openCrmTaskModal('${sectionId}')">+ مهمة جديدة</button>
     </div>`, '460px');
 }
