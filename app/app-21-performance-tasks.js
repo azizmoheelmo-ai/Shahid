@@ -258,7 +258,7 @@ function crmTaskCellHtml(st){
 async function renderCrmTasks(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
@@ -290,6 +290,21 @@ async function renderCrmTasks(students, selectId){
   const byId = new Map(students.map(st => [st.id, st]));
   const isGroupTask = id => [...(gidx.get(id) || new Map()).values()].some(Boolean);
   s.task = { data, column, selectedId, scores, groups, queue: new Map(), term, pick: null, chgKey: 'task:' + selectedId };
+  const tDate = task.due_date || String(task.created_at || '').slice(0, 10);
+  const tcfg = periodCfg(term, 'kind:task');
+  const tPer = tcfg.n > 1 && tDate ? Math.min(tcfg.n, periodOfDateFor(tDate, tcfg.starts)) : null;
+  s.task.locked = !!tDate && isPeriodLocked(term, 'kind:task', { date: tDate });
+  const tmax = formatScore(task.max_score);
+  s.card = { kind: 'task', countLabel: 'قُيّم',
+    fill: [[Number(task.max_score), `الدرجة كاملة (${tmax})`], [0, '0']],
+    fillTitle: (who, n) => `${who} لم ${n === 1 ? 'يُقيَّم' : 'يُقيَّموا'} — ${n === 1 ? 'أعطِه' : 'أعطِهم'}:`,
+    fillNote: 'من قُيّم لا يتغيّر.',
+    help: [`${glist.length ? 'اضغط على المجموعة لرصد درجة واحدة لكل أعضائها، أو على اسم طالب لتعديل درجته وحده' : 'اضغط على الطالب لرصد درجته'} من <b>${tmax}</b>.`,
+      'لا تُحسب المهمة للطالب حتى تُرصد درجته («—» لم يُقيَّم بعد).',
+      column ? `تُحسب في عمود «${escapeHtml(column.name)}» في الكشف.` : 'أضف عمود مهام أدائية في الكشف ليُحسب تلقائيًا.',
+      ...(task.due_date ? [`موعد التسليم ${shortDateAr(task.due_date)}${tPer ? ` — في <b>${PERIOD_NAMES[tPer]}</b>` : ''}.`] : tPer ? [`المهمة في <b>${PERIOD_NAMES[tPer]}</b>.`] : []),
+      '«تعبئة الباقين» تعطي من لم يُقيَّم فقط، ولا تغيّر من قُيّم.',
+      'لاختيار الطلاب والمجموعات أو تعديل المهمة: «✎ تعديل».'] };
   body.innerHTML = head + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmTasks(crmStudentsOfSection(crmSheet.sectionId), this.value)">
@@ -299,9 +314,7 @@ async function renderCrmTasks(students, selectId){
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmTaskModal()">+ مهمة</button>
     </div>
     ${task.description ? `<div class="crm-task-desc">${escapeHtml(task.description)}</div>` : ''}
-    <div id="crmTaskCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${`${glist.length ? 'اضغط على المجموعة لرصد درجة واحدة لكل أعضائها، أو على اسم طالب لتعديل درجته وحده' : 'اضغط على الطالب لرصد درجته'} من ${formatScore(task.max_score)}${task.due_date ? ' · التسليم ' + shortDateAr(task.due_date) : ''}. لا تُحسب المهمة للطالب حتى تُرصد درجته`}${column ? '، وتُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود مهام أدائية في الكشف ليُحسب تلقائيًا)'}.</p>
-    ${assigned.length ? crmFillRowHtml('من لم يُقيَّم', [[`أعطِه ${formatScore(task.max_score)}`, `fillCrmTaskEmpty(${Number(task.max_score)})`], ['أعطِه 0', 'fillCrmTaskEmpty(0)']]) : ''}
+    ${assigned.length ? crmSheetCardHtml(s, s.task.locked ? 'kind:task' : null, tPer, 'crmTaskCounts') : ''}
     ${glist.map(g => `<div class="crm-task-group">
       <button type="button" class="crm-att-btn crm-task-group-head" id="crmTaskGroup_${g.no}" onclick="openCrmTaskScorePicker(null, ${g.no})">
         <span class="crm-att-name">المجموعة ${g.no} · ${arabicCountPhrase(g.members.length, CRM_STUDENT_COUNT_FORMS)}</span><span class="crm-att-state"></span></button>
@@ -364,7 +377,8 @@ function paintCrmTaskCounts(){
   const ids = crmStudentsOfSection(crmSheet.sectionId).map(x => x.id).filter(id => t.scores.has(id));
   const c = taskGradeSummary(t.scores, ids);
   const k = taskGroupsList(t.groups, ids).length;
-  el.textContent = `قُيّم ${c.graded} من ${c.total}` + (k ? ' · ' + arabicCountPhrase(k, TASK_GROUP_COUNT_FORMS) : '') + (c.avg === null ? '' : ` · المتوسط ${formatScore(c.avg)} من ${formatScore(task.max_score)}`);
+  el.textContent = [k ? arabicCountPhrase(k, TASK_GROUP_COUNT_FORMS) : '', c.avg === null ? '' : `المتوسط ${formatScore(c.avg)} من ${formatScore(task.max_score)}`].filter(Boolean).join(' · ');
+  if(crmSheet.card && crmSheet.card.kind === 'task') paintCrmSheetCard(c.graded, c.total, t.locked);
 }
 
 /* نافذة الرصد: لطالب واحد (studentId) أو لكل أعضاء مجموعة (groupNo) */
@@ -372,6 +386,7 @@ function openCrmTaskScorePicker(studentId, groupNo){
   const t = crmSheet && crmSheet.task;
   const task = crmSelectedTask();
   if(!task) return;
+  if(t.locked){ crmLockedToast(); return; }
   let ids, title, sub = '', cur;
   if(groupNo){
     ids = crmTaskGroupMembers(groupNo);
@@ -442,6 +457,7 @@ function fillCrmTaskEmpty(score){
   const t = crmSheet && crmSheet.task;
   const task = t && crmSelectedTask();
   if(!task) return;
+  if(t.locked){ crmLockedToast(); return; }
   score = Number(score);
   if(!(score >= 0 && score <= Number(task.max_score))) return;
   const ids = [...t.scores.keys()].filter(id => t.scores.get(id) === null || t.scores.get(id) === undefined);

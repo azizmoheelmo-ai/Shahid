@@ -375,14 +375,14 @@ function crmFillRowHtml(label, buttons){
 /* ============ بطاقة أعلى ورقة الرصد (3.62) ============
    الفترة (تفتح نافذة الفترات) · كم رُصد · زر واحد «تعبئة الباقين» (يظهر فقط إن بقي أحد) · «؟» للشرح بدل نصوص دائمة.
    s.card = { help: [html…], fill: [[value, label]…], kind: 'part'|'tool', total } */
-function crmSheetCardHtml(s, lockKey, lockPeriod){
+function crmSheetCardHtml(s, lockKey, lockPeriod, subId){
   const info = sheetPeriodInfo(s);
   const chip = info && info.cfg.n > 1
     ? `<button type="button" class="csc-period" onclick="openCrmPeriodPicker()" aria-label="الفترات">📅 ${PERIOD_NAMES[info.period]}${info.cfg.ended ? ' ✓' : ''} ▾</button>` : '<span></span>';
   return `<div class="csc" id="crmSheetCard">
     <div class="csc-l1">${chip}<button type="button" class="csc-q" aria-label="كيف تعمل هذه الورقة؟" aria-expanded="false" onclick="toggleCrmSheetHelp()">؟</button></div>
     <div class="csc-l2"><div class="csc-cnt" id="crmCardCount"></div><span id="crmCardFill"></span></div>
-    <div class="csc-sub" id="crmToolCounts"></div>
+    <div class="csc-sub" id="${subId || 'crmToolCounts'}"></div>
     <div class="csc-bar"><i id="crmCardBar"></i></div>
     ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : ''}
   </div>
@@ -395,7 +395,7 @@ function paintCrmSheetCard(recorded, total, locked){
   const cnt = document.getElementById('crmCardCount');
   if(!cnt || !s || !s.card) return;
   const missing = Math.max(0, total - recorded);
-  cnt.innerHTML = `<small>رُصد</small> ${recorded} <small>من ${total}</small>${missing ? '' : ' <small class="csc-ok">✓</small>'}`;
+  cnt.innerHTML = `<small>${s.card.countLabel || 'رُصد'}</small> ${recorded} <small>من ${total}</small>${missing ? '' : ' <small class="csc-ok">✓</small>'}`;
   const bar = document.getElementById('crmCardBar');
   if(bar) bar.style.width = (total ? Math.round(100 * recorded / total) : 0) + '%';
   const fill = document.getElementById('crmCardFill');
@@ -424,11 +424,13 @@ function openCrmFillPanel(){
   if(!box || !s || !s.card || !s.card.missing) return;
   s.card.pick = s.card.fill[0][0];
   const n = s.card.missing;
-  box.innerHTML = `<div class="csc-fill-t">${n === 1 ? 'طالب واحد' : n === 2 ? 'طالبان' : n + ' طلاب'} بلا ${s.card.kind === 'tool' && s.tool && s.tool.tool.tool_type === 'status' ? 'رصد' : 'درجة'} — ${n === 1 ? 'أعطِه' : 'أعطِهم'}:</div>
+  const who = n === 1 ? 'طالب واحد' : n === 2 ? 'طالبان' : n + ' طلاب';
+  const noun = s.card.kind === 'tool' && s.tool && s.tool.tool.tool_type === 'status' ? 'رصد' : 'درجة';
+  box.innerHTML = `<div class="csc-fill-t">${s.card.fillTitle ? s.card.fillTitle(who, n) : `${who} بلا ${noun} — ${n === 1 ? 'أعطِه' : 'أعطِهم'}:`}</div>
     <div class="tlx-seg" id="crmFillSeg">${s.card.fill.map(([v, l], i) => `<button type="button" class="${i ? '' : 'is-on'}" aria-pressed="${!i}" onclick="pickCrmFill(${i})">${escapeHtml(l)}</button>`).join('')}</div>
     <button type="button" class="tlx-btn is-navy crm-fill-btn" style="margin-top:8px;" onclick="confirmCrmFill()">تأكيد</button>
     <button type="button" class="tlx-btn is-ghost" style="margin-top:6px;" onclick="closeCrmFillPanel()">إلغاء</button>
-    <div class="csc-fill-n">من له ${s.card.kind === 'tool' && s.tool && s.tool.tool.tool_type === 'status' ? 'رصد' : 'درجة'} لا يتغيّر.</div>`;
+    <div class="csc-fill-n">${s.card.fillNote || `من له ${noun} لا يتغيّر.`}</div>`;
   box.style.display = 'block';
 }
 function pickCrmFill(i){
@@ -448,6 +450,8 @@ async function confirmCrmFill(){
   closeCrmFillPanel();
   if(s.card.kind === 'part') await fillCrmParticipationEmpty(v, true);
   else if(s.card.kind === 'tool' && typeof fillCrmToolEmpty === 'function') await fillCrmToolEmpty(v);
+  else if(s.card.kind === 'hw') await markAllCrmHomeworkSubmitted(v);
+  else if(s.card.kind === 'task' && typeof fillCrmTaskEmpty === 'function') await fillCrmTaskEmpty(v);
 }
 
 function crmPartCardPaint(){
@@ -541,7 +545,7 @@ function crmAbsentClass(s, studentId){
 async function renderCrmHomework(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
@@ -564,7 +568,20 @@ async function renderCrmHomework(students, selectId){
   }
   const statuses = homeworkStatusIndex(hw.statusRows).get(selectedId) || new Map();
   const hcfg = periodCfg(term, 'kind:homework'), perOn = hcfg.n > 1;
-  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}` + `
+  const selHw = hw.homeworks.find(h => h.id === selectedId);
+  const hwLocked = isLockableKey('kind:homework') && isPeriodLocked(term, 'kind:homework', { date: selHw.due_date });
+  s.hw.locked = hwLocked;
+  const hwPer = perOn ? Math.min(hcfg.n, periodOfDateFor(selHw.due_date, hcfg.starts)) : null;
+  s.card = { kind: 'hw', countLabel: 'سلّم',
+    fill: [['submitted', 'سلّم'], ['late', 'متأخر'], ['partial', 'ناقص']],
+    fillTitle: (who, n) => `${who} «لم ${n === 1 ? 'يسلّم' : 'يسلّموا'}» — ${n === 1 ? 'اجعله' : 'اجعلهم'}:`,
+    fillNote: 'من رُصد له لا يتغيّر.',
+    help: ['الأصل «لم يسلّم». اضغط على الطالب: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا.',
+      column ? `يُحسب في عمود «${escapeHtml(column.name)}» في الكشف (سلّم كاملة، متأخر ثلاثة أرباع، ناقص نصف).` : 'أضف عمود واجبات في الكشف ليُحسب تلقائيًا.',
+      ...(perOn ? [`كل واجب في فترة موعد تسليمه — هذا الواجب في <b>${PERIOD_NAMES[hwPer]}</b>.`] : []),
+      '«تعبئة الباقين» تغيّر من «لم يسلّم» فقط، ولا تمسّ من رُصد له.',
+      'لإضافة واجب أو تعديله أو حذفه: «+ واجب» و«✎ تعديل».'] };
+  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}` + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
         ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${perOn ? ' · ' + PERIOD_NAMES[Math.min(hcfg.n, periodOfDateFor(h.due_date, hcfg.starts))] : ''}</option>`).join('')}
@@ -572,8 +589,7 @@ async function renderCrmHomework(students, selectId){
       <button class="btn btn-outline crm-mini-btn" title="تعديل أو حذف الواجب المختار" onclick="openCrmHomeworkEditor(crmSheet.hw && crmSheet.hw.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
-    <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    ${crmSheetCardHtml(s, hwLocked ? 'kind:homework' : null, hwPer, 'crmHwCounts')}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">
@@ -582,8 +598,7 @@ async function renderCrmHomework(students, selectId){
     </div>
     <div class="crm-sheet-bar">
       ${crmSheetFinishBtnHtml()}
-      <button class="btn btn-outline" style="flex:1;" onclick="markAllCrmHomeworkSubmitted()">الكل سلّم</button>
-      <button class="btn btn-outline" onclick="closeCrmLessonSheet()">رجوع</button>
+      <button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button>
     </div>`;
   s.hw.statuses = statuses;
   students.forEach(st => paintCrmHomework(st.id));
@@ -602,8 +617,10 @@ function paintCrmHomework(studentId){
 function paintCrmHomeworkCounts(){
   const el = document.getElementById('crmHwCounts');
   if(!el || !crmSheet || !crmSheet.hw) return;
-  const c = homeworkCounts(crmSheet.hw.statuses, crmStudentsOfSection(crmSheet.sectionId).map(x => x.id));
-  el.textContent = `سلّم ${c.submitted} · ناقص ${c.partial} · متأخر ${c.late} · لم يسلّم ${c.missing}`;
+  const ids = crmStudentsOfSection(crmSheet.sectionId).map(x => x.id);
+  const c = homeworkCounts(crmSheet.hw.statuses, ids);
+  el.textContent = [c.partial ? `ناقص ${c.partial}` : '', c.late ? `متأخر ${c.late}` : '', c.missing ? `لم يسلّم ${c.missing}` : ''].filter(Boolean).join(' · ');
+  if(crmSheet.card && crmSheet.card.kind === 'hw') paintCrmSheetCard(ids.length - c.missing, ids.length, crmSheet.hw.locked);
 }
 
 /* حفظ حالة طالب ثم إعادة حساب درجته — بالتتابع لكل طالب */
@@ -635,6 +652,7 @@ function persistCrmHomework(studentId, state, prevState){
 function tapCrmHomework(studentId){
   const s = crmSheet;
   if(!s || !s.hw || !s.hw.selectedId) return;
+  if(s.hw.locked){ crmLockedToast(); return; }
   const before = s.hw.statuses.get(studentId) || 'missing';
   const st = nextHomeworkState(before);
   if(st === 'missing') s.hw.statuses.delete(studentId); else s.hw.statuses.set(studentId, st);
@@ -644,28 +662,30 @@ function tapCrmHomework(studentId){
 }
 
 let crmHwBulkBusy = false;
-async function markAllCrmHomeworkSubmitted(){
+async function markAllCrmHomeworkSubmitted(status){
   const s = crmSheet;
-  if(!s || !s.hw || !s.hw.selectedId || crmHwBulkBusy) return;
+  status = status || 'submitted';
+  if(!s || !s.hw || !s.hw.selectedId || crmHwBulkBusy || status === 'missing' || HOMEWORK_CYCLE.indexOf(status) === -1) return;
+  if(s.hw.locked){ crmLockedToast(); return; }
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !s.hw.statuses.has(id));
   if(!ids.length) return;
   crmHwBulkBusy = true;
   const uid = currentUser.id, hwId = s.hw.selectedId;
   const h = s.hw;
   let stored = false;
-  ids.forEach(id => { s.hw.statuses.set(id, 'submitted'); paintCrmHomework(id); });
+  ids.forEach(id => { s.hw.statuses.set(id, status); paintCrmHomework(id); });
   paintCrmHomeworkCounts();
   try{
     const { error } = await sb.from('classroom_homework_status').upsert(
-      ids.map(id => ({ teacher_id: uid, homework_id: hwId, student_id: id, status: 'submitted', updated_at: new Date().toISOString() })),
-      { onConflict: 'homework_id,student_id' });
+      ids.map(id => ({ teacher_id: uid, homework_id: hwId, student_id: id, status, updated_at: new Date().toISOString() })),
+      { onConflict: 'homework_id,student_id', ignoreDuplicates: true }); /* لا يكتب فوق رصد متزامن */
     if(error) throw error;
-    ids.forEach(id => s.hw.data.statusRows.push({ homework_id: hwId, student_id: id, status: 'submitted' }));
+    ids.forEach(id => s.hw.data.statusRows.push({ homework_id: hwId, student_id: id, status }));
     stored = true;
     crmLogSaved(h, ids);
-    ids.forEach(id => crmLogChange(h, id, 'missing', 'submitted'));
+    ids.forEach(id => crmLogChange(h, id, 'missing', status));
     await syncHomeworkColumn(s.hw.column, s.sectionId, s.hw.data, ids);
-    showToast('سُجّل "سلّم" للباقين — اضغط على المقصّرين لتعديلهم', 'ok');
+    showToast(`سُجّل "${HOMEWORK_LABELS[status]}" للباقين ✓`, 'ok');
   } catch(e){
     markCrmSheetFailure();
     if(!stored) crmLogFailed(h, ids, e.message || 'خطأ بالاتصال');

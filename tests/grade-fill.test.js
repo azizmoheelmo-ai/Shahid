@@ -224,3 +224,69 @@ test('المهام: «من لم يُقيَّم: أعطِه الكاملة / 0» 
   app.fillCrmTaskEmpty(11);
   assert.equal(get(app, 'window.__persist.length'), 1, 'فوق درجة المهمة لا يُكتب');
 });
+
+/* ============ بطاقة الورقة في الواجب والمهام (3.64) ============ */
+const HW_CARD_SEED = () => ({
+  classroom_homework: [{ id: 'H', teacher_id: 'u1', section_id: 'S', title: 'تمارين', due_date: '2026-10-05', academic_year: TERM.year, semester: 1 }],
+  classroom_homework_status: [{ teacher_id: 'u1', homework_id: 'H', student_id: 'a', status: 'late' }],
+  classroom_grade_columns: [], classroom_grade_scores: [] });
+async function hwSheet(code){
+  const log = [];
+  const app = appWith(HW_CARD_SEED(), log, { sections: {}, tools: {} });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-06', period: 1, token: 1, mode: 'homework', states: {} }; ${code || ''}`);
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  return { app, log };
+}
+const elHtml = (app, id) => get(app, `document.getElementById('${id}').innerHTML`);
+
+test('الواجب: البطاقة «سلّم 1 من 2» وتفصيل الحالات، و«تعبئة الطالب الباقي» يختار الحالة (سلّم/متأخر/ناقص) ولا يكتب فوق رصد', async () => {
+  const { app, log } = await hwSheet();
+  const body = sheetBody(app);
+  assert.match(body, /id="crmSheetCard"[\s\S]*toggleCrmSheetHelp/);
+  assert.doesNotMatch(body, /markAllCrmHomeworkSubmitted\(\)|الأصل "لم يسلّم"/, 'لا زر «الكل سلّم» ولا نص دائم');
+  assert.match(elHtml(app, 'crmCardCount'), /سلّم<\/small> 1 <small>من 2/);
+  assert.equal(get(app, `document.getElementById('crmHwCounts').textContent`), 'متأخر 1 · لم يسلّم 1');
+  app.openCrmFillPanel();
+  assert.match(elHtml(app, 'crmFillPanel'), /طالب واحد «لم يسلّم» — اجعله:[\s\S]*>سلّم<[\s\S]*>متأخر<[\s\S]*>ناقص<[\s\S]*من رُصد له لا يتغيّر/);
+  app.pickCrmFill(1);
+  await app.confirmCrmFill();
+  const up = log.find(l => l.op === 'upsert' && l.table === 'classroom_homework_status');
+  assert.deepEqual([...up.values].map(r => r.student_id + ':' + r.status + ':' + r.teacher_id), ['b:late:u1']);
+  assert.equal(up.options.ignoreDuplicates, true);
+  assert.equal(get(app, 'crmSheet.hw.statuses.get("a")'), 'late');
+  assert.equal(elHtml(app, 'crmCardFill'), '', 'رُصد للجميع');
+  await app.markAllCrmHomeworkSubmitted('missing');
+  assert.equal(log.filter(l => l.op === 'upsert').length, 1, '«لم يسلّم» ليست تعبئة');
+});
+
+test('الواجب في فترة مقفلة (بموعده): شريط القفل، ولا تعبئة، والنقر لا يكتب', async () => {
+  const { app, log } = await hwSheet(`gradePeriodLocks = { '${TERM.year}|1': { 'kind:homework': { p: 1, before: '2026-10-10' } } };`);
+  assert.match(sheetBody(app), /🔒[\s\S]*مقفلة/);
+  assert.equal(elHtml(app, 'crmCardFill'), '');
+  app.tapCrmHomework('b');
+  await app.markAllCrmHomeworkSubmitted('submitted');
+  assert.equal(log.filter(l => l.op !== 'select').length, 0);
+  assert.match(get(app, 'window.__toasts.join()'), /الفترة مقفلة/);
+});
+
+test('المهام: البطاقة «قُيّم 1 من 2»، والتعبئة لمن لم يُقيَّم فقط بالكاملة أو 0', async () => {
+  const log = [];
+  const seed = { classroom_tasks: [{ id: 'T1', teacher_id: 'u1', section_id: 'S', title: 'تقرير', max_score: 10, academic_year: TERM.year, semester: 1, created_at: '2026-10-01T08:00:00Z', due_date: null }],
+    classroom_task_students: [{ teacher_id: 'u1', task_id: 'T1', student_id: 'a', score: 8 }, { teacher_id: 'u1', task_id: 'T1', student_id: 'b', score: null }],
+    classroom_grade_columns: [], classroom_grade_scores: [] };
+  const app = appWith(seed, log, { sections: {}, tools: {} });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-06', period: 1, token: 1, mode: 'task', states: {} };`);
+  await app.renderCrmTasks(get(app, 'crmStudentsOfSection("S")'));
+  assert.doesNotMatch(sheetBody(app), /crm-fill-row|اضغط على الطالب لرصد درجته/);
+  assert.match(elHtml(app, 'crmCardCount'), /قُيّم<\/small> 1 <small>من 2/);
+  app.openCrmFillPanel();
+  assert.match(elHtml(app, 'crmFillPanel'), /طالب واحد لم يُقيَّم — أعطِه:[\s\S]*الدرجة كاملة \(10\)[\s\S]*>0<[\s\S]*من قُيّم لا يتغيّر/);
+  await app.confirmCrmFill();
+  await get(app, 'Promise.all([...crmSheet.task.queue.values()])');
+  const upd = log.find(l => l.op === 'update' && l.table === 'classroom_task_students');
+  assert.deepEqual({ ...upd.values }, { score: 10 });
+  assert.deepEqual(Object.fromEntries(upd.filters), { teacher_id: 'u1', task_id: 'T1', student_id: 'b' });
+  assert.equal(get(app, 'crmSheet.task.scores.get("a")'), 8);
+  app.toggleCrmSheetHelp();
+  assert.match(elHtml(app, 'crmSheetHelp'), /اضغط على الطالب لرصد درجته من <b>10<\/b>/);
+});
