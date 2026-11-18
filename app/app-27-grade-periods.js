@@ -513,11 +513,98 @@ function crmSheetLockedKey(s, period){
   const term = crmCurrentTerm();
   return (periodKeyIsDirect(key) ? isPeriodLocked(term, key, { period }) : isPeriodLocked(term, key, { date: s.dateIso })) ? key : null;
 }
+const periodKeyAttr = key => escapeHtml(key).replace(/'/g, '&#39;');
+
+/* شريط الفترة المقفلة: للمرصود بفترة زر «فتح للتعديل» مباشرة (بلا نافذة)، وإلا زر «الفترات» */
 function crmLockBannerHtml(key, period){
-  return `<div class="crm-lock-banner" role="status">🔒 ${period ? PERIOD_NAMES[period] : 'هذه الفترة'} مقفلة — للعرض فقط.
-    <button type="button" class="tlx-btn is-ghost" onclick="openPeriodsWindow('${escapeHtml(key).replace(/'/g, '&#39;')}')">الفترات</button></div>`;
+  const k = periodKeyAttr(key);
+  const lock = period && isLockableKey(key) ? periodLockOf(crmCurrentTerm(), key) : null;
+  const act = lock && lock.p >= period
+    ? `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="quickUnlockPeriod('${k}', ${period})">فتح للتعديل${lock.p > period ? ` (و${[2, 3].filter(x => x > period && x <= lock.p).map(x => PERIOD_NAMES[x].replace('الفترة ', '')).join(' و')} معها)` : ''}</button>`
+    : `<button type="button" class="tlx-btn is-ghost" onclick="openPeriodsWindow('${k}')">الفترات</button>`;
+  return `<div class="crm-lock-banner" role="status">🔒 ${period ? PERIOD_NAMES[period] : 'هذه الفترة'} مقفلة — للعرض فقط.${act}</div>`;
 }
-function crmLockedToast(){ showToast('الفترة مقفلة — افتحها للتعديل من نافذة الفترات', 'error'); }
+
+/* شريط الفترة المنتهية المفتوحة: «🔒 أقفلها» بنقرة */
+function crmOpenBannerHtml(key, period, label){
+  return `<div class="crm-open-banner" role="status">✏️ ${label || PERIOD_NAMES[period]} مفتوحة للتعديل
+    <button type="button" class="tlx-btn is-navy gs-period-btn" onclick="quickLockPeriod('${periodKeyAttr(key)}', ${period})">🔒 أقفلها</button></div>`;
+}
+
+function periodIsEnded(cfg, p){ const now = currentPeriodOf(cfg); return p < now || (p === now && !!cfg.ended); }
+
+/* ورقة الحصة: المعروضة فترة منتهية غير مقفلة لمكوّن يُقفل؟ */
+function crmSheetOpenBannerHtml(s){
+  const info = sheetPeriodInfo(s);
+  if(!info || info.cfg.n < 2 || !isLockableKey(info.key) || !periodKeyIsDirect(info.key) || !periodIsEnded(info.cfg, info.period)) return '';
+  if(isPeriodLocked(crmCurrentTerm(), info.key, { period: info.period })) return '';
+  return crmOpenBannerHtml(info.key, info.period);
+}
+
+/* ============ فتح/قفل سريع من الورقة والكشف (بلا نافذة الفترات) ============
+   القفل متسلسل في القاعدة («مقفلة حتى الفترة p»): فتح الأولى والثانية مقفلة يفتحهما معًا، و«أقفلها» يعيد ما فُتح معها.
+   periodReopened["سنة|فصل|مكوّن"] = ما كان مقفلًا قبل الفتح السريع — للتذكير عند إغلاق الورقة وللقفل من جديد. */
+let periodReopened = {};
+const reopenKey = (term, key) => termPeriodKey(term) + '|' + key;
+
+async function quickUnlockPeriod(key, p){
+  p = Number(p);
+  if(gradePeriodSaving || !currentUser || !isLockableKey(key)) return false;
+  const term = crmCurrentTerm();
+  const lock = periodLockOf(term, key);
+  if(!lock || !(p >= 1 && p <= lock.p)) return false;
+  const cfg = periodCfg(term, key);
+  const s = typeof crmSheet === 'undefined' ? null : crmSheet;
+  const to = p - 1;
+  const ok = await withPeriodBusy(async () => { await setPeriodLock(term, key, to, to > 0 ? lockBeforeFor(cfg, to) : null); return true; },
+    `فُتحت ${PERIOD_NAMES[p]} للتعديل ✓`);
+  if(ok){ const rk = reopenKey(term, key); periodReopened[rk] = Math.max(periodReopened[rk] || 0, lock.p); }
+  await refreshSheetAfterLock(s);
+  return ok;
+}
+
+async function quickLockPeriod(key, p){
+  p = Number(p);
+  if(gradePeriodSaving || !currentUser || !isLockableKey(key)) return false;
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key); /* أحدث إعداد: لو تراجع عن الفترة من جهاز آخر لا تُقفل جارية */
+  if(!periodIsEnded(cfg, p)) return false;
+  const rk = reopenKey(term, key);
+  let target = Math.max(p, periodReopened[rk] || 0);
+  while(target > p && !periodIsEnded(cfg, target)) target--;
+  const cur = periodLockOf(term, key);
+  if(cur && cur.p >= target){ delete periodReopened[rk]; return true; }
+  const s = typeof crmSheet === 'undefined' ? null : crmSheet;
+  const ok = await withPeriodBusy(async () => { await setPeriodLock(term, key, target, lockBeforeFor(cfg, target)); return true; },
+    `أُقفلت ${PERIOD_NAMES[p]} ✓`);
+  if(ok) delete periodReopened[rk];
+  await refreshSheetAfterLock(s);
+  return ok;
+}
+
+/* بعد الفتح/القفل: الورقة نفسها (إن بقيت هي المفتوحة) تُعاد برسم حالة القفل الجديدة */
+async function refreshSheetAfterLock(s){
+  if(s && typeof crmSheet !== 'undefined' && crmSheet === s && s.mode && typeof setCrmSheetMode === 'function') await setCrmSheetMode(s.mode);
+}
+
+/* عند إغلاق ورقة الحصة: فترة فُتحت سريعًا وما زالت مفتوحة ← سؤال واحد «أقفلها؟» (مرة واحدة لا يتكرر) */
+async function remindReopenedPeriods(){
+  const term = crmCurrentTerm();
+  const pref = termPeriodKey(term) + '|';
+  for(const rk of Object.keys(periodReopened)){
+    if(rk.indexOf(pref) !== 0) continue;
+    const key = rk.slice(pref.length), want = periodReopened[rk];
+    delete periodReopened[rk];
+    const cur = periodLockOf(term, key);
+    if(cur && cur.p >= want) continue;
+    const p = (cur ? cur.p : 0) + 1;
+    if(!(await showConfirm(`${PERIOD_NAMES[p]} في «${periodCompName(key)}» ما زالت مفتوحة للتعديل — أقفلها الآن؟`))) continue;
+    periodReopened[rk] = want;
+    await quickLockPeriod(key, p);
+  }
+}
+
+function crmLockedToast(){ showToast('الفترة مقفلة — اضغط «فتح للتعديل» أعلى الورقة', 'error'); }
 
 /* ============ الكشف بفترة واحدة (مبدّل «الكل / الأولى / الثانية…» أعلى الكشف) ============
    الأصل «الكل»: قائمة المجاميع، و«رصد» يذهب للفترة الجارية. اختيار فترة يعرض درجاتها وحدها لكل مكوّن بفترات،
@@ -587,12 +674,9 @@ function gradeEditBannerHtml(){
   const term = crmCurrentTerm();
   const name = m.key ? escapeHtml(periodCompName(m.key)) : '';
   const locked = !!m.key && isPeriodLocked(term, m.key, { period: p });
-  const canLock = !!m.key && isLockableKey(m.key) && !locked && periodKeyIsDirect(m.key);
-  const ended = m.key ? (() => { const cfg = periodCfg(term, m.key); const now = currentPeriodOf(cfg); return p < now || (p === now && cfg.ended); })() : false;
   return `<div class="pt-edit-banner" role="status"><b>تعرض درجات ${PERIOD_NAMES[p]} فقط</b>
-    <small>${locked ? `${PERIOD_NAMES[p]} مقفلة في «${name}» — افتحها للتعديل من نافذة الفترات.` : `ما ترصده هنا يُحفظ في ${PERIOD_NAMES[p]}. الواجبات والمهام تُحسب من رصدها بتواريخه.`}</small>
-    <div class="pt-edit-acts">${canLock && ended ? `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="finishGradeEditPeriod(true)">✓ انتهيت — أقفل ${PERIOD_NAMES[p].replace('الفترة ', '')} في «${name}»</button>` : ''}
-      <button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="finishGradeEditPeriod(false)">عرض الكل</button></div></div>`;
+    <small>${locked ? `${PERIOD_NAMES[p]} مقفلة في «${name}» — افتحها بزر «فتح للتعديل» أدناه.` : `ما ترصده هنا يُحفظ في ${PERIOD_NAMES[p]}. الواجبات والمهام تُحسب من رصدها بتواريخه.`}</small>
+    <div class="pt-edit-acts"><button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="finishGradeEditPeriod(false)">عرض الكل</button></div></div>`;
 }
 
 /* الكشف بفترة واحدة: طالب × مكوّن بفترات، درجة الفترة وحدها. المرصود بفترة يُعدَّل بالضغط (إلا المقفلة) */
@@ -612,7 +696,14 @@ function crmGradePeriodViewHtml(g, p){
   });
   const k = x => escapeHtml(x.key).replace(/'/g, '&#39;');
   const rec = info.filter(x => x.edit);
-  let html = rec.length ? `<div class="crm-gs-rec"><span>رصد ${PERIOD_NAMES[p].replace('الفترة ', '')}:</span>${rec.map(x =>
+  /* فتح/قفل كل مكوّن بنقرة (للفترة المنتهية) */
+  let html = info.filter(x => isLockableKey(x.key) && periodIsEnded(gradeColumnPeriodCfg(g, x.c), p)).map(x => {
+    const nm = `${PERIOD_NAMES[p]} في «${escapeHtml(x.c.name)}»`;
+    if(!x.locked) return crmOpenBannerHtml(x.key, p, nm);
+    const lock = periodLockOf(term, x.key);
+    return `<div class="crm-lock-banner" role="status">🔒 ${nm} مقفلة.<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="quickUnlockPeriod('${k(x)}', ${p})">فتح للتعديل${lock && lock.p > p ? ' (وما بعدها معها)' : ''}</button></div>`;
+  }).join('');
+  html += rec.length ? `<div class="crm-gs-rec"><span>رصد ${PERIOD_NAMES[p].replace('الفترة ', '')}:</span>${rec.map(x =>
     `<button type="button" class="crm-gs-recchip" onclick="openCrmGradeEntry('${x.c.id}')">${escapeHtml(x.c.name)}</button>`).join('')}</div>` : '';
   html += '<div class="crm-grade-holder"><div class="crm-grade-wrap"><table class="crm-grade-table crm-per-table"><thead><tr><th class="crm-grade-name">الطالب</th>';
   info.forEach(x => {
@@ -942,7 +1033,7 @@ function isGradeLockedError(e){
   return /grade_period_locked/.test(String((e && (e.message || e.details || e.hint)) || e || ''));
 }
 function gradeSaveErrorText(e){
-  return isGradeLockedError(e) ? 'الفترة مقفلة — افتحها للتعديل من نافذة الفترات' : ((e && e.message) || 'خطأ بالاتصال');
+  return isGradeLockedError(e) ? 'الفترة مقفلة — اضغط «فتح للتعديل» ثم أعد الرصد' : ((e && e.message) || 'خطأ بالاتصال');
 }
 
 async function loadPeriodRows(columnId){

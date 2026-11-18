@@ -790,7 +790,7 @@ test('ورقة الحصة في فترة مقفلة — شريط «مقفلة» �
   const { app, log } = await partSheet('2026-10-20', { classroom_grade_scores: [], classroom_grade_period_scores: [] }, f,
     { code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)};` });
   const html = sheetHtml(app);
-  assert.match(html, /🔒 الفترة الأولى مقفلة — للعرض فقط[\s\S]*openPeriodsWindow\('kind:participation'\)/);
+  assert.match(html, /🔒 الفترة الأولى مقفلة — للعرض فقط\.<button[^>]*onclick="quickUnlockPeriod\('kind:participation', 1\)">فتح للتعديل</);
   assert.equal(get(app, `document.getElementById('crmCardFill').innerHTML`), '', 'المقفلة: لا زر تعبئة');
   const before = log.length;
   app.tapCrmParticipation('a', 1);
@@ -859,7 +859,8 @@ test('وضع تعديل الأولى — رصد الكشف لعمود المكو
   assert.equal(get(app, 'crmGradeEntryScores(crmGrades, crmGrades.columns.find(c => c.id === "P"), 1).get("a")'), 6);
   assert.equal(app.crmGradeEntryPeriod(g, g.columns.find(c => c.id === 'M')), 1, 'اليدوي بفترة واحدة كما هو');
   const banner = app.gradeEditBannerHtml();
-  assert.match(banner, /تعرض درجات الفترة الأولى فقط[\s\S]*يُحفظ في الفترة الأولى[\s\S]*finishGradeEditPeriod\(true\)">✓ انتهيت — أقفل الأولى في «المشاركة»[\s\S]*finishGradeEditPeriod\(false\)">عرض الكل/);
+  assert.match(banner, /تعرض درجات الفترة الأولى فقط[\s\S]*يُحفظ في الفترة الأولى[\s\S]*finishGradeEditPeriod\(false\)">عرض الكل/);
+  assert.match(get(app, 'crmGradePeriodViewHtml(crmGrades, 1)'), /crm-open-banner[\s\S]*الفترة الأولى في «مشاركة» مفتوحة للتعديل[\s\S]*quickLockPeriod\('kind:participation', 1\)">🔒 أقفلها/, 'القفل بنقرة من الكشف');
   await app.finishGradeEditPeriod(true);
   assert.deepEqual(rpcs(log, 'set_period_lock').map(a => a.p_key + ':' + a.p_period + ':' + a.p_before), ['kind:participation:1:2026-10-20']);
   assert.equal(get(app, 'gradeEditPeriod'), null);
@@ -1032,4 +1033,63 @@ test('الكشف بفترة مقفلة — للعرض فقط (لا خانة ول
   assert.match(page, /class="crm-per-lock"[^>]*onclick="openPeriodsWindow\('kind:participation'\)">🔒/);
   assert.ok(!page.includes(evil), 'الاسم مهرَّب');
   assert.match(page, /openCrmGradeCell\('M', 'a'\)/, 'اليدوي غير المقفل يُرصد');
+});
+
+/* ============ فتح/قفل سريع من الورقة والكشف (بلا نافذة الفترات) ============ */
+const lockRpc = (rpcLocks) => ({ wrap: c => Object.assign({}, c, { rpc(name, args){
+  if(name === 'set_period_lock'){ rpcLocks.push(args); const t = {}; if(args.p_period > 0) t[args.p_key] = { p: args.p_period, before: args.p_before }; return Promise.resolve({ data: { [args.p_term]: t }, error: null }); }
+  return c.rpc(name, args); } }) });
+
+test('ورقة الحصة — «فتح للتعديل» بنقرة يفتح الأولى ويبقى في الورقة، ثم «🔒 أقفلها» بنقرة يعيدها', async () => {
+  const calls = [];
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
+  const { app } = await partSheet('2026-10-27', PART_SEED(), f, Object.assign({ code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)}; enabledSheetModes = () => ['participation'];` }, lockRpc(calls)));
+  await app.setCrmSheetPeriod(1);
+  assert.match(sheetHtml(app), /quickUnlockPeriod\('kind:participation', 1\)">فتح للتعديل</);
+  await app.quickUnlockPeriod('kind:participation', 1);
+  assert.deepEqual(calls.map(a => a.p_period), [0]);
+  assert.equal(get(app, 'crmSheet.part.locked'), false, 'تُعاد الورقة نفسها مفتوحة');
+  assert.equal(get(app, 'crmSheet.part.period'), 1, 'بقيت على الأولى');
+  assert.match(sheetHtml(app), /crm-open-banner[\s\S]*✏️ الفترة الأولى مفتوحة للتعديل[\s\S]*quickLockPeriod\('kind:participation', 1\)">🔒 أقفلها/);
+  await app.quickLockPeriod('kind:participation', 1);
+  assert.deepEqual(calls.map(a => a.p_period + ':' + a.p_before), ['0:null', '1:2026-10-20']);
+  assert.equal(get(app, 'crmSheet.part.locked'), true);
+  assert.equal(JSON.stringify(get(app, 'periodReopened')), '{}');
+});
+
+test('القفل متسلسل — فتح الأولى والثانية مقفلة يفتحهما (والزر يقولها)، و«أقفلها» يعيد الاثنتين؛ والجارية لا تُقفل', async () => {
+  const calls = [];
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-10', '2026-10-20'] } });
+  const locks = { [TK]: { 'kind:participation': { p: 2, before: '2026-10-20' } } };
+  const app = appWith({}, [], f, Object.assign({ code: `${TODAY} gradePeriodLocks = ${JSON.stringify(locks)};` }, lockRpc(calls)));
+  assert.match(app.crmLockBannerHtml('kind:participation', 1), /فتح للتعديل \(والثانية معها\)/);
+  await app.quickUnlockPeriod('kind:participation', 1);
+  await app.quickLockPeriod('kind:participation', 1);
+  assert.deepEqual(calls.map(a => a.p_period), [0, 2]);
+  assert.equal(await app.quickLockPeriod('kind:participation', 3), false, 'الثالثة جارية');
+  assert.equal(calls.length, 2);
+});
+
+test('إغلاق الورقة وفترة فُتحت سريعًا ما زالت مفتوحة — سؤال واحد «أقفلها؟»، و«لا» لا يكتب ولا يتكرر', async () => {
+  for(const yes of [true, false]){
+    const calls = [];
+    const f = withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } });
+    const app = appWith({}, [], f, Object.assign({ code: `${TODAY} gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)}; window.__ask = []; showConfirm = async m => { window.__ask.push(m); return ${yes}; };` }, lockRpc(calls)));
+    await app.quickUnlockPeriod('kind:participation', 1);
+    await app.remindReopenedPeriods();
+    assert.deepEqual(JSON.parse(get(app, 'JSON.stringify(window.__ask)')), ['الفترة الأولى في «المشاركة» ما زالت مفتوحة للتعديل — أقفلها الآن؟']);
+    assert.deepEqual(calls.map(a => a.p_period), yes ? [0, 1] : [0]);
+    await app.remindReopenedPeriods();
+    assert.equal(get(app, 'window.__ask.length'), 1, 'لا يتكرر');
+  }
+});
+
+test('الفتح/القفل السريع — لا يعمل أثناء حفظ آخر (نقرة مزدوجة)، ولا لمكوّن يدوي بلا قفل', async () => {
+  const calls = [];
+  const app = appWith({}, [], withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } }), Object.assign({ code: `${TODAY} gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)};` }, lockRpc(calls)));
+  const a = app.quickUnlockPeriod('kind:participation', 1);
+  const b = app.quickUnlockPeriod('kind:participation', 1);
+  await Promise.all([a, b]);
+  assert.equal(calls.length, 1);
+  assert.equal(await app.quickLockPeriod('name:يدوي', 1), false);
 });

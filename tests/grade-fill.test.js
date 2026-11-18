@@ -118,7 +118,7 @@ test('المشاركة: التعبئة في فترة مقفلة — رسالة �
   const { app } = await partSheet([], { rpcError: { message: 'grade_period_locked' } });
   runInAppContext(app, 'window.__answer = true; markCrmSheetFailure = () => {}; setCrmSheetMode = () => {};');
   await app.fillCrmParticipationEmpty(0);
-  assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر الحفظ: الفترة مقفلة — افتحها للتعديل من نافذة الفترات/);
+  assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر الحفظ: الفترة مقفلة — اضغط «فتح للتعديل» ثم أعد الرصد/);
   assert.equal(get(app, 'crmSheet.part.scores.size'), 0);
 });
 

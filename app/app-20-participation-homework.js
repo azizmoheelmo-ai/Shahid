@@ -383,7 +383,7 @@ function crmSheetCardHtml(s, lockKey, lockPeriod){
     <div class="csc-l2"><div class="csc-cnt" id="crmCardCount"></div><span id="crmCardFill"></span></div>
     <div class="csc-sub" id="crmToolCounts"></div>
     <div class="csc-bar"><i id="crmCardBar"></i></div>
-    ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : ''}
+    ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : crmSheetOpenBannerHtml(s)}
     ${crmSheetPeriodNoteHtml(s)}
   </div>
   <div id="crmSheetHelp" class="csc-help" style="display:none;"></div>
