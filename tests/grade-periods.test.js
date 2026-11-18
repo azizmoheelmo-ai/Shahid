@@ -1065,14 +1065,17 @@ const lockRpc = (rpcLocks) => ({ wrap: c => Object.assign({}, c, { rpc(name, arg
 test('ورقة الحصة — «فتح للتعديل» بنقرة يفتح الأولى ويبقى في الورقة، ثم «🔒 أقفلها» بنقرة يعيدها', async () => {
   const calls = [];
   const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
-  const { app } = await partSheet('2026-10-27', PART_SEED(), f, Object.assign({ code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)}; enabledSheetModes = () => ['participation'];` }, lockRpc(calls)));
+  const log = [];
+  const { app } = await partSheet('2026-10-27', PART_SEED(), f, Object.assign({ code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)}; enabledSheetModes = () => ['participation'];` }, lockRpc(calls), { wrap: c => { const w = lockRpc(calls).wrap(c); const fr = w.from; w.from = t => { log.push(t); return fr.call(w, t); }; return w; } }));
   await app.setCrmSheetPeriod(1);
-  assert.match(sheetHtml(app), /quickUnlockPeriod\('kind:participation', 1\)">فتح للتعديل</);
+  assert.match(sheetHtml(app), /id="crmPerState"><div class="crm-lock-banner"[\s\S]*quickUnlockPeriod\('kind:participation', 1\)">فتح للتعديل</);
+  const reads = log.length;
   await app.quickUnlockPeriod('kind:participation', 1);
   assert.deepEqual(calls.map(L), ['']);
-  assert.equal(get(app, 'crmSheet.part.locked'), false, 'تُعاد الورقة نفسها مفتوحة');
+  assert.equal(log.length, reads, 'فوري: لا يُعاد تحميل الورقة من القاعدة');
+  assert.equal(get(app, 'crmSheet.part.locked'), false, 'الورقة نفسها صارت مفتوحة');
   assert.equal(get(app, 'crmSheet.part.period'), 1, 'بقيت على الأولى');
-  assert.match(sheetHtml(app), /crm-open-banner[\s\S]*✏️ الفترة الأولى مفتوحة للتعديل[\s\S]*quickLockPeriod\('kind:participation', 1\)">🔒 أقفلها/);
+  assert.match(get(app, `document.getElementById('crmPerState').innerHTML`), /crm-open-banner[\s\S]*✏️ الفترة الأولى مفتوحة للتعديل[\s\S]*quickLockPeriod\('kind:participation', 1\)">🔒 أقفلها/);
   await app.quickLockPeriod('kind:participation', 1);
   assert.deepEqual(calls.map(a => L(a) + ':' + (L(a) ? R(a, 1).before : '')), [':', '1:2026-10-20']);
   assert.equal(get(app, 'crmSheet.part.locked'), true);
@@ -1499,4 +1502,23 @@ test('«اجعل الفترة الأخيرة جارية من جديد» (الإ�
   assert.equal(cfgOf(live, 'kind:participation').live, true, 'الخيار يبقى');
   const notEnded = settingsApp(withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } }), {}, []);
   assert.equal(await notEnded.reopenLastPeriod('kind:participation'), false, 'لا تعمل إلا إن انتهت كلها');
+});
+
+test('الفتح/القفل الفوري — الشاشة تتغيّر قبل رد القاعدة؛ وفشل الحفظ يعيدها كما كانت برسالة', async () => {
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
+  let release;
+  const slow = c => Object.assign({}, c, { rpc(n, a){ if(n !== 'set_period_lock_v2') return c.rpc(n, a);
+    return new Promise(r => { release = ok => r(ok ? { data: { [a.p_term]: a.p_value.periods ? { [a.p_key]: a.p_value } : {} }, error: null } : { data: null, error: { message: 'network' } }); }); } });
+  const { app } = await partSheet('2026-10-27', PART_SEED(), f, { wrap: slow, code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)}; enabledSheetModes = () => ['participation'];` });
+  await app.setCrmSheetPeriod(1);
+  const pending = app.quickUnlockPeriod('kind:participation', 1);
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(get(app, 'crmSheet.part.locked'), false, 'فوري قبل رد القاعدة');
+  assert.match(get(app, `document.getElementById('crmPerState').innerHTML`), /مفتوحة للتعديل/);
+  assert.equal(await app.quickUnlockPeriod('kind:participation', 1), false, 'لا نقرة مزدوجة أثناء الحفظ');
+  release(false);
+  assert.equal(await pending, false);
+  assert.equal(get(app, 'crmSheet.part.locked'), true, 'فشل: عادت مقفلة');
+  assert.match(get(app, `document.getElementById('crmPerState').innerHTML`), /الفترة الأولى مقفلة/);
+  assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر الحفظ/);
 });

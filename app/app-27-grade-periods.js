@@ -546,6 +546,7 @@ function sheetPeriodInfo(s){
 
 /* extra: زر يُلحق بآخر السطر (مثل «؟» في ورقة الواجب/المهمة). ⚙ لم يعد هنا: «إدارة الفترات» داخل «؟» */
 function crmPeriodChipHtml(s, extra){
+  if(s) s.perExtra = extra || ''; /* لإعادة رسم المبدّل وحده بعد فتح/قفل (بلا تحميل) */
   const info = sheetPeriodInfo(s);
   if(!info || info.cfg.n < 2) return '';
   if(!sheetPeriodSwitchable(info.key)){
@@ -562,7 +563,7 @@ function crmPeriodChipHtml(s, extra){
     const tag = !started ? 'لم تبدأ' : locked ? '🔒' : p === info.now && !info.cfg.ended ? 'جارية' : 'منتهية';
     return `<button type="button" class="${p === info.period ? 'is-on' : ''}" aria-pressed="${p === info.period}"${started ? ` onclick="setCrmSheetPeriod(${p})"` : ' disabled'}>${PERIOD_NAMES[p].replace('الفترة ', '')}<small>${tag}</small></button>`;
   };
-  return `<div class="crm-per-bar"><div class="tlx-seg crm-per-seg" role="group" aria-label="الفترة">${[1, 2, 3].slice(0, info.cfg.n).map(btn).join('')}</div>${extra || ''}</div>`;
+  return `<div class="crm-per-bar" id="crmPerBar"><div class="tlx-seg crm-per-seg" role="group" aria-label="الفترة">${[1, 2, 3].slice(0, info.cfg.n).map(btn).join('')}</div>${extra || ''}</div>`;
 }
 
 /* تحت المبدّل: مكان لوحة «ابدأ الفترة التالية»، ورابط «تراجع عن بدء…» — في نفس جلسة الورقة التي بدأت فيها الفترة فقط
@@ -849,6 +850,9 @@ function crmSheetOpenBannerHtml(s){
 
 /* ورقة الواجب/المهمة: الفترة المعروضة مقفلة (فتح بنقرة) أو منتهية مفتوحة (قفل بنقرة) */
 function crmSheetPeriodStateHtml(s){
+  return `<div id="crmPerState">${crmSheetPeriodStateInner(s)}</div>`;
+}
+function crmSheetPeriodStateInner(s){
   const info = sheetPeriodInfo(s);
   if(!info || info.cfg.n < 2 || !isLockableKey(info.key) || !sheetPeriodSwitchable(info.key)) return '';
   if(isPeriodLocked(crmCurrentTerm(), info.key, { period: info.period })) return crmLockBannerHtml(info.key, info.period);
@@ -865,11 +869,8 @@ async function quickUnlockPeriod(key, p){
   if(gradePeriodSaving || !currentUser || !isLockableKey(key)) return false;
   const term = crmCurrentTerm();
   if(!isPeriodLocked(term, key, { period: p })) return false;
-  const s = typeof crmSheet === 'undefined' ? null : crmSheet;
-  const ok = await withPeriodBusy(async () => { await setPeriodLockOne(term, key, p, false); return true; },
-    `فُتحت ${PERIOD_NAMES[p]} للتعديل ✓`);
+  const ok = await quickSetPeriodLock(term, key, p, false, `فُتحت ${PERIOD_NAMES[p]} للتعديل ✓`);
   if(ok){ const rk = reopenKey(term, key); (periodReopened[rk] = periodReopened[rk] || new Set()).add(p); }
-  await refreshSheetAfterLock(s);
   return ok;
 }
 
@@ -880,19 +881,58 @@ async function quickLockPeriod(key, p){
   const cfg = periodCfg(term, key); /* أحدث إعداد: لو تراجع عن الفترة من جهاز آخر لا تُقفل جارية */
   if(!periodIsEnded(cfg, p)) return false;
   const rk = reopenKey(term, key);
-  if(isPeriodLocked(term, key, { period: p })){ if(periodReopened[rk]){ periodReopened[rk].delete(p); if(!periodReopened[rk].size) delete periodReopened[rk]; } return true; }
-  const s = typeof crmSheet === 'undefined' ? null : crmSheet;
-  const ok = await withPeriodBusy(async () => { await setPeriodLockOne(term, key, p, true); return true; },
-    `أُقفلت ${PERIOD_NAMES[p]} ✓`);
-  if(ok && periodReopened[rk]){ periodReopened[rk].delete(p); if(!periodReopened[rk].size) delete periodReopened[rk]; }
-  await refreshSheetAfterLock(s);
+  const done = () => { if(periodReopened[rk]){ periodReopened[rk].delete(p); if(!periodReopened[rk].size) delete periodReopened[rk]; } };
+  if(isPeriodLocked(term, key, { period: p })){ done(); return true; }
+  const ok = await quickSetPeriodLock(term, key, p, true, `أُقفلت ${PERIOD_NAMES[p]} ✓`);
+  if(ok) done();
   return ok;
 }
 
-/* بعد الفتح/القفل: الورقة نفسها (إن بقيت هي المفتوحة) تُعاد برسم حالة القفل الجديدة */
-async function refreshSheetAfterLock(s){
-  if(s && typeof crmSheet !== 'undefined' && crmSheet === s && s.mode && typeof setCrmSheetMode === 'function') await setCrmSheetMode(s.mode);
+/* فتح/قفل فوري (3.71): الشاشة تتغيّر لحظة الضغط، والحفظ في الخلفية؛ لا يُعاد تحميل الورقة (القفل لا يغيّر درجة).
+   فشل الحفظ: تعود الشاشة كما كانت ورسالة. القاعدة تبقى الحَكَم (grade_lock_guard). */
+async function quickSetPeriodLock(term, key, p, locked, okMsg){
+  const prev = gradePeriodLocks;
+  const set = new Set(lockedPeriodsOf(term, key));
+  if(locked) set.add(p); else set.delete(p);
+  gradePeriodLocks = localLocksWith(term, key, set);
+  gradePeriodSaving = true;
+  repaintPeriodLockUi();
+  let ok = false;
+  try{ await setPeriodLocks(term, key, set); ok = true; }
+  catch(e){ gradePeriodLocks = prev; }
+  finally { gradePeriodSaving = false; }
+  repaintPeriodLockUi();
+  showToast(ok ? okMsg : 'تعذّر الحفظ — أعد المحاولة', ok ? 'ok' : 'error');
+  return ok;
 }
+
+/* نسخة محلية من الأقفال بعد التغيير (كما ستكتبها القاعدة) */
+function localLocksWith(term, key, set){
+  const cfg = periodCfg(term, key), tk = termPeriodKey(term);
+  const all = Object.assign({}, gradePeriodLocks), t = Object.assign({}, all[tk]);
+  const periods = {};
+  [...set].sort().forEach(p => { periods[p] = periodRangeFor(cfg, p); });
+  if(Object.keys(periods).length) t[key] = { periods }; else delete t[key];
+  all[tk] = t;
+  return all;
+}
+
+/* يعيد رسم ما يتعلّق بالقفل فقط من الذاكرة: المبدّل، وشريط مقفلة/مفتوحة، وأزرار التعبئة، والكشف بفترة — بلا طلب للقاعدة */
+function repaintPeriodLockUi(){
+  const s = typeof crmSheet === 'undefined' ? null : crmSheet;
+  if(s && s.mode){
+    const bar = document.getElementById('crmPerBar');
+    const html = crmPeriodChipHtml(s, s.perExtra);
+    if(bar && html) bar.outerHTML = html;
+    const st = document.getElementById('crmPerState');
+    if(st) st.innerHTML = crmSheetPeriodStateInner(s);
+    if(s.part){ s.part.locked = !!crmSheetLockedKey(s, s.part.period); if(typeof crmPartCardPaint === 'function') crmPartCardPaint(); }
+  }
+  document.querySelectorAll('.gs-period-btn').forEach(b => { b.disabled = gradePeriodSaving; });
+  const tab = document.getElementById('crmTabGrades');
+  if(tab && tab.style.display !== 'none' && typeof paintCrmGradesCached === 'function' && typeof crmGrades !== 'undefined' && crmGrades) paintCrmGradesCached();
+}
+
 
 /* عند إغلاق ورقة الحصة: فترة فُتحت سريعًا وما زالت مفتوحة ← سؤال واحد «أقفلها؟» لكل فترة (مرة واحدة لا يتكرر) */
 async function remindReopenedPeriods(){
