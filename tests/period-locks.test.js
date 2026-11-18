@@ -52,3 +52,20 @@ test('SQL: set_period_lock بصلاحية المعلم، تعديل ذرّي ل�
   assert.doesNotMatch(BLK, /\\/, 'بلا شرطة مائلة (نسخة app-07 داخل نص JS)');
   assert.ok(loadApp().buildSchemaSql().includes(BLK.trim()), 'المرآة حرفية');
 });
+
+test('SQL (3.71): قفل لكل فترة مستقل — الحارس يفهم {periods} (والقديم {p} كما هو)، وset_period_lock_v2 محروس ويكتب المفتاح ذرّيًا', () => {
+  const b = fn('grade_lock_blocked');
+  assert.match(b, /if jsonb_typeof\(v_lock->'periods'\) = 'object' then\s+if v_per is not null then return \(v_lock->'periods'\) \? v_per::text; end if;/);
+  assert.match(b, /\(e\.value->>'from' is null or v_date >= \(e\.value->>'from'\)::date\) and v_date < \(e\.value->>'before'\)::date/, 'المؤرَّخ بمدى فترته');
+  assert.match(b, /return v_per <= coalesce\(\(v_lock->>'p'\)::smallint, 0\);/, 'الشكل القديم باقٍ');
+  const v = fn('set_period_lock_v2');
+  assert.match(v, /returns jsonb language plpgsql security invoker set search_path = ''/);
+  assert.match(v, /if v_uid is null then raise exception 'not authenticated'/);
+  assert.match(v, /e\.key !~ '\^\[123\]\$'/);
+  assert.match(v, /k not in \('from', 'before'\)/);
+  assert.match(v, /where s\.user_id = v_uid/);
+  assert.match(BLK, /revoke execute on function public\.set_period_lock_v2\(text, text, jsonb\) from public, anon;\ngrant execute on function public\.set_period_lock_v2\(text, text, jsonb\) to authenticated;/);
+  const tail = SQL.slice(SQL.indexOf('create or replace function public.item_period_guard'));
+  assert.match(tail, /if \(v_lock->'periods'\) \? old\.grade_period::text or \(new\.grade_period is not null and \(v_lock->'periods'\) \? new\.grade_period::text\) then/);
+  assert.ok(loadApp().buildSchemaSql().includes(BLK.trim()), 'المرآة حرفية');
+});

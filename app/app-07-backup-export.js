@@ -1366,6 +1366,9 @@ grant execute on function public.grade_history_restore(uuid, timestamptz, boolea
 -- - المرصود بفترة (المشاركة والعدّاد): تُقفل درجات الفترات حتى p. المؤرَّخ (تسليم الواجبات، المهام، رصد الحالة/الدرجة):
 --   يُقفل ما تاريخه قبل before (موعد الواجب، موعد المهمة أو يوم إنشائها، يوم الحصة).
 --   والواجب/المهمة الذي يحمل فترته (grade_period، 3.66) يُقفل بها كالمرصود بفترة.
+-- - 3.71: قفل لكل فترة مستقل: {"periods": {"1": {"from": null|يوم, "before": يوم}, "2": {...}}} — فتح الأولى لا يمسّ الثانية.
+--   المرصود بفترة: الفترة في القائمة. المؤرَّخ: تاريخه داخل مدى فترة مقفلة. الشكل القديم {p, before} يبقى مفهومًا (لا ترحيل).
+--   يكتبه set_period_lock_v2 (المفتاح كله ذرّيًا)؛ وset_period_lock القديم باقٍ للأجهزة بنسخة قديمة.
 -- - الحذف المتتابع (حذف طالب أو عمود أو واجب أو حساب) لا يُمنع، واسترجاع السلة يتجاوز القفل (يعيد ما كان).
 -- آمن التكرار.
 -- ============================================================
@@ -1404,6 +1407,12 @@ begin
   if v_key is null or v_term is null then return false; end if; -- الأصل حُذف، أو عمود يدوي (بلا قفل)
   select s.period_locks->v_term->v_key into v_lock from public.user_app_settings s where s.user_id = v_t;
   if v_lock is null or jsonb_typeof(v_lock) <> 'object' then return false; end if;
+  if jsonb_typeof(v_lock->'periods') = 'object' then
+    if v_per is not null then return (v_lock->'periods') ? v_per::text; end if;
+    return v_date is not null and exists (select 1 from jsonb_each(v_lock->'periods') e
+      where jsonb_typeof(e.value) = 'object' and e.value->>'before' is not null
+        and (e.value->>'from' is null or v_date >= (e.value->>'from')::date) and v_date < (e.value->>'before')::date);
+  end if;
   if v_per is not null then return v_per <= coalesce((v_lock->>'p')::smallint, 0); end if;
   return v_date is not null and v_lock->>'before' is not null and v_date < (v_lock->>'before')::date;
 end
@@ -1459,6 +1468,39 @@ end
 $fn$;
 revoke execute on function public.set_period_lock(text, text, smallint, date) from public, anon;
 grant execute on function public.set_period_lock(text, text, smallint, date) to authenticated;
+
+-- قفل لكل فترة مستقل (3.71): يكتب قيمة مكوّن واحد كلها ذرّيًا. p_value = {} (لا قفل) أو {"periods": {"1".."3": {"from": يوم|null, "before": يوم}}}
+create or replace function public.set_period_lock_v2(p_term text, p_key text, p_value jsonb)
+returns jsonb language plpgsql security invoker set search_path = '' as $fn$
+declare v_uid uuid := auth.uid(); v_res jsonb; e record;
+begin
+  if v_uid is null then raise exception 'not authenticated'; end if;
+  if p_term is null or p_term !~ '^[0-9٠-٩/ -]{1,20}[|][12]$' then raise exception 'bad term'; end if;
+  if p_key is null or p_key !~ '^(kind:(participation|homework|task)|tool:[0-9a-f-]{36})$' then raise exception 'bad key'; end if;
+  if p_value is null or jsonb_typeof(p_value) <> 'object' then raise exception 'bad value'; end if;
+  if p_value <> '{}'::jsonb then
+    if exists (select 1 from jsonb_object_keys(p_value) k where k <> 'periods') or jsonb_typeof(p_value->'periods') <> 'object' then raise exception 'bad value'; end if;
+    for e in select * from jsonb_each(p_value->'periods') loop
+      if e.key !~ '^[123]$' or jsonb_typeof(e.value) <> 'object' or e.value->>'before' is null
+        or exists (select 1 from jsonb_object_keys(e.value) k where k not in ('from', 'before')) then raise exception 'bad value'; end if;
+      perform (e.value->>'before')::date, (e.value->>'from')::date; -- تاريخ غير صالح: خطأ
+    end loop;
+    if p_value->'periods' = '{}'::jsonb then p_value := '{}'::jsonb; end if;
+  end if;
+  insert into public.user_app_settings as s (user_id, features, period_locks) values (v_uid, '{}'::jsonb, '{}'::jsonb)
+    on conflict (user_id) do nothing;
+  update public.user_app_settings s set period_locks =
+    case when p_value = '{}'::jsonb
+      then jsonb_set(s.period_locks, array[p_term], coalesce(s.period_locks->p_term, '{}'::jsonb) - p_key)
+      else jsonb_set(s.period_locks, array[p_term], coalesce(s.period_locks->p_term, '{}'::jsonb) || jsonb_build_object(p_key, p_value))
+    end
+    where s.user_id = v_uid
+    returning s.period_locks into v_res;
+  return v_res;
+end
+$fn$;
+revoke execute on function public.set_period_lock_v2(text, text, jsonb) from public, anon;
+grant execute on function public.set_period_lock_v2(text, text, jsonb) to authenticated;
 
 create table if not exists public.classroom_incident_types (
   id uuid primary key default gen_random_uuid(),
@@ -3554,6 +3596,12 @@ begin
   if coalesce(current_setting('shahid.lock_bypass', true), '') = 'on' then return new; end if;
   select s.period_locks->(new.academic_year || '|' || new.semester)->(case when tg_table_name = 'classroom_homework' then 'kind:homework' else 'kind:task' end)
     into v_lock from public.user_app_settings s where s.user_id = new.teacher_id;
+  if jsonb_typeof(v_lock->'periods') = 'object' then -- قفل لكل فترة (3.71)
+    if (v_lock->'periods') ? old.grade_period::text or (new.grade_period is not null and (v_lock->'periods') ? new.grade_period::text) then
+      raise exception 'grade_period_locked' using errcode = 'P0001', hint = 'الفترة مقفلة — افتحها للتعديل أولًا';
+    end if;
+    return new;
+  end if;
   v_p := coalesce((v_lock->>'p')::smallint, 0);
   if old.grade_period <= v_p or (new.grade_period is not null and new.grade_period <= v_p) then
     raise exception 'grade_period_locked' using errcode = 'P0001', hint = 'الفترة مقفلة — افتحها للتعديل أولًا';
