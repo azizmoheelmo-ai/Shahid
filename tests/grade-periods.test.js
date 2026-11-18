@@ -1454,3 +1454,25 @@ test('انحدار: «؟» في ورقة الواجب بعد المشاركة ف
   app.toggleCrmSheetHelp();
   assert.match(get(app, `document.getElementById('crmSheetHelp').innerHTML`), /يزيد درجة/, 'والعكس');
 });
+
+test('«اجعل الفترة الأخيرة جارية من جديد» (الإعدادات) — بسؤال يوضّح الأثر، لا يحذف رصدًا، ويفتحها إن كانت مقفلة', async () => {
+  const f = withPeriods({ 'kind:participation': { n: 2, ended: true, starts: ['2026-10-20'] } });
+  const log = [];
+  const app = settingsApp(f, { classroom_grade_period_scores: [] }, log);
+  runInAppContext(app, `gradePeriodLocks = { '${TK}': { 'kind:participation': { p: 2, before: '9999-12-31' } } };
+    { const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? (window.__lk = a.p_period + ':' + a.p_before, Promise.resolve({ data: { '${TK}': { 'kind:participation': { p: a.p_period, before: a.p_before } } }, error: null })) : _r(n, a); }`);
+  assert.equal(await app.reopenLastPeriod('kind:participation'), true);
+  assert.match(get(app, 'window.__confirm[0]'), /اجعل الفترة الثانية جارية من جديد في «المشاركة»؟ لا يُحذف أي رصد[\s\S]*لن تُحسب في الكشف حتى تنهيها — الدرجة الآن = الفترة الأولى وحدها[\s\S]*وتُفتح لأنها مقفلة/);
+  assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 2, starts: ['2026-10-20'] }, 'جارية: بلا ended');
+  assert.equal(get(app, 'window.__lk'), '1:2026-10-20', 'القفل يعود للأولى فقط');
+  assert.equal(log.filter(l => ['insert', 'upsert', 'delete'].includes(l.op)).length, 0, 'لا رصد يُكتب ولا يُحذف');
+  const no = settingsApp(f, {}, [], false);
+  assert.equal(await no.reopenLastPeriod('kind:participation'), false, 'الإلغاء لا يغيّر');
+  assert.equal(cfgOf(no, 'kind:participation').ended, true);
+  const live = settingsApp(withPeriods({ 'kind:participation': { n: 2, ended: true, live: true, starts: ['2026-10-20'] } }), {}, []);
+  await live.reopenLastPeriod('kind:participation');
+  assert.match(get(live, 'window.__confirm[0]'), /تبقى محسوبة في الكشف/);
+  assert.equal(cfgOf(live, 'kind:participation').live, true, 'الخيار يبقى');
+  const notEnded = settingsApp(withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } }), {}, []);
+  assert.equal(await notEnded.reopenLastPeriod('kind:participation'), false, 'لا تعمل إلا إن انتهت كلها');
+});
