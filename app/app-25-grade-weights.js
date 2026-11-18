@@ -244,7 +244,9 @@ function paintGsCompSheet(){
       ${seg([[1, '1'], [2, '2'], [3, '3']], d.n, 'setGsCompPeriods')}
       ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now || cfg.ended ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
         ${cfg.ended ? '<b>انتهت كل الفترات — كلها محسوبة ✓</b>' : `الآن: <b>${PERIOD_NAMES[now]}</b>${now > (countedPeriodsOf(cfg) || cfg.n) ? ' <small>(تُحسب عند انتهائها)</small>' : ''}`}
-        <button type="button" class="gs-period-btn gs-period-go" onclick="openPeriodsWindow('${id}')">الفترات ←</button></div>` : ''}
+        <button type="button" class="gs-period-btn gs-period-go" onclick="openPeriodsWindow('${id}')">الفترات ←</button></div>
+        ${cfg.ended ? `<button type="button" class="gs-period-btn gs-reopen-link" onclick="reopenLastPeriod('${id}')">↶ اجعل ${PERIOD_NAMES[cfg.n]} جارية من جديد</button>
+        <p class="gs-live-note">للتراجع إن أنهيتها بالخطأ. لا يُحذف أي رصد.</p>` : ''}` : ''}
       ${d.n > 1 ? `<div class="gs-sheet-sw gs-live-sw"><span>احسب الفترة الجارية في الكشف</span>
         <button type="button" class="cust-switch${d.live ? ' is-on' : ''}" role="switch" aria-checked="${d.live}" onclick="toggleGsCompLive()"><span></span></button></div>
         <p class="gs-live-note">${d.live ? 'مفعّل: الفترة الجارية تدخل الدرجة فورًا. انتبه: عند بدء فترة قد يهبط المعدّل (مثال: 10 في الثانية، ثم 2 في أول حصة من الثالثة = 6 فورًا).' : 'الأصل: الفترة تدخل الدرجة عند انتهائها، فلا يهبط المعدّل فجأة عند بدء فترة جديدة.'}</p>` : ''}</div>

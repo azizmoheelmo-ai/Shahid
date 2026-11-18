@@ -333,6 +333,31 @@ function periodKeyIsDirect(key){
   return false;
 }
 
+/* من إعداد الدرجات (نادر): التراجع عن «أنهِ الفترة الأخيرة» — تعود جارية. لا يُحذف رصد؛ وإن كانت مقفلة تُفتح
+   (كالتراجع عن بدء فترة: يعيد الحال كما كانت قبل الإنهاء). الأثر الوحيد على الكشف: لا تُحسب حتى تنتهي (إلا مع «احسب الجارية») */
+async function reopenLastPeriod(key){
+  if(gradePeriodSaving || !currentUser || !isPeriodCompKey(key)) return false;
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key);
+  if(cfg.n < 2 || !cfg.ended || currentPeriodOf(cfg) !== cfg.n) return false;
+  const last = PERIOD_NAMES[cfg.n], name = periodCompName(key);
+  const lock = periodLockOf(term, key);
+  closeCrmModal();
+  const effect = cfg.live ? 'تبقى محسوبة في الكشف (خيار «احسب الفترة الجارية» مفعّل).'
+    : `لن تُحسب في الكشف حتى تنهيها — الدرجة الآن = ${cfg.n === 2 ? PERIOD_NAMES[1] + ' وحدها' : 'الفترات المنتهية قبلها'}.`;
+  if(!(await showConfirm(`اجعل ${last} جارية من جديد في «${name}»؟ لا يُحذف أي رصد، وتستطيع الرصد فيها كالمعتاد. ${effect}${lock && lock.p >= cfg.n ? ' وتُفتح لأنها مقفلة.' : ''}`))) return false;
+  const again = periodCfg(term, key);
+  if(gradePeriodSaving || !again.ended || again.starts.join() !== cfg.starts.join()){ showToast('تغيّرت الفترات — أعد المحاولة', 'error'); return false; }
+  const next = Object.assign({}, again);
+  delete next.ended;
+  return withPeriodBusy(async () => {
+    const ok = await savePeriodCfg(term, key, next);
+    const l = periodLockOf(term, key);
+    if(ok && l && l.p >= again.n) await setPeriodLock(term, key, again.n - 1, again.n - 1 > 0 ? lockBeforeFor(again, again.n - 1) : null);
+    return ok;
+  }, `${last} جارية من جديد ✓`);
+}
+
 /* من إعداد الدرجات: «احسب الفترة الجارية في الكشف» لمكوّن واحد (حساب فقط: لا يكتب رصدًا ولا يحذفه، وإطفاؤه يعيد الحساب كما كان) */
 async function setComponentPeriodLive(key, on){
   if(gradePeriodSaving || !currentUser || !isPeriodCompKey(key)) return false;
