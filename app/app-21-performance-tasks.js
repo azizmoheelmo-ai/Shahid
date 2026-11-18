@@ -189,9 +189,9 @@ function taskDbErrorMessage(error){
 /* ============ تحميل ومزامنة عمود المهام ============ */
 async function loadSectionTasks(sectionId, term){
   const uid = currentUser.id;
-  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at, shahid_id')
+  const { data: tasks, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at, shahid_id' + (col ? ', grade_period' : ''))
     .eq('teacher_id', uid).eq('section_id', sectionId).eq('academic_year', term.year).eq('semester', term.semester)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true }));
   if(error) throw error;
   let rows = [];
   for(const ids of chunkArray((tasks || []).map(t => t.id), 100)){
@@ -206,8 +206,8 @@ async function loadSectionTasks(sectionId, term){
 /* كل مهام الفصل (أي شعبة) لهؤلاء الطلاب — الطالب المنقول يُحسب على مهامه السابقة */
 async function loadTaskScoresForStudents(studentIds, term){
   const uid = currentUser.id;
-  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, max_score, due_date, created_at')
-    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester);
+  const { data: tasks, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').select('id, max_score, due_date, created_at' + (col ? ', grade_period' : ''))
+    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester));
   if(error) throw error;
   const inTerm = new Set((tasks || []).map(t => t.id));
   let rows = [];
@@ -276,7 +276,7 @@ async function renderCrmTasks(students, selectId){
   /* بفترات: مهام الفترة المعروضة فقط (بموعد التسليم، أو يوم الإنشاء إن لم يُحدَّد)، والمبدّل أعلاها */
   const pf = sheetPeriodFilter(s, 'kind:task', data.tasks, taskDateOf, selectId);
   const list = pf.list;
-  head += crmPeriodChipHtml(s);
+  head += crmPeriodChipHtml(s) + crmSheetPeriodStateHtml(s);
   if(!list.length){
     s.task = { data, column, selectedId: null, scores: new Map(), groups: new Map(), queue: new Map(), term };
     body.innerHTML = head + `<div class="empty-state">${data.tasks.length ? `لا مهام أدائية في ${PERIOD_NAMES[pf.period]}.` : 'لا مهام أدائية لهذه الشعبة بعد.'}</div>
@@ -563,6 +563,7 @@ function crmTaskFormHtml(sectionId, task){
         <div style="flex:1;"><label class="crm-field-label">التسليم (اختياري)</label>
           <input type="date" class="goal-input" id="crmTaskDue" value="${task && task.due_date ? escapeHtml(task.due_date) : ''}" style="margin-bottom:8px;"></div>
       </div>
+      ${itemPeriodFieldHtml('task', d.gradePeriod, d.originalPeriod)}
       <div class="crm-seg" style="margin-bottom:8px;">
         <button type="button" id="crmTaskModeInd" class="${d.groups ? '' : 'is-on'}" onclick="setCrmTaskGroupMode(false)">فردية</button>
         <button type="button" id="crmTaskModeGrp" class="${d.groups ? 'is-on' : ''}" onclick="setCrmTaskGroupMode(true)">جماعية</button>
@@ -601,7 +602,7 @@ function setCrmTaskStart(v){
 function openCrmTaskModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  crmTaskDraft = { sectionId, selected: new Set(), groups: null, groupCount: 2, saving: false, startWith: 'empty' };
+  crmTaskDraft = { sectionId, selected: new Set(), groups: null, groupCount: 2, saving: false, startWith: 'empty', gradePeriod: newItemPeriod('kind:task') };
   showInfoModal(crmTaskFormHtml(sectionId, null), '460px');
 }
 
@@ -613,7 +614,7 @@ async function openCrmTaskEditor(taskId){
   let tRes, rRes;
   try{
     [tRes, rRes] = await Promise.all([
-      sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, shahid_id').eq('teacher_id', currentUser.id).eq('id', taskId).maybeSingle(),
+      withGradePeriodCol(col => sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at, shahid_id' + (col ? ', grade_period' : '')).eq('teacher_id', currentUser.id).eq('id', taskId).maybeSingle()),
       sb.from('classroom_task_students').select('student_id, group_no').eq('teacher_id', currentUser.id).eq('task_id', taskId)
     ]);
   } catch(e){ tRes = { error: e }; }
@@ -629,6 +630,7 @@ async function openCrmTaskEditor(taskId){
     groups: grouped.length ? new Map(grouped.map(r => [r.student_id, Number(r.group_no)])) : null,
     groupCount: grouped.length ? Math.max(...grouped.map(r => Number(r.group_no))) : 2
   };
+  crmTaskDraft.gradePeriod = crmTaskDraft.originalPeriod = itemPeriodFor(task, taskDateOf, periodCfg(crmCurrentTerm(), 'kind:task'));
   showInfoModal(crmTaskFormHtml(task.section_id, task), '460px');
 }
 
@@ -757,7 +759,7 @@ async function saveCrmTask(){
         const { error: rErr } = await sb.from('classroom_task_students').delete().eq('teacher_id', uid).eq('task_id', d.editId).in('student_id', plan.remove);
         if(rErr) throw rErr;
       }
-      const { data: upd, error: uErr } = await sb.from('classroom_tasks').update(payload).eq('teacher_id', uid).eq('id', d.editId).select('id');
+      const { data: upd, error: uErr } = await withGradePeriodCol(col => sb.from('classroom_tasks').update(Object.assign({}, payload, col && d.gradePeriod ? { grade_period: d.gradePeriod } : {})).eq('teacher_id', uid).eq('id', d.editId).select('id'));
       if(uErr) throw uErr;
       if(!(upd || []).length) throw new Error('المهمة غير موجودة — ربما حُذفت من جهاز آخر');
       /* تغيير المجموعات لا يمسّ الدرجات المرصودة */
@@ -780,9 +782,9 @@ async function saveCrmTask(){
       }
     } else {
       const term = crmCurrentTerm();
-      const { data, error } = await sb.from('classroom_tasks').insert(Object.assign({
+      const { data, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').insert(Object.assign({
         teacher_id: uid, section_id: d.sectionId, academic_year: term.year, semester: term.semester
-      }, payload)).select('id').single();
+      }, payload, col ? { grade_period: d.gradePeriod || 1 } : {})).select('id').single());
       if(error) throw error;
       id = data.id;
       const { error: aErr } = await sb.from('classroom_task_students').insert(selected.map(sid => Object.assign({ teacher_id: uid, task_id: id, student_id: sid, group_no: groupOf(sid) }, startScore)));

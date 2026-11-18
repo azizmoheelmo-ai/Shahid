@@ -11,6 +11,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { loadApp, runInAppContext } = require('./load-app');
+const SQL_ALL = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'sql-updates-run-in-supabase.sql'), 'utf8');
 
 const TERM = { year: '1448-1449', semester: 1 };
 const TK = '1448-1449|1';
@@ -1092,4 +1093,110 @@ test('الفتح/القفل السريع — لا يعمل أثناء حفظ آ�
   await Promise.all([a, b]);
   assert.equal(calls.length, 1);
   assert.equal(await app.quickLockPeriod('name:يدوي', 1), false);
+});
+
+/* ============ فترة ثابتة لكل واجب ومهمة (3.66) ============ */
+test('itemPeriodFor — الفترة المحفوظة تغلب التاريخ، والقديم (null) بتاريخه، ولا تتجاوز الجارية', () => {
+  const app = loadApp();
+  const cfg = { n: 3, starts: ['2026-11-18'] };
+  const due = h => h.due_date;
+  assert.equal(app.itemPeriodFor({ due_date: '2026-11-20', grade_period: 1 }, due, cfg), 1, 'أُنشئ في الأولى وموعده بعد بدء الثانية: يبقى في الأولى');
+  assert.equal(app.itemPeriodFor({ due_date: '2026-11-10', grade_period: 2 }, due, cfg), 2);
+  assert.equal(app.itemPeriodFor({ due_date: '2026-11-20', grade_period: null }, due, cfg), 2, 'القديم بتاريخه');
+  assert.equal(app.itemPeriodFor({ due_date: '2026-11-20', grade_period: 3 }, due, cfg), 2, 'الثالثة لم تبدأ (تراجع): في آخر فترة بدأت');
+  assert.equal(app.itemPeriodFor({ due_date: '2026-11-20', grade_period: 2 }, due, { n: 1, starts: [] }), 1, 'فترة واحدة');
+  const s = app.periodSplitScores([{ due_date: '2026-11-20', grade_period: 1, v: 4 }, { due_date: '2026-11-25', grade_period: 2, v: 8 }], due,
+    list => list.length ? list.reduce((a, x) => a + x.v, 0) : null, { n: 2, starts: ['2026-11-18'], ended: true });
+  assert.equal(s.p1, 4); assert.equal(s.p2, 8, 'الدرجة تُحسب بفترة الواجب لا بموعده');
+});
+
+test('ورقة الواجب — واجب الأولى يبقى في الأولى ولو موعده بعد بدء الثانية (مشكلة «انتقلت واجبات الأولى للثانية»)', async () => {
+  const f = withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-20'] } });
+  const hw = [Object.assign(HW('h1', '2026-10-27'), { grade_period: 1 }), Object.assign(HW('h2', '2026-10-25'), { grade_period: 2 })];
+  const app = appWith({ classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: hw, classroom_homework_status: [] }, [], f);
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} }; syncHomeworkColumn = async () => {};`);
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  assert.match(sheetHtml(app), /واجب h2/); assert.doesNotMatch(sheetHtml(app), /واجب h1/);
+  await app.setCrmSheetPeriod(1);
+  assert.match(sheetHtml(app), /واجب h1/); assert.doesNotMatch(sheetHtml(app), /واجب h2/);
+});
+
+test('بدء فترة جديدة للواجبات — القديم بلا فترة يُثبَّت على فترته قبل البدء، فلا ينتقل للجديدة', async () => {
+  const log = [];
+  const hw = [HW('old1', '2026-10-30'), HW('old2', '2026-10-10'), Object.assign(HW('set', '2026-10-30'), { grade_period: 1 })];
+  const app = settingsApp(withPeriods({ 'kind:homework': { n: 2, starts: [] } }), { classroom_homework: hw }, log);
+  runInAppContext(app, `{ const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? Promise.resolve({ data: {}, error: null }) : _r(n, a); }`);
+  await app.openPeriodsWindow('kind:homework');
+  await app.openPeriodTransition();
+  assert.equal(await app.applyPeriodTransition(), true);
+  const ups = log.filter(l => l.table === 'classroom_homework' && l.op === 'update');
+  assert.equal(ups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(ups[0].values)), { grade_period: 1 });
+  const ids = ups[0].filters.find(([c]) => c === 'id')[1];
+  assert.deepEqual([...ids].sort(), ['old1', 'old2'], 'ما له فترة لا يُمسّ');
+  assert.ok(ups[0].filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'), 'فلترة صريحة بالمعلم');
+  const save = log.findIndex(l => l.table === 'classroom_homework' && l.op === 'update');
+  assert.ok(save >= 0 && get(app, `periodCfg(${JSON.stringify(TERM)}, 'kind:homework').starts.length`) === 1, 'ثم بدأت الثانية');
+});
+
+test('واجب جديد — يحمل فترة الورقة المعروضة (غير المقفلة)، وإلا الجارية؛ ومن نافذة التعديل يُنقل لفترة مفتوحة فقط', async () => {
+  const f = withPeriods({ 'kind:homework': { n: 3, starts: ['2026-10-20'] } });
+  const log = [];
+  const app = appWith({ classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: [Object.assign(HW('h9', '2026-10-25'), { grade_period: 2 })], classroom_homework_status: [] }, log, f,
+    { code: `${TODAY} afterCrmHomeworkChanged = async () => {};` });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {}, viewPeriods: { 'kind:homework': 1 } };
+    document.getElementById('crmHwTitle').value = 'ت'; document.getElementById('crmHwDue').value = '2026-10-28';`);
+  app.openCrmHomeworkModal();
+  assert.match(get(app, 'window.__modal'), /id="crmItemPer_homework"[\s\S]*aria-pressed="true" onclick="setCrmItemPeriod\('homework', 1\)">الأولى[\s\S]*disabled>الثالثة<small>لم تبدأ/);
+  await app.saveCrmHomework();
+  let ins = log.filter(l => l.table === 'classroom_homework' && l.op === 'insert');
+  assert.equal(ins[0].values.grade_period, 1, 'الورقة على الأولى: الواجب للأولى');
+  runInAppContext(app, `gradePeriodLocks = { '${TK}': { 'kind:homework': { p: 1, before: '2026-10-20' } } };`);
+  app.openCrmHomeworkModal();
+  assert.equal(get(app, 'crmHomeworkDraft.gradePeriod'), 2, 'الأولى مقفلة: الجارية');
+  app.setCrmItemPeriod('homework', 1);
+  app.setCrmItemPeriod('homework', 3);
+  assert.equal(get(app, 'crmHomeworkDraft.gradePeriod'), 2, 'لا مقفلة ولا لم تبدأ');
+  await app.openCrmHomeworkEditor('h9');
+  assert.equal(get(app, 'crmHomeworkDraft.originalPeriod'), 2);
+  runInAppContext(app, `gradePeriodLocks = {};`);
+  app.setCrmItemPeriod('homework', 1);
+  await app.saveCrmHomework();
+  const upd = log.filter(l => l.table === 'classroom_homework' && l.op === 'update').pop();
+  assert.equal(upd.values.grade_period, 1);
+  assert.ok(upd.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'));
+});
+
+test('قبل تشغيل ملف تحديث القاعدة (لا عمود grade_period) — القراءة والحفظ يعملان بدونه، ولا حقل فترة', async () => {
+  const log = [];
+  const errChain = msg => { const o = { then: (res, rej) => Promise.resolve({ data: null, error: { message: msg } }).then(res, rej) };
+    ['select', 'eq', 'in', 'order', 'limit', 'range', 'maybeSingle', 'single'].forEach(k => { o[k] = () => o; }); return o; };
+  const wrap = c => Object.assign({}, c, { from(t){ const q = c.from(t); const sel = q.select, ins = q.insert, upd = q.update;
+    q.select = cols => String(cols || '').includes('grade_period') ? errChain('column ' + t + '.grade_period does not exist') : sel(cols);
+    q.insert = r => r && r.grade_period !== undefined ? errChain("Could not find the 'grade_period' column") : ins(r);
+    q.update = r => r && r.grade_period !== undefined ? errChain("Could not find the 'grade_period' column") : upd(r);
+    return q; } });
+  const app = appWith({ classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: [HW('h1', '2026-10-10')], classroom_homework_status: [] }, log,
+    withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-20'] } }), { wrap, code: `${TODAY} afterCrmHomeworkChanged = async () => {};` });
+  const hw = await app.loadSectionHomework('S', TERM);
+  assert.equal(hw.homeworks.length, 1);
+  assert.equal(get(app, 'gradePeriodColMissing'), true);
+  runInAppContext(app, `crmSheet = null; document.getElementById('crmHwTitle').value = 'ت'; document.getElementById('crmHwDue').value = '2026-10-28';`);
+  app.openCrmHomeworkModal('S');
+  assert.doesNotMatch(get(app, 'window.__modal'), /crmItemPer_/);
+  await app.saveCrmHomework();
+  const ins = log.filter(l => l.table === 'classroom_homework' && l.op === 'insert');
+  assert.equal(ins.length, 1); assert.equal(ins[0].values.grade_period, undefined);
+});
+
+test('SQL: عمود grade_period بقيد ١–٣، والحارس يقفل الواجب/المهمة بفترته، ونقلها بين فترتين مقفلة مرفوض؛ والمرآة حرفية', () => {
+  const sec = SQL_ALL.slice(SQL_ALL.indexOf('-- ============ فترة ثابتة لكل واجب ومهمة (3.66)')).trim();
+  assert.match(sec, /alter table public\.classroom_homework add column if not exists grade_period smallint;/);
+  assert.match(sec, /check \(grade_period is null or grade_period between 1 and 3\)/);
+  assert.match(sec, /if old\.grade_period is null or new\.grade_period is not distinct from old\.grade_period then return new;/, 'التثبيت الأول مسموح');
+  assert.match(sec, /before update of grade_period on public\.classroom_tasks for each row execute function public\.item_period_guard\(\)/);
+  assert.match(sec, /revoke execute on function public\.item_period_guard\(\) from public, anon, authenticated;/);
+  assert.match(SQL_ALL, /h\.due_date, h\.grade_period\s+into v_key, v_term, v_date, v_per from public\.classroom_homework/);
+  assert.match(SQL_ALL, /coalesce\(t\.due_date, t\.created_at::date\), t\.grade_period\s+into v_key, v_term, v_date, v_per from public\.classroom_tasks/);
+  assert.ok(loadApp().buildSchemaSql().includes(sec), 'المرآة حرفية');
 });

@@ -227,7 +227,7 @@ test('مهمة جديدة — تُحفظ للمختارين باسم المعل�
   await Promise.all([app.saveCrmTask(), app.saveCrmTask()]);
   const ins = writes(log, 'classroom_tasks', 'insert');
   assert.equal(ins.length, 1);
-  assert.deepEqual({ ...ins[0].rows[0] }, { teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, title: 'تقرير الطاقة', description: null, max_score: 10, due_date: null });
+  assert.deepEqual({ ...ins[0].rows[0] }, { teacher_id: 'u1', section_id: 'S', academic_year: TERM.year, semester: 1, title: 'تقرير الطاقة', description: null, max_score: 10, due_date: null, grade_period: 1 }, 'المهمة تحمل فترتها منذ إنشائها');
   const rows = writes(log, 'classroom_task_students', 'insert')[0].rows;
   assert.deepEqual([...rows].map(r => r.teacher_id + ':' + r.task_id + ':' + r.student_id), ['u1:NEW0:a', 'u1:NEW0:c']);
   assert.deepEqual([...runInAppContext(app, 'window.__renders')], ['sheet:NEW0']);

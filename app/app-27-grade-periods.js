@@ -151,10 +151,99 @@ function periodSplitScores(items, dateOf, scoreOf, cfg){
   const starts = c.starts || [];
   const out = { p1: null, p2: null, p3: null, final: null };
   const k = starts.length + 1;
-  for(let p = 1; p <= k; p++) out['p' + p] = scoreOf((items || []).filter(it => periodOfDateFor(dateOf(it), starts) === p));
+  for(let p = 1; p <= k; p++) out['p' + p] = scoreOf((items || []).filter(it => itemPeriodFor(it, dateOf, c) === p));
   const counted = countedPeriodsOf(c) || k;
   out.final = periodAverage([out.p1, out.p2, out.p3].slice(0, counted));
   return out;
+}
+
+/* ============ فترة الواجب/المهمة ثابتة (3.66) ============
+   كل واجب ومهمة يحمل فترته (grade_period) منذ إنشائه: بدء فترة جديدة لا ينقل شيئًا، والفترات مستقلة.
+   القديم بلا فترة (null): فترته من تاريخه كما كان، ويُثبَّت على ذلك قبل بدء أي فترة جديدة (freezeItemPeriods).
+   لا تتجاوز الفترة الجارية (تراجع عن بدء فترة، أو تقليل عدد الفترات): تُعرض في آخر فترة بدأت.
+   (grade_period لا period: period في جداول أخرى = رقم الحصة) */
+function itemPeriodFor(it, dateOf, cfg){
+  const c = cfg || { n: 1, starts: [] };
+  const now = Math.min(c.n || PERIOD_COUNT_MAX, (c.starts || []).length + 1);
+  const g = Number(it && it.grade_period);
+  const p = Number.isInteger(g) && g >= 1 && g <= PERIOD_COUNT_MAX ? g : periodOfDateFor(dateOf(it), c.starts);
+  return Math.max(1, Math.min(p, now));
+}
+
+/* قبل تشغيل ملف تحديث القاعدة (لا عمود grade_period): القراءة والحفظ بدونه، ولا يتعطّل شيء */
+let gradePeriodColMissing = false;
+function gradePeriodColError(e){
+  return !!e && /grade_period/.test(String((e.message || '') + ' ' + (e.details || '') + ' ' + (e.hint || '')));
+}
+async function withGradePeriodCol(run){
+  if(!gradePeriodColMissing){
+    const r = await run(true);
+    if(!(r && r.error && gradePeriodColError(r.error))) return r;
+    gradePeriodColMissing = true;
+  }
+  return run(false);
+}
+
+/* فترة واجب/مهمة جديدة: الفترة المعروضة (ورقة الحصة أو الكشف) إن بدأت ولم تُقفل، وإلا الجارية */
+function newItemPeriod(key){
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key);
+  const now = currentPeriodOf(cfg);
+  const open = p => p >= 1 && p <= now && !isPeriodLocked(term, key, { period: p });
+  const sheet = typeof crmSheet !== 'undefined' && crmSheet && periodCompKeyOfMode(crmSheet.mode) === key ? sheetPeriodInfo(crmSheet) : null;
+  if(sheet && open(sheet.period)) return sheet.period;
+  const vp = typeof gradeEditPeriod !== 'undefined' && gradeEditPeriod && gradeEditPeriod.term === termPeriodKey(term) ? gradeEditPeriod.period : null;
+  if(vp && open(vp)) return vp;
+  return now;
+}
+
+/* حقل «الفترة» في نافذة الواجب/المهمة (بفترات فقط). kind: 'homework' | 'task' */
+function itemPeriodFieldHtml(kind, period, original){
+  if(gradePeriodColMissing) return '';
+  const key = 'kind:' + kind;
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key);
+  if(cfg.n < 2) return '';
+  const now = currentPeriodOf(cfg);
+  if(original && isPeriodLocked(term, key, { period: original })){
+    return `<label class="crm-field-label">الفترة</label><p class="tlx-note" style="margin:0 0 10px;">🔒 في ${PERIOD_NAMES[original]} (مقفلة) — افتحها أولًا لنقله لفترة أخرى.</p>`;
+  }
+  const btn = p => {
+    const off = p > now || isPeriodLocked(term, key, { period: p });
+    return `<button type="button" class="${p === period ? 'is-on' : ''}" aria-pressed="${p === period}"${off ? ' disabled' : ` onclick="setCrmItemPeriod('${kind}', ${p})"`}>${PERIOD_NAMES[p].replace('الفترة ', '')}${p > now ? '<small>لم تبدأ</small>' : isPeriodLocked(term, key, { period: p }) ? '<small>🔒</small>' : ''}</button>`;
+  };
+  return `<label class="crm-field-label">الفترة</label><div class="tlx-seg crm-per-seg crm-item-per" id="crmItemPer_${kind}" style="margin-bottom:10px;">${[1, 2, 3].slice(0, cfg.n).map(btn).join('')}</div>`;
+}
+
+function setCrmItemPeriod(kind, p){
+  const d = kind === 'homework' ? (typeof crmHomeworkDraft !== 'undefined' ? crmHomeworkDraft : null) : (typeof crmTaskDraft !== 'undefined' ? crmTaskDraft : null);
+  p = Number(p);
+  const key = 'kind:' + kind, term = crmCurrentTerm(), cfg = periodCfg(term, key);
+  if(!d || d.saving || !(p >= 1 && p <= currentPeriodOf(cfg)) || isPeriodLocked(term, key, { period: p })) return;
+  d.gradePeriod = p;
+  const box = document.getElementById('crmItemPer_' + kind);
+  if(box) box.outerHTML = itemPeriodFieldHtml(kind, p, d.originalPeriod).replace(/^<label[^>]*>الفترة<\/label>/, '');
+}
+
+/* قبل بدء فترة جديدة للواجبات/المهام: ما بلا فترة يُثبَّت على فترته الحالية (بتاريخه) فلا ينتقل للجديدة */
+async function freezeItemPeriods(key, term, cfg){
+  const table = key === 'kind:homework' ? 'classroom_homework' : key === 'kind:task' ? 'classroom_tasks' : null;
+  if(!table || gradePeriodColMissing || !currentUser) return;
+  const dateOf = key === 'kind:homework' ? (h => h.due_date) : taskDateOf;
+  const { data, error } = await sb.from(table).select('id, due_date, created_at, grade_period')
+    .eq('teacher_id', currentUser.id).eq('academic_year', term.year).eq('semester', term.semester);
+  if(error){ if(gradePeriodColError(error)) gradePeriodColMissing = true; return; }
+  const byP = new Map();
+  (data || []).filter(it => it.grade_period == null).forEach(it => {
+    const p = itemPeriodFor(it, dateOf, cfg);
+    if(!byP.has(p)) byP.set(p, []);
+    byP.get(p).push(it.id);
+  });
+  for(const [p, ids] of byP){
+    for(const part of chunkArray(ids, 100)){
+      await sb.from(table).update({ grade_period: p }).eq('teacher_id', currentUser.id).in('id', part);
+    }
+  }
 }
 
 /* ============ الإعداد (يتبع حساب المعلم على كل أجهزته) ============ */
@@ -323,7 +412,10 @@ async function goToComponentPeriod(key, target, dateIso){
       if(later.length){ showToast(`لا رجوع: في ${PERIOD_NAMES[now]} رصد محفوظ`, 'error'); return false; }
     }
   }
-  return withPeriodBusy(() => savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }), /* الانتقال يلغي "انتهت" */
+  return withPeriodBusy(async () => {
+    if(target > now) await freezeItemPeriods(key, term, cfg); /* واجبات/مهام ما قبلها تبقى في فترتها */
+    return savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) });
+  }, /* الانتقال يلغي "انتهت" */
     target > now ? `بدأت ${PERIOD_NAMES[target]} في "${periodCompName(key)}" ✓` : `رجعت إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}"`);
 }
 
@@ -416,7 +508,7 @@ function sheetPeriodFilter(s, key, items, dateOf, selectId){
   const cfg = periodCfg(crmCurrentTerm(), key);
   const all = items || [];
   if(cfg.n < 2) return { on: false, period: 1, list: all, periodOf: () => 1 };
-  const periodOf = it => Math.min(cfg.n, periodOfDateFor(dateOf(it), cfg.starts));
+  const periodOf = it => itemPeriodFor(it, dateOf, cfg);
   const sel = selectId && all.find(it => it.id === selectId);
   const info0 = sheetPeriodInfo(s);
   if(sel && info0 && periodOf(sel) !== info0.period && periodOf(sel) <= info0.now){
@@ -432,7 +524,7 @@ function periodGroupedListHtml(key, items, dateOf, rowHtml){
   const cfg = periodCfg(crmCurrentTerm(), key);
   if(cfg.n < 2) return items.map(rowHtml).join('');
   const now = currentPeriodOf(cfg);
-  const pOf = it => Math.min(cfg.n, periodOfDateFor(dateOf(it), cfg.starts));
+  const pOf = it => itemPeriodFor(it, dateOf, cfg);
   let html = '';
   for(let p = now; p >= 1; p--){
     const grp = items.filter(it => pOf(it) === p);
@@ -527,9 +619,17 @@ function periodIsEnded(cfg, p){ const now = currentPeriodOf(cfg); return p < now
 /* ورقة الحصة: المعروضة فترة منتهية غير مقفلة لمكوّن يُقفل؟ */
 function crmSheetOpenBannerHtml(s){
   const info = sheetPeriodInfo(s);
-  if(!info || info.cfg.n < 2 || !isLockableKey(info.key) || !periodKeyIsDirect(info.key) || !periodIsEnded(info.cfg, info.period)) return '';
+  if(!info || info.cfg.n < 2 || !isLockableKey(info.key) || !sheetPeriodSwitchable(info.key) || !periodIsEnded(info.cfg, info.period)) return '';
   if(isPeriodLocked(crmCurrentTerm(), info.key, { period: info.period })) return '';
   return crmOpenBannerHtml(info.key, info.period);
+}
+
+/* ورقة الواجب/المهمة: الفترة المعروضة مقفلة (فتح بنقرة) أو منتهية مفتوحة (قفل بنقرة) */
+function crmSheetPeriodStateHtml(s){
+  const info = sheetPeriodInfo(s);
+  if(!info || info.cfg.n < 2 || !isLockableKey(info.key) || !sheetPeriodSwitchable(info.key)) return '';
+  if(isPeriodLocked(crmCurrentTerm(), info.key, { period: info.period })) return crmLockBannerHtml(info.key, info.period);
+  return crmSheetOpenBannerHtml(s);
 }
 
 /* ============ فتح/قفل سريع من الورقة والكشف (بلا نافذة الفترات) ============
@@ -916,6 +1016,7 @@ async function applyPeriodTransition(){
   const ok = await withPeriodBusy(async () => {
     const cols = await directPeriodColumns(d.key);
     const next = d.last ? Object.assign({}, cfg, { ended: true }) : { n: cfg.n, starts: periodStartsFor(cfg, d.now + 1, localIsoDate()) };
+    if(!d.last) await freezeItemPeriods(d.key, term, cfg); /* واجبات/مهام الفترة المنتهية تبقى فيها */
     if(!(await savePeriodCfg(term, d.key, next))) return false;
     if(isLockableKey(d.key)){
       try{ await setPeriodLock(term, d.key, d.now, lockBeforeFor(periodCfg(term, d.key), d.now)); }

@@ -86,9 +86,10 @@ function homeworkCounts(statusMap, studentIds){
 /* ============ تحميل ومزامنة عمود الواجبات ============ */
 async function loadSectionHomework(sectionId, term){
   const uid = currentUser.id;
-  const { data: homeworks, error } = await sb.from('classroom_homework').select('id, title, due_date, created_at')
+  /* فترة كل واجب ثابتة (app-27: grade_period)؛ قبل تحديث القاعدة: بدونها */
+  const { data: homeworks, error } = await withGradePeriodCol(col => sb.from('classroom_homework').select('id, title, due_date, created_at' + (col ? ', grade_period' : ''))
     .eq('teacher_id', uid).eq('section_id', sectionId).eq('academic_year', term.year).eq('semester', term.semester)
-    .order('due_date', { ascending: true });
+    .order('due_date', { ascending: true }));
   if(error) throw error;
   let statusRows = [];
   for(const ids of chunkArray((homeworks || []).map(h => h.id), 100)){
@@ -556,7 +557,7 @@ async function renderCrmHomework(students, selectId){
   /* بفترات: القائمة واجبات الفترة المعروضة فقط (بموعد التسليم)، والمبدّل أعلاها */
   const pf = sheetPeriodFilter(s, 'kind:homework', hw.homeworks, h => h.due_date, selectId);
   const list = pf.list;
-  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}`;
+  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}${crmSheetPeriodStateHtml(s)}`;
   const selectedId = (selectId && list.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(list, s.dateIso);
   s.hw = { data: hw, column, selectedId, queue: new Map(), term, chgKey: 'hw:' + selectedId };
   if(!list.length){
@@ -692,6 +693,7 @@ function crmHomeworkFormHtml(sectionId, h){
       <input class="goal-input" id="crmHwTitle" maxlength="200" placeholder="مثال: تمارين الوحدة 2 صفحة 34" value="${edit ? escapeHtml(h.title) : ''}" style="margin-bottom:8px;">
       <label class="crm-field-label">موعد التسليم</label>
       <input type="date" class="goal-input" id="crmHwDue" value="${escapeHtml(h ? h.due_date : (crmSheet && crmSheet.sectionId === sectionId ? crmSheet.dateIso : localIsoDate()))}" style="margin-bottom:10px;">
+      ${crmHomeworkDraft ? itemPeriodFieldHtml('homework', crmHomeworkDraft.gradePeriod, crmHomeworkDraft.originalPeriod) : ''}
       ${edit ? '' : `<label class="crm-field-label">يبدأ الطلاب</label>
       <div class="crm-seg" style="margin-bottom:10px;">
         <button type="button" id="crmHwStart0" class="is-on" aria-pressed="true" onclick="setCrmHwStart(false)">لم يُرصد</button>
@@ -715,7 +717,7 @@ function setCrmHwStart(on){
 function openCrmHomeworkModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  crmHomeworkDraft = { sectionId, saving: false, startSubmitted: false };
+  crmHomeworkDraft = { sectionId, saving: false, startSubmitted: false, gradePeriod: newItemPeriod('kind:homework') };
   showInfoModal(crmHomeworkFormHtml(sectionId, null), '420px');
 }
 
@@ -726,15 +728,16 @@ async function openCrmHomeworkEditor(hwId){
   crmHwEditorOpening = true;
   let res;
   try{
-    res = await sb.from('classroom_homework').select('id, section_id, title, due_date')
-      .eq('teacher_id', currentUser.id).eq('id', hwId).maybeSingle();
+    res = await withGradePeriodCol(col => sb.from('classroom_homework').select('id, section_id, title, due_date' + (col ? ', grade_period' : ''))
+      .eq('teacher_id', currentUser.id).eq('id', hwId).maybeSingle());
   } catch(e){ res = { error: e }; }
   finally { crmHwEditorOpening = false; }
   if(res.error){ showToast('تعذّر تحميل الواجب', 'error'); return; }
   if(!res.data){ showToast('الواجب غير موجود — ربما حُذف من جهاز آخر', 'error'); return; }
   const h = res.data;
   closeCrmModal();
-  crmHomeworkDraft = { sectionId: h.section_id, editId: h.id, saving: false };
+  const per = itemPeriodFor(h, x => x.due_date, periodCfg(crmCurrentTerm(), 'kind:homework'));
+  crmHomeworkDraft = { sectionId: h.section_id, editId: h.id, saving: false, gradePeriod: per, originalPeriod: per };
   showInfoModal(crmHomeworkFormHtml(h.section_id, h), '420px');
 }
 
@@ -750,14 +753,14 @@ async function saveCrmHomework(){
   btns.forEach(b => { b.disabled = true; });
   let res;
   if(d.editId){
-    res = await sb.from('classroom_homework').update({ title, due_date: due })
-      .eq('teacher_id', currentUser.id).eq('id', d.editId).select('id');
+    res = await withGradePeriodCol(col => sb.from('classroom_homework').update(Object.assign({ title, due_date: due }, col && d.gradePeriod ? { grade_period: d.gradePeriod } : {}))
+      .eq('teacher_id', currentUser.id).eq('id', d.editId).select('id'));
     if(!res.error && !(res.data || []).length) res = { error: { message: 'الواجب غير موجود — ربما حُذف' } };
   } else {
     const term = crmCurrentTerm();
-    res = await sb.from('classroom_homework').insert({
+    res = await withGradePeriodCol(col => sb.from('classroom_homework').insert(Object.assign({
       teacher_id: currentUser.id, section_id: d.sectionId, academic_year: term.year, semester: term.semester, title, due_date: due
-    }).select('id').single();
+    }, col ? { grade_period: d.gradePeriod || 1 } : {})).select('id').single());
   }
   if(res.error){
     showToast('تعذّر حفظ الواجب: ' + res.error.message, 'error');
