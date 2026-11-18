@@ -247,8 +247,11 @@ async function loadCrmGradeSheet(sectionId){
   const breakdown = new Map();
   const ids = crmStudentsOfSection(sectionId).map(st => st.id);
   const multi = c => periodCfg(term, periodCompKeyOfColumn(c)).n > 1;
+  /* كل مكوّن مستقل عن غيره: تُحدَّث كلها معًا (لا واحدًا بعد الآخر — كان الكشف ينتظر ~10 رحلات متتالية).
+     كلٌّ يكتب عموده فقط، وفشل أحدها لا يمنع عرض الكشف بآخر قيم محفوظة. معايير سلّم التقدير تُحمَّل معها. */
+  const jobs = [];
   const hwCol = visible.find(c => c.kind === 'homework' && !c.tool_id);
-  if(hwCol && typeof syncHomeworkColumn === 'function'){
+  if(hwCol && typeof syncHomeworkColumn === 'function') jobs.push((async () => {
     try{
       const hw = await loadSectionHomework(sectionId, term);
       await syncHomeworkColumn(hwCol, sectionId, hw);
@@ -258,9 +261,9 @@ async function loadCrmGradeSheet(sectionId){
         breakdown.set(hwCol.id, new Map(ids.map(id => [id, homeworkPeriodScores(counted, idx, id, hwCol.max_score, pc)])));
       }
     } catch(e){}
-  }
+  })());
   const taskCol = visible.find(c => c.kind === 'task' && !c.tool_id);
-  if(taskCol && typeof syncTaskColumn === 'function'){
+  if(taskCol && typeof syncTaskColumn === 'function') jobs.push((async () => {
     try{
       await syncTaskColumn(taskCol, sectionId, term);
       if(multi(taskCol) && ids.length){
@@ -269,11 +272,11 @@ async function loadCrmGradeSheet(sectionId){
         breakdown.set(taskCol.id, new Map(ids.map(id => [id, taskPeriodScores(tasks, rows, id, taskCol.max_score, pc)])));
       }
     } catch(e){}
-  }
+  })());
   /* أعمدة أدوات الحالة/الدرجة الخاصة */
   for(const tc of visible.filter(c => c.tool_id)){
     const tool = typeof customToolById === 'function' ? customToolById(tc.tool_id) : null;
-    if(tool && tool.tool_type !== 'counter'){
+    if(tool && tool.tool_type !== 'counter') jobs.push((async () => {
       try{
         await syncToolColumn(tc, tool, sectionId, term);
         if(multi(tc) && ids.length){
@@ -282,17 +285,12 @@ async function loadCrmGradeSheet(sectionId){
           breakdown.set(tc.id, new Map(ids.map(id => [id, toolPeriodScores(tool, byStudent.get(id), tc.max_score, pc)])));
         }
       } catch(e){}
-    }
+    })());
   }
   /* المرصود مباشرة (المشاركة، العدّاد، اليدوي): درجات الفترات — للرصد اليدوي دائمًا، وللعرض متى كان له أكثر من فترة.
      فتح الكشف لا يكتب أي درجة (أُلغي ملء «يبدأ من الكاملة» — 3.61) */
-  for(const c of visible.filter(isDirectPeriodColumn)){
+  for(const c of visible.filter(isDirectPeriodColumn)) jobs.push((async () => {
     try{
-      const load = async () => {
-        const { data, error: mErr } = await sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', c.id);
-        if(mErr) throw mErr;
-        return { main: new Map((data || []).map(r => [r.student_id, Number(r.score)])), rows: await loadPeriodRows(c.id) };
-      };
       const cfg = periodCfg(term, periodCompKeyOfColumn(c));
       /* عمود أُنشئ بعد ضبط الفترات (أو من جهاز آخر): الفترات المحسوبة تُصحَّح قبل العرض */
       const want = countedPeriodsOf(cfg);
@@ -300,10 +298,15 @@ async function loadCrmGradeSheet(sectionId){
         const { error: cErr } = await sb.rpc('set_column_counted_periods', { p_column_id: c.id, p_counted: want });
         if(!cErr) c.counted_periods = want;
       }
-      const pd = await load();
-      breakdown.set(c.id, participationPeriodBreakdown(pd.main, pd.rows));
+      const [{ data, error: mErr }, rows] = await Promise.all([
+        sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', c.id),
+        loadPeriodRows(c.id)]);
+      if(mErr) throw mErr;
+      breakdown.set(c.id, participationPeriodBreakdown(new Map((data || []).map(r => [r.student_id, Number(r.score)])), rows));
     } catch(e){}
-  }
+  })());
+  const rubricP = rubricLoadCriteria((columns || []).filter(c => c.category === 'tests' && !c.tool_id).map(c => c.id));
+  await Promise.all(jobs);
   let scores = [];
   if((columns || []).length){
     const { data, error: sErr } = await sb.from('classroom_grade_scores').select('id, column_id, student_id, score')
@@ -311,7 +314,7 @@ async function loadCrmGradeSheet(sectionId){
     if(sErr) return { error: sErr };
     scores = data || [];
   }
-  const rubric = await rubricLoadCriteria((columns || []).filter(c => c.category === 'tests' && !c.tool_id).map(c => c.id));
+  const rubric = await rubricP;
   return {
     sectionId, year, semester, scores, breakdown, rubric,
     columns: sortGradeColumns(visible),

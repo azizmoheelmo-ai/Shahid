@@ -33,27 +33,28 @@ async function renderCrmTestMode(students, selectId){
     if(error) throw error;
     tests = sheetTestColumns(data);
     const selectedId = (selectId && tests.some(t => t.id === selectId)) ? selectId : defaultSheetTestId(tests);
-    if(selectedId){
-      const { data: sc, error: sErr } = await sb.from('classroom_grade_scores').select('student_id, score')
-        .eq('teacher_id', uid).eq('column_id', selectedId);
-      if(sErr) throw sErr;
-      scores = sc || [];
+    /* الدرجات ومعايير سلّم التقدير معًا، ثم رصد المعايير وملاحظاتها معًا (بدل خمس رحلات متتالية) */
+    let rubricInfo = null;
+    const [scRes, rub] = await Promise.all([
+      selectedId ? sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', selectedId) : null,
+      selectedId && rubricOn() ? rubricLoadCriteria(tests.map(x => x.id)) : null]);
+    if(scRes){
+      if(scRes.error) throw scRes.error;
+      scores = scRes.data || [];
     }
     /* اختبار بسلّم تقدير: معاييره ورصد طلابه (للحسابات المفعَّلة فقط) */
-    let rubricInfo = null;
-    if(selectedId && rubricOn()){
-      const rub = await rubricLoadCriteria(tests.map(x => x.id));
-      const crit = rub.get(selectedId) || [];
-      if(crit.length){
-        const { data: mk, error: mErr } = await sb.from('classroom_rubric_marks').select('criterion_id, student_id, level').eq('teacher_id', uid).eq('column_id', selectedId);
-        if(mErr) throw mErr;
-        let notes = [];
-        try{
-          const { data: nt, error: nErr } = await sb.from('classroom_rubric_notes').select('student_id, note').eq('teacher_id', uid).eq('column_id', selectedId);
-          if(!nErr) notes = nt || [];
-        } catch(e){ /* الملاحظات اختيارية: فشل قراءتها لا يمنع الرصد */ }
-        rubricInfo = { criteria: crit, marks: mk || [], notes };
-      }
+    const crit = rub ? (rub.get(selectedId) || []) : [];
+    if(crit.length){
+      const [mkRes, notes] = await Promise.all([
+        sb.from('classroom_rubric_marks').select('criterion_id, student_id, level').eq('teacher_id', uid).eq('column_id', selectedId),
+        (async () => {
+          try{
+            const { data: nt, error: nErr } = await sb.from('classroom_rubric_notes').select('student_id, note').eq('teacher_id', uid).eq('column_id', selectedId);
+            return nErr ? [] : (nt || []);
+          } catch(e){ return []; } /* الملاحظات اختيارية: فشل قراءتها لا يمنع الرصد */
+        })()]);
+      if(mkRes.error) throw mkRes.error;
+      rubricInfo = { criteria: crit, marks: mkRes.data || [], notes };
     }
     if(crmSheet !== s || s.token !== token || s.mode !== 'test') return;
     s.test = { tests, selectedId, values: new Map(scores.map(r => [r.student_id, Number(r.score)])), queue: new Map(), term, chgKey: 'test:' + selectedId };
