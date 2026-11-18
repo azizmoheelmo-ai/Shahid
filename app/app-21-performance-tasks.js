@@ -44,7 +44,7 @@ function taskColumnScoreFor(tasks, rows, studentId, colMax){
   return Math.round(100 * Math.min(1, earned / possible) * Number(colMax)) / 100;
 }
 
-/* الفترات (app-27): كل مهمة في فترة موعدها (أو يوم إنشائها)، والعمود = معدّل الفترات */
+/* الفترات (app-27): كل مهمة في فترتها المحفوظة (grade_period؛ القديمة بموعدها أو يوم إنشائها)، والعمود = معدّل الفترات */
 function taskDateOf(t){ return t.due_date || String(t.created_at || '').slice(0, 10); }
 
 function taskPeriodScores(tasks, rows, studentId, colMax, cfg){
@@ -189,9 +189,9 @@ function taskDbErrorMessage(error){
 /* ============ تحميل ومزامنة عمود المهام ============ */
 async function loadSectionTasks(sectionId, term){
   const uid = currentUser.id;
-  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at, shahid_id')
+  const { data: tasks, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at, shahid_id' + (col ? ', grade_period' : ''))
     .eq('teacher_id', uid).eq('section_id', sectionId).eq('academic_year', term.year).eq('semester', term.semester)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true }));
   if(error) throw error;
   let rows = [];
   for(const ids of chunkArray((tasks || []).map(t => t.id), 100)){
@@ -206,8 +206,8 @@ async function loadSectionTasks(sectionId, term){
 /* كل مهام الفصل (أي شعبة) لهؤلاء الطلاب — الطالب المنقول يُحسب على مهامه السابقة */
 async function loadTaskScoresForStudents(studentIds, term){
   const uid = currentUser.id;
-  const { data: tasks, error } = await sb.from('classroom_tasks').select('id, max_score, due_date, created_at')
-    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester);
+  const { data: tasks, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').select('id, max_score, due_date, created_at' + (col ? ', grade_period' : ''))
+    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester));
   if(error) throw error;
   const inTerm = new Set((tasks || []).map(t => t.id));
   let rows = [];
@@ -258,7 +258,7 @@ function crmTaskCellHtml(st){
 async function renderCrmTasks(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  let head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
@@ -273,14 +273,20 @@ async function renderCrmTasks(students, selectId){
   if(crmSheet !== s || s.token !== token || s.mode !== 'task') return;
   const idx = taskRowsIndex(data.rows);
   const gidx = taskGroupIndex(data.rows);
-  if(!data.tasks.length){
+  /* بفترات: مهام الفترة المعروضة فقط (بموعد التسليم، أو يوم الإنشاء إن لم يُحدَّد)، والمبدّل أعلاها */
+  const pf = sheetPeriodFilter(s, 'kind:task', data.tasks, taskDateOf, selectId);
+  const list = pf.list;
+  s.help = [...(pf.on ? ['كل مهمة في الفترة التي أُنشئت فيها، ودرجة المهام في الكشف = معدّل الفترات.'] : []),
+    'المهمة لا تُحسب للطالب حتى تُرصد درجته.', 'المجموعة: اضغطها لدرجة واحدة لكل أعضائها، أو اضغط اسم طالب لدرجته وحده.'];
+  head += crmSheetQRowHtml(s) + crmStartSlotHtml(s) + crmSheetPeriodStateHtml(s);
+  if(!list.length){
     s.task = { data, column, selectedId: null, scores: new Map(), groups: new Map(), queue: new Map(), term };
-    body.innerHTML = head + `<div class="empty-state">لا مهام أدائية لهذه الشعبة بعد.</div>
+    body.innerHTML = head + `<div class="empty-state">${data.tasks.length ? `لا مهام أدائية في ${PERIOD_NAMES[pf.period]}.` : 'لا مهام أدائية لهذه الشعبة بعد.'}</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmTaskModal()">+ مهمة جديدة</button>
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
-  const selectedId = (selectId && data.tasks.some(t => t.id === selectId)) ? selectId : data.tasks[data.tasks.length - 1].id;
+  const selectedId = (selectId && list.some(t => t.id === selectId)) ? selectId : list[list.length - 1].id;
   const task = data.tasks.find(t => t.id === selectedId);
   const scores = idx.get(selectedId) || new Map();
   const groups = gidx.get(selectedId) || new Map();
@@ -293,7 +299,7 @@ async function renderCrmTasks(students, selectId){
   body.innerHTML = head + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmTasks(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${data.tasks.map(t => `<option value="${t.id}"${t.id === selectedId ? ' selected' : ''}>${escapeHtml(t.title)} · من ${formatScore(t.max_score)} · ${isGroupTask(t.id) ? 'جماعية' : 'لـ ' + (idx.get(t.id) || new Map()).size}</option>`).join('')}
+        ${list.map(t => `<option value="${t.id}"${t.id === selectedId ? ' selected' : ''}>${escapeHtml(t.title)} · من ${formatScore(t.max_score)} · ${isGroupTask(t.id) ? 'جماعية' : 'لـ ' + (idx.get(t.id) || new Map()).size}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل المهمة أو حذفها" onclick="openCrmTaskEditor(crmSheet.task && crmSheet.task.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmTaskModal()">+ مهمة</button>
@@ -457,6 +463,7 @@ function fillCrmTaskEmpty(score){
 function persistCrmTaskScores(ids, score, prev){
   const s = crmSheet;
   const t = s.task;
+  dismissCrmJustStarted(s);
   const taskId = t.selectedId;
   /* يُعاد العرض لما كان، ما لم تتغيّر الدرجة بنقرة أحدث */
   const revert = list => {
@@ -559,6 +566,7 @@ function crmTaskFormHtml(sectionId, task){
         <div style="flex:1;"><label class="crm-field-label">التسليم (اختياري)</label>
           <input type="date" class="goal-input" id="crmTaskDue" value="${task && task.due_date ? escapeHtml(task.due_date) : ''}" style="margin-bottom:8px;"></div>
       </div>
+      ${itemPeriodFieldHtml('task', d.gradePeriod, d.originalPeriod)}
       <div class="crm-seg" style="margin-bottom:8px;">
         <button type="button" id="crmTaskModeInd" class="${d.groups ? '' : 'is-on'}" onclick="setCrmTaskGroupMode(false)">فردية</button>
         <button type="button" id="crmTaskModeGrp" class="${d.groups ? 'is-on' : ''}" onclick="setCrmTaskGroupMode(true)">جماعية</button>
@@ -597,7 +605,7 @@ function setCrmTaskStart(v){
 function openCrmTaskModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  crmTaskDraft = { sectionId, selected: new Set(), groups: null, groupCount: 2, saving: false, startWith: 'empty' };
+  crmTaskDraft = { sectionId, selected: new Set(), groups: null, groupCount: 2, saving: false, startWith: 'empty', gradePeriod: newItemPeriod('kind:task') };
   showInfoModal(crmTaskFormHtml(sectionId, null), '460px');
 }
 
@@ -609,7 +617,7 @@ async function openCrmTaskEditor(taskId){
   let tRes, rRes;
   try{
     [tRes, rRes] = await Promise.all([
-      sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, shahid_id').eq('teacher_id', currentUser.id).eq('id', taskId).maybeSingle(),
+      withGradePeriodCol(col => sb.from('classroom_tasks').select('id, section_id, title, description, max_score, due_date, created_at, shahid_id' + (col ? ', grade_period' : '')).eq('teacher_id', currentUser.id).eq('id', taskId).maybeSingle()),
       sb.from('classroom_task_students').select('student_id, group_no').eq('teacher_id', currentUser.id).eq('task_id', taskId)
     ]);
   } catch(e){ tRes = { error: e }; }
@@ -625,6 +633,7 @@ async function openCrmTaskEditor(taskId){
     groups: grouped.length ? new Map(grouped.map(r => [r.student_id, Number(r.group_no)])) : null,
     groupCount: grouped.length ? Math.max(...grouped.map(r => Number(r.group_no))) : 2
   };
+  crmTaskDraft.gradePeriod = crmTaskDraft.originalPeriod = itemPeriodFor(task, taskDateOf, periodCfg(crmCurrentTerm(), 'kind:task'));
   showInfoModal(crmTaskFormHtml(task.section_id, task), '460px');
 }
 
@@ -753,7 +762,7 @@ async function saveCrmTask(){
         const { error: rErr } = await sb.from('classroom_task_students').delete().eq('teacher_id', uid).eq('task_id', d.editId).in('student_id', plan.remove);
         if(rErr) throw rErr;
       }
-      const { data: upd, error: uErr } = await sb.from('classroom_tasks').update(payload).eq('teacher_id', uid).eq('id', d.editId).select('id');
+      const { data: upd, error: uErr } = await withGradePeriodCol(col => sb.from('classroom_tasks').update(Object.assign({}, payload, col && d.gradePeriod ? { grade_period: d.gradePeriod } : {})).eq('teacher_id', uid).eq('id', d.editId).select('id'));
       if(uErr) throw uErr;
       if(!(upd || []).length) throw new Error('المهمة غير موجودة — ربما حُذفت من جهاز آخر');
       /* تغيير المجموعات لا يمسّ الدرجات المرصودة */
@@ -776,9 +785,9 @@ async function saveCrmTask(){
       }
     } else {
       const term = crmCurrentTerm();
-      const { data, error } = await sb.from('classroom_tasks').insert(Object.assign({
+      const { data, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').insert(Object.assign({
         teacher_id: uid, section_id: d.sectionId, academic_year: term.year, semester: term.semester
-      }, payload)).select('id').single();
+      }, payload, col ? { grade_period: d.gradePeriod || 1 } : {})).select('id').single());
       if(error) throw error;
       id = data.id;
       const { error: aErr } = await sb.from('classroom_task_students').insert(selected.map(sid => Object.assign({ teacher_id: uid, task_id: id, student_id: sid, group_no: groupOf(sid) }, startScore)));
@@ -827,7 +836,7 @@ async function openCrmTaskManager(){
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">المهام الأدائية · ${escapeHtml(crmSectionLabel(sectionId))}</h3>
       <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">العمود يُحسب تلقائيًا بالوزن: مجموع ما حصّله الطالب ÷ مجموع درجات مهامه المقيَّمة. من لم يُكلَّف بمهمة لا تُحسب عليه، والمهمة لا تُحسب حتى تُرصد درجتها. الرصد من ورقة الحصة ← "مهمة".</div>
-      ${data.tasks.length ? data.tasks.slice().reverse().map(t => {
+      ${data.tasks.length ? periodGroupedListHtml('kind:task', data.tasks.slice().reverse(), taskDateOf, t => {
         const m = idx.get(t.id) || new Map();
         const c = taskGradeSummary(m, ids.filter(id => m.has(id)));
         const k = taskGroupsList(gidx.get(t.id) || new Map(), ids).length;
@@ -838,7 +847,7 @@ async function openCrmTaskManager(){
             <button class="crm-icon-btn" title="تعديل" onclick="openCrmTaskEditor('${t.id}')">✎</button>
             <button class="crm-icon-btn" title="حذف" onclick="deleteCrmTask('${t.id}', '${sectionId}')">🗑</button>
           </span></div>`;
-      }).join('') : '<div class="crm-today-empty">لا مهام بعد.</div>'}
+      }) : '<div class="crm-today-empty">لا مهام بعد.</div>'}
       <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;" onclick="closeCrmModal();openCrmTaskModal('${sectionId}')">+ مهمة جديدة</button>
     </div>`, '460px');
 }

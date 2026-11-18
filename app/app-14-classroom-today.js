@@ -1450,4 +1450,5 @@ function closeCrmLessonSheet(){
   renderCrmLinkBanner();
   switchCrmTab('today');
   if(typeof maybeShowUpdateSheet === 'function') maybeShowUpdateSheet(); /* تحديث أُجِّل لأن الورقة كانت مفتوحة */
+  if(typeof remindReopenedPeriods === 'function') remindReopenedPeriods(); /* فترة فُتحت سريعًا وما زالت مفتوحة */
 }

@@ -1365,6 +1365,7 @@ grant execute on function public.grade_history_restore(uuid, timestamptz, boolea
 --   جهاز قديم. الشكل: {"سنة|فصل": {"<هوية المكوّن>": {"p": آخر فترة مقفلة, "before": "يوم بدء الفترة التالية"}}}.
 -- - المرصود بفترة (المشاركة والعدّاد): تُقفل درجات الفترات حتى p. المؤرَّخ (تسليم الواجبات، المهام، رصد الحالة/الدرجة):
 --   يُقفل ما تاريخه قبل before (موعد الواجب، موعد المهمة أو يوم إنشائها، يوم الحصة).
+--   والواجب/المهمة الذي يحمل فترته (grade_period، 3.66) يُقفل بها كالمرصود بفترة.
 -- - الحذف المتتابع (حذف طالب أو عمود أو واجب أو حساب) لا يُمنع، واسترجاع السلة يتجاوز القفل (يعيد ما كان).
 -- آمن التكرار.
 -- ============================================================
@@ -1389,11 +1390,11 @@ begin
       into v_key, v_term from public.classroom_grade_columns c where c.id = (r->>'column_id')::uuid;
     v_per := (r->>'period')::smallint;
   elsif p_tbl = 'classroom_homework_status' then
-    select 'kind:homework', h.academic_year || '|' || h.semester, h.due_date
-      into v_key, v_term, v_date from public.classroom_homework h where h.id = (r->>'homework_id')::uuid;
+    select 'kind:homework', h.academic_year || '|' || h.semester, h.due_date, h.grade_period
+      into v_key, v_term, v_date, v_per from public.classroom_homework h where h.id = (r->>'homework_id')::uuid;
   elsif p_tbl = 'classroom_task_students' then
-    select 'kind:task', t.academic_year || '|' || t.semester, coalesce(t.due_date, t.created_at::date)
-      into v_key, v_term, v_date from public.classroom_tasks t where t.id = (r->>'task_id')::uuid;
+    select 'kind:task', t.academic_year || '|' || t.semester, coalesce(t.due_date, t.created_at::date), t.grade_period
+      into v_key, v_term, v_date, v_per from public.classroom_tasks t where t.id = (r->>'task_id')::uuid;
   elsif p_tbl = 'classroom_tool_marks' then
     if not exists (select 1 from public.classroom_custom_tools ct where ct.id = (r->>'tool_id')::uuid) then return false; end if;
     v_key := 'tool:' || (r->>'tool_id'); v_term := (r->>'academic_year') || '|' || (r->>'semester'); v_date := (r->>'mark_date')::date;
@@ -3529,6 +3530,42 @@ drop policy if exists "block_disabled_accounts" on storage.objects;
 create policy "block_disabled_accounts" on storage.objects as restrictive for all to authenticated
   using (bucket_id not in ('shawahid-photos', 'report-shares') or not (select public.am_disabled()))
   with check (bucket_id not in ('shawahid-photos', 'report-shares') or not (select public.am_disabled()));
+
+-- ============ فترة ثابتة لكل واجب ومهمة (3.66) ============
+-- كل واجب/مهمة يحمل فترته منذ إنشائه (grade_period): بدء فترة جديدة لا ينقل شيئًا، والفترات مستقلة.
+-- null = قديم: فترته من تاريخه (ويُثبَّت عليها التطبيق قبل بدء أي فترة جديدة).
+-- نقل واجب/مهمة بين فترتين مرفوض إن كانت أيٌّ منهما مقفلة (التثبيت الأول من null مسموح). آمن التكرار.
+alter table public.classroom_homework add column if not exists grade_period smallint;
+alter table public.classroom_tasks add column if not exists grade_period smallint;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_homework_grade_period_chk' and conrelid = 'public.classroom_homework'::regclass) then
+    alter table public.classroom_homework add constraint classroom_homework_grade_period_chk check (grade_period is null or grade_period between 1 and 3);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'classroom_tasks_grade_period_chk' and conrelid = 'public.classroom_tasks'::regclass) then
+    alter table public.classroom_tasks add constraint classroom_tasks_grade_period_chk check (grade_period is null or grade_period between 1 and 3);
+  end if;
+end $$;
+
+create or replace function public.item_period_guard() returns trigger
+language plpgsql security definer set search_path = '' as $fn$
+declare v_lock jsonb; v_p smallint;
+begin
+  if old.grade_period is null or new.grade_period is not distinct from old.grade_period then return new; end if;
+  if coalesce(current_setting('shahid.lock_bypass', true), '') = 'on' then return new; end if;
+  select s.period_locks->(new.academic_year || '|' || new.semester)->(case when tg_table_name = 'classroom_homework' then 'kind:homework' else 'kind:task' end)
+    into v_lock from public.user_app_settings s where s.user_id = new.teacher_id;
+  v_p := coalesce((v_lock->>'p')::smallint, 0);
+  if old.grade_period <= v_p or (new.grade_period is not null and new.grade_period <= v_p) then
+    raise exception 'grade_period_locked' using errcode = 'P0001', hint = 'الفترة مقفلة — افتحها للتعديل أولًا';
+  end if;
+  return new;
+end
+$fn$;
+revoke execute on function public.item_period_guard() from public, anon, authenticated;
+drop trigger if exists trg_item_period_guard on public.classroom_homework;
+create trigger trg_item_period_guard before update of grade_period on public.classroom_homework for each row execute function public.item_period_guard();
+drop trigger if exists trg_item_period_guard on public.classroom_tasks;
+create trigger trg_item_period_guard before update of grade_period on public.classroom_tasks for each row execute function public.item_period_guard();
 
 -- ============ انتهى ============
 -- الخطوة التالية: أضف نفسك كمسؤول بعد إنشاء حسابك:

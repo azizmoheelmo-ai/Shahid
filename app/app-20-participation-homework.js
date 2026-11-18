@@ -58,7 +58,7 @@ function planComputedScoreSync(studentIds, wantFn, existing){
   return { upserts, deletes };
 }
 
-/* الفترات (app-27): كل واجب في فترة موعده، ودرجة الفترة من واجباتها، والعمود = معدّل
+/* الفترات (app-27): كل واجب في فترته المحفوظة (grade_period؛ القديم بموعده)، ودرجة الفترة من واجباتها، والعمود = معدّل
    الفترات التي فيها واجب محسوب. starts فارغة = فترة واحدة (الحساب القديم تمامًا) */
 function homeworkPeriodScores(counted, statusIdx, studentId, max, cfg){
   return periodSplitScores(counted, h => h.due_date, list => homeworkScoreFor(list, statusIdx, studentId, max), cfg);
@@ -86,9 +86,10 @@ function homeworkCounts(statusMap, studentIds){
 /* ============ تحميل ومزامنة عمود الواجبات ============ */
 async function loadSectionHomework(sectionId, term){
   const uid = currentUser.id;
-  const { data: homeworks, error } = await sb.from('classroom_homework').select('id, title, due_date, created_at')
+  /* فترة كل واجب ثابتة (app-27: grade_period)؛ قبل تحديث القاعدة: بدونها */
+  const { data: homeworks, error } = await withGradePeriodCol(col => sb.from('classroom_homework').select('id, title, due_date, created_at' + (col ? ', grade_period' : ''))
     .eq('teacher_id', uid).eq('section_id', sectionId).eq('academic_year', term.year).eq('semester', term.semester)
-    .order('due_date', { ascending: true });
+    .order('due_date', { ascending: true }));
   if(error) throw error;
   let statusRows = [];
   for(const ids of chunkArray((homeworks || []).map(h => h.id), 100)){
@@ -242,6 +243,7 @@ async function renderCrmParticipation(students, tool){
     return;
   }
   if(crmSheet !== s || s.token !== token || s.mode !== mode) return; /* غيّر الوضع أو أغلق الورقة أثناء التحميل */
+  if((sheetPeriodInfo(s) || { period: 1 }).period !== period) return; /* بدّل الفترة أثناء التحميل: رسمها الأحدث يكفي */
   if(!column && capError){
     body.innerHTML = head + `<div class="empty-state">${toolCapMessage(tool, capError.remaining).replace('الرصد يُحفظ ولا يُحسب في الكشف حتى', 'لا يمكن الرصد حتى')}</div>
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
@@ -264,10 +266,10 @@ async function renderCrmParticipation(students, tool){
   s.card = { kind: 'part', fill: [[Number(column.max_score), `الدرجة كاملة (${max})`], [0, '0']], help: [
     '<b>+</b> يزيد درجة، و<b>−</b> ينقص درجة، ويُحفظ فورًا.',
     `الدرجة من <b>${max}</b>، و«—» يعني لم يُرصد له بعد.`,
-    shown ? `الرصد اليوم في <b>${PERIOD_NAMES[shown]}</b>، و${counted ? `درجة «${escapeHtml(column.name)}» في الكشف = معدّل الفترات.` : 'تدخل درجة الكشف عند انتهائها.'}`
+    shown ? `الرصد الآن في <b>${PERIOD_NAMES[shown]}</b>، و${counted ? `درجة «${escapeHtml(column.name)}» في الكشف = معدّل الفترات.` : 'تدخل درجة الكشف عند انتهائها.'}`
       : `ما ترصده هنا هو درجة «${escapeHtml(column.name)}» في الكشف.`,
     '«تعبئة الباقين» تعطي من بلا درجة فقط، ولا تغيّر من له درجة.',
-    ...(shown ? [`لتغيير الفترة أو إنهائها: اضغط «📅 ${PERIOD_NAMES[shown]}».`] : [])] };
+    ...(shown ? ['لعرض فترة أخرى ورصدها: اضغط اسمها أعلى الورقة. ولبدء التالية: «＋ ابدأ».'] : [])] };
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}
     ${crmSheetCardHtml(s, lockKey, shown)}
     <div class="crm-att-grid">
@@ -315,6 +317,7 @@ function paintCrmParticipation(studentId){
 function queueCrmParticipation(studentId, delta, kind){
   const s = crmSheet;
   const p = s.part;
+  dismissCrmJustStarted(s);
   const prev = p.queue.get(studentId) || Promise.resolve();
   const next = prev.then(async () => {
     /* "يبدأ من الكاملة": الصفر درجة حقيقية لا "لم تُرصد" (وإلا أُعيد للكاملة).
@@ -376,15 +379,14 @@ function crmFillRowHtml(label, buttons){
    الفترة (تفتح نافذة الفترات) · كم رُصد · زر واحد «تعبئة الباقين» (يظهر فقط إن بقي أحد) · «؟» للشرح بدل نصوص دائمة.
    s.card = { help: [html…], fill: [[value, label]…], kind: 'part'|'tool', total } */
 function crmSheetCardHtml(s, lockKey, lockPeriod){
-  const info = sheetPeriodInfo(s);
-  const chip = info && info.cfg.n > 1
-    ? `<button type="button" class="csc-period" onclick="openCrmPeriodPicker()" aria-label="الفترات">📅 ${PERIOD_NAMES[info.period]}${info.cfg.ended ? ' ✓' : ''} ▾</button>` : '<span></span>';
+  const chip = crmPeriodChipHtml(s) || '<span></span>';
   return `<div class="csc" id="crmSheetCard">
     <div class="csc-l1">${chip}<button type="button" class="csc-q" aria-label="كيف تعمل هذه الورقة؟" aria-expanded="false" onclick="toggleCrmSheetHelp()">؟</button></div>
+    ${crmStartSlotHtml(s)}
     <div class="csc-l2"><div class="csc-cnt" id="crmCardCount"></div><span id="crmCardFill"></span></div>
     <div class="csc-sub" id="crmToolCounts"></div>
     <div class="csc-bar"><i id="crmCardBar"></i></div>
-    ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : ''}
+    ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : crmSheetOpenBannerHtml(s)}
   </div>
   <div id="crmSheetHelp" class="csc-help" style="display:none;"></div>
   <div id="crmFillPanel" class="csc-fill" style="display:none;"></div>`;
@@ -408,11 +410,13 @@ function paintCrmSheetCard(recorded, total, locked){
 function toggleCrmSheetHelp(){
   const s = crmSheet;
   const box = document.getElementById('crmSheetHelp');
-  if(!box || !s || !s.card) return;
-  const open = !s.card.helpOpen; /* حالة صريحة (لا يُعتمد على style قبل أول رسم) */
-  s.card.helpOpen = open;
+  /* الشرح في s.card.help (المشاركة/الأدوات) أو s.help (الواجب/المهمة) */
+  const src = s && (s.card && s.card.help ? s.card : s.help ? s : null);
+  if(!box || !src) return;
+  const open = !src.helpOpen; /* حالة صريحة (لا يُعتمد على style قبل أول رسم) */
+  src.helpOpen = open;
   box.innerHTML = open ? `<button type="button" class="csc-x" aria-label="إغلاق" onclick="toggleCrmSheetHelp()">✕</button><b>كيف تعمل هذه الورقة؟</b>
-    <ul>${s.card.help.map(h => `<li>${h}</li>`).join('')}</ul>` : '';
+    <ul>${src.help.map(h => `<li>${h}</li>`).join('')}</ul>${crmHelpPeriodsLinkHtml(s)}` : '';
   box.style.display = open ? 'block' : 'none';
   const q = document.querySelector('.csc-q');
   if(q) q.setAttribute('aria-expanded', String(open));
@@ -537,11 +541,18 @@ function crmAbsentClass(s, studentId){
   return s && s.states && s.states[studentId] === 'absent' ? ' is-absent' : '';
 }
 
+/* سطر المبدّل مع «؟» في آخره (ورقة الواجب/المهمة)؛ بفترة واحدة: «؟» وحده. ومكان الشرح تحته */
+function crmSheetQRowHtml(s){
+  const q = '<button type="button" class="csc-q" aria-label="كيف تعمل هذه الورقة؟" aria-expanded="false" onclick="toggleCrmSheetHelp()">؟</button>';
+  s.helpOpen = false;
+  return (crmPeriodChipHtml(s, q) || `<div class="crm-per-bar crm-per-bar-q">${q}</div>`) + '<div id="crmSheetHelp" class="csc-help" style="display:none;"></div>';
+}
+
 /* ============ وضع الواجب ============ */
 async function renderCrmHomework(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
@@ -554,26 +565,34 @@ async function renderCrmHomework(students, selectId){
     return;
   }
   if(crmSheet !== s || s.token !== token || s.mode !== 'homework') return;
-  const selectedId = (selectId && hw.homeworks.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(hw.homeworks, s.dateIso);
+  /* بفترات: القائمة واجبات الفترة المعروضة فقط (بموعد التسليم)، والمبدّل أعلاها */
+  const pf = sheetPeriodFilter(s, 'kind:homework', hw.homeworks, h => h.due_date, selectId);
+  const list = pf.list;
+  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmSheetQRowHtml(s)}${crmStartSlotHtml(s)}${crmSheetPeriodStateHtml(s)}`;
+  const selectedId = (selectId && list.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(list, s.dateIso);
   s.hw = { data: hw, column, selectedId, queue: new Map(), term, chgKey: 'hw:' + selectedId };
-  if(!hw.homeworks.length){
-    body.innerHTML = head + `<div class="empty-state">لا واجبات لهذه الشعبة بعد.</div>
+  if(!list.length){
+    body.innerHTML = top + `<div class="empty-state">${hw.homeworks.length ? `لا واجبات في ${PERIOD_NAMES[pf.period]}.` : 'لا واجبات لهذه الشعبة بعد.'}</div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="openCrmHomeworkModal()">+ واجب جديد</button>
       <div class="crm-sheet-bar"><button class="btn btn-outline" style="flex:1;" onclick="closeCrmLessonSheet()">رجوع</button></div>`;
     return;
   }
   const statuses = homeworkStatusIndex(hw.statusRows).get(selectedId) || new Map();
-  const hcfg = periodCfg(term, 'kind:homework'), perOn = hcfg.n > 1;
-  body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}` + `
+  /* الشرح الدائم انتقل داخل «؟» (يُقرأ مرة: الورقة اليومية لما يُستعمل كل حصة) */
+  s.help = [
+    ...(pf.on ? ['كل واجب في الفترة التي أُنشئ فيها، ودرجة الواجبات في الكشف = معدّل الفترات.'] : []),
+    'الأصل «لم يسلّم» — اضغط على الطالب: سلّم ← ناقص ← متأخر ← لم يسلّم.',
+    `يُحفظ فورًا${column ? ` ويُحسب في عمود «${escapeHtml(column.name)}»` : ''}.`];
+  body.innerHTML = top + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-      <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${perOn ? ' · ' + PERIOD_NAMES[Math.min(hcfg.n, periodOfDateFor(h.due_date, hcfg.starts))] : ''}</option>`).join('')}
+      <select class="goal-input" style="margin:0;flex:1;" aria-label="الواجب" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
+        ${list.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل أو حذف الواجب المختار" onclick="openCrmHomeworkEditor(crmSheet.hw && crmSheet.hw.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    ${column ? '' : '<p class="crm-sheet-warn">لا عمود واجبات في الكشف — يُحفظ التسليم ولا يُحسب حتى تضيف العمود.</p>'}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">
@@ -609,6 +628,7 @@ function paintCrmHomeworkCounts(){
 /* حفظ حالة طالب ثم إعادة حساب درجته — بالتتابع لكل طالب */
 function persistCrmHomework(studentId, state, prevState){
   const s = crmSheet;
+  dismissCrmJustStarted(s);
   const h = s.hw;
   const hwId = h.selectedId;
   const prev = h.queue.get(studentId) || Promise.resolve();
@@ -647,6 +667,7 @@ let crmHwBulkBusy = false;
 async function markAllCrmHomeworkSubmitted(){
   const s = crmSheet;
   if(!s || !s.hw || !s.hw.selectedId || crmHwBulkBusy) return;
+  dismissCrmJustStarted(s);
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !s.hw.statuses.has(id));
   if(!ids.length) return;
   crmHwBulkBusy = true;
@@ -689,6 +710,7 @@ function crmHomeworkFormHtml(sectionId, h){
       <input class="goal-input" id="crmHwTitle" maxlength="200" placeholder="مثال: تمارين الوحدة 2 صفحة 34" value="${edit ? escapeHtml(h.title) : ''}" style="margin-bottom:8px;">
       <label class="crm-field-label">موعد التسليم</label>
       <input type="date" class="goal-input" id="crmHwDue" value="${escapeHtml(h ? h.due_date : (crmSheet && crmSheet.sectionId === sectionId ? crmSheet.dateIso : localIsoDate()))}" style="margin-bottom:10px;">
+      ${crmHomeworkDraft ? itemPeriodFieldHtml('homework', crmHomeworkDraft.gradePeriod, crmHomeworkDraft.originalPeriod) : ''}
       ${edit ? '' : `<label class="crm-field-label">يبدأ الطلاب</label>
       <div class="crm-seg" style="margin-bottom:10px;">
         <button type="button" id="crmHwStart0" class="is-on" aria-pressed="true" onclick="setCrmHwStart(false)">لم يُرصد</button>
@@ -712,7 +734,7 @@ function setCrmHwStart(on){
 function openCrmHomeworkModal(sectionIdArg){
   const sectionId = sectionIdArg || (crmSheet && crmSheet.sectionId) || (crmGrades && crmGrades.sectionId);
   if(!sectionId) return;
-  crmHomeworkDraft = { sectionId, saving: false, startSubmitted: false };
+  crmHomeworkDraft = { sectionId, saving: false, startSubmitted: false, gradePeriod: newItemPeriod('kind:homework') };
   showInfoModal(crmHomeworkFormHtml(sectionId, null), '420px');
 }
 
@@ -723,15 +745,16 @@ async function openCrmHomeworkEditor(hwId){
   crmHwEditorOpening = true;
   let res;
   try{
-    res = await sb.from('classroom_homework').select('id, section_id, title, due_date')
-      .eq('teacher_id', currentUser.id).eq('id', hwId).maybeSingle();
+    res = await withGradePeriodCol(col => sb.from('classroom_homework').select('id, section_id, title, due_date' + (col ? ', grade_period' : ''))
+      .eq('teacher_id', currentUser.id).eq('id', hwId).maybeSingle());
   } catch(e){ res = { error: e }; }
   finally { crmHwEditorOpening = false; }
   if(res.error){ showToast('تعذّر تحميل الواجب', 'error'); return; }
   if(!res.data){ showToast('الواجب غير موجود — ربما حُذف من جهاز آخر', 'error'); return; }
   const h = res.data;
   closeCrmModal();
-  crmHomeworkDraft = { sectionId: h.section_id, editId: h.id, saving: false };
+  const per = itemPeriodFor(h, x => x.due_date, periodCfg(crmCurrentTerm(), 'kind:homework'));
+  crmHomeworkDraft = { sectionId: h.section_id, editId: h.id, saving: false, gradePeriod: per, originalPeriod: per };
   showInfoModal(crmHomeworkFormHtml(h.section_id, h), '420px');
 }
 
@@ -747,17 +770,17 @@ async function saveCrmHomework(){
   btns.forEach(b => { b.disabled = true; });
   let res;
   if(d.editId){
-    res = await sb.from('classroom_homework').update({ title, due_date: due })
-      .eq('teacher_id', currentUser.id).eq('id', d.editId).select('id');
+    res = await withGradePeriodCol(col => sb.from('classroom_homework').update(Object.assign({ title, due_date: due }, col && d.gradePeriod ? { grade_period: d.gradePeriod } : {}))
+      .eq('teacher_id', currentUser.id).eq('id', d.editId).select('id'));
     if(!res.error && !(res.data || []).length) res = { error: { message: 'الواجب غير موجود — ربما حُذف' } };
   } else {
     const term = crmCurrentTerm();
-    res = await sb.from('classroom_homework').insert({
+    res = await withGradePeriodCol(col => sb.from('classroom_homework').insert(Object.assign({
       teacher_id: currentUser.id, section_id: d.sectionId, academic_year: term.year, semester: term.semester, title, due_date: due
-    }).select('id').single();
+    }, col ? { grade_period: d.gradePeriod || 1 } : {})).select('id').single());
   }
   if(res.error){
-    showToast('تعذّر حفظ الواجب: ' + res.error.message, 'error');
+    showToast('تعذّر حفظ الواجب: ' + gradeSaveErrorText(res.error), 'error');
     d.saving = false;
     btns.forEach(b => { b.disabled = false; });
     return;
@@ -813,7 +836,7 @@ async function openCrmHomeworkManager(){
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">الواجبات · ${escapeHtml(crmSectionLabel(sectionId))}</h3>
       <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.7;">العمود يُحسب تلقائيًا: سلّم 100% · متأخر 75% · ناقص 50% · لم يسلّم 0. الواجب يُحسب بعد موعده أو متى بدأت رصده. الرصد من ورقة الحصة ← "واجب".</div>
-      ${hw.homeworks.length ? hw.homeworks.slice().reverse().map(h => {
+      ${hw.homeworks.length ? periodGroupedListHtml('kind:homework', hw.homeworks.slice().reverse(), h => h.due_date, h => {
         const c = homeworkCounts(idx.get(h.id) || new Map(), ids);
         return `<div class="crm-lesson-row"><span>${escapeHtml(h.title)} <span class="crm-tl-meta">· ${shortDateAr(h.due_date)}${counted.has(h.id) ? '' : ' · لم يُحسب بعد'}</span>
           <div class="crm-tl-meta">سلّم ${c.submitted} · ناقص ${c.partial} · متأخر ${c.late} · لم يسلّم ${c.missing}</div></span>
@@ -821,7 +844,7 @@ async function openCrmHomeworkManager(){
             <button class="crm-icon-btn" title="تعديل" onclick="openCrmHomeworkEditor('${h.id}')">✎</button>
             <button class="crm-icon-btn" title="حذف" onclick="deleteCrmHomework('${h.id}', '${sectionId}')">🗑</button>
           </span></div>`;
-      }).join('') : '<div class="crm-today-empty">لا واجبات بعد.</div>'}
+      }) : '<div class="crm-today-empty">لا واجبات بعد.</div>'}
       <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;" onclick="closeCrmModal();openCrmHomeworkModal('${sectionId}')">+ واجب جديد</button>
     </div>`, '460px');
 }

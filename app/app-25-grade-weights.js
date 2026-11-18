@@ -210,7 +210,7 @@ function openGsCompSheet(key){
   const id = perfComponentIdentity(c);
   const cfg = periodCfg(crmCurrentTerm(), id);
   const vis = gsCompVisibility(c);
-  const orig = { weight, n: cfg.n, visible: vis ? vis.on : true };
+  const orig = { weight, n: cfg.n, visible: vis ? vis.on : true, live: !!cfg.live };
   gsCompDraft = Object.assign({ key, comp: c, id, orig }, orig);
   paintGsCompSheet();
 }
@@ -244,7 +244,10 @@ function paintGsCompSheet(){
       ${seg([[1, '1'], [2, '2'], [3, '3']], d.n, 'setGsCompPeriods')}
       ${d.n === cfg.n && cfg.n > 1 ? `<div class="gs-period-now"><span class="gs-pdots">${[1, 2, 3].slice(0, cfg.n).map(p => `<i class="${p < now || cfg.ended ? 'done' : p === now ? 'cur' : ''}"></i>`).join('')}</span>
         ${cfg.ended ? '<b>انتهت كل الفترات — كلها محسوبة ✓</b>' : `الآن: <b>${PERIOD_NAMES[now]}</b>${now > (countedPeriodsOf(cfg) || cfg.n) ? ' <small>(تُحسب عند انتهائها)</small>' : ''}`}
-        <button type="button" class="gs-period-btn gs-period-go" onclick="openPeriodsWindow('${id}')">الفترات ←</button></div>` : ''}</div>
+        <button type="button" class="gs-period-btn gs-period-go" onclick="openPeriodsWindow('${id}')">الفترات ←</button></div>` : ''}
+      ${d.n > 1 ? `<div class="gs-sheet-sw gs-live-sw"><span>احسب الفترة الجارية في الكشف</span>
+        <button type="button" class="cust-switch${d.live ? ' is-on' : ''}" role="switch" aria-checked="${d.live}" onclick="toggleGsCompLive()"><span></span></button></div>
+        <p class="gs-live-note">${d.live ? 'مفعّل: الفترة الجارية تدخل الدرجة فورًا. انتبه: عند بدء فترة قد يهبط المعدّل (مثال: 10 في الثانية، ثم 2 في أول حصة من الثالثة = 6 فورًا).' : 'الأصل: الفترة تدخل الدرجة عند انتهائها، فلا يهبط المعدّل فجأة عند بدء فترة جديدة.'}</p>` : ''}</div>
     ${vis ? `<div class="gs-sheet-sec gs-sheet-sw"><span>ظاهر في الكشف ونافذة الرصد</span>
       <button type="button" class="cust-switch${d.visible ? ' is-on' : ''}" role="switch" aria-checked="${d.visible}" onclick="toggleGsCompVisible()"><span></span></button></div>` : ''}
     <button type="button" class="gs-save" id="gsCompSaveBtn" onclick="saveGsComp()">حفظ</button>
@@ -263,6 +266,7 @@ function stepGsCompWeight(dir){
 }
 function setGsCompPeriods(n){ if(gsCompDraft){ gsCompDraft.n = n; paintGsCompSheet(); } }
 function toggleGsCompVisible(){ if(gsCompDraft){ gsCompDraft.visible = !gsCompDraft.visible; paintGsCompSheet(); } }
+function toggleGsCompLive(){ if(gsCompDraft){ gsCompDraft.live = !gsCompDraft.live; paintGsCompSheet(); } }
 
 /* حفظ ما تغيّر فقط، كلٌّ بمساره القائم: الدرجة (كل الشعب) ← الإظهار ← الفترات */
 let gsCompSaving = false;
@@ -291,6 +295,7 @@ async function saveGsComp(){
       if(vis.type === 'app') await setAppToolOn(vis.id, d.visible); else await toggleCustomToolHidden(vis.id);
     }
     if(d.n !== d.orig.n) await setComponentPeriodCount(d.id, d.n);
+    if(d.n > 1 && d.live !== d.orig.live) await setComponentPeriodLive(d.id, d.live);
   } finally {
     gsCompSaving = false;
     if(rerender) renderCrmGrades();
