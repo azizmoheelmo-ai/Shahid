@@ -159,7 +159,9 @@ test('المشاركة بفترتين — المبدّل على «الثانية
   const { app, log } = await partSheet('2026-10-27', seed, PART2, { rpc: { increment_period_score: 1 } });
   assert.match(sheetHtml(app), /class="is-on" aria-pressed="true" onclick="setCrmSheetPeriod\(2\)">الثانية<small>جارية<\/small>/);
   assert.match(sheetHtml(app), /onclick="setCrmSheetPeriod\(1\)">الأولى<small>منتهية<\/small>/);
-  assert.match(sheetHtml(app), /class="crm-per-gear" onclick="openCrmPeriodPicker\(\)"/);
+  assert.doesNotMatch(sheetHtml(app), /crm-per-gear/, '⚙ لم يعد في الورقة اليومية');
+  app.toggleCrmSheetHelp();
+  assert.match(get(app, `document.getElementById('crmSheetHelp').innerHTML`), /onclick="openCrmPeriodPicker\(\)">⚙ إدارة الفترات/, 'داخل «؟»');
   assert.match(get(app, 'crmSheet.card.help.join()'), /الرصد الآن في <b>الفترة الثانية<\/b>/);
   assert.equal(get(app, 'crmSheet.part.period'), 2);
   assert.equal(get(app, 'crmSheet.part.scores.get("b")'), 4);
@@ -978,7 +980,7 @@ test('ورقة الواجب — فترة بلا واجبات: رسالة واض�
   runInAppContext(one, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} }; syncHomeworkColumn = async () => {};`);
   await one.renderCrmHomework(get(one, 'crmStudentsOfSection("S")'));
   assert.match(sheetHtml(one), /واجب h1/);
-  assert.doesNotMatch(sheetHtml(one), /crm-per-bar/);
+  assert.doesNotMatch(sheetHtml(one), /crm-per-seg/, 'لا مبدّل');
 });
 
 test('ورقة المهام — مهام الفترة المعروضة فقط (بموعدها أو يوم إنشائها)', async () => {
@@ -1412,4 +1414,21 @@ test('«احسب الفترة الجارية في الكشف» — لكل مكو
   assert.equal(log.filter(l => ['insert', 'upsert', 'delete'].includes(l.op)).length, 0, 'لا رصد يُكتب ولا يُحذف');
   assert.equal(await s.setComponentPeriodLive('kind:participation', false), true);
   assert.equal(cfgOf(s, 'kind:participation').live, undefined);
+});
+
+test('ورقة الواجب — الشرح الدائم داخل «؟» (لا فقرة ظاهرة)، و«إدارة الفترات» في آخره؛ وتنبيه ظاهر فقط إن لم يكن عمود واجبات', async () => {
+  const mk = async (cols) => {
+    const app = appWith({ classroom_grade_columns: cols, classroom_homework: [HW('h1', '2026-10-25')], classroom_homework_status: [] }, [], HW_PER);
+    runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} }; syncHomeworkColumn = async () => {};`);
+    await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+    return app;
+  };
+  const app = await mk([col('H', 'homework', 10, { name: '<b>واجبات</b>' })]);
+  assert.doesNotMatch(sheetHtml(app), /الأصل «لم يسلّم»|الأصل "لم يسلّم"|crm-sheet-warn/);
+  assert.match(sheetHtml(app), /crm-per-seg[\s\S]*onclick="toggleCrmSheetHelp\(\)">؟<\/button><\/div><div id="crmSheetHelp"/);
+  app.toggleCrmSheetHelp();
+  const help = get(app, `document.getElementById('crmSheetHelp').innerHTML`);
+  assert.match(help, /كل واجب في الفترة التي أُنشئ فيها[\s\S]*الأصل «لم يسلّم»[\s\S]*يُحسب في عمود «&lt;b&gt;واجبات&lt;\/b&gt;»[\s\S]*⚙ إدارة الفترات/, 'اسم العمود مهرَّب');
+  const none = await mk([]);
+  assert.match(sheetHtml(none), /crm-sheet-warn">لا عمود واجبات في الكشف/, 'الحالة الاستثنائية تبقى ظاهرة');
 });

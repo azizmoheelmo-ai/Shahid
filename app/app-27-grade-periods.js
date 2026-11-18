@@ -520,7 +520,8 @@ function sheetPeriodInfo(s){
   return { key, cfg, period, datePeriod, now };
 }
 
-function crmPeriodChipHtml(s){
+/* extra: زر يُلحق بآخر السطر (مثل «؟» في ورقة الواجب/المهمة). ⚙ لم يعد هنا: «إدارة الفترات» داخل «؟» */
+function crmPeriodChipHtml(s, extra){
   const info = sheetPeriodInfo(s);
   if(!info || info.cfg.n < 2) return '';
   if(!sheetPeriodSwitchable(info.key)){
@@ -537,8 +538,7 @@ function crmPeriodChipHtml(s){
     const tag = !started ? 'لم تبدأ' : locked ? '🔒' : p === info.now && !info.cfg.ended ? 'جارية' : 'منتهية';
     return `<button type="button" class="${p === info.period ? 'is-on' : ''}" aria-pressed="${p === info.period}"${started ? ` onclick="setCrmSheetPeriod(${p})"` : ' disabled'}>${PERIOD_NAMES[p].replace('الفترة ', '')}<small>${tag}</small></button>`;
   };
-  return `<div class="crm-per-bar"><div class="tlx-seg crm-per-seg" role="group" aria-label="الفترة">${[1, 2, 3].slice(0, info.cfg.n).map(btn).join('')}</div>
-    <button type="button" class="crm-per-gear" onclick="openCrmPeriodPicker()" aria-label="إدارة الفترات (إنهاء، قفل)" title="إدارة الفترات">⚙</button></div>`;
+  return `<div class="crm-per-bar"><div class="tlx-seg crm-per-seg" role="group" aria-label="الفترة">${[1, 2, 3].slice(0, info.cfg.n).map(btn).join('')}</div>${extra || ''}</div>`;
 }
 
 /* تحت المبدّل: مكان لوحة «ابدأ الفترة التالية»، ورابط «تراجع عن بدء…» — في نفس جلسة الورقة التي بدأت فيها الفترة فقط
@@ -694,7 +694,14 @@ function periodGroupedListHtml(key, items, dateOf, rowHtml){
   return html;
 }
 
-/* ⚙ بجانب المبدّل يفتح نافذة «الفترات» (إنهاء الفترة، القفل، الفتح للتعديل) */
+/* رابط «إدارة الفترات» في آخر شرح «؟» (عدد الفترات، إنهاء الأخيرة، التراجع لاحقًا) — للمكوّن الذي له أكثر من فترة */
+function crmHelpPeriodsLinkHtml(s){
+  const info = sheetPeriodInfo(s);
+  if(!info || info.cfg.n < 2) return '';
+  return `<button type="button" class="csc-help-link" onclick="openCrmPeriodPicker()">⚙ إدارة الفترات (العدد، إنهاء الأخيرة، التراجع) ←</button>`;
+}
+
+/* «إدارة الفترات» (داخل «؟») يفتح نافذة «الفترات» (إنهاء الفترة، القفل، الفتح للتعديل) */
 function openCrmPeriodPicker(){
   const info = sheetPeriodInfo(crmSheet);
   if(!info || info.cfg.n < 2) return;

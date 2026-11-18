@@ -269,7 +269,7 @@ async function renderCrmParticipation(students, tool){
     shown ? `الرصد الآن في <b>${PERIOD_NAMES[shown]}</b>، و${counted ? `درجة «${escapeHtml(column.name)}» في الكشف = معدّل الفترات.` : 'تدخل درجة الكشف عند انتهائها.'}`
       : `ما ترصده هنا هو درجة «${escapeHtml(column.name)}» في الكشف.`,
     '«تعبئة الباقين» تعطي من بلا درجة فقط، ولا تغيّر من له درجة.',
-    ...(shown ? ['لعرض فترة أخرى ورصدها: اضغط اسمها أعلى الورقة. ولإنهاء الفترة أو قفلها: ⚙.'] : [])] };
+    ...(shown ? ['لعرض فترة أخرى ورصدها: اضغط اسمها أعلى الورقة. ولبدء التالية: «＋ ابدأ».'] : [])] };
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}
     ${crmSheetCardHtml(s, lockKey, shown)}
     <div class="crm-att-grid">
@@ -410,11 +410,13 @@ function paintCrmSheetCard(recorded, total, locked){
 function toggleCrmSheetHelp(){
   const s = crmSheet;
   const box = document.getElementById('crmSheetHelp');
-  if(!box || !s || !s.card) return;
-  const open = !s.card.helpOpen; /* حالة صريحة (لا يُعتمد على style قبل أول رسم) */
-  s.card.helpOpen = open;
+  /* الشرح في s.card.help (المشاركة/الأدوات) أو s.help (الواجب/المهمة) */
+  const src = s && (s.card && s.card.help ? s.card : s.help ? s : null);
+  if(!box || !src) return;
+  const open = !src.helpOpen; /* حالة صريحة (لا يُعتمد على style قبل أول رسم) */
+  src.helpOpen = open;
   box.innerHTML = open ? `<button type="button" class="csc-x" aria-label="إغلاق" onclick="toggleCrmSheetHelp()">✕</button><b>كيف تعمل هذه الورقة؟</b>
-    <ul>${s.card.help.map(h => `<li>${h}</li>`).join('')}</ul>` : '';
+    <ul>${src.help.map(h => `<li>${h}</li>`).join('')}</ul>${crmHelpPeriodsLinkHtml(s)}` : '';
   box.style.display = open ? 'block' : 'none';
   const q = document.querySelector('.csc-q');
   if(q) q.setAttribute('aria-expanded', String(open));
@@ -539,6 +541,13 @@ function crmAbsentClass(s, studentId){
   return s && s.states && s.states[studentId] === 'absent' ? ' is-absent' : '';
 }
 
+/* سطر المبدّل مع «؟» في آخره (ورقة الواجب/المهمة)؛ بفترة واحدة: «؟» وحده. ومكان الشرح تحته */
+function crmSheetQRowHtml(s){
+  const q = '<button type="button" class="csc-q" aria-label="كيف تعمل هذه الورقة؟" aria-expanded="false" onclick="toggleCrmSheetHelp()">؟</button>';
+  s.helpOpen = false;
+  return (crmPeriodChipHtml(s, q) || `<div class="crm-per-bar crm-per-bar-q">${q}</div>`) + '<div id="crmSheetHelp" class="csc-help" style="display:none;"></div>';
+}
+
 /* ============ وضع الواجب ============ */
 async function renderCrmHomework(students, selectId){
   const s = crmSheet;
@@ -559,7 +568,7 @@ async function renderCrmHomework(students, selectId){
   /* بفترات: القائمة واجبات الفترة المعروضة فقط (بموعد التسليم)، والمبدّل أعلاها */
   const pf = sheetPeriodFilter(s, 'kind:homework', hw.homeworks, h => h.due_date, selectId);
   const list = pf.list;
-  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}${crmStartSlotHtml(s)}${crmSheetPeriodStateHtml(s)}`;
+  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmSheetQRowHtml(s)}${crmStartSlotHtml(s)}${crmSheetPeriodStateHtml(s)}`;
   const selectedId = (selectId && list.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(list, s.dateIso);
   s.hw = { data: hw, column, selectedId, queue: new Map(), term, chgKey: 'hw:' + selectedId };
   if(!list.length){
@@ -569,7 +578,11 @@ async function renderCrmHomework(students, selectId){
     return;
   }
   const statuses = homeworkStatusIndex(hw.statusRows).get(selectedId) || new Map();
-  const perOn = pf.on;
+  /* الشرح الدائم انتقل داخل «؟» (يُقرأ مرة: الورقة اليومية لما يُستعمل كل حصة) */
+  s.help = [
+    ...(pf.on ? ['كل واجب في الفترة التي أُنشئ فيها، ودرجة الواجبات في الكشف = معدّل الفترات.'] : []),
+    'الأصل «لم يسلّم» — اضغط على الطالب: سلّم ← ناقص ← متأخر ← لم يسلّم.',
+    `يُحفظ فورًا${column ? ` ويُحسب في عمود «${escapeHtml(column.name)}»` : ''}.`];
   body.innerHTML = top + `
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <select class="goal-input" style="margin:0;flex:1;" aria-label="الواجب" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
@@ -579,7 +592,7 @@ async function renderCrmHomework(students, selectId){
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في الفترة التي أُنشئ فيها، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    ${column ? '' : '<p class="crm-sheet-warn">لا عمود واجبات في الكشف — يُحفظ التسليم ولا يُحسب حتى تضيف العمود.</p>'}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">

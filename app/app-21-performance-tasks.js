@@ -276,7 +276,9 @@ async function renderCrmTasks(students, selectId){
   /* بفترات: مهام الفترة المعروضة فقط (بموعد التسليم، أو يوم الإنشاء إن لم يُحدَّد)، والمبدّل أعلاها */
   const pf = sheetPeriodFilter(s, 'kind:task', data.tasks, taskDateOf, selectId);
   const list = pf.list;
-  head += crmPeriodChipHtml(s) + crmStartSlotHtml(s) + crmSheetPeriodStateHtml(s);
+  s.help = [...(pf.on ? ['كل مهمة في الفترة التي أُنشئت فيها، ودرجة المهام في الكشف = معدّل الفترات.'] : []),
+    'المهمة لا تُحسب للطالب حتى تُرصد درجته.', 'المجموعة: اضغطها لدرجة واحدة لكل أعضائها، أو اضغط اسم طالب لدرجته وحده.'];
+  head += crmSheetQRowHtml(s) + crmStartSlotHtml(s) + crmSheetPeriodStateHtml(s);
   if(!list.length){
     s.task = { data, column, selectedId: null, scores: new Map(), groups: new Map(), queue: new Map(), term };
     body.innerHTML = head + `<div class="empty-state">${data.tasks.length ? `لا مهام أدائية في ${PERIOD_NAMES[pf.period]}.` : 'لا مهام أدائية لهذه الشعبة بعد.'}</div>
