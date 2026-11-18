@@ -763,7 +763,7 @@ async function saveCrmHomework(){
     }, col ? { grade_period: d.gradePeriod || 1 } : {})).select('id').single());
   }
   if(res.error){
-    showToast('تعذّر حفظ الواجب: ' + res.error.message, 'error');
+    showToast('تعذّر حفظ الواجب: ' + gradeSaveErrorText(res.error), 'error');
     d.saving = false;
     btns.forEach(b => { b.disabled = false; });
     return;

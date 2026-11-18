@@ -173,7 +173,9 @@ function itemPeriodFor(it, dateOf, cfg){
 /* قبل تشغيل ملف تحديث القاعدة (لا عمود grade_period): القراءة والحفظ بدونه، ولا يتعطّل شيء */
 let gradePeriodColMissing = false;
 function gradePeriodColError(e){
-  return !!e && /grade_period/.test(String((e.message || '') + ' ' + (e.details || '') + ' ' + (e.hint || '')));
+  if(!e || isGradeLockedError(e)) return false; /* «grade_period_locked» = قفل حقيقي، لا عمود مفقود (كان يُخفي الخطأ ويحفظ بدون الفترة) */
+  const t = String((e.message || '') + ' ' + (e.details || '') + ' ' + (e.hint || ''));
+  return /\bgrade_period\b/.test(t) && (e.code === '42703' || e.code === 'PGRST204' || /does not exist|could not find|schema cache/i.test(t));
 }
 async function withGradePeriodCol(run){
   if(!gradePeriodColMissing){
@@ -241,9 +243,25 @@ async function freezeItemPeriods(key, term, cfg){
   });
   for(const [p, ids] of byP){
     for(const part of chunkArray(ids, 100)){
-      await sb.from(table).update({ grade_period: p }).eq('teacher_id', currentUser.id).in('id', part);
+      const { error: uErr } = await sb.from(table).update({ grade_period: p }).eq('teacher_id', currentUser.id).in('id', part);
+      if(uErr) throw uErr; /* لا تبدأ الفترة الجديدة وفي القديم ما لم يُثبَّت (وإلا انتقل إليها بتاريخه) */
     }
   }
+}
+
+/* كم واجبًا/مهمة فترتها بعد p (بفترتها المحفوظة أو بتاريخها) — لا تُلغى فترة فيها واجبات أو مهام */
+async function itemsAfterPeriod(key, term, cfg, p){
+  const table = key === 'kind:homework' ? 'classroom_homework' : key === 'kind:task' ? 'classroom_tasks' : null;
+  if(!table || !currentUser) return 0;
+  const dateOf = key === 'kind:homework' ? (h => h.due_date) : taskDateOf;
+  const { data, error } = await withGradePeriodCol(col => sb.from(table).select('id, due_date, created_at' + (col ? ', grade_period' : ''))
+    .eq('teacher_id', currentUser.id).eq('academic_year', term.year).eq('semester', term.semester));
+  if(error) throw error;
+  return (data || []).filter(it => itemPeriodFor(it, dateOf, cfg) > p).length;
+}
+function itemsWord(key, k){
+  const hw = key === 'kind:homework';
+  return k === 1 ? (hw ? 'واجب واحد' : 'مهمة واحدة') : k === 2 ? (hw ? 'واجبان' : 'مهمتان') : k + (hw ? ' واجبات' : ' مهام');
 }
 
 /* ============ الإعداد (يتبع حساب المعلم على كل أجهزته) ============ */
@@ -333,13 +351,18 @@ async function setComponentPeriodCount(key, n){
   let later = [];
   if(periodKeyIsDirect(key)){
     try{ later = await laterPeriodRows(key, n); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
+  } else if(key === 'kind:homework' || key === 'kind:task'){
+    /* لا تُلغى فترة فيها واجبات/مهام (لا دمج صامت في فترة أخرى) */
+    let k = 0;
+    try{ k = await itemsAfterPeriod(key, term, cur, n); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
+    if(k){ showToast(`لا تقليل: بعد ${PERIOD_NAMES[n]} ${itemsWord(key, k)} — انقلها لفترة أخرى أو احذفها أولًا`, 'error'); return false; }
   }
   const gone = [1, 2, 3].filter(p => p > n && p <= cur.n);
   const names = gone.map(p => PERIOD_NAMES[p]).join(' و');
   const students = new Set(later.map(r => r.student_id)).size;
   const parts = [];
   if(later.length) parts.push(`يُحذف رصد ${names} (${students === 1 ? 'طالب واحد' : students === 2 ? 'طالبان' : students + ' طلاب'}) ويبقى في «المحذوفات» ${TRASH_DAYS} يومًا تستطيع استرجاعه.`);
-  else if(!periodKeyIsDirect(key) && now > n) parts.push(`ما رُصد في ${names} يعود لـ${PERIOD_NAMES[n]} بتاريخه (لا يُحذف شيء).`);
+  else if(!periodKeyIsDirect(key) && key !== 'kind:homework' && key !== 'kind:task' && now > n) parts.push(`ما رُصد في ${names} يعود لـ${PERIOD_NAMES[n]} بتاريخه (لا يُحذف شيء).`);
   if(now > n || (now === n && cur.ended)) parts.push(`${PERIOD_NAMES[n]} تعود جارية.`);
   if(lock && lock.p > newLockP) parts.push('وتُفتح الفترات المقفلة التي تتغيّر.');
   if(parts.length && !(await showConfirm(`تقليل فترات «${name}» إلى ${PERIOD_COUNT_LABELS[n]}؟ ${parts.join(' ')}`))) return false;
@@ -410,6 +433,11 @@ async function goToComponentPeriod(key, target, dateIso){
       let later = [];
       try{ later = await laterPeriodRows(key, target); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
       if(later.length){ showToast(`لا رجوع: في ${PERIOD_NAMES[now]} رصد محفوظ`, 'error'); return false; }
+    } else if(key === 'kind:homework' || key === 'kind:task'){
+      /* واجبات/مهام الفترة لا تُدمج في السابقة بصمت */
+      let k = 0;
+      try{ k = await itemsAfterPeriod(key, term, cfg, target); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
+      if(k){ showToast(`لا رجوع: في ${PERIOD_NAMES[now]} ${itemsWord(key, k)} — انقلها لفترة أخرى أو احذفها أولًا`, 'error'); return false; }
     }
   }
   return withPeriodBusy(async () => {

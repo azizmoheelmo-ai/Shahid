@@ -473,11 +473,16 @@ test('عدد الفترات والانتقال — لكل مكوّن وحده؛ 
   assert.equal(log.filter(l => l.op !== 'select').length, 0);
 });
 
-test('تقليل فترات المحسوب تحت الجارية (3.62) — بسؤال، ولا يُحذف شيء: يعود لفترته بتاريخه', async () => {
+test('تقليل فترات الواجبات تحت الجارية — بسؤال ولا يُحذف شيء؛ وفترة فيها واجبات لا تُلغى (لا دمج صامت)', async () => {
   const log = [];
   const app = settingsApp(withPeriods({ 'kind:homework': { n: 3, starts: ['2026-10-01', '2026-10-20'] } }), {}, log);
   assert.equal(await app.setComponentPeriodCount('kind:homework', 2), true);
-  assert.match(get(app, 'window.__confirm[0]'), /تقليل فترات «الواجبات» إلى[\s\S]*ما رُصد في الفترة الثالثة يعود لـالفترة الثانية بتاريخه \(لا يُحذف شيء\)[\s\S]*الفترة الثانية تعود جارية/);
+  assert.match(get(app, 'window.__confirm[0]'), /تقليل فترات «الواجبات» إلى[\s\S]*الفترة الثانية تعود جارية/);
+  const busy = settingsApp(withPeriods({ 'kind:homework': { n: 3, starts: ['2026-10-01', '2026-10-20'] } }),
+    { classroom_homework: [Object.assign(HW('h3', '2026-10-05'), { grade_period: 3 }), HW('hd', '2026-10-25')] }, []);
+  assert.equal(await busy.setComponentPeriodCount('kind:homework', 2), false);
+  assert.match(get(busy, 'window.__toasts.join("|")'), /لا تقليل: بعد الفترة الثانية واجبان — انقلها لفترة أخرى أو احذفها أولًا/, 'المحفوظ في الثالثة والقديم بتاريخه في الثالثة');
+  assert.equal(cfgOf(busy, 'kind:homework').n, 3);
   assert.deepEqual(cfgOf(app, 'kind:homework'), { n: 2, starts: ['2026-10-01'] });
   assert.equal(log.filter(l => l.op === 'delete' || l.op === 'insert').length, 0);
   const no = settingsApp(withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-01'], ended: true } }), {}, [], false);
@@ -1199,4 +1204,119 @@ test('SQL: عمود grade_period بقيد ١–٣، والحارس يقفل ال
   assert.match(SQL_ALL, /h\.due_date, h\.grade_period\s+into v_key, v_term, v_date, v_per from public\.classroom_homework/);
   assert.match(SQL_ALL, /coalesce\(t\.due_date, t\.created_at::date\), t\.grade_period\s+into v_key, v_term, v_date, v_per from public\.classroom_tasks/);
   assert.ok(loadApp().buildSchemaSql().includes(sec), 'المرآة حرفية');
+});
+
+/* ============ سيناريوهات المعلم الكاملة (فحص شامل 3.66 — PERIODS.md) ============ */
+/* قاعدة وهمية تحفظ الواجبات المُنشأة (insert) لتظهر في التحميل التالي كما في القاعدة الحقيقية */
+function persistingHomework(seed){
+  let n = 0;
+  return c => Object.assign({}, c, { from(t){
+    const q = c.from(t);
+    if(t !== 'classroom_homework') return q;
+    const ins = q.insert;
+    q.insert = r => {
+      const row = Object.assign({ id: 'N' + (++n), created_at: '2026-10-27T08:00:00Z' }, r);
+      seed.classroom_homework.push(row);
+      ins(r);
+      const o = { then: (res, rej) => Promise.resolve({ data: { id: row.id }, error: null }).then(res, rej) };
+      o.select = () => o; o.single = () => o;
+      return o;
+    };
+    return q;
+  } });
+}
+async function hwSheetTitles(app, p){
+  if(p) await app.setCrmSheetPeriod(p);
+  else await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  return (sheetHtml(app).match(/<option[^>]*>([^<·]+)·/g) || []).map(x => x.replace(/<option[^>]*>/, '').replace('·', '').trim());
+}
+
+test('سيناريو فصل كامل: واجب في كل فترة — كل واجب يبقى في فترته وحدها عبر بدء الثانية والثالثة، ولو موعده بعد البدء', async () => {
+  const log = [];
+  const seed = { classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: [HW('قديم', '2026-12-30')], classroom_homework_status: [] };
+  const app = appWith(seed, log, withPeriods({ 'kind:homework': { n: 3, starts: [] } }),
+    { wrap: persistingHomework(seed), code: `${TODAY} afterCrmHomeworkChanged = async () => {}; syncHomeworkColumn = async () => {}; renderCrmGrades = () => {};
+      { const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? Promise.resolve({ data: {}, error: null }) : _r(n, a); }` });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} };`);
+  const create = async (title, due) => {
+    app.openCrmHomeworkModal('S');
+    runInAppContext(app, `document.getElementById('crmHwTitle').value = ${JSON.stringify(title)}; document.getElementById('crmHwDue').value = '${due}';`);
+    await app.saveCrmHomework();
+  };
+  const startNext = async () => { runInAppContext(app, `periodWinCtx = { key: 'kind:homework' };`); await app.openPeriodTransition(); assert.equal(await app.applyPeriodTransition(), true); };
+  await create('أ', '2026-12-30');            /* في الأولى، وموعده بعد كل البدايات */
+  await startNext();                           /* تبدأ الثانية */
+  runInAppContext(app, `crmSheet.viewPeriods = {};`);
+  await create('ب', '2026-10-01');            /* في الثانية، وموعده قبل بدئها */
+  await startNext();                           /* تبدأ الثالثة */
+  runInAppContext(app, `crmSheet.viewPeriods = {};`);
+  await create('ج', '2026-10-27');
+  assert.deepEqual(seed.classroom_homework.map(h => h.title + ':' + h.grade_period), ['واجب قديم:1', 'أ:1', 'ب:2', 'ج:3'], 'القديم ثُبّت على الأولى قبل بدء الثانية');
+  assert.deepEqual(await hwSheetTitles(app), ['ج']);
+  assert.deepEqual(await hwSheetTitles(app, 2), ['ب']);
+  assert.deepEqual((await hwSheetTitles(app, 1)).sort(), ['أ', 'واجب قديم'].sort());
+  /* الدرجات منفصلة: كل فترة تُحسب من واجباتها وحدها */
+  const idx = app.homeworkStatusIndex([{ homework_id: 'N1', student_id: 'a', status: 'submitted' }, { homework_id: 'N2', student_id: 'a', status: 'partial' }]);
+  const counted = seed.classroom_homework.filter(h => h.title !== 'واجب قديم');
+  const cfg = get(app, `periodCfg(${JSON.stringify(TERM)}, 'kind:homework')`);
+  const sc = app.homeworkPeriodScores(counted, idx, 'a', 10, cfg);
+  assert.equal(sc.p1, 10, 'الأولى: «أ» سلّم');
+  assert.equal(sc.p2, 5, 'الثانية: «ب» ناقص');
+  assert.equal(sc.p3, 0, 'الثالثة: «ج» لم يسلّم');
+});
+
+test('سيناريو «الجميع سلّم» عند الإنشاء — يُكتب مرة واحدة فقط: بدء الفترات وتبديل العرض وإعادة الفتح لا تمسّ التسليم', async () => {
+  const log = [];
+  const seed = { classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: [], classroom_homework_status: [] };
+  const app = appWith(seed, log, withPeriods({ 'kind:homework': { n: 3, starts: [] } }),
+    { wrap: persistingHomework(seed), code: `${TODAY} afterCrmHomeworkChanged = async () => {}; syncHomeworkColumn = async () => {}; renderCrmGrades = () => {};
+      { const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? Promise.resolve({ data: {}, error: null }) : _r(n, a); }` });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'homework', states: {} };`);
+  app.openCrmHomeworkModal('S');
+  app.setCrmHwStart(true);
+  runInAppContext(app, `document.getElementById('crmHwTitle').value = 'أ'; document.getElementById('crmHwDue').value = '2026-10-28';`);
+  await app.saveCrmHomework();
+  const statusWrites = () => log.filter(l => l.table === 'classroom_homework_status' && l.op !== 'select');
+  assert.equal(statusWrites().length, 1);
+  assert.equal(statusWrites()[0].values.length, 3, 'الثلاثة سلّموا، مرة واحدة');
+  for(let i = 0; i < 2; i++){
+    runInAppContext(app, `periodWinCtx = { key: 'kind:homework' };`);
+    await app.openPeriodTransition(); await app.applyPeriodTransition();
+  }
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  await app.setCrmSheetPeriod(1); await app.setCrmSheetPeriod(2); await app.setCrmSheetPeriod(1);
+  app.openCrmHomeworkModal('S');
+  assert.equal(statusWrites().length, 1, 'لا كتابة تلقائية بعد الإنشاء أبدًا');
+  assert.equal(log.filter(l => l.table === 'classroom_homework_status' && l.op === 'delete').length, 0, 'ولا حذف');
+});
+
+test('سيناريو التراجع عن بدء فترة — مرفوض وفيها واجب (لا دمج صامت في السابقة)؛ ومسموح وهي فارغة', async () => {
+  const f = withPeriods({ 'kind:homework': { n: 3, starts: ['2026-10-20'] } });
+  const busy = settingsApp(f, { classroom_homework: [Object.assign(HW('ب', '2026-10-01'), { grade_period: 2 })] }, []);
+  runInAppContext(busy, `periodWinCtx = { key: 'kind:homework' };`);
+  await busy.undoPeriodStart();
+  assert.equal(cfgOf(busy, 'kind:homework').starts.length, 1, 'لم يُتراجع');
+  assert.match(get(busy, 'window.__toasts.join("|")'), /لا رجوع: في الفترة الثانية واجب واحد — انقلها لفترة أخرى أو احذفها أولًا/);
+  const empty = settingsApp(f, { classroom_homework: [Object.assign(HW('أ', '2026-10-25'), { grade_period: 1 })] }, []);
+  runInAppContext(empty, `periodWinCtx = { key: 'kind:homework' };`);
+  await empty.undoPeriodStart();
+  assert.equal(cfgOf(empty, 'kind:homework').starts.length, 0, 'تراجع: الثانية كانت فارغة');
+});
+
+test('انحدار (خطأ صامت): رفض القاعدة نقل واجب لفترة مقفلة «grade_period_locked» لا يُفهم «عمود مفقود» فيُحفظ بدون الفترة', async () => {
+  const log = [];
+  const lockedOnPeriod = c => Object.assign({}, c, { from(t){ const q = c.from(t); if(t !== 'classroom_homework') return q; const upd = q.update;
+    q.update = r => { if(r && r.grade_period !== undefined){ const o = { then: (res, rej) => Promise.resolve({ data: null, error: { message: 'grade_period_locked', code: 'P0001' } }).then(res, rej) };
+      ['eq', 'in', 'select'].forEach(k => { o[k] = () => o; }); return o; } return upd(r); }; return q; } });
+  const app = appWith({ classroom_grade_columns: [col('H', 'homework', 10)], classroom_homework: [Object.assign(HW('h', '2026-10-25'), { grade_period: 2 })], classroom_homework_status: [] }, log,
+    withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-20'] } }), { wrap: lockedOnPeriod, code: `${TODAY} afterCrmHomeworkChanged = async () => {};` });
+  await app.openCrmHomeworkEditor('h');
+  app.setCrmItemPeriod('homework', 1);
+  runInAppContext(app, `document.getElementById('crmHwTitle').value = 'h'; document.getElementById('crmHwDue').value = '2026-10-25';`);
+  await app.saveCrmHomework();
+  assert.equal(get(app, 'gradePeriodColMissing'), false, 'الميزة لا تُطفأ');
+  assert.equal(log.filter(l => l.table === 'classroom_homework' && l.op === 'update').length, 0, 'لا إعادة حفظ بدون الفترة');
+  assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر حفظ الواجب: الفترة مقفلة/);
+  assert.equal(app.gradePeriodColError({ code: '42703', message: 'column classroom_homework.grade_period does not exist' }), true);
+  assert.equal(app.gradePeriodColError({ code: 'PGRST204', message: "Could not find the 'grade_period' column of 'classroom_tasks' in the schema cache" }), true);
 });
