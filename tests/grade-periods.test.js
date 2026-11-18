@@ -599,7 +599,7 @@ const FULL_PART = (starts, n) => withPeriods({ 'kind:participation': { n: n || 3
 
 
 
-test('انحدار: لا رجوع يُخفي رصدًا (3.61) — التراجع عن بدء فترة فيها رصد مرفوض، والسابقة المقفلة مرفوضة', async () => {
+test('انحدار: لا رجوع يُخفي رصدًا (3.61) — التراجع عن بدء فترة فيها رصد مرفوض؛ وفارغة: يعيد السابقة جارية ومفتوحة (البدء أقفلها)', async () => {
   const later = [{ id: 'r1', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 7 }];
   const log = [];
   const app = settingsApp(FULL_PART(['2026-10-25']), { classroom_grade_period_scores: later }, log);
@@ -608,10 +608,13 @@ test('انحدار: لا رجوع يُخفي رصدًا (3.61) — التراج�
   assert.match(get(app, 'window.__toasts.join()'), /لا رجوع: في الفترة الثانية رصد محفوظ/);
   assert.deepEqual([...get(app, `appFeatures.periods['${TK}']['kind:participation'].starts`)], ['2026-10-25']);
   assert.equal(log.filter(l => l.op !== 'select').length, 0);
-  const locked = settingsApp(FULL_PART(['2026-10-25']), { classroom_grade_period_scores: [] }, []);
-  runInAppContext(locked, `gradePeriodLocks = { '${TK}': { 'kind:participation': { p: 1, before: '2026-10-25' } } };`);
-  assert.equal(await locked.goToComponentPeriod('kind:participation', 1), false);
-  assert.match(get(locked, 'window.__toasts.join()'), /الفترة الأولى مقفلة/);
+  const lockLog = [];
+  const locked = settingsApp(FULL_PART(['2026-10-25']), { classroom_grade_period_scores: [] }, lockLog);
+  runInAppContext(locked, `gradePeriodLocks = { '${TK}': { 'kind:participation': { p: 1, before: '2026-10-25' } } };
+    { const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? (window.__lk = a, Promise.resolve({ data: {}, error: null })) : _r(n, a); }`);
+  assert.equal(await locked.goToComponentPeriod('kind:participation', 1), true, 'التراجع عن بدء الثانية (فارغة)');
+  assert.equal(get(locked, 'window.__lk.p_period'), 0, 'الأولى تعود جارية ومفتوحة كما كانت قبل البدء');
+  assert.deepEqual([...get(locked, `appFeatures.periods['${TK}']['kind:participation'].starts`)], []);
   /* بلا رصد لاحق ولا قفل: تراجع مسموح */
   const app2 = settingsApp(FULL_PART(['2026-10-25']), { classroom_grade_period_scores: [] }, []);
   assert.equal(await app2.goToComponentPeriod('kind:participation', 1), true);
@@ -923,7 +926,7 @@ test('ورقة الحصة — نقرة «الأولى» تعرضها وترصد 
 test('ورقة الحصة — فترة لم تبدأ معطّلة ولا تُختار، والمقفلة تُعرض للعرض فقط', async () => {
   const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
   const { app } = await partSheet('2026-10-27', PART_SEED(), f, { code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)};` });
-  assert.match(sheetHtml(app), /<button type="button" class="" aria-pressed="false" disabled>الثالثة<small>لم تبدأ<\/small>/);
+  assert.match(sheetHtml(app), /<button type="button" class="is-next" aria-expanded="false" onclick="openCrmStartNext\(\)">الثالثة<small>＋ ابدأ<\/small>/, 'التالية مباشرة: «＋ ابدأ» لا «لم تبدأ»');
   assert.match(sheetHtml(app), /setCrmSheetPeriod\(1\)">الأولى<small>🔒<\/small>/);
   await app.setCrmSheetPeriod(3);
   assert.equal(get(app, 'crmSheet.part.period'), 2, 'الثالثة لم تبدأ');
@@ -1319,4 +1322,81 @@ test('انحدار (خطأ صامت): رفض القاعدة نقل واجب لف
   assert.match(get(app, 'window.__toasts.join("|")'), /error:تعذّر حفظ الواجب: الفترة مقفلة/);
   assert.equal(app.gradePeriodColError({ code: '42703', message: 'column classroom_homework.grade_period does not exist' }), true);
   assert.equal(app.gradePeriodColError({ code: 'PGRST204', message: "Could not find the 'grade_period' column of 'classroom_tasks' in the schema cache" }), true);
+});
+
+/* ============ بدء الفترة التالية من الورقة، والتراجع، و«احسب الجارية» (3.68) ============ */
+test('«＋ ابدأ» — لوحة داخل الورقة (لا نافذة)، والبدء يقفل السابقة ويبدأ التالية، ويبقى في الورقة؛ ونقرة ثانية تغلق اللوحة', async () => {
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
+  const log = [];
+  const { app } = await partSheet('2026-10-27', PART_SEED(), f, { code: `${TODAY} enabledSheetModes = () => ['participation'];
+    { const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? Promise.resolve({ data: { '${TK}': { 'kind:participation': { p: a.p_period, before: a.p_before } } }, error: null }) : _r(n, a); }
+    window.__undo = []; showUndoToast = (m, sec) => { window.__undo.push(m); return Promise.resolve(true); };` });
+  runInAppContext(app, `{ const slot = { innerHTML: '' }; const _q = document.getElementById; document.getElementById = id => id === 'crmStartPanelSlot' ? slot : _q(id); window.__slot = slot; }`);
+  const modalBefore = get(app, 'window.__modal');
+  app.openCrmStartNext();
+  assert.equal(get(app, 'window.__modal'), modalBefore, 'لا نافذة');
+  const panel = get(app, 'window.__slot.innerHTML');
+  assert.match(panel, /ابدأ الفترة الثالثة؟[\s\S]*كيف تبدأ الثالثة؟[\s\S]*فارغة[\s\S]*applyCrmStartNext\(\)">أقفل الثانية وابدأ الثالثة/);
+  app.openCrmStartNext();
+  assert.equal(get(app, 'window.__slot.innerHTML'), '', 'نقرة ثانية تغلق');
+  app.openCrmStartNext();
+  assert.equal(await app.applyCrmStartNext(), true);
+  assert.equal(cfgOf(app, 'kind:participation').starts.length, 2, 'بدأت الثالثة');
+  assert.equal(get(app, 'gradePeriodLocks["' + TK + '"]["kind:participation"].p'), 2, 'أُقفلت الثانية');
+  assert.deepEqual(JSON.parse(get(app, 'JSON.stringify(window.__undo)')), ['أُقفلت الفترة الثانية وبدأت الفترة الثالثة ✓'], 'رسالة بزر «تراجع»');
+  assert.equal(get(app, 'crmSheet.part.period'), 3, 'الورقة نفسها الآن على الثالثة');
+});
+
+test('«تراجع» بعد البدء (فارغة) — تعود الثانية جارية ومفتوحة كما كانت؛ وبعد رصد في الجديدة يُرفض بلا دمج', async () => {
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
+  const make = async rows => {
+    const { app } = await partSheet('2026-10-27', { classroom_grade_scores: [], classroom_grade_period_scores: rows }, f, { code: `${TODAY} enabledSheetModes = () => ['participation'];
+      { const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? (window.__lk = (window.__lk || []).concat(a.p_period), Promise.resolve({ data: { '${TK}': a.p_period ? { 'kind:participation': { p: a.p_period, before: a.p_before } } : {} }, error: null })) : _r(n, a); }
+      window.__u = null; showUndoToast = () => new Promise(r => { window.__u = r; });` });
+    runInAppContext(app, `{ const slot = { innerHTML: '' }; const _q = document.getElementById; document.getElementById = id => id === 'crmStartPanelSlot' ? slot : _q(id); }`);
+    app.openCrmStartNext();
+    await app.applyCrmStartNext();
+    return app;
+  };
+  const app = await make([]);
+  runInAppContext(app, 'window.__u(false);');
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(cfgOf(app, 'kind:participation').starts.length, 1, 'رجعت الثانية جارية');
+  assert.deepEqual(JSON.parse(get(app, 'JSON.stringify(window.__lk)')), [2, 1], 'القفل عاد كما كان (الأولى فقط)');
+  const busy = await make([{ id: 'r9', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 3, score: 4 }]);
+  runInAppContext(busy, 'window.__u(false);');
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(cfgOf(busy, 'kind:participation').starts.length, 2, 'فيها رصد: لا تراجع');
+  assert.match(get(busy, 'window.__toasts.join("|")'), /لا رجوع: في الفترة الثالثة رصد محفوظ/);
+});
+
+test('رابط «تراجع عن بدء…» — يظهر فقط إن بدأت الجارية اليوم وأنت عليها؛ و«＋ ابدأ» لا يظهر في الأخيرة', async () => {
+  const today = withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-27'] } });
+  const a = await partSheet('2026-10-27', PART_SEED(), today, { code: TODAY });
+  assert.match(sheetHtml(a.app), /undoCrmSheetPeriodStart\(\)">↶ تراجع عن بدء الفترة الثانية/);
+  assert.doesNotMatch(sheetHtml(a.app), /is-next/, 'الثانية هي الأخيرة: إنهاؤها من ⚙');
+  const old = await partSheet('2026-10-27', PART_SEED(), withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } }), { code: TODAY });
+  assert.doesNotMatch(sheetHtml(old.app), /undoCrmSheetPeriodStart/, 'بدأت قبل أيام: من ⚙ فقط');
+});
+
+test('«احسب الفترة الجارية في الكشف» — لكل مكوّن، مطفأ في الأصل؛ يغيّر الحساب فقط ويبقى عبر بدء الفترات', async () => {
+  const app = loadApp();
+  const cfg = { n: 3, starts: ['2026-10-20'] };
+  assert.equal(app.countedPeriodsOf(cfg), 1, 'الأصل: الجارية (الثانية) لا تُحسب');
+  assert.equal(app.countedPeriodsOf(Object.assign({ live: true }, cfg)), 2, 'مفعّل: تُحسب');
+  assert.equal(app.normalizePeriodCfg({ n: 2, starts: [], live: true }).live, true);
+  assert.equal(app.normalizePeriodCfg({ n: 2, starts: [], live: 'yes' }).live, undefined, 'قيمة غير صالحة تُهمل');
+  const split = app.periodSplitScores([{ d: '2026-10-10', v: 10 }, { d: '2026-10-25', v: 2 }], x => x.d, l => l.length ? l[0].v : null, Object.assign({ live: true }, { n: 3, starts: ['2026-10-20'] }));
+  assert.equal(split.final, 6, 'مثال الإعداد: 10 ثم 2 = 6');
+  const log = [];
+  const s = settingsApp(withPeriods({ 'kind:participation': { n: 3, starts: [] }, 'kind:homework': { n: 2, starts: [] } }), { classroom_grade_period_scores: [] }, log);
+  assert.equal(await s.setComponentPeriodLive('kind:participation', true), true);
+  assert.equal(cfgOf(s, 'kind:participation').live, true);
+  assert.equal(cfgOf(s, 'kind:homework').live, undefined, 'لكل مكوّن على حدة');
+  runInAppContext(s, `{ const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? Promise.resolve({ data: {}, error: null }) : _r(n, a); } periodWinCtx = { key: 'kind:participation' };`);
+  await s.openPeriodTransition(); await s.applyPeriodTransition();
+  assert.equal(cfgOf(s, 'kind:participation').live, true, 'يبقى بعد بدء فترة');
+  assert.equal(log.filter(l => ['insert', 'upsert', 'delete'].includes(l.op)).length, 0, 'لا رصد يُكتب ولا يُحذف');
+  assert.equal(await s.setComponentPeriodLive('kind:participation', false), true);
+  assert.equal(cfgOf(s, 'kind:participation').live, undefined);
 });

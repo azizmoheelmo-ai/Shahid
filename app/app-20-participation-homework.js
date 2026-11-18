@@ -381,6 +381,7 @@ function crmSheetCardHtml(s, lockKey, lockPeriod){
   const chip = crmPeriodChipHtml(s) || '<span></span>';
   return `<div class="csc" id="crmSheetCard">
     <div class="csc-l1">${chip}<button type="button" class="csc-q" aria-label="كيف تعمل هذه الورقة؟" aria-expanded="false" onclick="toggleCrmSheetHelp()">؟</button></div>
+    ${crmStartSlotHtml(s)}
     <div class="csc-l2"><div class="csc-cnt" id="crmCardCount"></div><span id="crmCardFill"></span></div>
     <div class="csc-sub" id="crmToolCounts"></div>
     <div class="csc-bar"><i id="crmCardBar"></i></div>
@@ -557,7 +558,7 @@ async function renderCrmHomework(students, selectId){
   /* بفترات: القائمة واجبات الفترة المعروضة فقط (بموعد التسليم)، والمبدّل أعلاها */
   const pf = sheetPeriodFilter(s, 'kind:homework', hw.homeworks, h => h.due_date, selectId);
   const list = pf.list;
-  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}${crmSheetPeriodStateHtml(s)}`;
+  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}${crmStartSlotHtml(s)}${crmSheetPeriodStateHtml(s)}`;
   const selectedId = (selectId && list.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(list, s.dateIso);
   s.hw = { data: hw, column, selectedId, queue: new Map(), term, chgKey: 'hw:' + selectedId };
   if(!list.length){

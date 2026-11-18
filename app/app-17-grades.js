@@ -579,7 +579,7 @@ function crmGradePeriodPartHtml(g, x, studentId){
   const sub = p => {
     const v = vals[p - 1];
     const label = p > now ? none('لم تبدأ') : v === null ? none('لم يُرصد') : `${formatScore(v)} من ${formatScore(x.max)}`;
-    const tag = p === now && !cfg.ended ? ` <small>(جارية${p > counted ? ' — تُحسب عند انتهائها' : ''})</small>` : '';
+    const tag = p === now && !cfg.ended ? ` <small>(جارية${p > counted ? ' — تُحسب عند انتهائها' : cfg.live && p > 1 ? ' — تُحسب الآن' : ''})</small>` : '';
     return `<div class="crm-gs-sub"><span>${PERIOD_NAMES[p]}${tag}</span><span>${label}</span></div>${p > now ? '' : crmGradeBarHtml(v, x.max)}`;
   };
   /* الدرجة = معدّل الفترات المحسوبة (الجارية بعد الأولى لا تُحسب حتى تنتهي) */

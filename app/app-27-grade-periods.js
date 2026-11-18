@@ -39,7 +39,9 @@ function normalizePeriodCfg(raw){
   const n = Number(raw.n);
   if(!Number.isInteger(n) || n < 2 || n > PERIOD_COUNT_MAX) return null;
   const starts = (Array.isArray(raw.starts) ? raw.starts : []).filter(d => typeof d === 'string' && ISO_DATE_RE.test(d)).sort().slice(0, n - 1);
-  return raw.ended === true && starts.length === n - 1 ? { n, starts, ended: true } : { n, starts };
+  const out = raw.ended === true && starts.length === n - 1 ? { n, starts, ended: true } : { n, starts };
+  if(raw.live === true) out.live = true; /* «احسب الفترة الجارية في الكشف» (اختياري، مطفأ في الأصل) */
+  return out;
 }
 
 /* كم فترة تُحسب في الدرجة: null = الكل (فترة واحدة)؛ في الأولى: الأولى؛ بعدها: المنتهية فقط؛
@@ -48,6 +50,7 @@ function countedPeriodsOf(cfg){
   if(!cfg || cfg.n < 2) return null;
   if(cfg.ended) return cfg.n;
   const cur = currentPeriodOf(cfg);
+  if(cfg.live) return cur; /* الخيار: الجارية تُحسب فورًا (قد يهبط المعدّل عند بدء فترة) */
   return cur === 1 ? 1 : cur - 1;
 }
 
@@ -272,14 +275,14 @@ async function savePeriodCfg(term, key, cfg){
   const next = normalizeFeatures(appFeatures);
   const all = Object.assign({}, next.periods);
   const t = Object.assign({}, all[termPeriodKey(term)]);
-  if(cfg && cfg.n > 1) t[key] = Object.assign({ n: cfg.n, starts: cfg.starts.slice(0, cfg.n - 1) }, cfg.ended && cfg.starts.length >= cfg.n - 1 ? { ended: true } : {}); else delete t[key];
+  if(cfg && cfg.n > 1) t[key] = Object.assign({ n: cfg.n, starts: cfg.starts.slice(0, cfg.n - 1) }, cfg.ended && cfg.starts.length >= cfg.n - 1 ? { ended: true } : {}, cfg.live ? { live: true } : {}); else delete t[key];
   if(Object.keys(t).length) all[termPeriodKey(term)] = t; else delete all[termPeriodKey(term)];
   if(Object.keys(all).length) next.periods = all; else delete next.periods;
   appFeatures = next;
   await saveAppFeatures();
   const saved = periodCfg(term, key);
   const want = normalizePeriodCfg(cfg) || { n: 1, starts: [] };
-  if(saved.n !== want.n || saved.starts.join() !== want.starts.join() || !!saved.ended !== !!want.ended) return false; /* فشل الحفظ: أُعيد المحفوظ */
+  if(saved.n !== want.n || saved.starts.join() !== want.starts.join() || !!saved.ended !== !!want.ended || !!saved.live !== !!want.live) return false; /* فشل الحفظ: أُعيد المحفوظ */
   await applyCountedPeriods(term, key, saved);
   await resyncPeriodComponent(term, key);
   if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
@@ -330,6 +333,18 @@ function periodKeyIsDirect(key){
   return false;
 }
 
+/* من إعداد الدرجات: «احسب الفترة الجارية في الكشف» لمكوّن واحد (حساب فقط: لا يكتب رصدًا ولا يحذفه، وإطفاؤه يعيد الحساب كما كان) */
+async function setComponentPeriodLive(key, on){
+  if(gradePeriodSaving || !currentUser || !isPeriodCompKey(key)) return false;
+  const term = crmCurrentTerm();
+  const cfg = periodCfg(term, key);
+  if(cfg.n < 2 || !!cfg.live === !!on) return false;
+  const next = Object.assign({}, cfg, { live: !!on });
+  if(!on) delete next.live;
+  return withPeriodBusy(() => savePeriodCfg(term, key, next),
+    on ? `«${periodCompName(key)}»: الفترة الجارية تُحسب في الكشف الآن ✓` : `«${periodCompName(key)}»: الفترة تُحسب عند انتهائها ✓`);
+}
+
 /* من إعداد الدرجات: عدد فترات مكوّن (١–٣).
    التقليل (3.62) مسموح بسؤال واضح: رصد الفترات المحذوفة يُحفظ في «المحذوفات» 30 يومًا قبل حذفه (trashProtect)،
    وما كان مقفلًا منها يُفتح؛ ثم «تراجع» يعيد الرصد والفترات والقفل كما كانت. المحسوب (الواجبات/المهام) لا يُحذف منه شيء:
@@ -341,7 +356,7 @@ async function setComponentPeriodCount(key, n){
   const term = crmCurrentTerm();
   const cur = periodCfg(term, key);
   if(cur.n === n) return false;
-  const next = { n, starts: cur.starts.slice(0, n - 1) };
+  const next = Object.assign({ n, starts: cur.starts.slice(0, n - 1) }, cur.live ? { live: true } : {});
   if(n > cur.n) return withPeriodBusy(() => savePeriodCfg(term, key, next), `صار "${periodCompName(key)}" ${PERIOD_COUNT_LABELS[n]} ✓`);
 
   const name = periodCompName(key);
@@ -428,7 +443,7 @@ async function goToComponentPeriod(key, target, dateIso){
   if(target < now || (target === now && cfg.ended)){
     if(target !== now - 1 || cfg.ended){ showToast('لا رجوع لفترات سابقة — افتح الفترة للتعديل من نافذة الفترات', 'error'); return false; }
     const lock = periodLockOf(term, key);
-    if(lock && lock.p >= target){ showToast(`${PERIOD_NAMES[target]} مقفلة — افتحها للتعديل أولًا`, 'error'); return false; }
+    if(lock && lock.p > target){ showToast(`${PERIOD_NAMES[target]} مقفلة — افتحها للتعديل أولًا`, 'error'); return false; }
     if(periodKeyIsDirect(key)){
       let later = [];
       try{ later = await laterPeriodRows(key, target); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
@@ -440,9 +455,13 @@ async function goToComponentPeriod(key, target, dateIso){
       if(k){ showToast(`لا رجوع: في ${PERIOD_NAMES[now]} ${itemsWord(key, k)} — انقلها لفترة أخرى أو احذفها أولًا`, 'error'); return false; }
     }
   }
+  const lockBefore = periodLockOf(term, key);
   return withPeriodBusy(async () => {
     if(target > now) await freezeItemPeriods(key, term, cfg); /* واجبات/مهام ما قبلها تبقى في فترتها */
-    return savePeriodCfg(term, key, { n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) });
+    const ok = await savePeriodCfg(term, key, Object.assign({ n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }, cfg.live ? { live: true } : {}));
+    /* التراجع عن بدء فترة يعيد الحال كما كانت قبل البدء: السابقة جارية ومفتوحة (البدء هو الذي أقفلها) */
+    if(ok && target < now && lockBefore && lockBefore.p >= target) await setPeriodLock(term, key, target - 1, target - 1 > 0 ? lockBeforeFor(cfg, target - 1) : null);
+    return ok;
   }, /* الانتقال يلغي "انتهت" */
     target > now ? `بدأت ${PERIOD_NAMES[target]} في "${periodCompName(key)}" ✓` : `رجعت إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}"`);
 }
@@ -455,8 +474,8 @@ async function undoPeriodStart(){
   const now = currentPeriodOf(cfg);
   if(now < 2 || cfg.ended) return;
   closeCrmModal();
-  if(!(await showConfirm(`تراجع عن بدء ${PERIOD_NAMES[now]} في «${periodCompName(key)}»؟ تعود ${PERIOD_NAMES[now - 1]} جارية (يُسمح فقط إن لم تَرصد في ${PERIOD_NAMES[now]} شيئًا).`))) return;
-  await goToComponentPeriod(key, now - 1);
+  if(!(await showConfirm(`تراجع عن بدء ${PERIOD_NAMES[now]} في «${periodCompName(key)}»؟ تعود ${PERIOD_NAMES[now - 1]} جارية ومفتوحة (يُسمح فقط إن لم تَرصد في ${PERIOD_NAMES[now]} شيئًا).`))) return;
+  await undoComponentPeriodStart(key, now);
 }
 
 function periodCompName(key){
@@ -475,7 +494,7 @@ async function withPeriodBusy(fn, okMsg){
   let ok = false;
   try{ ok = await fn(); } catch(e){ ok = false; }
   finally { gradePeriodSaving = false; }
-  showToast(ok ? okMsg : 'تعذّر الحفظ — أعد المحاولة', ok ? 'ok' : 'error');
+  if(!ok || okMsg !== null) showToast(ok ? okMsg : 'تعذّر الحفظ — أعد المحاولة', ok ? 'ok' : 'error');
   const tab = document.getElementById('crmTabGrades');
   if(tab && tab.style.display !== 'none' && typeof renderCrmGrades === 'function') renderCrmGrades();
   return ok;
@@ -510,12 +529,112 @@ function crmPeriodChipHtml(s){
   const term = crmCurrentTerm();
   const btn = p => {
     const started = p <= info.now;
+    /* الفترة التالية مباشرة: «＋ ابدأ» يفتح لوحة البدء داخل الورقة (لا نافذة) */
+    if(!started && p === info.now + 1 && !info.cfg.ended){
+      return `<button type="button" class="is-next${s.startPanel === info.key ? ' is-open' : ''}" aria-expanded="${s.startPanel === info.key}" onclick="openCrmStartNext()">${PERIOD_NAMES[p].replace('الفترة ', '')}<small>＋ ابدأ</small></button>`;
+    }
     const locked = started && isLockableKey(info.key) && isPeriodLocked(term, info.key, { period: p });
     const tag = !started ? 'لم تبدأ' : locked ? '🔒' : p === info.now && !info.cfg.ended ? 'جارية' : 'منتهية';
     return `<button type="button" class="${p === info.period ? 'is-on' : ''}" aria-pressed="${p === info.period}"${started ? ` onclick="setCrmSheetPeriod(${p})"` : ' disabled'}>${PERIOD_NAMES[p].replace('الفترة ', '')}<small>${tag}</small></button>`;
   };
   return `<div class="crm-per-bar"><div class="tlx-seg crm-per-seg" role="group" aria-label="الفترة">${[1, 2, 3].slice(0, info.cfg.n).map(btn).join('')}</div>
     <button type="button" class="crm-per-gear" onclick="openCrmPeriodPicker()" aria-label="إدارة الفترات (إنهاء، قفل)" title="إدارة الفترات">⚙</button></div>`;
+}
+
+/* تحت المبدّل: مكان لوحة «ابدأ الفترة التالية»، ورابط «تراجع عن بدء…» إن بدأت الجارية اليوم */
+function crmStartSlotHtml(s){
+  const info = sheetPeriodInfo(s);
+  if(!info || info.cfg.n < 2 || !sheetPeriodSwitchable(info.key)) return '';
+  const undo = info.now > 1 && !info.cfg.ended && info.period === info.now && info.cfg.starts[info.now - 2] === localIsoDate()
+    ? `<button type="button" class="crm-per-undo gs-period-btn" onclick="undoCrmSheetPeriodStart()">↶ تراجع عن بدء ${PERIOD_NAMES[info.now]}</button>` : '';
+  return `<div id="crmStartPanelSlot"></div>${undo}`;
+}
+
+function crmStartPanelHtml(d, sum){
+  const next = PERIOD_NAMES[d.now + 1].replace('الفترة ', ''), cur = PERIOD_NAMES[d.now].replace('الفترة ', '');
+  const seg = `<div class="tlx-seg pt-seg" data-f="start">${PERIOD_TRANS_START.map(([v, l]) =>
+    `<button type="button" class="${d.start === v ? 'is-on' : ''}" aria-pressed="${d.start === v}" onclick="setPeriodTrans('start', '${v}')">${l}</button>`).join('')}</div>`;
+  return `<div class="crm-start-panel" role="region" aria-label="ابدأ ${PERIOD_NAMES[d.now + 1]}">
+    <b>ابدأ ${PERIOD_NAMES[d.now + 1]}؟</b>
+    <div id="ptSummary">${periodTransSummaryHtml(d, sum)}</div>
+    ${periodKeyIsDirect(d.key) ? `<div class="crm-start-q">كيف تبدأ ${next}؟</div>${seg}` : ''}
+    <button type="button" class="tlx-btn is-navy gs-period-btn" onclick="applyCrmStartNext()">${isLockableKey(d.key) ? 'أقفل' : 'أنهِ'} ${cur} وابدأ ${next}</button>
+    <button type="button" class="tlx-btn is-ghost" onclick="closeCrmStartNext()">إلغاء</button></div>`;
+}
+
+/* ملخص الفترة التي تُغلق (المرصود بفترة: كم رُصد عبر الشعب) — للنافذة وللوحة الورقة */
+async function loadPeriodTransSummary(d){
+  if(!periodKeyIsDirect(d.key)) return;
+  try{
+    const cols = await directPeriodColumns(d.key);
+    const stats = await directPeriodStats(cols);
+    const st = stats[d.now] || { n: 0, pct: 0 };
+    const sum = { n: st.n, pct: st.pct, total: cols.reduce((t, c) => t + crmStudentsOfSection(c.section_id).length, 0) };
+    const el = periodTransDraft === d && document.getElementById('ptSummary');
+    if(el) el.innerHTML = periodTransSummaryHtml(d, sum);
+  } catch(e){
+    const el = periodTransDraft === d && document.getElementById('ptSummary');
+    if(el) el.innerHTML = '<div class="pt-sum">تعذّر الإحصاء — راجع الكشف</div>';
+  }
+}
+
+/* «＋ ابدأ» على الفترة التالية: لوحة صغيرة داخل الورقة (نقرة ثانية تغلقها) */
+function openCrmStartNext(){
+  const s = crmSheet;
+  const info = sheetPeriodInfo(s);
+  if(!info || gradePeriodSaving || info.cfg.ended || info.now >= info.cfg.n || !sheetPeriodSwitchable(info.key)) return;
+  if(s.startPanel === info.key) return closeCrmStartNext();
+  s.startPanel = info.key;
+  periodWinCtx = { key: info.key };
+  const d = { key: info.key, now: info.now, last: false, start: 'empty', sheet: s };
+  periodTransDraft = d;
+  const slot = document.getElementById('crmStartPanelSlot');
+  if(slot) slot.innerHTML = crmStartPanelHtml(d, null);
+  document.querySelectorAll('.crm-per-seg button.is-next').forEach(b => { b.classList.add('is-open'); b.setAttribute('aria-expanded', 'true'); });
+  loadPeriodTransSummary(d);
+}
+
+function closeCrmStartNext(){
+  const s = crmSheet;
+  if(s) s.startPanel = null;
+  periodTransDraft = null;
+  const slot = document.getElementById('crmStartPanelSlot');
+  if(slot) slot.innerHTML = '';
+  document.querySelectorAll('.crm-per-seg button.is-next').forEach(b => { b.classList.remove('is-open'); b.setAttribute('aria-expanded', 'false'); });
+}
+
+async function applyCrmStartNext(){
+  const d = periodTransDraft;
+  if(!d || !d.sheet || gradePeriodSaving) return false;
+  const key = d.key, started = d.now + 1, start = d.start;
+  if(d.sheet === crmSheet) d.sheet.startPanel = null;
+  const ok = await applyPeriodTransition({ quiet: true });
+  if(!ok) return false;
+  const msg = `${isLockableKey(key) ? 'أُقفلت' : 'انتهت'} ${PERIOD_NAMES[started - 1]} وبدأت ${PERIOD_NAMES[started]} ✓`;
+  /* «تراجع» فوري فقط إن بدأت فارغة (البداية بالكاملة/0 رصدٌ يمنع التراجع — لا حذف صامت) */
+  if(start !== 'empty' || typeof showUndoToast !== 'function'){ showToast(msg, 'ok'); return true; }
+  Promise.resolve(showUndoToast(msg, 8)).then(async finalize => {
+    if(finalize !== false) return;
+    await undoComponentPeriodStart(key, started);
+  }).catch(() => {});
+  return true;
+}
+
+/* التراجع عن بدء الفترة الجارية (من التوست أو الرابط): يُرفض إن كان فيها رصد/واجبات (لا دمج صامت) */
+async function undoComponentPeriodStart(key, started){
+  const cfg = periodCfg(crmCurrentTerm(), key);
+  if(currentPeriodOf(cfg) !== started || cfg.ended) return false; /* تغيّر شيء منذ البدء */
+  const s = typeof crmSheet === 'undefined' ? null : crmSheet;
+  const ok = await goToComponentPeriod(key, started - 1);
+  if(ok && s && crmSheet === s && s.mode) await setCrmSheetMode(s.mode);
+  return ok;
+}
+
+async function undoCrmSheetPeriodStart(){
+  const info = sheetPeriodInfo(crmSheet);
+  if(!info || gradePeriodSaving || info.now < 2 || info.cfg.ended) return;
+  if(!(await showConfirm(`تراجع عن بدء ${PERIOD_NAMES[info.now]} في «${periodCompName(info.key)}»؟ تعود ${PERIOD_NAMES[info.now - 1]} جارية ومفتوحة كما كانت (يُسمح فقط إن لم يُرصد في ${PERIOD_NAMES[info.now]} شيء).`))) return;
+  await undoComponentPeriodStart(info.key, info.now);
 }
 
 /* تبديل الفترة المعروضة في الورقة: يعيد رسم الوضع نفسه */
@@ -1003,18 +1122,7 @@ async function openPeriodTransition(){
   const d = { key, now, last: now === cfg.n, start: 'empty' };
   periodTransDraft = d;
   showInfoModal(periodTransHtml(d, null), '440px');
-  if(!periodKeyIsDirect(key)) return;
-  try{
-    const cols = await directPeriodColumns(key);
-    const stats = await directPeriodStats(cols);
-    const st = stats[now] || { n: 0, pct: 0 };
-    const sum = { n: st.n, pct: st.pct, total: cols.reduce((t, c) => t + crmStudentsOfSection(c.section_id).length, 0) };
-    const el = periodTransDraft === d && document.getElementById('ptSummary');
-    if(el) el.innerHTML = periodTransSummaryHtml(d, sum);
-  } catch(e){
-    const el = periodTransDraft === d && document.getElementById('ptSummary');
-    if(el) el.innerHTML = '<div class="pt-sum">تعذّر الإحصاء — راجع الكشف</div>';
-  }
+  await loadPeriodTransSummary(d);
 }
 
 function setPeriodTrans(field, v){
@@ -1031,7 +1139,7 @@ function setPeriodTrans(field, v){
 
 /* الانتقال بالترتيب: حفظ الفترات ← القفل ← بداية الجديدة (إن اختارها المعلم، كرصد يدوي في سجل الدرجات).
    المنتهية لا يُكتب فيها شيء: من بلا درجة يبقى بلا درجة (تبليغ فقط) */
-async function applyPeriodTransition(){
+async function applyPeriodTransition(opts){
   const d = periodTransDraft;
   if(!d || gradePeriodSaving || !currentUser) return false;
   const term = crmCurrentTerm();
@@ -1043,7 +1151,7 @@ async function applyPeriodTransition(){
   let lockFailed = false;
   const ok = await withPeriodBusy(async () => {
     const cols = await directPeriodColumns(d.key);
-    const next = d.last ? Object.assign({}, cfg, { ended: true }) : { n: cfg.n, starts: periodStartsFor(cfg, d.now + 1, localIsoDate()) };
+    const next = d.last ? Object.assign({}, cfg, { ended: true }) : Object.assign({ n: cfg.n, starts: periodStartsFor(cfg, d.now + 1, localIsoDate()) }, cfg.live ? { live: true } : {});
     if(!d.last) await freezeItemPeriods(d.key, term, cfg); /* واجبات/مهام الفترة المنتهية تبقى فيها */
     if(!(await savePeriodCfg(term, d.key, next))) return false;
     if(isLockableKey(d.key)){
@@ -1054,7 +1162,7 @@ async function applyPeriodTransition(){
       for(const c of cols) await fillPeriodScoresMissing(c, crmStudentsOfSection(c.section_id).map(st => st.id), d.now + 1, valueOf(c, d.start));
     }
     return true;
-  }, d.last ? `انتهت ${PERIOD_NAMES[d.now]} وأُقفلت ✓` : `أُقفلت ${PERIOD_NAMES[d.now]} وبدأت ${PERIOD_NAMES[d.now + 1]} ✓`);
+  }, opts && opts.quiet ? null : d.last ? `انتهت ${PERIOD_NAMES[d.now]} وأُقفلت ✓` : `أُقفلت ${PERIOD_NAMES[d.now]} وبدأت ${PERIOD_NAMES[d.now + 1]} ✓`);
   if(ok && lockFailed) showToast('تمّ الانتقال، وتعذّر القفل — يحتاج تحديث قاعدة البيانات', 'error');
   if(ok && crmSheet && crmSheet.mode && periodCompKeyOfMode(crmSheet.mode) === d.key) await setCrmSheetMode(crmSheet.mode);
   return ok;
@@ -1104,6 +1212,7 @@ function periodHelpState(cfg){
 
 function periodHelpNote(cfg, st){
   if(cfg.ended) return 'انتهت كل الفترات — الدرجة = معدّل الفترات كلها.';
+  if(cfg.live) return 'الخيار مفعّل: الفترة الجارية تُحسب في الدرجة فورًا (من إعداد الدرجات).';
   if(st.pending) return `الدرجة الآن = معدّل الفترات المنتهية فقط. تدخل ${PERIOD_NAMES[st.now]} ${st.now === cfg.n ? 'حين تنهيها' : 'حين تبدأ ' + PERIOD_NAMES[st.now + 1]}.`;
   return 'الدرجة = الفترة الأولى (الجارية). وكل فترة تدخل الدرجة بعد انتهائها.';
 }
