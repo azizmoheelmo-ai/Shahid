@@ -345,15 +345,14 @@ async function reopenLastPeriod(key){
   closeCrmModal();
   const effect = cfg.live ? 'تبقى محسوبة في الكشف (خيار «احسب الفترة الجارية» مفعّل).'
     : `لن تُحسب في الكشف حتى تنهيها — الدرجة الآن = ${cfg.n === 2 ? PERIOD_NAMES[1] + ' وحدها' : 'الفترات المنتهية قبلها'}.`;
-  if(!(await showConfirm(`اجعل ${last} جارية من جديد في «${name}»؟ لا يُحذف أي رصد، وتستطيع الرصد فيها كالمعتاد. ${effect}${lock && lock.p >= cfg.n ? ' وتُفتح لأنها مقفلة.' : ''}`))) return false;
+  if(!(await showConfirm(`اجعل ${last} جارية من جديد في «${name}»؟ لا يُحذف أي رصد، وتستطيع الرصد فيها كالمعتاد. ${effect}${lock && lock.set.has(cfg.n) ? ' وتُفتح لأنها مقفلة.' : ''}`))) return false;
   const again = periodCfg(term, key);
   if(gradePeriodSaving || !again.ended || again.starts.join() !== cfg.starts.join()){ showToast('تغيّرت الفترات — أعد المحاولة', 'error'); return false; }
   const next = Object.assign({}, again);
   delete next.ended;
   return withPeriodBusy(async () => {
     const ok = await savePeriodCfg(term, key, next);
-    const l = periodLockOf(term, key);
-    if(ok && l && l.p >= again.n) await setPeriodLock(term, key, again.n - 1, again.n - 1 > 0 ? lockBeforeFor(again, again.n - 1) : null);
+    if(ok && isPeriodLocked(term, key, { period: again.n })) await setPeriodLockOne(term, key, again.n, false);
     return ok;
   }, `${last} جارية من جديد ✓`);
 }
@@ -387,7 +386,8 @@ async function setComponentPeriodCount(key, n){
   const name = periodCompName(key);
   const now = currentPeriodOf(cur);
   const lock = periodLockOf(term, key);
-  const newLockP = lock ? Math.min(lock.p, n - 1) : 0;
+  const keepLocks = new Set([...(lock ? lock.set : [])].filter(p => p <= n - 1)); /* الفترة n تعود جارية، وما بعدها يُلغى */
+  const locksChange = !!lock && keepLocks.size !== lock.set.size;
   let later = [];
   if(periodKeyIsDirect(key)){
     try{ later = await laterPeriodRows(key, n); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
@@ -404,7 +404,7 @@ async function setComponentPeriodCount(key, n){
   if(later.length) parts.push(`يُحذف رصد ${names} (${students === 1 ? 'طالب واحد' : students === 2 ? 'طالبان' : students + ' طلاب'}) ويبقى في «المحذوفات» ${TRASH_DAYS} يومًا تستطيع استرجاعه.`);
   else if(!periodKeyIsDirect(key) && key !== 'kind:homework' && key !== 'kind:task' && now > n) parts.push(`ما رُصد في ${names} يعود لـ${PERIOD_NAMES[n]} بتاريخه (لا يُحذف شيء).`);
   if(now > n || (now === n && cur.ended)) parts.push(`${PERIOD_NAMES[n]} تعود جارية.`);
-  if(lock && lock.p > newLockP) parts.push('وتُفتح الفترات المقفلة التي تتغيّر.');
+  if(locksChange) parts.push('وتُفتح الفترات المقفلة التي تتغيّر.');
   if(parts.length && !(await showConfirm(`تقليل فترات «${name}» إلى ${PERIOD_COUNT_LABELS[n]}؟ ${parts.join(' ')}`))) return false;
   /* تغيّر شيء أثناء السؤال (جهاز آخر/نقرة أخرى): لا نبني على نسخة قديمة */
   const again = periodCfg(term, key);
@@ -417,7 +417,7 @@ async function setComponentPeriodCount(key, n){
     if(!trash) return false; /* ألغى المعلم الحذف بلا سلة */
   }
   const ok = await withPeriodBusy(async () => {
-    if(lock && lock.p > newLockP) await setPeriodLock(term, key, newLockP, newLockP > 0 ? lockBeforeFor(next, newLockP) : null);
+    if(locksChange) await setPeriodLocks(term, key, keepLocks);
     if(later.length){
       const { error } = await sb.from('classroom_grade_period_scores').delete()
         .eq('teacher_id', currentUser.id).in('id', later.map(r => r.id));
@@ -428,7 +428,7 @@ async function setComponentPeriodCount(key, n){
   if(ok && later.length) trashOfferUndo(`حُذف رصد ${names}`, trash.id, async () => {
     await withPeriodBusy(async () => {
       if(!(await savePeriodCfg(term, key, cur))) return false;
-      if(lock) await setPeriodLock(term, key, lock.p, lock.before);
+      if(lock) await setPeriodLocks(term, key, lock.set);
       return true;
     }, 'عادت الفترات والرصد كما كانت ✓');
   });
@@ -442,7 +442,7 @@ async function endComponentPeriods(key, ended){
   const cfg = periodCfg(term, key);
   if(cfg.n < 2 || currentPeriodOf(cfg) !== cfg.n || !!cfg.ended === !!ended) return false;
   const lock = periodLockOf(term, key);
-  if(!ended && lock && lock.p >= cfg.n){ crmLockedToast(); return false; }
+  if(!ended && lock && lock.set.has(cfg.n)){ crmLockedToast(); return false; }
   return withPeriodBusy(() => savePeriodCfg(term, key, Object.assign({}, cfg, { ended: !!ended })),
     ended ? `انتهت ${PERIOD_NAMES[cfg.n]} — صارت تُحسب في الدرجة ✓` : `${PERIOD_NAMES[cfg.n]} جارية من جديد`);
 }
@@ -467,8 +467,7 @@ async function goToComponentPeriod(key, target, dateIso){
   if(!(target >= 1 && target <= cfg.n) || (target === now && !cfg.ended)) return false;
   if(target < now || (target === now && cfg.ended)){
     if(target !== now - 1 || cfg.ended){ showToast('لا رجوع لفترات سابقة — افتح الفترة للتعديل من نافذة الفترات', 'error'); return false; }
-    const lock = periodLockOf(term, key);
-    if(lock && lock.p > target){ showToast(`${PERIOD_NAMES[target]} مقفلة — افتحها للتعديل أولًا`, 'error'); return false; }
+    if(isPeriodLocked(term, key, { period: now })){ showToast(`${PERIOD_NAMES[now]} مقفلة — افتحها للتعديل أولًا`, 'error'); return false; }
     if(periodKeyIsDirect(key)){
       let later = [];
       try{ later = await laterPeriodRows(key, target); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
@@ -485,7 +484,7 @@ async function goToComponentPeriod(key, target, dateIso){
     if(target > now) await freezeItemPeriods(key, term, cfg); /* واجبات/مهام ما قبلها تبقى في فترتها */
     const ok = await savePeriodCfg(term, key, Object.assign({ n: cfg.n, starts: periodStartsFor(cfg, target, dateIso || localIsoDate()) }, cfg.live ? { live: true } : {}));
     /* التراجع عن بدء فترة يعيد الحال كما كانت قبل البدء: السابقة جارية ومفتوحة (البدء هو الذي أقفلها) */
-    if(ok && target < now && lockBefore && lockBefore.p >= target) await setPeriodLock(term, key, target - 1, target - 1 > 0 ? lockBeforeFor(cfg, target - 1) : null);
+    if(ok && target < now && lockBefore && lockBefore.set.has(target)) await setPeriodLockOne(term, key, target, false);
     return ok;
   }, /* الانتقال يلغي "انتهت" */
     target > now ? `بدأت ${PERIOD_NAMES[target]} في "${periodCompName(key)}" ✓` : `رجعت إلى ${PERIOD_NAMES[target]} في "${periodCompName(key)}"`);
@@ -741,8 +740,8 @@ async function openGradeSettingsFromPeriodPicker(){
 
 /* ============ قفل الفترات المنتهية (3.61) ============
    الفترة التي أنهاها المعلم تُقفل في القاعدة نفسها (grade_lock_guard): لا رصد ولا تعديل ولا حذف فيها حتى «فتح للتعديل».
-   الحالة في user_app_settings.period_locks (عمود مستقل لا يكتبه حفظ الإعدادات): {"سنة|فصل": {"<مكوّن>": {p, before}}}.
-   المرصود بفترة: يُقفل حتى الفترة p. المؤرَّخ (واجب/مهمة/حصة أداة): ما تاريخه قبل before. */
+   الحالة في user_app_settings.period_locks (عمود مستقل لا يكتبه حفظ الإعدادات): {"سنة|فصل": {"<مكوّن>": {periods: {p: {from, before}}}}}.
+   لكل فترة قفل مستقل (3.71؛ PERIODS.md قاعدة 6). المرصود بفترة: بالفترة؛ المؤرَّخ (واجب/مهمة/حصة أداة): بمدى تواريخ الفترة المقفلة. */
 let gradePeriodLocks = {};
 
 async function loadPeriodLocks(uid){
@@ -755,18 +754,36 @@ async function loadPeriodLocks(uid){
 
 function isLockableKey(key){ return /^(kind:(participation|homework|task)|tool:[0-9a-f-]{36})$/i.test(String(key || '')); }
 
+/* القفل لكل فترة مستقل (3.71): {"periods": {"1": {from, before}, "2": {...}}} — فتح الأولى لا يمسّ الثانية.
+   الشكل القديم {p, before} («مقفلة حتى p») يُقرأ كما هو (لا ترحيل): الفترات 1..p، والمؤرَّخ بما قبل before.
+   ترجع { set: Set الفترات المقفلة، ranges: {p: {from, before}} | null، oldBefore } أو null */
 function periodLockOf(term, key){
   const t = gradePeriodLocks && gradePeriodLocks[termPeriodKey(term)];
   const l = t && t[key];
-  return l && Number(l.p) > 0 ? { p: Number(l.p), before: l.before || null } : null;
+  if(!l || typeof l !== 'object') return null;
+  if(l.periods && typeof l.periods === 'object'){
+    const ranges = {};
+    Object.keys(l.periods).forEach(k => {
+      const n = Number(k), r = l.periods[k];
+      if(Number.isInteger(n) && n >= 1 && n <= PERIOD_COUNT_MAX && r && typeof r === 'object') ranges[n] = { from: r.from || null, before: r.before || null };
+    });
+    const set = new Set(Object.keys(ranges).map(Number));
+    return set.size ? { set, ranges, oldBefore: null } : null;
+  }
+  const p = Number(l.p);
+  return p > 0 ? { set: new Set([1, 2, 3].filter(x => x <= p)), ranges: null, oldBefore: l.before || null } : null;
 }
+
+function lockedPeriodsOf(term, key){ const l = periodLockOf(term, key); return l ? l.set : new Set(); }
 
 /* opts: { period } للمرصود بفترة، أو { date } للمؤرَّخ */
 function isPeriodLocked(term, key, opts){
   const l = periodLockOf(term, key);
   if(!l || !opts) return false;
-  if(opts.period) return Number(opts.period) <= l.p;
-  return !!(opts.date && l.before && opts.date < l.before);
+  if(opts.period) return l.set.has(Number(opts.period));
+  if(!opts.date) return false;
+  if(!l.ranges) return !!(l.oldBefore && opts.date < l.oldBefore);
+  return Object.values(l.ranges).some(r => r.before && (!r.from || opts.date >= r.from) && opts.date < r.before);
 }
 
 /* يوم بداية الفترة التالية لـ p (ما قبله مقفل). الأخيرة المنتهية: كل ما مضى */
@@ -774,10 +791,26 @@ function lockBeforeFor(cfg, p){
   return p < cfg.n ? (cfg.starts[p - 1] || null) : '9999-12-31';
 }
 
-async function setPeriodLock(term, key, p, before){
-  const { data, error } = await sb.rpc('set_period_lock', { p_term: termPeriodKey(term), p_key: key, p_period: p, p_before: p > 0 ? before : null });
+/* مدى تواريخ الفترة p (للمؤرَّخ: واجب/مهمة قديمة بلا فترة، رصد أداة الحالة بيوم الحصة) */
+function periodRangeFor(cfg, p){
+  return { from: p > 1 ? (cfg.starts[p - 2] || null) : null, before: lockBeforeFor(cfg, p) || '9999-12-31' };
+}
+
+/* يحفظ مجموعة الفترات المقفلة لمكوّن (كلها معًا، ذرّيًا في القاعدة). المدى من إعداد الفترات الحالي */
+async function setPeriodLocks(term, key, set){
+  const cfg = periodCfg(term, key);
+  const periods = {};
+  [...set].map(Number).filter(p => p >= 1 && p <= PERIOD_COUNT_MAX).sort().forEach(p => { periods[p] = periodRangeFor(cfg, p); });
+  const { data, error } = await sb.rpc('set_period_lock_v2', { p_term: termPeriodKey(term), p_key: key, p_value: Object.keys(periods).length ? { periods } : {} });
   if(error) throw error;
   if(data && typeof data === 'object') gradePeriodLocks = data;
+}
+
+/* قفل/فتح فترة واحدة فقط (لا تمسّ غيرها) */
+async function setPeriodLockOne(term, key, p, locked){
+  const set = new Set(lockedPeriodsOf(term, key));
+  if(locked) set.add(Number(p)); else set.delete(Number(p));
+  return setPeriodLocks(term, key, set);
 }
 
 /* ورقة الحصة: هل رصدها داخل فترة مقفلة؟ (المرصود بفترة: بالفترة، والمؤرَّخ: بيوم الحصة) */
@@ -792,9 +825,8 @@ const periodKeyAttr = key => escapeHtml(key).replace(/'/g, '&#39;');
 /* شريط الفترة المقفلة: للمرصود بفترة زر «فتح للتعديل» مباشرة (بلا نافذة)، وإلا زر «الفترات» */
 function crmLockBannerHtml(key, period){
   const k = periodKeyAttr(key);
-  const lock = period && isLockableKey(key) ? periodLockOf(crmCurrentTerm(), key) : null;
-  const act = lock && lock.p >= period
-    ? `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="quickUnlockPeriod('${k}', ${period})">فتح للتعديل${lock.p > period ? ` (و${[2, 3].filter(x => x > period && x <= lock.p).map(x => PERIOD_NAMES[x].replace('الفترة ', '')).join(' و')} معها)` : ''}</button>`
+  const act = period && isLockableKey(key) && isPeriodLocked(crmCurrentTerm(), key, { period })
+    ? `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="quickUnlockPeriod('${k}', ${period})">فتح للتعديل</button>`
     : `<button type="button" class="tlx-btn is-ghost" onclick="openPeriodsWindow('${k}')">الفترات</button>`;
   return `<div class="crm-lock-banner" role="status">🔒 ${period ? PERIOD_NAMES[period] : 'هذه الفترة'} مقفلة — للعرض فقط.${act}</div>`;
 }
@@ -824,8 +856,7 @@ function crmSheetPeriodStateHtml(s){
 }
 
 /* ============ فتح/قفل سريع من الورقة والكشف (بلا نافذة الفترات) ============
-   القفل متسلسل في القاعدة («مقفلة حتى الفترة p»): فتح الأولى والثانية مقفلة يفتحهما معًا، و«أقفلها» يعيد ما فُتح معها.
-   periodReopened["سنة|فصل|مكوّن"] = ما كان مقفلًا قبل الفتح السريع — للتذكير عند إغلاق الورقة وللقفل من جديد. */
+   كل فترة وحدها (3.71). periodReopened["سنة|فصل|مكوّن"] = Set الفترات التي فُتحت سريعًا — للتذكير بقفلها عند إغلاق الورقة. */
 let periodReopened = {};
 const reopenKey = (term, key) => termPeriodKey(term) + '|' + key;
 
@@ -833,14 +864,11 @@ async function quickUnlockPeriod(key, p){
   p = Number(p);
   if(gradePeriodSaving || !currentUser || !isLockableKey(key)) return false;
   const term = crmCurrentTerm();
-  const lock = periodLockOf(term, key);
-  if(!lock || !(p >= 1 && p <= lock.p)) return false;
-  const cfg = periodCfg(term, key);
+  if(!isPeriodLocked(term, key, { period: p })) return false;
   const s = typeof crmSheet === 'undefined' ? null : crmSheet;
-  const to = p - 1;
-  const ok = await withPeriodBusy(async () => { await setPeriodLock(term, key, to, to > 0 ? lockBeforeFor(cfg, to) : null); return true; },
+  const ok = await withPeriodBusy(async () => { await setPeriodLockOne(term, key, p, false); return true; },
     `فُتحت ${PERIOD_NAMES[p]} للتعديل ✓`);
-  if(ok){ const rk = reopenKey(term, key); periodReopened[rk] = Math.max(periodReopened[rk] || 0, lock.p); }
+  if(ok){ const rk = reopenKey(term, key); (periodReopened[rk] = periodReopened[rk] || new Set()).add(p); }
   await refreshSheetAfterLock(s);
   return ok;
 }
@@ -852,14 +880,11 @@ async function quickLockPeriod(key, p){
   const cfg = periodCfg(term, key); /* أحدث إعداد: لو تراجع عن الفترة من جهاز آخر لا تُقفل جارية */
   if(!periodIsEnded(cfg, p)) return false;
   const rk = reopenKey(term, key);
-  let target = Math.max(p, periodReopened[rk] || 0);
-  while(target > p && !periodIsEnded(cfg, target)) target--;
-  const cur = periodLockOf(term, key);
-  if(cur && cur.p >= target){ delete periodReopened[rk]; return true; }
+  if(isPeriodLocked(term, key, { period: p })){ if(periodReopened[rk]){ periodReopened[rk].delete(p); if(!periodReopened[rk].size) delete periodReopened[rk]; } return true; }
   const s = typeof crmSheet === 'undefined' ? null : crmSheet;
-  const ok = await withPeriodBusy(async () => { await setPeriodLock(term, key, target, lockBeforeFor(cfg, target)); return true; },
+  const ok = await withPeriodBusy(async () => { await setPeriodLockOne(term, key, p, true); return true; },
     `أُقفلت ${PERIOD_NAMES[p]} ✓`);
-  if(ok) delete periodReopened[rk];
+  if(ok && periodReopened[rk]){ periodReopened[rk].delete(p); if(!periodReopened[rk].size) delete periodReopened[rk]; }
   await refreshSheetAfterLock(s);
   return ok;
 }
@@ -869,20 +894,19 @@ async function refreshSheetAfterLock(s){
   if(s && typeof crmSheet !== 'undefined' && crmSheet === s && s.mode && typeof setCrmSheetMode === 'function') await setCrmSheetMode(s.mode);
 }
 
-/* عند إغلاق ورقة الحصة: فترة فُتحت سريعًا وما زالت مفتوحة ← سؤال واحد «أقفلها؟» (مرة واحدة لا يتكرر) */
+/* عند إغلاق ورقة الحصة: فترة فُتحت سريعًا وما زالت مفتوحة ← سؤال واحد «أقفلها؟» لكل فترة (مرة واحدة لا يتكرر) */
 async function remindReopenedPeriods(){
   const term = crmCurrentTerm();
   const pref = termPeriodKey(term) + '|';
   for(const rk of Object.keys(periodReopened)){
     if(rk.indexOf(pref) !== 0) continue;
-    const key = rk.slice(pref.length), want = periodReopened[rk];
+    const key = rk.slice(pref.length), ps = [...periodReopened[rk]].sort();
     delete periodReopened[rk];
-    const cur = periodLockOf(term, key);
-    if(cur && cur.p >= want) continue;
-    const p = (cur ? cur.p : 0) + 1;
-    if(!(await showConfirm(`${PERIOD_NAMES[p]} في «${periodCompName(key)}» ما زالت مفتوحة للتعديل — أقفلها الآن؟`))) continue;
-    periodReopened[rk] = want;
-    await quickLockPeriod(key, p);
+    for(const p of ps){
+      if(isPeriodLocked(term, key, { period: p }) || !periodIsEnded(periodCfg(term, key), p)) continue;
+      if(!(await showConfirm(`${PERIOD_NAMES[p]} في «${periodCompName(key)}» ما زالت مفتوحة للتعديل — أقفلها الآن؟`))) continue;
+      await quickLockPeriod(key, p);
+    }
   }
 }
 
@@ -982,8 +1006,7 @@ function crmGradePeriodViewHtml(g, p){
   let html = info.filter(x => isLockableKey(x.key) && periodIsEnded(gradeColumnPeriodCfg(g, x.c), p)).map(x => {
     const nm = `${PERIOD_NAMES[p]} في «${escapeHtml(x.c.name)}»`;
     if(!x.locked) return crmOpenBannerHtml(x.key, p, nm);
-    const lock = periodLockOf(term, x.key);
-    return `<div class="crm-lock-banner" role="status">🔒 ${nm} مقفلة.<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="quickUnlockPeriod('${k(x)}', ${p})">فتح للتعديل${lock && lock.p > p ? ' (وما بعدها معها)' : ''}</button></div>`;
+    return `<div class="crm-lock-banner" role="status">🔒 ${nm} مقفلة.<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="quickUnlockPeriod('${k(x)}', ${p})">فتح للتعديل</button></div>`;
   }).join('');
   html += rec.length ? `<div class="crm-gs-rec"><span>رصد ${PERIOD_NAMES[p].replace('الفترة ', '')}:</span>${rec.map(x =>
     `<button type="button" class="crm-gs-recchip" onclick="openCrmGradeEntry('${x.c.id}')">${escapeHtml(x.c.name)}</button>`).join('')}</div>` : '';
@@ -1031,10 +1054,8 @@ async function finishGradeEditPeriod(lock){
   if(!m || gradePeriodSaving) return;
   if(lock && isLockableKey(m.key)){
     const term = crmCurrentTerm();
-    const cfg = periodCfg(term, m.key);
-    const cur = periodLockOf(term, m.key);
-    if(!cur || cur.p < m.period){
-      const ok = await withPeriodBusy(async () => { await setPeriodLock(term, m.key, m.period, lockBeforeFor(cfg, m.period)); return true; }, `أُقفلت ${PERIOD_NAMES[m.period]} ✓`);
+    if(!isPeriodLocked(term, m.key, { period: m.period })){
+      const ok = await withPeriodBusy(async () => { await setPeriodLockOne(term, m.key, m.period, true); return true; }, `أُقفلت ${PERIOD_NAMES[m.period]} ✓`);
       if(!ok) return;
     }
   }
@@ -1072,7 +1093,7 @@ function periodCardsHtml(key, cfg, lock, stats, total){
   const now = currentPeriodOf(cfg);
   return [1, 2, 3].slice(0, cfg.n).map(p => {
     const ended = p < now || (p === now && cfg.ended);
-    const locked = ended && lock && p <= lock.p;
+    const locked = ended && !!lock && lock.set.has(p);
     const pill = locked ? '<span class="tlx-pill">🔒 مقفلة</span>'
       : ended ? `<span class="tlx-pill is-gold">${isLockableKey(key) ? 'مفتوحة للتعديل' : 'منتهية'}</span>`
       : p === now ? '<span class="tlx-pill is-gold">جارية</span>' : '<span class="tlx-pill is-blue">لم تبدأ</span>';
@@ -1082,10 +1103,10 @@ function periodCardsHtml(key, cfg, lock, stats, total){
     let acts = '';
     if(p === now && !cfg.ended) acts = `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="openPeriodTransition()">${p < cfg.n ? `أنهِ ${PERIOD_NAMES[p]} وأقفلها ← ابدأ ${PERIOD_NAMES[p + 1]}` : `أنهِ ${PERIOD_NAMES[p]} وأقفلها`}</button>`;
     if(p === now && !cfg.ended && p > 1 && !(stats && stats[p])) acts += '<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="undoPeriodStart()">تراجع عن بدئها</button>';
-    else if(locked && p === lock.p) acts = '<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="unlockLatestPeriod()">فتح للتعديل</button>';
+    else if(locked) acts = `<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="unlockLatestPeriod(${p})">فتح للتعديل</button>`;
     else if(ended && !locked){
       if(periodKeyIsDirect(key)) acts += `<button type="button" class="tlx-btn is-navy gs-period-btn" onclick="startGradeEditPeriod(${p})">✏️ عدّل درجات ${PERIOD_NAMES[p].replace('الفترة ', '')} في الكشف ←</button>`;
-      if(isLockableKey(key) && p === (lock ? lock.p : 0) + 1) acts += '<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="lockNextEndedPeriod()">🔒 أقفلها</button>';
+      if(isLockableKey(key)) acts += `<button type="button" class="tlx-btn is-ghost gs-period-btn" onclick="lockNextEndedPeriod(${p})">🔒 أقفلها</button>`;
     }
     return `<div class="pw-card${p === now && !cfg.ended ? ' is-cur' : ''}"><div class="pw-top"><b>${PERIOD_NAMES[p]}</b>${pill}</div>
       <div class="pw-meta">${escapeHtml(meta)}</div>${acts ? `<div class="pw-acts">${acts}</div>` : ''}</div>`;
@@ -1199,7 +1220,7 @@ async function applyPeriodTransition(opts){
     if(!d.last) await freezeItemPeriods(d.key, term, cfg); /* واجبات/مهام الفترة المنتهية تبقى فيها */
     if(!(await savePeriodCfg(term, d.key, next))) return false;
     if(isLockableKey(d.key)){
-      try{ await setPeriodLock(term, d.key, d.now, lockBeforeFor(periodCfg(term, d.key), d.now)); }
+      try{ await setPeriodLockOne(term, d.key, d.now, true); }
       catch(e){ lockFailed = true; } /* الانتقال تمّ؛ القفل يحتاج تحديث القاعدة */
     }
     if(!d.last && d.start !== 'empty'){
@@ -1212,31 +1233,30 @@ async function applyPeriodTransition(opts){
   return ok;
 }
 
-async function unlockLatestPeriod(){
+/* من نافذة الفترات: فتح فترة مقفلة بعينها (p؛ بلا p: آخر مقفلة) — لا تمسّ غيرها */
+async function unlockLatestPeriod(p){
   const key = periodWinCtx && periodWinCtx.key;
   if(!key || gradePeriodSaving) return;
   const term = crmCurrentTerm();
-  const lock = periodLockOf(term, key);
-  if(!lock) return;
+  const set = lockedPeriodsOf(term, key);
+  p = Number(p) || Math.max(0, ...set);
+  if(!set.has(p)) return;
   closeCrmModal();
-  if(!(await showConfirm(`فتح ${PERIOD_NAMES[lock.p]} في «${periodCompName(key)}» للتعديل؟ تستطيع تعديل رصدها، ثم أقفلها من جديد من نافذة الفترات.`))) return;
-  const cfg = periodCfg(term, key);
-  const p = lock.p - 1;
-  await withPeriodBusy(async () => { await setPeriodLock(term, key, p, p > 0 ? lockBeforeFor(cfg, p) : null); return true; },
-    `${PERIOD_NAMES[lock.p]} مفتوحة للتعديل — أقفلها بعد الانتهاء`);
+  if(!(await showConfirm(`فتح ${PERIOD_NAMES[p]} في «${periodCompName(key)}» للتعديل؟ تستطيع تعديل رصدها، ثم أقفلها من جديد.`))) return;
+  await withPeriodBusy(async () => { await setPeriodLockOne(term, key, p, false); return true; },
+    `${PERIOD_NAMES[p]} مفتوحة للتعديل — أقفلها بعد الانتهاء`);
   openPeriodsWindow(key);
 }
 
-async function lockNextEndedPeriod(){
+/* من نافذة الفترات: قفل فترة منتهية بعينها (p؛ بلا p: أول منتهية غير مقفلة) */
+async function lockNextEndedPeriod(p){
   const key = periodWinCtx && periodWinCtx.key;
   if(!key || gradePeriodSaving || !isLockableKey(key)) return;
   const term = crmCurrentTerm();
   const cfg = periodCfg(term, key);
-  const lock = periodLockOf(term, key);
-  const p = (lock ? lock.p : 0) + 1;
-  const now = currentPeriodOf(cfg);
-  if(!(p < now || (p === now && cfg.ended))) return;
-  await withPeriodBusy(async () => { await setPeriodLock(term, key, p, lockBeforeFor(cfg, p)); return true; }, `أُقفلت ${PERIOD_NAMES[p]} ✓`);
+  p = Number(p) || [1, 2, 3].find(x => x <= cfg.n && periodIsEnded(cfg, x) && !isPeriodLocked(term, key, { period: x }));
+  if(!p || !periodIsEnded(cfg, p) || isPeriodLocked(term, key, { period: p })) return;
+  await withPeriodBusy(async () => { await setPeriodLockOne(term, key, p, true); return true; }, `أُقفلت ${PERIOD_NAMES[p]} ✓`);
   openPeriodsWindow(key);
 }
 
