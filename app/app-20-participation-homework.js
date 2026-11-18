@@ -384,7 +384,6 @@ function crmSheetCardHtml(s, lockKey, lockPeriod){
     <div class="csc-sub" id="crmToolCounts"></div>
     <div class="csc-bar"><i id="crmCardBar"></i></div>
     ${lockKey ? crmLockBannerHtml(lockKey, lockPeriod) : crmSheetOpenBannerHtml(s)}
-    ${crmSheetPeriodNoteHtml(s)}
   </div>
   <div id="crmSheetHelp" class="csc-help" style="display:none;"></div>
   <div id="crmFillPanel" class="csc-fill" style="display:none;"></div>`;
@@ -557,7 +556,7 @@ async function renderCrmHomework(students, selectId){
   /* بفترات: القائمة واجبات الفترة المعروضة فقط (بموعد التسليم)، والمبدّل أعلاها */
   const pf = sheetPeriodFilter(s, 'kind:homework', hw.homeworks, h => h.due_date, selectId);
   const list = pf.list;
-  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}${crmSheetPeriodNoteHtml(s)}`;
+  const top = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}${crmPeriodChipHtml(s)}`;
   const selectedId = (selectId && list.some(h => h.id === selectId)) ? selectId : defaultHomeworkId(list, s.dateIso);
   s.hw = { data: hw, column, selectedId, queue: new Map(), term, chgKey: 'hw:' + selectedId };
   if(!list.length){

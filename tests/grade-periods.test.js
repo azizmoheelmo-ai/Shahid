@@ -895,14 +895,14 @@ const PART_SEED = () => ({
   classroom_grade_period_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 6 }, { teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 3 }],
 });
 
-test('ورقة الحصة — نقرة «الأولى» تعرضها وترصد فيها، بلا أي تغيير في إعداد الفترات؛ و«رجوع لفترة الحصة» يعيد الثانية', async () => {
+test('ورقة الحصة — نقرة «الأولى» تعرضها وترصد فيها، بلا أي تغيير في إعداد الفترات؛ ونقرة «الثانية» تعيدها (بلا مربع شرح زائد)', async () => {
   const { app, log } = await partSheet('2026-10-27', PART_SEED(), PART2, { rpc: { increment_period_score: 7 } });
   const before = JSON.stringify(get(app, 'appFeatures.periods'));
   await app.setCrmSheetPeriod(1);
   assert.equal(get(app, 'crmSheet.part.period'), 1);
   assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 6, 'درجة الأولى لا الثانية');
   assert.match(sheetHtml(app), /aria-pressed="true" onclick="setCrmSheetPeriod\(1\)">الأولى/);
-  assert.match(sheetHtml(app), /تعرض الفترة الأولى — ما ترصده الآن يُحفظ في الفترة الأولى[\s\S]*setCrmSheetPeriod\(2\)">رجوع لفترة الحصة \(الثانية\)/);
+  assert.doesNotMatch(sheetHtml(app), /crm-per-note|رجوع لفترة الحصة/, 'الزر المحدَّد يكفي');
   app.tapCrmParticipation('a', 1);
   await get(app, 'crmSheet.part.queue.get("a")');
   assert.equal(rpcs(log, 'increment_period_score')[0].p_period, 1);
@@ -950,7 +950,7 @@ test('ورقة الواجب — القائمة واجبات الفترة الم�
   await app.setCrmSheetPeriod(1);
   html = sheetHtml(app);
   assert.match(html, /واجب h1/); assert.doesNotMatch(html, /واجب h2/);
-  assert.match(html, /القائمة تعرض ما موعده في الفترة الأولى/);
+  assert.match(html, /aria-pressed="true" onclick="setCrmSheetPeriod\(1\)">الأولى/);
   await app.setCrmSheetPeriod(2);
   await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'), 'h1');
   assert.equal(get(app, 'crmSheet.hw.selectedId'), 'h1', 'واجب أُنشئ/اختير في الأولى: الورقة تنتقل لها');

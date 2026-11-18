@@ -398,15 +398,6 @@ function crmPeriodChipHtml(s){
     <button type="button" class="crm-per-gear" onclick="openCrmPeriodPicker()" aria-label="إدارة الفترات (إنهاء، قفل)" title="إدارة الفترات">⚙</button></div>`;
 }
 
-/* سطر تحت المبدّل حين تُعرض فترة غير فترة الحصة */
-function crmSheetPeriodNoteHtml(s){
-  const info = sheetPeriodInfo(s);
-  if(!info || info.cfg.n < 2 || info.period === info.datePeriod) return '';
-  const what = periodKeyIsDirect(info.key) ? `ما ترصده الآن يُحفظ في ${PERIOD_NAMES[info.period]}` : `القائمة تعرض ما موعده في ${PERIOD_NAMES[info.period]}`;
-  return `<div class="crm-per-note" role="status">تعرض ${PERIOD_NAMES[info.period]} — ${what}.
-    <button type="button" onclick="setCrmSheetPeriod(${info.datePeriod})">رجوع لفترة الحصة (${PERIOD_NAMES[info.datePeriod].replace('الفترة ', '')})</button></div>`;
-}
-
 /* تبديل الفترة المعروضة في الورقة: يعيد رسم الوضع نفسه */
 function setCrmSheetPeriod(p){
   const s = crmSheet;
