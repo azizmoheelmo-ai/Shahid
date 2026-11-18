@@ -542,6 +542,62 @@ function crmAbsentClass(s, studentId){
 }
 
 /* ============ وضع الواجب ============ */
+/* ============ قائمة الواجبات: بطاقات مجمّعة بالفترة (3.64) ============
+   الفترة الجارية مفتوحة، والمنتهية مطوية (تُفتح بنقرة). كل بطاقة: العنوان، والموعد، و«سلّم X من Y». */
+let crmHwOpenPeriods = null; /* { key: 'section|term', open: Set } — يبقى أثناء الجلسة */
+function crmHwListHtml(s, hw, selectedId, students, term){
+  const cfg = periodCfg(term, 'kind:homework');
+  const now = currentPeriodOf(cfg);
+  const ids = students.map(st => st.id);
+  const idSet = new Set(ids);
+  const done = new Map();
+  (hw.statusRows || []).forEach(r => { if(idSet.has(r.student_id)) done.set(r.homework_id, (done.get(r.homework_id) || 0) + 1); });
+  const perOf = h => cfg.n > 1 ? Math.min(cfg.n, periodOfDateFor(h.due_date, cfg.starts)) : 1;
+  const sel = hw.homeworks.find(h => h.id === selectedId);
+  const k = s.sectionId + '|' + termPeriodKey(term);
+  if(!crmHwOpenPeriods || crmHwOpenPeriods.key !== k) crmHwOpenPeriods = { key: k, open: new Set([now]) };
+  if(sel) crmHwOpenPeriods.open.add(perOf(sel));
+  const card = h => {
+    const n = done.get(h.id) || 0;
+    const on = h.id === selectedId;
+    return `<div class="hwc${on ? ' is-on' : ''}" role="button" tabindex="0" aria-pressed="${on}" onclick="selectCrmHomework('${h.id}')">
+      <div class="hwc-t"><span>${escapeHtml(h.title)}</span>${on ? `<button type="button" class="hwc-edit" aria-label="تعديل الواجب" onclick="event.stopPropagation();openCrmHomeworkEditor('${h.id}')">✎</button>` : ''}</div>
+      <div class="hwc-m"><span>${escapeHtml(shortDateAr(h.due_date))}</span><span${on ? ' id="crmHwSelCount"' : ''}>سلّم ${n} من ${ids.length}</span></div>
+      <div class="hwc-b"><i${on ? ' id="crmHwSelBar"' : ''} style="width:${ids.length ? Math.round(100 * n / ids.length) : 0}%"></i></div></div>`;
+  };
+  const add = '<button type="button" class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>';
+  if(cfg.n < 2){
+    return `<div class="hwg-h"><span>الواجبات</span>${add}</div><div class="hwl">${hw.homeworks.slice().reverse().map(card).join('')}</div>`;
+  }
+  const lock = periodLockOf(term, 'kind:homework');
+  const groups = [];
+  for(let p = cfg.n; p >= 1; p--){
+    const list = hw.homeworks.filter(h => perOf(h) === p).slice().reverse();
+    if(p > now && !list.length) continue;
+    const state = lock && p <= lock.p ? '🔒 ' : '';
+    const label = `${state}${PERIOD_NAMES[p]}${p === now && !cfg.ended ? ' · جارية' : ''}`;
+    const open = crmHwOpenPeriods.open.has(p);
+    if(p === now){
+      groups.push(`<div class="hwg-h"><span>${label}</span>${add}</div><div class="hwl">${list.length ? list.map(card).join('') : '<div class="hwl-empty">لا واجبات في هذه الفترة بعد.</div>'}</div>`);
+    } else {
+      groups.push(`<button type="button" class="hwg-c" aria-expanded="${open}" onclick="toggleCrmHwPeriod(${p})"><span>${label} · ${list.length === 1 ? 'واجب واحد' : list.length === 2 ? 'واجبان' : list.length + ' واجبات'}</span><span>${open ? '▾' : '◂'}</span></button>
+        ${open ? `<div class="hwl">${list.map(card).join('')}</div>` : ''}`);
+    }
+  }
+  return groups.join('');
+}
+function selectCrmHomework(id){
+  const s = crmSheet;
+  if(!s || !s.hw || s.mode !== 'homework') return;
+  renderCrmHomework(crmStudentsOfSection(s.sectionId), id);
+}
+function toggleCrmHwPeriod(p){
+  const s = crmSheet;
+  if(!s || !s.hw || !crmHwOpenPeriods) return;
+  if(crmHwOpenPeriods.open.has(p)) crmHwOpenPeriods.open.delete(p); else crmHwOpenPeriods.open.add(p);
+  renderCrmHomework(crmStudentsOfSection(s.sectionId), s.hw.selectedId);
+}
+
 async function renderCrmHomework(students, selectId){
   const s = crmSheet;
   const body = document.getElementById('crmLessonSheetBody');
@@ -580,15 +636,9 @@ async function renderCrmHomework(students, selectId){
       column ? `يُحسب في عمود «${escapeHtml(column.name)}» في الكشف (سلّم كاملة، متأخر ثلاثة أرباع، ناقص نصف).` : 'أضف عمود واجبات في الكشف ليُحسب تلقائيًا.',
       ...(perOn ? [`كل واجب في فترة موعد تسليمه — هذا الواجب في <b>${PERIOD_NAMES[hwPer]}</b>.`] : []),
       '«تعبئة الباقين» تغيّر من «لم يسلّم» فقط، ولا تمسّ من رُصد له.',
-      'لإضافة واجب أو تعديله أو حذفه: «+ واجب» و«✎ تعديل».'] };
+      'لإضافة واجب: «+ واجب». ولتعديله أو حذفه: ✎ على بطاقته.'] };
   body.innerHTML = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}` + `
-    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-      <select class="goal-input" style="margin:0;flex:1;" onchange="renderCrmHomework(crmStudentsOfSection(crmSheet.sectionId), this.value)">
-        ${hw.homeworks.map(h => `<option value="${h.id}"${h.id === selectedId ? ' selected' : ''}>${escapeHtml(h.title)} · ${shortDateAr(h.due_date)}${perOn ? ' · ' + PERIOD_NAMES[Math.min(hcfg.n, periodOfDateFor(h.due_date, hcfg.starts))] : ''}</option>`).join('')}
-      </select>
-      <button class="btn btn-outline crm-mini-btn" title="تعديل أو حذف الواجب المختار" onclick="openCrmHomeworkEditor(crmSheet.hw && crmSheet.hw.selectedId)">✎ تعديل</button>
-      <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
-    </div>
+    ${crmHwListHtml(s, hw, selectedId, students, term)}
     ${crmSheetCardHtml(s, hwLocked ? 'kind:homework' : null, hwPer, 'crmHwCounts')}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
@@ -621,6 +671,9 @@ function paintCrmHomeworkCounts(){
   const c = homeworkCounts(crmSheet.hw.statuses, ids);
   el.textContent = [c.partial ? `ناقص ${c.partial}` : '', c.late ? `متأخر ${c.late}` : '', c.missing ? `لم يسلّم ${c.missing}` : ''].filter(Boolean).join(' · ');
   if(crmSheet.card && crmSheet.card.kind === 'hw') paintCrmSheetCard(ids.length - c.missing, ids.length, crmSheet.hw.locked);
+  const selCount = document.getElementById('crmHwSelCount'), selBar = document.getElementById('crmHwSelBar');
+  if(selCount) selCount.textContent = `سلّم ${ids.length - c.missing} من ${ids.length}`;
+  if(selBar) selBar.style.width = (ids.length ? Math.round(100 * (ids.length - c.missing) / ids.length) : 0) + '%';
 }
 
 /* حفظ حالة طالب ثم إعادة حساب درجته — بالتتابع لكل طالب */

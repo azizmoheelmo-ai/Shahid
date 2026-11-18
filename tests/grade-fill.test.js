@@ -290,3 +290,30 @@ test('المهام: البطاقة «قُيّم 1 من 2»، والتعبئة ل
   app.toggleCrmSheetHelp();
   assert.match(elHtml(app, 'crmSheetHelp'), /اضغط على الطالب لرصد درجته من <b>10<\/b>/);
 });
+
+test('الواجب: القائمة بطاقات مجمّعة بالفترة — الجارية مفتوحة، والمنتهية مطوية بعددها، والعنوان مهرَّب، و«سلّم X من Y» لكل واجب', async () => {
+  const seed = HW_CARD_SEED();
+  seed.classroom_homework.push(
+    { id: 'H0', teacher_id: 'u1', section_id: 'S', title: '<img src=x onerror=alert(1)>', due_date: '2026-09-20', academic_year: TERM.year, semester: 1 },
+    { id: 'H2', teacher_id: 'u1', section_id: 'S', title: 'واجب ثانٍ', due_date: '2026-10-06', academic_year: TERM.year, semester: 1 });
+  const log = [];
+  const app = appWith(seed, log, { sections: {}, tools: {}, periods: { [TERM.year + '|1']: { 'kind:homework': { n: 2, starts: ['2026-10-01'] } } } });
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-06', period: 1, token: 1, mode: 'homework', states: {} }; crmHwOpenPeriods = null;`);
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  let body = sheetBody(app);
+  assert.match(body, /الفترة الثانية · جارية[\s\S]*openCrmHomeworkModal\(\)[\s\S]*class="hwc is-on"[\s\S]*selectCrmHomework\('H2'\)[\s\S]*واجب ثانٍ[\s\S]*سلّم 0 من 2[\s\S]*selectCrmHomework\('H'\)[\s\S]*سلّم 1 من 2/);
+  assert.match(body, /toggleCrmHwPeriod\(1\)[^>]*><span>الفترة الأولى · واجب واحد<\/span><span>◂/, 'المنتهية مطوية');
+  assert.doesNotMatch(body, /selectCrmHomework\('H0'\)/);
+  assert.doesNotMatch(body, /<select/, 'لا قائمة منسدلة');
+  app.toggleCrmHwPeriod(1);
+  await new Promise(r => setTimeout(r, 0));
+  body = sheetBody(app);
+  assert.match(body, /selectCrmHomework\('H0'\)/);
+  assert.doesNotMatch(body, /<img src=x/, 'العنوان مهرَّب');
+  app.selectCrmHomework('H');
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(get(app, 'crmSheet.hw.selectedId'), 'H');
+  assert.match(sheetBody(app), /class="hwc is-on"[^>]*onclick="selectCrmHomework\('H'\)"[\s\S]*openCrmHomeworkEditor\('H'\)/);
+  app.tapCrmHomework('b');
+  assert.equal(get(app, `document.getElementById('crmHwSelCount').textContent`), 'سلّم 2 من 2', 'تتحدّث فورًا');
+});
