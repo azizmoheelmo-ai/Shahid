@@ -223,8 +223,10 @@ function periodKeyIsDirect(key){
   return false;
 }
 
-/* من إعداد الدرجات: عدد فترات مكوّن (١–٣). لا يحذف رصدًا أبدًا (3.61): لا تقليل تحت الفترة الجارية،
-   ولا تقليل يُخفي فترة فيها رصد */
+/* من إعداد الدرجات: عدد فترات مكوّن (١–٣).
+   التقليل (3.62) مسموح بسؤال واضح: رصد الفترات المحذوفة يُحفظ في «المحذوفات» 30 يومًا قبل حذفه (trashProtect)،
+   وما كان مقفلًا منها يُفتح؛ ثم «تراجع» يعيد الرصد والفترات والقفل كما كانت. المحسوب (الواجبات/المهام) لا يُحذف منه شيء:
+   يُعاد توزيعه بتاريخه. */
 async function setComponentPeriodCount(key, n){
   if(gradePeriodSaving || !currentUser || !isPeriodCompKey(key)) return false;
   n = Number(n);
@@ -232,22 +234,53 @@ async function setComponentPeriodCount(key, n){
   const term = crmCurrentTerm();
   const cur = periodCfg(term, key);
   if(cur.n === n) return false;
-  if(n < cur.n){
-    const now = currentPeriodOf(cur);
-    if(n < now || (n === now && cur.ended && now === cur.n)){
-      showToast(`لا يمكن: ${PERIOD_NAMES[now]} ${cur.ended ? 'انتهت' : 'بدأت'}. الفترات التي بدأت تبقى كما هي`, 'error');
-      return false;
-    }
-    const lock = periodLockOf(term, key);
-    if(lock && lock.p > n){ showToast('لا يمكن: فيها فترة مقفلة', 'error'); return false; }
-    if(periodKeyIsDirect(key)){
-      let later = [];
-      try{ later = await laterPeriodRows(key, n); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
-      if(later.length){ showToast(`لا يمكن: في ${PERIOD_NAMES[n + 1]} رصد محفوظ`, 'error'); return false; }
-    }
+  const next = { n, starts: cur.starts.slice(0, n - 1) };
+  if(n > cur.n) return withPeriodBusy(() => savePeriodCfg(term, key, next), `صار "${periodCompName(key)}" ${PERIOD_COUNT_LABELS[n]} ✓`);
+
+  const name = periodCompName(key);
+  const now = currentPeriodOf(cur);
+  const lock = periodLockOf(term, key);
+  const newLockP = lock ? Math.min(lock.p, n - 1) : 0;
+  let later = [];
+  if(periodKeyIsDirect(key)){
+    try{ later = await laterPeriodRows(key, n); } catch(e){ showToast('تعذّر الفحص — أعد المحاولة', 'error'); return false; }
   }
-  return withPeriodBusy(() => savePeriodCfg(term, key, { n, starts: cur.starts.slice(0, n - 1) }),
-    `صار "${periodCompName(key)}" ${PERIOD_COUNT_LABELS[n]} ✓`);
+  const gone = [1, 2, 3].filter(p => p > n && p <= cur.n);
+  const names = gone.map(p => PERIOD_NAMES[p]).join(' و');
+  const students = new Set(later.map(r => r.student_id)).size;
+  const parts = [];
+  if(later.length) parts.push(`يُحذف رصد ${names} (${students === 1 ? 'طالب واحد' : students === 2 ? 'طالبان' : students + ' طلاب'}) ويبقى في «المحذوفات» ${TRASH_DAYS} يومًا تستطيع استرجاعه.`);
+  else if(!periodKeyIsDirect(key) && now > n) parts.push(`ما رُصد في ${names} يعود لـ${PERIOD_NAMES[n]} بتاريخه (لا يُحذف شيء).`);
+  if(now > n || (now === n && cur.ended)) parts.push(`${PERIOD_NAMES[n]} تعود جارية.`);
+  if(lock && lock.p > newLockP) parts.push('وتُفتح الفترات المقفلة التي تتغيّر.');
+  if(parts.length && !(await showConfirm(`تقليل فترات «${name}» إلى ${PERIOD_COUNT_LABELS[n]}؟ ${parts.join(' ')}`))) return false;
+  /* تغيّر شيء أثناء السؤال (جهاز آخر/نقرة أخرى): لا نبني على نسخة قديمة */
+  const again = periodCfg(term, key);
+  if(gradePeriodSaving || again.n !== cur.n || again.starts.join() !== cur.starts.join() || !!again.ended !== !!cur.ended){ showToast('تغيّرت الفترات — أعد المحاولة', 'error'); return false; }
+
+  let trash = { id: null };
+  if(later.length){
+    trash = await trashProtect(async () => ({ kind: 'period_scores', label: `رصد ${names} — ${name}`, ownerId: currentUser.id,
+      meta: { key, term: termPeriodKey(term) }, tables: [{ t: 'classroom_grade_period_scores', rows: later }] }));
+    if(!trash) return false; /* ألغى المعلم الحذف بلا سلة */
+  }
+  const ok = await withPeriodBusy(async () => {
+    if(lock && lock.p > newLockP) await setPeriodLock(term, key, newLockP, newLockP > 0 ? lockBeforeFor(next, newLockP) : null);
+    if(later.length){
+      const { error } = await sb.from('classroom_grade_period_scores').delete()
+        .eq('teacher_id', currentUser.id).in('id', later.map(r => r.id));
+      if(error){ await trashDiscard(trash.id); throw error; }
+    }
+    return savePeriodCfg(term, key, next);
+  }, `صار "${name}" ${PERIOD_COUNT_LABELS[n]} ✓`);
+  if(ok && later.length) trashOfferUndo(`حُذف رصد ${names}`, trash.id, async () => {
+    await withPeriodBusy(async () => {
+      if(!(await savePeriodCfg(term, key, cur))) return false;
+      if(lock) await setPeriodLock(term, key, lock.p, lock.before);
+      return true;
+    }, 'عادت الفترات والرصد كما كانت ✓');
+  });
+  return ok;
 }
 
 /* إنهاء الفترة الأخيرة (فتُحسب في الدرجة). التراجع عن الإنهاء فقط وهي غير مقفلة (فالقفل يُفتح أولًا) */

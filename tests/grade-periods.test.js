@@ -463,39 +463,52 @@ test('عدد الفترات والانتقال — لكل مكوّن وحده؛ 
   assert.equal(cfgOf(app, 'kind:homework').starts.length, 2);
   assert.equal(await app.goToComponentPeriod('kind:homework', 2), true, 'تراجع عن بدء الثالثة');
   assert.deepEqual(cfgOf(app, 'kind:homework'), { n: 3, starts: ['2026-10-27'] });
-  assert.equal(await app.setComponentPeriodCount('kind:homework', 1), false, 'لا تقليل تحت الجارية');
   await app.setComponentPeriodCount('kind:homework', 2);
   assert.deepEqual(cfgOf(app, 'kind:homework'), { n: 2, starts: ['2026-10-27'] });
-  assert.equal(get(app, 'window.__confirm.length'), 0);
+  assert.equal(get(app, 'window.__confirm.length'), 0, 'حذف فترة لم تبدأ: بلا سؤال');
   assert.ok(get(app, 'window.__resync').every(k => k === 'homework') && get(app, 'window.__resync').length === 5);
   assert.equal(log.filter(l => l.op !== 'select').length, 0);
 });
 
-test('تقليل الفترات تحت الجارية مرفوض (3.61) — الفترات التي بدأت تبقى', async () => {
-  const app = settingsApp(withPeriods({ 'kind:homework': { n: 3, starts: ['2026-10-01', '2026-10-20'] } }), {}, []);
-  assert.equal(await app.setComponentPeriodCount('kind:homework', 2), false);
-  assert.deepEqual(cfgOf(app, 'kind:homework'), { n: 3, starts: ['2026-10-01', '2026-10-20'] });
-  assert.match(get(app, 'window.__toasts.join()'), /الفترة الثالثة بدأت/);
-  const ended = settingsApp(withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-01'], ended: true } }), {}, []);
-  assert.equal(await ended.setComponentPeriodCount('kind:homework', 1), false);
-  const up = settingsApp(withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-01'], ended: true } }), {}, []);
-  assert.equal(await up.setComponentPeriodCount('kind:homework', 3), true, 'الزيادة مسموحة');
+test('تقليل فترات المحسوب تحت الجارية (3.62) — بسؤال، ولا يُحذف شيء: يعود لفترته بتاريخه', async () => {
+  const log = [];
+  const app = settingsApp(withPeriods({ 'kind:homework': { n: 3, starts: ['2026-10-01', '2026-10-20'] } }), {}, log);
+  assert.equal(await app.setComponentPeriodCount('kind:homework', 2), true);
+  assert.match(get(app, 'window.__confirm[0]'), /تقليل فترات «الواجبات» إلى[\s\S]*ما رُصد في الفترة الثالثة يعود لـالفترة الثانية بتاريخه \(لا يُحذف شيء\)[\s\S]*الفترة الثانية تعود جارية/);
+  assert.deepEqual(cfgOf(app, 'kind:homework'), { n: 2, starts: ['2026-10-01'] });
+  assert.equal(log.filter(l => l.op === 'delete' || l.op === 'insert').length, 0);
+  const no = settingsApp(withPeriods({ 'kind:homework': { n: 2, starts: ['2026-10-01'], ended: true } }), {}, [], false);
+  assert.equal(await no.setComponentPeriodCount('kind:homework', 1), false, 'الإلغاء لا يغيّر');
+  assert.deepEqual(cfgOf(no, 'kind:homework'), { n: 2, starts: ['2026-10-01'], ended: true });
 });
 
 const LATER = { classroom_grade_period_scores: [
   { id: 'r1', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 1, score: 14 }, { id: 'r2', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 2, score: 1 },
   { id: 'r3', teacher_id: 'u1', column_id: 'P', student_id: 'b', period: 1, score: 8 }, { id: 'rx', teacher_id: 'u2', column_id: 'P', student_id: 'x', period: 2, score: 1 }] };
 
-test('انحدار: تقليل الفترات لا يحذف رصدًا أبدًا — فترة لم تبدأ وفيها رصد (من رجوع قديم) ترفض التقليل', async () => {
+test('انحدار: تقليل فترات المرصود (3.62) — رصد الفترات المحذوفة يُحفظ في «المحذوفات» قبل حذفه، لمعلمه فقط، و«تراجع» يعيد الفترات', async () => {
   const log = [];
-  const app = settingsApp(withPeriods({ 'kind:participation': { n: 2, starts: [] } }), JSON.parse(JSON.stringify(LATER)), log);
-  assert.equal(await app.setComponentPeriodCount('kind:participation', 1), false);
-  assert.match(get(app, 'window.__toasts.join()'), /في الفترة الثانية رصد محفوظ/);
-  assert.equal(log.filter(l => l.op !== 'select').length, 0, 'لا حذف ولا كتابة');
-  const sel = log.find(l => l.table === 'classroom_grade_period_scores');
-  assert.deepEqual(sel.filters[0], ['teacher_id', 'u1'], 'الفحص لمعلمه فقط');
-  assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 2, starts: [] });
-  assert.equal(get(app, 'typeof undoPeriodReduce'), 'undefined');
+  const app = settingsApp(PART2, JSON.parse(JSON.stringify(LATER)), log);
+  runInAppContext(app, `showUndoToast = async () => false; trashAfterRestore = async () => {};
+    { const _s = trashSave; trashSave = async cap => { await _s(cap).catch(() => {}); return 'T1'; }; }`);
+  assert.equal(await app.setComponentPeriodCount('kind:participation', 1), true);
+  assert.match(get(app, 'window.__confirm[0]'), /يُحذف رصد الفترة الثانية \(طالب واحد\) ويبقى في «المحذوفات» 30 يومًا[\s\S]*الفترة الأولى تعود جارية/);
+  const ins = log.find(l => l.op === 'insert' && l.table === 'deleted_items');
+  assert.equal(ins.values.kind, 'period_scores');
+  assert.equal(ins.values.label, 'رصد الفترة الثانية — المشاركة');
+  assert.deepEqual(ins.values.payload.tables[0].rows.map(r => r.id), ['r2'], 'لقطة رصد الثانية لمعلمه فقط');
+  const iIns = log.indexOf(ins);
+  const del = log.find(l => l.op === 'delete' && l.table === 'classroom_grade_period_scores');
+  assert.ok(log.indexOf(del) > iIns, 'اللقطة قبل الحذف');
+  assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(del.filters))), { teacher_id: 'u1', id: ['r2'] });
+  await new Promise(r => setTimeout(r, 0)); await new Promise(r => setTimeout(r, 0));
+  assert.ok(log.some(l => l.op === 'rpc' && l.name === 'restore_deleted_item'), '«تراجع» = استرجاع من السلة');
+  assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 2, starts: ['2026-10-25'] }, 'وعادت الفترات');
+  /* الإلغاء: لا لقطة ولا حذف */
+  const log2 = [];
+  const no = settingsApp(PART2, JSON.parse(JSON.stringify(LATER)), log2, false);
+  assert.equal(await no.setComponentPeriodCount('kind:participation', 1), false);
+  assert.equal(log2.filter(l => l.op !== 'select').length, 0);
 });
 
 test('تقليل الفترات — بلا رصد في الفترات التي لم تبدأ: يُقلَّل بلا سؤال', async () => {
@@ -507,11 +520,17 @@ test('تقليل الفترات — بلا رصد في الفترات التي �
   assert.equal(log.filter(l => l.op === 'delete').length, 0);
 });
 
-test('تقليل الفترات — فترة مقفلة لا تُلغى', async () => {
-  const app = settingsApp(withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-25'] } }), { classroom_grade_period_scores: [] }, []);
-  runInAppContext(app, `gradePeriodLocks = { '${TK}': { 'kind:participation': { p: 3, before: '9999-12-31' } } };`);
-  assert.equal(await app.setComponentPeriodCount('kind:participation', 2), false);
-  assert.match(get(app, 'window.__toasts.join()'), /فترة مقفلة/);
+test('تقليل الفترات وفيها فترة مقفلة — السؤال ينبّه، ويُفتح القفل قبل الحذف (وإلا رفضت القاعدة)', async () => {
+  const log = [];
+  const app = settingsApp(withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20', '2026-10-25'] } }), { classroom_grade_period_scores: [
+    { id: 'q3', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 3, score: 5 }] }, log);
+  runInAppContext(app, `gradePeriodLocks = { '${TK}': { 'kind:participation': { p: 2, before: '2026-10-25' } } }; showUndoToast = async () => true;`);
+  assert.equal(await app.setComponentPeriodCount('kind:participation', 2), true);
+  assert.match(get(app, 'window.__confirm[0]'), /وتُفتح الفترات المقفلة التي تتغيّر/);
+  const lk = log.findIndex(l => l.op === 'rpc' && l.name === 'set_period_lock');
+  assert.deepEqual([log[lk].args.p_period, log[lk].args.p_before], [1, '2026-10-20']);
+  assert.ok(lk < log.findIndex(l => l.op === 'delete' && l.table === 'classroom_grade_period_scores'), 'فتح القفل قبل الحذف');
+  assert.deepEqual(cfgOf(app, 'kind:participation'), { n: 2, starts: ['2026-10-20'] });
 });
 
 test('الفترة الجارية لا تُحسب حتى تنتهي — عدد الفترات المحسوبة يُرسل لأعمدة المكوّن عند كل انتقال', async () => {

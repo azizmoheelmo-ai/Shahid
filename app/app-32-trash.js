@@ -22,7 +22,7 @@ const TRASH_KIND_LABELS = {
   student: 'طالب', shahid: 'شاهد', program: 'برنامج', goal: 'هدف', task: 'مهمة (مهامّي)',
   academic_case: 'حالة أكاديمية', incident: 'حادثة', positive_note: 'ملاحظة إيجابية', private_note: 'ملاحظة خاصة',
   grade_columns: 'عمود/اختبار درجات', custom_tool: 'أداة مخصصة', perf_task: 'مهمة أدائية', homework: 'واجب', lesson: 'رصد حصة',
-  followup: 'متابعة', leader_followup: 'طلب متابعة مؤشرات'
+  followup: 'متابعة', leader_followup: 'طلب متابعة مؤشرات', period_scores: 'رصد فترات'
 };
 
 function trashKindLabel(kind){ return TRASH_KIND_LABELS[kind] || kind || 'عنصر'; }
