@@ -44,7 +44,7 @@ function taskColumnScoreFor(tasks, rows, studentId, colMax){
   return Math.round(100 * Math.min(1, earned / possible) * Number(colMax)) / 100;
 }
 
-/* الفترات (app-27): كل مهمة في فترة موعدها (أو يوم إنشائها)، والعمود = معدّل الفترات */
+/* الفترات (app-27): كل مهمة في فترتها المحفوظة (grade_period؛ القديمة بموعدها أو يوم إنشائها)، والعمود = معدّل الفترات */
 function taskDateOf(t){ return t.due_date || String(t.created_at || '').slice(0, 10); }
 
 function taskPeriodScores(tasks, rows, studentId, colMax, cfg){

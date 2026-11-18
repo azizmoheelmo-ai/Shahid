@@ -58,7 +58,7 @@ function planComputedScoreSync(studentIds, wantFn, existing){
   return { upserts, deletes };
 }
 
-/* الفترات (app-27): كل واجب في فترة موعده، ودرجة الفترة من واجباتها، والعمود = معدّل
+/* الفترات (app-27): كل واجب في فترته المحفوظة (grade_period؛ القديم بموعده)، ودرجة الفترة من واجباتها، والعمود = معدّل
    الفترات التي فيها واجب محسوب. starts فارغة = فترة واحدة (الحساب القديم تمامًا) */
 function homeworkPeriodScores(counted, statusIdx, studentId, max, cfg){
   return periodSplitScores(counted, h => h.due_date, list => homeworkScoreFor(list, statusIdx, studentId, max), cfg);
@@ -579,7 +579,7 @@ async function renderCrmHomework(students, selectId){
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmHomeworkModal()">+ واجب</button>
     </div>
     <div id="crmHwCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في فترة موعد تسليمه، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${perOn ? 'كل واجب في الفترة التي أُنشئ فيها، ودرجة الواجبات في الكشف = معدّل الفترات. ' : ''}الأصل "لم يسلّم" — اضغط: سلّم ← ناقص ← متأخر ← لم يسلّم. يُحفظ فورًا${column ? ' ويُحسب في عمود "' + escapeHtml(column.name) + '"' : ' (أضف عمود واجبات في الكشف ليُحسب تلقائيًا)'}.</p>
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn" id="crmHw_${st.id}" onclick="tapCrmHomework('${st.id}')">
