@@ -1349,6 +1349,11 @@ test('«＋ ابدأ» — لوحة داخل الورقة (لا نافذة)، و
   assert.equal(get(app, 'crmSheet.part.period'), 3, 'الورقة نفسها الآن على الثالثة');
 });
 
+/* انتظار شرط بدل مهلة ثابتة (مهلة 20ms كانت تفشل على أجهزة CI البطيئة) */
+async function waitFor(cond, ms = 3000){
+  const end = Date.now() + ms;
+  while(Date.now() < end){ if(cond()) return; await new Promise(r => setTimeout(r, 5)); }
+}
 test('«تراجع» بعد البدء (فارغة) — تعود الثانية جارية ومفتوحة كما كانت؛ وبعد رصد في الجديدة يُرفض بلا دمج', async () => {
   const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
   const make = async rows => {
@@ -1362,12 +1367,12 @@ test('«تراجع» بعد البدء (فارغة) — تعود الثانية 
   };
   const app = await make([]);
   runInAppContext(app, 'window.__u(false);');
-  await new Promise(r => setTimeout(r, 20));
+  await waitFor(() => cfgOf(app, 'kind:participation').starts.length === 1 && get(app, 'gradePeriodSaving') === false && (get(app, 'window.__lk') || []).length === 2);
   assert.equal(cfgOf(app, 'kind:participation').starts.length, 1, 'رجعت الثانية جارية');
   assert.deepEqual(JSON.parse(get(app, 'JSON.stringify(window.__lk)')), [2, 1], 'القفل عاد كما كان (الأولى فقط)');
   const busy = await make([{ id: 'r9', teacher_id: 'u1', column_id: 'P', student_id: 'a', period: 3, score: 4 }]);
   runInAppContext(busy, 'window.__u(false);');
-  await new Promise(r => setTimeout(r, 20));
+  await waitFor(() => /لا رجوع/.test(get(busy, 'window.__toasts.join("|")')));
   assert.equal(cfgOf(busy, 'kind:participation').starts.length, 2, 'فيها رصد: لا تراجع');
   assert.match(get(busy, 'window.__toasts.join("|")'), /لا رجوع: في الفترة الثالثة رصد محفوظ/);
 });
