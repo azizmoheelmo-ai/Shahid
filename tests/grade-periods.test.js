@@ -1437,3 +1437,20 @@ test('ورقة الواجب — الشرح الدائم داخل «؟» (لا ف
   const none = await mk([]);
   assert.match(sheetHtml(none), /crm-sheet-warn">لا عمود واجبات في الكشف/, 'الحالة الاستثنائية تبقى ظاهرة');
 });
+
+test('انحدار: «؟» في ورقة الواجب بعد المشاركة في نفس الحصة — يعرض شرح الواجب لا شرح المشاركة', async () => {
+  const app = appWith({ classroom_grade_columns: [col('P', 'participation', 30), col('H', 'homework', 10)], classroom_grade_scores: [], classroom_grade_period_scores: [],
+    classroom_homework: [HW('h1', '2026-10-25')], classroom_homework_status: [] }, [], OFF);
+  runInAppContext(app, `crmSheet = { sectionId: 'S', dateIso: '2026-10-27', period: 1, token: 1, mode: 'participation', states: {} }; syncHomeworkColumn = async () => {};`);
+  await app.renderCrmParticipation(get(app, 'crmStudentsOfSection("S")'));
+  runInAppContext(app, `crmSheet.mode = 'homework';`);
+  await app.renderCrmHomework(get(app, 'crmStudentsOfSection("S")'));
+  app.toggleCrmSheetHelp();
+  const help = get(app, `document.getElementById('crmSheetHelp').innerHTML`);
+  assert.match(help, /الأصل «لم يسلّم»/);
+  assert.doesNotMatch(help, /يزيد درجة|الدرجة من 30/, 'لا شرح المشاركة');
+  runInAppContext(app, `crmSheet.mode = 'participation';`);
+  await app.renderCrmParticipation(get(app, 'crmStudentsOfSection("S")'));
+  app.toggleCrmSheetHelp();
+  assert.match(get(app, `document.getElementById('crmSheetHelp').innerHTML`), /يزيد درجة/, 'والعكس');
+});

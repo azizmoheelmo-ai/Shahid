@@ -411,7 +411,9 @@ function toggleCrmSheetHelp(){
   const s = crmSheet;
   const box = document.getElementById('crmSheetHelp');
   /* الشرح في s.card.help (المشاركة/الأدوات) أو s.help (الواجب/المهمة) */
-  const src = s && (s.card && s.card.help ? s.card : s.help ? s : null);
+  /* المصدر بحسب الوضع الحالي: s.card يبقى من المشاركة بعد التبديل للواجب في نفس الحصة (كان يُعرض شرحها في الواجب) */
+  const own = s && (s.mode === 'homework' || s.mode === 'task');
+  const src = !s ? null : own ? (s.help ? s : null) : (s.card && s.card.help ? s.card : null);
   if(!box || !src) return;
   const open = !src.helpOpen; /* حالة صريحة (لا يُعتمد على style قبل أول رسم) */
   src.helpOpen = open;
