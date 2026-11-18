@@ -193,7 +193,7 @@ async function renderCrmToolMode(students, tool){
   const s = crmSheet;
   const mode = 'tool:' + tool.id;
   const body = document.getElementById('crmLessonSheetBody');
-  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)} ${crmPeriodChipHtml(s)}</div>${crmSheetModeSwitchHtml()}`;
+  const head = `<div class="crm-sheet-head">${crmSheetHeaderText(s)}</div>${crmSheetModeSwitchHtml()}`;
   body.innerHTML = head + '<div class="loading-state">جارٍ التحميل...</div>';
   const token = s.token;
   const term = crmCurrentTerm();
@@ -224,18 +224,17 @@ async function renderCrmToolMode(students, tool){
   const status = tool.tool_type === 'status';
   const lockKey = crmSheetLockedKey(s, period);
   s.tool.locked = !!lockKey;
+  const max = formatScore(tool.max_score);
+  s.card = { kind: 'tool',
+    fill: status ? [[1, 'تمّ'], [0, 'لم يتمّ']] : [[Number(tool.max_score), `الدرجة كاملة (${max})`], [0, '0']],
+    help: [status ? 'اضغط على الطالب: تمّ ← لم يتمّ ← لم يُرصد. يُحفظ فورًا.' : `اضغط على الطالب لرصد درجته من <b>${max}</b>. يُحفظ فورًا.`,
+      '«—» أو «لم يُرصد» لا يُحسب في الكشف.',
+      ...(s.tool.column ? [`يُحسب في عمود «${escapeHtml(s.tool.column.name)}» في الكشف.`] : []),
+      `«تعبئة الباقين» تعطي من لم يُرصد له في هذه الحصة فقط، ولا تغيّر من رُصد له.`,
+      ...(sheetPeriodInfo(s) && sheetPeriodInfo(s).cfg.n > 1 ? [`لتغيير الفترة أو إنهائها: اضغط «📅 ${PERIOD_NAMES[sheetPeriodInfo(s).period]}».`] : [])] };
   body.innerHTML = head + `
     ${colRes.error ? `<div class="cust-sheet-hidden">${toolCapMessage(tool, colRes.remaining)}</div>` : ''}
-    <div id="crmToolCounts" class="crm-sheet-counts"></div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 8px;">${full
-      ? (status ? 'الحصة تبدأ <b>"تمّ"</b> للجميع — اضغط على من لم يتمّ فقط. يُحفظ فورًا.'
-                : `تبدأ الدرجة <b>كاملة</b> (${formatScore(tool.max_score)}) — اضغط على من قصّر فقط لتُنقص درجته.`)
-      : status
-      ? 'اضغط: تمّ ← لم يتمّ ← لم يُرصد. يُحفظ فورًا، و"لم يُرصد" لا يُحسب.'
-      : `اضغط على الطالب لرصد درجته من ${formatScore(tool.max_score)}. ما لم يُرصد لا يُحسب.`}${s.tool.column ? ' يُحسب في عمود "' + escapeHtml(s.tool.column.name) + '".' : ''}</p>
-    ${lockKey ? crmLockBannerHtml(lockKey, null) : crmFillRowHtml('من لم يُرصد له', status
-      ? [['تمّ', 'fillCrmToolEmpty(1)'], ['لم يتمّ', 'fillCrmToolEmpty(0)']]
-      : [[`أعطِه ${formatScore(tool.max_score)}`, `fillCrmToolEmpty(${Number(tool.max_score)})`], ['أعطِه 0', 'fillCrmToolEmpty(0)']])}
+    ${crmSheetCardHtml(s, lockKey, null)}
     <div class="crm-att-grid">
       ${students.map(st => `<div class="crm-att-cell">
         <button type="button" class="crm-att-btn${crmAbsentClass(s, st.id)}" id="crmTool_${st.id}" onclick="tapCrmTool('${st.id}')">
@@ -276,11 +275,12 @@ function paintCrmToolCounts(){
   const vals = ids.filter(id => t.values.has(id)).map(id => t.values.get(id));
   if(t.tool.tool_type === 'status'){
     const done = vals.filter(v => v >= 1).length;
-    el.textContent = `تمّ ${done} · لم يتمّ ${vals.length - done} · لم يُرصد ${ids.length - vals.length}`;
+    el.textContent = vals.length ? `تمّ ${done} · لم يتمّ ${vals.length - done}` : '';
   } else {
     const avg = vals.length ? Math.round(100 * vals.reduce((a, b) => a + b, 0) / vals.length) / 100 : null;
-    el.textContent = `رُصد ${vals.length} من ${ids.length}` + (avg === null ? '' : ` · المتوسط ${formatScore(avg)} من ${formatScore(t.tool.max_score)}`);
+    el.textContent = avg === null ? '' : `المتوسط ${formatScore(avg)} من ${formatScore(t.tool.max_score)}`;
   }
+  paintCrmSheetCard(vals.length, ids.length, t.locked);
 }
 
 function tapCrmTool(studentId){

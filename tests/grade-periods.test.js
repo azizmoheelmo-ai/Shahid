@@ -156,8 +156,8 @@ test('المشاركة بفترتين — الشارة "الفترة الثان�
       { teacher_id: 'u2', column_id: 'P', student_id: 'c', period: 2, score: 9 }],
   };
   const { app, log } = await partSheet('2026-10-27', seed, PART2, { rpc: { increment_period_score: 1 } });
-  assert.match(sheetHtml(app), /class="crm-period-chip is-p2" onclick="openCrmPeriodPicker\(\)"[^>]*>📅 الفترة الثانية من 2 ▾</);
-  assert.match(sheetHtml(app), /الرصد في <b>الفترة الثانية<\/b>/);
+  assert.match(sheetHtml(app), /class="csc-period" onclick="openCrmPeriodPicker\(\)"[^>]*>📅 الفترة الثانية ▾</);
+  assert.match(get(app, 'crmSheet.card.help.join()'), /الرصد اليوم في <b>الفترة الثانية<\/b>/);
   assert.equal(get(app, 'crmSheet.part.period'), 2);
   assert.equal(get(app, 'crmSheet.part.scores.get("b")'), 4);
   assert.equal(get(app, 'crmSheet.part.scores.has("a")'), false, 'رصد أحمد القديم للأولى');
@@ -175,7 +175,7 @@ test('المشاركة بفترتين — الشارة "الفترة الثان�
 test('انحدار: الأصل فترة واحدة — لا شارة ولا انتقال، والرصد في الأولى بدرجة فترة', async () => {
   const seed = { classroom_grade_scores: [{ teacher_id: 'u1', column_id: 'P', student_id: 'a', score: 9 }], classroom_grade_period_scores: [] };
   const { app, log } = await partSheet('2026-11-15', seed, OFF);
-  assert.doesNotMatch(sheetHtml(app), /crm-period-chip|الفترة/);
+  assert.doesNotMatch(sheetHtml(app), /csc-period|الفترة/);
   assert.equal(get(app, 'crmSheet.part.scores.get("a")'), 9);
   app.tapCrmParticipation('a', 1);
   await get(app, 'crmSheet.part.queue.get("a")');
@@ -187,7 +187,7 @@ test('ثلاث فترات — حصة قديمة تُرصد في فترتها ب�
   const old = await partSheet('2026-10-05', { classroom_grade_scores: [], classroom_grade_period_scores: [] }, f);
   assert.equal(get(old.app, 'crmSheet.part.period'), 2);
   const now = await partSheet('2026-10-27', { classroom_grade_scores: [], classroom_grade_period_scores: [] }, f);
-  assert.match(sheetHtml(now.app), /📅 الفترة الثالثة من 3 ▾/);
+  assert.match(sheetHtml(now.app), /📅 الفترة الثالثة ▾/);
 });
 
 test('الفترات لكل مكوّن — المشاركة بفترتين لا تجعل عدّاد "قراءة" بفترتين؛ والعدّاد بفترات يُرصد بدرجة فترة', async () => {
@@ -202,11 +202,11 @@ test('الفترات لكل مكوّن — المشاركة بفترتين لا 
     return { app, rpc: log.find(l => l.op === 'rpc') };
   };
   const a = await run(PART2);
-  assert.doesNotMatch(sheetHtml(a.app), /crm-period-chip/);
+  assert.doesNotMatch(sheetHtml(a.app), /csc-period/);
   assert.equal(a.rpc.name, 'increment_period_score');
   assert.equal(a.rpc.args.p_period, 1);
   const b = await run(withPeriods({ ['tool:' + TOOL_ID]: { n: 2, starts: ['2026-10-25'] } }));
-  assert.match(sheetHtml(b.app), /📅 الفترة الثانية من 2/);
+  assert.match(sheetHtml(b.app), /📅 الفترة الثانية ▾/);
   assert.equal(b.rpc.args.p_period, 2);
 });
 
@@ -770,7 +770,7 @@ test('ورقة الحصة في فترة مقفلة — شريط «مقفلة» �
     { code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)};` });
   const html = sheetHtml(app);
   assert.match(html, /🔒 الفترة الأولى مقفلة — للعرض فقط[\s\S]*openPeriodsWindow\('kind:participation'\)/);
-  assert.doesNotMatch(html, /fillCrmParticipationEmpty/);
+  assert.equal(get(app, `document.getElementById('crmCardFill').innerHTML`), '', 'المقفلة: لا زر تعبئة');
   const before = log.length;
   app.tapCrmParticipation('a', 1);
   await app.fillCrmParticipationEmpty(10);
@@ -781,7 +781,7 @@ test('ورقة الحصة في فترة مقفلة — شريط «مقفلة» �
   /* اليوم في الثانية (غير مقفلة): الرصد عادي */
   const cur = await partSheet('2026-10-28', { classroom_grade_scores: [], classroom_grade_period_scores: [] }, f, { code: `gradePeriodLocks = ${JSON.stringify(LOCKED_DATA)};` });
   assert.doesNotMatch(sheetHtml(cur.app), /مقفلة/);
-  assert.match(sheetHtml(cur.app), /fillCrmParticipationEmpty/);
+  assert.match(get(cur.app, `document.getElementById('crmCardFill').innerHTML`), /openCrmFillPanel/);
 });
 
 test('القفل بالتاريخ للمحسوب (واجبات/مهام/أداة) وبالفترة للمرصود — وقراءة الأقفال لحساب المعلم فقط', async () => {
