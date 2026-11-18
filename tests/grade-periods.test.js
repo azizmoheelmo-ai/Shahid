@@ -1607,3 +1607,20 @@ test('تحميل متوازٍ — المشاركة: الدرجات ودرجات 
   await app.renderCrmParticipation(get(app, 'crmStudentsOfSection("S")'));
   assert.equal(peak, 2, 'الطلبان معًا لا واحدًا بعد الآخر');
 });
+
+test('الكشف يُحمَّل متوازيًا — مكوّنات الأداء (الواجبات، المهام، المشاركة) تُحدَّث معًا لا واحدًا بعد الآخر', async () => {
+  const slowMs = 15;
+  const slow = c => Object.assign({}, c, {
+    from(t){ const q = c.from(t); const th = q.then.bind(q); q.then = (res, rej) => new Promise(r => setTimeout(r, slowMs)).then(() => th(res, rej)); return q; },
+    rpc(n, a){ return new Promise(r => setTimeout(r, slowMs)).then(() => c.rpc(n, a)); } });
+  const f = withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] }, 'kind:homework': { n: 2, starts: ['2026-10-20'] } });
+  const seed = { classroom_grade_columns: [col('P', 'participation', 10), col('H', 'homework', 10), col('K', 'task', 10)],
+    classroom_grade_scores: [], classroom_grade_period_scores: [pRow('a', 1, 5)], classroom_homework: [], classroom_homework_status: [], classroom_tasks: [], classroom_task_students: [] };
+  const app = appWith(seed, [], f, { wrap: slow, code: TODAY });
+  const t0 = Date.now();
+  const g = await app.loadCrmGradeSheet('S');
+  const trips = (Date.now() - t0) / slowMs;
+  assert.ok(g && !g.error);
+  assert.ok(g.breakdown.has('P'), 'تفصيل المشاركة موجود');
+  assert.ok(trips < 7.5, `رحلات متتالية ≈ ${trips.toFixed(1)} (كانت ~10)`);
+});

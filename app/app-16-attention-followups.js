@@ -538,6 +538,8 @@ async function loadAttentionData(){
   const uid = currentUser.id;
   const todayIso = localIsoDate();
   const since = addDaysIso(todayIso, -ATTENTION_RULES.windowDays);
+  const term = crmAttentionTerm();
+  /* كل ما لا يعتمد على غيره في دفعة واحدة (منها أعمدة الكشف — كانت رحلة مستقلة بعدها) */
   const { ok, results } = await runQueriesWithRetry([
     () => sb.from('classroom_students').select('id, full_name, section_id, is_active').eq('teacher_id', uid),
     () => sb.from('classroom_sections').select('id').eq('teacher_id', uid),
@@ -547,33 +549,27 @@ async function loadAttentionData(){
     () => sb.from('classroom_followups').select('id, student_id, section_id, reason_type, reason_text, review_date, status, baseline, created_at').eq('teacher_id', uid).eq('status', 'open'),
     () => sb.from('classroom_attention_dismissals').select('rule_key, subject_key, dismissed_at').eq('teacher_id', uid),
     () => sb.from('classroom_followups').select('id, student_id, group_id, section_id, reason_type, reason_text, status, outcome, closed_at, shahid_id')
-      .eq('teacher_id', uid).eq('status', 'closed').eq('outcome', 'improved').gte('closed_at', new Date(Date.now() - ATTENTION_RULES.dismissDays * 86400000).toISOString())
+      .eq('teacher_id', uid).eq('status', 'closed').eq('outcome', 'improved').gte('closed_at', new Date(Date.now() - ATTENTION_RULES.dismissDays * 86400000).toISOString()),
+    /* كشف الدرجات للفصل الحالي (كل الشعب) — للقاعدتين 8 و9 */
+    () => sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score, kind')
+      .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester)
   ]);
   if(!ok) return null;
-  const [students, sections, lessons, incidents, academicCases, followups, dismissals, improvedFollowups] = results.map(r => r.data || []);
-  /* كشف الدرجات للفصل الحالي (كل الشعب) — للقاعدتين 8 و9 */
-  const term = crmAttentionTerm();
-  const { data: allGradeColumns, error: gcErr } = await sb.from('classroom_grade_columns').select('id, section_id, category, name, max_score, kind')
-    .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester);
-  if(gcErr) return null;
+  const [students, sections, lessons, incidents, academicCases, followups, dismissals, improvedFollowups, allGradeColumns] = results.map(r => r.data || []);
   /* أداة مخفية: أعمدتها لا تُحسب، ولا تنبيهات حضورها أو سلوكها أو متابعاتها */
   const gradeColumns = (allGradeColumns || []).filter(gradeColumnVisible);
-  let gradeScores = [];
-  for(const ids of chunkArray((gradeColumns || []).map(c => c.id), 100)){
-    const { data, error } = await sb.from('classroom_grade_scores').select('column_id, student_id, score, updated_at')
-      .eq('teacher_id', uid).in('column_id', ids);
-    if(error) return null;
-    gradeScores = gradeScores.concat(data || []);
-  }
-  let attendance = [];
   const lessonIds = appToolOn('attendance') ? lessons.map(l => l.id) : [];
-  for(const ids of chunkArray(lessonIds, 100)){
-    const { data, error } = await sb.from('classroom_attendance').select('lesson_id, student_id, status')
-      .eq('teacher_id', uid).in('lesson_id', ids);
-    if(error) return null;
-    attendance = attendance.concat(data || []);
-  }
-  if(!crmIncidentTypes.length && typeof loadCrmIncidentTypes === 'function') await loadCrmIncidentTypes();
+  /* درجات الكشف والحضور وأنواع المخالفات معًا (كانت دفعة بعد دفعة) — فشل أيٍّ منها: لا بطاقات (كما كان) */
+  const parts = await Promise.all([
+    ...chunkArray(gradeColumns.map(c => c.id), 100).map(ids => sb.from('classroom_grade_scores').select('column_id, student_id, score, updated_at')
+      .eq('teacher_id', uid).in('column_id', ids)).map(q => Promise.resolve(q).then(r => ({ k: 'g', r }))),
+    ...chunkArray(lessonIds, 100).map(ids => sb.from('classroom_attendance').select('lesson_id, student_id, status')
+      .eq('teacher_id', uid).in('lesson_id', ids)).map(q => Promise.resolve(q).then(r => ({ k: 'a', r }))),
+    (!crmIncidentTypes.length && typeof loadCrmIncidentTypes === 'function' ? loadCrmIncidentTypes() : Promise.resolve()).then(() => ({ k: 't' }))
+  ]);
+  if(parts.some(x => x.r && x.r.error)) return null;
+  let gradeScores = [], attendance = [];
+  parts.forEach(x => { if(x.k === 'g') gradeScores = gradeScores.concat(x.r.data || []); if(x.k === 'a') attendance = attendance.concat(x.r.data || []); });
   incidents.forEach(i => {
     const t = crmIncidentTypes.find(x => x.id === i.incident_type_id);
     i.typeName = t ? t.problem_name : 'مخالفة';
