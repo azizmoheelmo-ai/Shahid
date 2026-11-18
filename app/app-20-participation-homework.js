@@ -317,6 +317,7 @@ function paintCrmParticipation(studentId){
 function queueCrmParticipation(studentId, delta, kind){
   const s = crmSheet;
   const p = s.part;
+  dismissCrmJustStarted(s);
   const prev = p.queue.get(studentId) || Promise.resolve();
   const next = prev.then(async () => {
     /* "يبدأ من الكاملة": الصفر درجة حقيقية لا "لم تُرصد" (وإلا أُعيد للكاملة).
@@ -614,6 +615,7 @@ function paintCrmHomeworkCounts(){
 /* حفظ حالة طالب ثم إعادة حساب درجته — بالتتابع لكل طالب */
 function persistCrmHomework(studentId, state, prevState){
   const s = crmSheet;
+  dismissCrmJustStarted(s);
   const h = s.hw;
   const hwId = h.selectedId;
   const prev = h.queue.get(studentId) || Promise.resolve();
@@ -652,6 +654,7 @@ let crmHwBulkBusy = false;
 async function markAllCrmHomeworkSubmitted(){
   const s = crmSheet;
   if(!s || !s.hw || !s.hw.selectedId || crmHwBulkBusy) return;
+  dismissCrmJustStarted(s);
   const ids = crmStudentsOfSection(s.sectionId).map(x => x.id).filter(id => !s.hw.statuses.has(id));
   if(!ids.length) return;
   crmHwBulkBusy = true;

@@ -3288,7 +3288,11 @@ select.tlx-inp{min-height:44px;}
 .gs-live-sw{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;font-size:13px;font-weight:800;color:var(--navy);}
 .gs-live-note{font-size:11.5px;color:var(--ui-body);line-height:1.7;margin:4px 0 0;}
 .crm-per-undo{display:block;border:0;background:none;padding:0;margin:0 0 10px;min-height:32px;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--gold-text);text-decoration:underline;cursor:pointer;}
-.csc .crm-per-undo{margin:8px 0 0;}
+.crm-per-undo-row{display:flex;align-items:center;gap:8px;margin:0 0 10px;}
+.crm-per-undo-row:empty{display:none;}
+.crm-per-undo-row .crm-per-undo{margin:0;}
+.crm-per-undo-x{border:0;background:none;color:var(--ui-x);font-size:15px;min-width:32px;min-height:32px;cursor:pointer;}
+.csc .crm-per-undo-row{margin:8px 0 0;}
 .crm-per-gear{flex:none;width:38px;height:38px;border:1px solid var(--line);border-radius:var(--ui-r-btn);background:var(--card);color:var(--navy);font-size:16px;cursor:pointer;}
 .crm-per-grp{margin:12px 0 4px;}
 .crm-per-lock{border:0;background:none;padding:0 2px;font-size:13px;cursor:pointer;}

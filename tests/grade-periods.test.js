@@ -1370,13 +1370,26 @@ test('«تراجع» بعد البدء (فارغة) — تعود الثانية 
   assert.match(get(busy, 'window.__toasts.join("|")'), /لا رجوع: في الفترة الثالثة رصد محفوظ/);
 });
 
-test('رابط «تراجع عن بدء…» — يظهر فقط إن بدأت الجارية اليوم وأنت عليها؛ و«＋ ابدأ» لا يظهر في الأخيرة', async () => {
-  const today = withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-27'] } });
-  const a = await partSheet('2026-10-27', PART_SEED(), today, { code: TODAY });
-  assert.match(sheetHtml(a.app), /undoCrmSheetPeriodStart\(\)">↶ تراجع عن بدء الفترة الثانية/);
-  assert.doesNotMatch(sheetHtml(a.app), /is-next/, 'الثانية هي الأخيرة: إنهاؤها من ⚙');
-  const old = await partSheet('2026-10-27', PART_SEED(), withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-20'] } }), { code: TODAY });
-  assert.doesNotMatch(sheetHtml(old.app), /undoCrmSheetPeriodStart/, 'بدأت قبل أيام: من ⚙ فقط');
+test('رابط «تراجع عن بدء…» — في نفس جلسة الورقة التي بدأت فيها فقط؛ يختفي بأول رصد أو ✕ أو بفتح ورقة جديدة', async () => {
+  const f = withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20'] } });
+  const { app } = await partSheet('2026-10-27', PART_SEED(), f, { code: `${TODAY} enabledSheetModes = () => ['participation'];
+    { const _r = sb.rpc.bind(sb); sb.rpc = (n, a) => n === 'set_period_lock' ? Promise.resolve({ data: {}, error: null }) : _r(n, a); }
+    showUndoToast = () => Promise.resolve(true);`, rpc: { increment_period_score: 1 } });
+  runInAppContext(app, `{ const slot = { innerHTML: '' }; const row = { innerHTML: 'x' }; const _q = document.getElementById; document.getElementById = id => id === 'crmStartPanelSlot' ? slot : id === 'crmPerUndoRow' ? row : _q(id); window.__row = row; }`);
+  assert.doesNotMatch(sheetHtml(app), /undoCrmSheetPeriodStart/, 'قبل البدء: لا رابط');
+  app.openCrmStartNext();
+  await app.applyCrmStartNext();
+  assert.match(sheetHtml(app), /undoCrmSheetPeriodStart\(\)">↶ تراجع عن بدء الفترة الثالثة[\s\S]*dismissCrmJustStarted\(\)">✕/);
+  app.tapCrmParticipation('a', 1);
+  assert.equal(get(app, 'crmSheet.justStarted'), null, 'أول رصد في الجديدة يخفيه');
+  assert.equal(get(app, 'window.__row.innerHTML'), '');
+  await app.renderCrmParticipation(get(app, 'crmStudentsOfSection("S")'));
+  assert.doesNotMatch(sheetHtml(app), /undoCrmSheetPeriodStart/, 'لا يعود بإعادة الرسم');
+  /* ورقة جديدة (حصة أخرى/إعادة فتح) في نفس اليوم: لا رابط — التراجع من ⚙ */
+  const again = await partSheet('2026-10-27', PART_SEED(), withPeriods({ 'kind:participation': { n: 3, starts: ['2026-10-20', '2026-10-27'] } }), { code: TODAY });
+  assert.doesNotMatch(sheetHtml(again.app), /undoCrmSheetPeriodStart/);
+  const last = await partSheet('2026-10-27', PART_SEED(), withPeriods({ 'kind:participation': { n: 2, starts: ['2026-10-27'] } }), { code: TODAY });
+  assert.doesNotMatch(sheetHtml(last.app), /is-next/, 'الأخيرة: إنهاؤها من ⚙');
 });
 
 test('«احسب الفترة الجارية في الكشف» — لكل مكوّن، مطفأ في الأصل؛ يغيّر الحساب فقط ويبقى عبر بدء الفترات', async () => {

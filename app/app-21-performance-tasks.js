@@ -461,6 +461,7 @@ function fillCrmTaskEmpty(score){
 function persistCrmTaskScores(ids, score, prev){
   const s = crmSheet;
   const t = s.task;
+  dismissCrmJustStarted(s);
   const taskId = t.selectedId;
   /* يُعاد العرض لما كان، ما لم تتغيّر الدرجة بنقرة أحدث */
   const revert = list => {

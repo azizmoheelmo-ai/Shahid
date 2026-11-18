@@ -541,13 +541,24 @@ function crmPeriodChipHtml(s){
     <button type="button" class="crm-per-gear" onclick="openCrmPeriodPicker()" aria-label="إدارة الفترات (إنهاء، قفل)" title="إدارة الفترات">⚙</button></div>`;
 }
 
-/* تحت المبدّل: مكان لوحة «ابدأ الفترة التالية»، ورابط «تراجع عن بدء…» إن بدأت الجارية اليوم */
+/* تحت المبدّل: مكان لوحة «ابدأ الفترة التالية»، ورابط «تراجع عن بدء…» — في نفس جلسة الورقة التي بدأت فيها الفترة فقط
+   (s.justStarted): يختفي بإغلاق الورقة، أو بأول رصد في الجديدة، أو بـ✕. بعدها التراجع من ⚙ */
 function crmStartSlotHtml(s){
   const info = sheetPeriodInfo(s);
   if(!info || info.cfg.n < 2 || !sheetPeriodSwitchable(info.key)) return '';
-  const undo = info.now > 1 && !info.cfg.ended && info.period === info.now && info.cfg.starts[info.now - 2] === localIsoDate()
-    ? `<button type="button" class="crm-per-undo gs-period-btn" onclick="undoCrmSheetPeriodStart()">↶ تراجع عن بدء ${PERIOD_NAMES[info.now]}</button>` : '';
+  const undo = s.justStarted === info.key && info.now > 1 && !info.cfg.ended && info.period === info.now
+    ? `<div class="crm-per-undo-row" id="crmPerUndoRow"><button type="button" class="crm-per-undo gs-period-btn" onclick="undoCrmSheetPeriodStart()">↶ تراجع عن بدء ${PERIOD_NAMES[info.now]}</button>
+      <button type="button" class="crm-per-undo-x" aria-label="إخفاء" onclick="dismissCrmJustStarted()">✕</button></div>` : '';
   return `<div id="crmStartPanelSlot"></div>${undo}`;
+}
+
+/* أول رصد في الفترة الجديدة، أو ✕: يختفي رابط التراجع (التراجع بعد الرصد مرفوض أصلًا) */
+function dismissCrmJustStarted(s){
+  s = s || (typeof crmSheet === 'undefined' ? null : crmSheet);
+  if(!s || !s.justStarted) return;
+  s.justStarted = null;
+  const row = document.getElementById('crmPerUndoRow');
+  if(row) row.innerHTML = '';
 }
 
 function crmStartPanelHtml(d, sum){
@@ -606,10 +617,10 @@ function closeCrmStartNext(){
 async function applyCrmStartNext(){
   const d = periodTransDraft;
   if(!d || !d.sheet || gradePeriodSaving) return false;
-  const key = d.key, started = d.now + 1, start = d.start;
-  if(d.sheet === crmSheet) d.sheet.startPanel = null;
+  const key = d.key, started = d.now + 1, start = d.start, sheet = d.sheet;
+  if(sheet === crmSheet){ sheet.startPanel = null; sheet.justStarted = key; } /* قبل إعادة الرسم: رابط التراجع يظهر في هذه الجلسة */
   const ok = await applyPeriodTransition({ quiet: true });
-  if(!ok) return false;
+  if(!ok){ if(sheet) sheet.justStarted = null; return false; }
   const msg = `${isLockableKey(key) ? 'أُقفلت' : 'انتهت'} ${PERIOD_NAMES[started - 1]} وبدأت ${PERIOD_NAMES[started]} ✓`;
   /* «تراجع» فوري فقط إن بدأت فارغة (البداية بالكاملة/0 رصدٌ يمنع التراجع — لا حذف صامت) */
   if(start !== 'empty' || typeof showUndoToast !== 'function'){ showToast(msg, 'ok'); return true; }
@@ -626,6 +637,7 @@ async function undoComponentPeriodStart(key, started){
   if(currentPeriodOf(cfg) !== started || cfg.ended) return false; /* تغيّر شيء منذ البدء */
   const s = typeof crmSheet === 'undefined' ? null : crmSheet;
   const ok = await goToComponentPeriod(key, started - 1);
+  if(ok && s) s.justStarted = null;
   if(ok && s && crmSheet === s && s.mode) await setCrmSheetMode(s.mode);
   return ok;
 }
