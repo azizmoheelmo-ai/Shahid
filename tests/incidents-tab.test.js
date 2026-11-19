@@ -135,7 +135,7 @@ test('الأزرار السريعة: تكرار/أخرى للطالب الحال
   const { run } = renderWith(incidents, `crmStudents = [{ id: 'A', full_name: 'بشار', guardian_phone: '966500000000' }, { id: 'B', full_name: 'حسام' }]; crmIncidentTypes = [{ id: 'T', problem_name: '${LONG}' }];`);
   const out = await run();
   const cards = out.split('class="crm-inc-card"').slice(1);
-  assert.match(cards[0], /openCrmIncidentRepeat\('A','T'\)">↻ تكرار: إعاقة سير الحصة/);
+  assert.match(cards[0], /aria-label="تكرار: إعاقة سير الحصة" onclick="openCrmIncidentRepeat\('A','T'\)">↻ تكرار</);
   assert.match(cards[0], /openCrmIncidentRepeat\('A'\)/);
   assert.match(cards[0], /openCrmIncidentWa\('I1'\)/);
   assert.doesNotMatch(cards[1], /openCrmIncidentWa/, 'بلا رقم = بلا واتساب');
@@ -441,4 +441,24 @@ test('انحدار: بطاقة المرحلة داخل الجزء الثابت �
   const prev = sheet.indexOf('id="crmOccurrencePreview"');
   assert.ok(prev > foot && prev < sheet.indexOf('id="crmIncidentSaveBtn"'), 'البطاقة في الجزء الثابت قبل الحفظ');
   assert.match(css, /\.crm-prev-sem\{white-space:nowrap/);
+});
+
+test('3.74: كل البطاقات مطويّة (حتى بانتظار التحويل)، والمراحل والتنبيه داخلها لا برأسها', async () => {
+  const incidents = [
+    { id: 'P1', incident_date: '2026-11-09', occurrence_number: 3, current_stage: 'referred', referral_letter_generated: false, student_id: 'A', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'P0', incident_date: '2026-11-01', occurrence_number: 2, current_stage: 'warning_2', student_id: 'A', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'Q1', incident_date: '2026-11-08', occurrence_number: 2, current_stage: 'warning_2', student_id: 'B', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'Q0', incident_date: '2026-11-02', occurrence_number: 1, current_stage: 'warning_1', student_id: 'B', incident_type_id: 'T', semester_label: 'الأول 1448' }
+  ];
+  const { run } = renderWith(incidents, `crmStudents = [{ id: 'A', full_name: 'بشار' }, { id: 'B', full_name: 'حسام' }]; crmIncidentTypes = [{ id: 'T', problem_name: 'تأخر' }];`);
+  const out = await run();
+  assert.doesNotMatch(out, /style="display:block;"/, 'لا بطاقة مفتوحة تلقائيًا');
+  assert.doesNotMatch(out, /▾/);
+  for(const card of out.split('class="crm-inc-card"').slice(1)){
+    const head = card.slice(0, card.indexOf('</button>'));
+    assert.doesNotMatch(head, /crm-ladder|crm-inc-warn|قريب من التحويل/, 'الرأس: الاسم وآخرها والشارات فقط');
+  }
+  assert.match(out, /بانتظار التحويل/);
+  assert.match(out, /crm-inc-state"><span class="crm-ladder/);
+  assert.match(out, /المرة القادمة من «تأخر» = تحويل/);
 });
