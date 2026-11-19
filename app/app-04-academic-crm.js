@@ -2394,6 +2394,7 @@ async function openCrmIncidentSheet(studentId){
   if(studentId) selectCrmIncidentStudent(studentId);
   updateCrmIncidentSaveState();
   await renderCrmIncidentTypeChips();
+  renderCrmIncidentDetailChips(); /* بعد تحميل الأنواع (التكرار يفتح والنوع مختار) */
 }
 
 function closeCrmIncidentSheet(){
@@ -2415,6 +2416,7 @@ function resetCrmIncidentForm(){
   delete box.dataset.stage;
   clearCrmIncidentStudent(false);
   markCrmIncidentTypeChips();
+  renderCrmIncidentDetailChips();
 }
 
 const crmDegDigits = '٠١٢٣٤٥٦٧٨٩';
@@ -2423,6 +2425,71 @@ function crmDegreeBadge(type){
   if(!d) return '';
   const ar = String(d).replace(/\d/g, c => crmDegDigits[c]);
   return `<span class="crm-type-deg"><i class="crm-dot${d >= 1 && d <= 5 ? ' d' + d : ''}"></i>د${ar}</span>`;
+}
+
+/* ============ السلوك الدقيق داخل المخالفة ============
+   «إعاقة سير الحصة (حديث جانبي/مقاطعة/أكل أثناء الدرس)»: أزرار للسلوك الذي حدث فعلًا.
+   يُكتب في الملاحظة (لا عمود جديد)، والمرّات والمراحل تبقى للمخالفة كلها كما في اللائحة. */
+let crmIncidentDetail = { typeId: '', picked: [], prefix: '' };
+
+function crmIncidentDetailOptions(type){
+  if(!type || typeof crmSplitTypeName !== 'function') return [];
+  const detail = crmSplitTypeName(type.problem_name).detail;
+  const opts = detail.split(/[\/،]/).map(x => x.trim()).filter(Boolean);
+  /* خيار واحد أو نص طويل = شرح لا قائمة سلوكيات */
+  return opts.length >= 2 && opts.every(o => o.length <= 40) ? [...new Set(opts)] : [];
+}
+
+/* يستبدل بداية الملاحظة التي كتبها التطبيق (الاختيار السابق) بالجديدة، ويُبقي ما كتبه المعلم بعدها */
+function crmComposeDetailNotes(notes, oldPrefix, newPrefix){
+  let rest = String(notes || '');
+  if(oldPrefix && rest.startsWith(oldPrefix)) rest = rest.slice(oldPrefix.length).replace(/^\s*—\s*/, '');
+  rest = rest.trim() ? rest : '';
+  if(!newPrefix) return rest;
+  return rest ? newPrefix + ' — ' + rest : newPrefix;
+}
+
+function crmIncidentDetailWrite(picked){
+  const notes = document.getElementById('crmIncidentNotes');
+  const prefix = picked.join('، ');
+  if(notes){
+    notes.value = crmComposeDetailNotes(notes.value, crmIncidentDetail.prefix, prefix);
+    autoGrowCrmIncidentNotes(notes);
+  }
+  crmIncidentDetail.picked = picked;
+  crmIncidentDetail.prefix = prefix;
+}
+
+function renderCrmIncidentDetailChips(){
+  const box = document.getElementById('crmIncidentDetailBox');
+  const sel = document.getElementById('crmIncidentType');
+  if(!box || !sel) return;
+  const typeId = sel.value;
+  if(typeId !== crmIncidentDetail.typeId){
+    /* مخالفة أخرى: اختيار السابقة لا يبقى في الملاحظة */
+    if(crmIncidentDetail.prefix) crmIncidentDetailWrite([]);
+    crmIncidentDetail = { typeId, picked: [], prefix: '' };
+  }
+  const opts = crmIncidentDetailOptions(crmIncidentTypes.find(t => t.id === typeId));
+  if(!opts.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = `<div class="crm-detail-k">ما الذي حدث بالضبط؟ <span>(اختياري)</span></div>
+    <div class="crm-detail-chips">${opts.map((o, i) => {
+      const on = crmIncidentDetail.picked.includes(o);
+      return `<button type="button" class="crm-pill${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toggleCrmIncidentDetail(${i})">${escapeHtml(o)}${on ? ' ✓' : ''}</button>`;
+    }).join('')}</div>
+    <div class="crm-detail-hint">المرّات والمراحل تُحسب للمخالفة كلها كما في اللائحة، لا لكل سلوك وحده</div>`;
+}
+
+function toggleCrmIncidentDetail(i){
+  const sel = document.getElementById('crmIncidentType');
+  const opts = crmIncidentDetailOptions(crmIncidentTypes.find(t => t.id === (sel && sel.value)));
+  const o = opts[i];
+  if(!o) return;
+  const cur = crmIncidentDetail.picked;
+  const next = cur.includes(o) ? cur.filter(x => x !== o) : opts.filter(x => x === o || cur.includes(x)); /* بترتيب اللائحة */
+  crmIncidentDetailWrite(next);
+  renderCrmIncidentDetailChips();
 }
 
 /* أكثر 6 مخالفات استخدامًا لدى المعلم كصفوف بعرض كامل + "كل المخالفات" تفتح ورقة
@@ -2462,6 +2529,7 @@ function pickCrmIncidentType(id){
   if(!sel) return;
   sel.value = id;
   markCrmIncidentTypeChips();
+  renderCrmIncidentDetailChips();
   revealCrmPickedType();
   refreshOccurrencePreview();
   updateCrmIncidentSaveState();
@@ -2469,6 +2537,7 @@ function pickCrmIncidentType(id){
 
 function onCrmIncidentTypeSelect(){
   markCrmIncidentTypeChips();
+  renderCrmIncidentDetailChips();
   refreshOccurrencePreview();
   updateCrmIncidentSaveState();
 }
