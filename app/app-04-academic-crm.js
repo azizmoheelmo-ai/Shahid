@@ -2553,41 +2553,98 @@ function openCrmIncidentActions(id){
 }
 
 let crmIncidentsShown = [];
+let crmIncidentsRenderSeq = 0; /* رسم أحدث فقط: بحث/تبديل فلتر سريع قد يعيد نتائج أقدم بعد أحدث */
+
+/* «إعاقة سير الحصة (حديث جانبي/…)» ← عنوان قصير + تفصيل؛ يُكتب الاسم الطويل مرة واحدة */
+function crmSplitTypeName(name){
+  const n = String(name || '').trim();
+  const m = n.match(/^(.+?)\s*\((.+)\)\s*$/);
+  return m ? { title: m[1].trim(), detail: m[2].trim() } : { title: n, detail: '' };
+}
+
+/* مراحل المخالفة لنوع واحد بعدد مرّاته هذا الفصل — من incidentStageFor نفسها (اللائحة هي المرجع).
+   null = لا سلّم (التحويل الفوري، أو لا مرات هذا الفصل) */
+function crmIncidentLadder(type, semCount){
+  if(!type || type.action_sequence === 'immediate_referral' || !(semCount > 0)) return null;
+  const labels = ['تنبيه أول', 'تنبيه ثانٍ', 'تحويل'];
+  return {
+    steps: labels.map((label, i) => ({ label, state: i < semCount ? 'done' : (i === semCount ? 'next' : 'later') })),
+    nextStage: incidentStageFor(type, semCount + 1).stage
+  };
+}
+
+function crmLadderHtml(ladder){
+  if(!ladder) return '';
+  return '<span class="crm-ladder" aria-label="مراحل المخالفة هذا الفصل">' + ladder.steps.map((st, i) =>
+    (i ? '<i class="crm-ladder-sep" aria-hidden="true">◂</i>' : '')
+    + `<span class="crm-ladder-st is-${st.state}${i === 2 ? ' is-ref' : ''}">${st.label}${st.state === 'done' ? ' ✓' : ''}</span>`).join('') + '</span>';
+}
+
+/* نص واتساب جاهز لولي الأمر عن مخالفة — المعلم يراجعه ويضغط إرسال بنفسه */
+function crmIncidentWaDraft(student, type, inc){
+  const name = student ? student.full_name : '';
+  const t = type ? crmSplitTypeName(type.problem_name).title : 'مخالفة';
+  return `السلام عليكم ورحمة الله،\nنفيدكم بأنه سُجّلت على الطالب ${name} مخالفة: ${t}${inc && inc.incident_date ? ' بتاريخ ' + inc.incident_date : ''}.\nنأمل التعاون في متابعته، شاكرين لكم.`;
+}
+
+/* أزرار البطاقة: تفتح لوحة التسجيل والطالب (ونوع المخالفة للتكرار) جاهزان */
+async function openCrmIncidentRepeat(studentId, typeId){
+  if(!crmStudents.some(s => s.id === studentId)) return;
+  resetCrmIncidentForm();
+  const sel = document.getElementById('crmIncidentType');
+  if(sel && typeId && crmIncidentTypes.some(t => t.id === typeId)){
+    sel.value = typeId;
+    if(sel.value !== typeId) sel.value = ''; /* الخيار غير موجود بالقائمة: الطالب وحده */
+  }
+  await openCrmIncidentSheet(studentId);
+}
+
+function openCrmIncidentWa(incidentId){
+  const inc = (crmIncidentsShown || []).find(x => x.id === incidentId);
+  if(!inc || typeof openCrmWaNote !== 'function') return;
+  const student = crmStudents.find(s => s.id === inc.student_id);
+  const type = crmIncidentTypes.find(t => t.id === inc.incident_type_id);
+  openCrmWaNote(inc.student_id, 'guardian', crmIncidentWaDraft(student, type, inc));
+}
 
 async function renderCrmRecentIncidents(){
   const box = document.getElementById('crmRecentIncidents');
   const searchQuery = (document.getElementById('crmIncidentsSearch').value || '').trim();
+  const seq = ++crmIncidentsRenderSeq;
+  const filter = crmIncidentFilter;
+  const uid = currentUser && currentUser.id;
+  if(!uid) return;
 
-  /* نبني الاستعلام من جديد بكل صفحة حتى تعمل fetchAllRows بشكل صحيح — وبهذا
-     نلغي الحد الثابت (100/200) الذي كان يُسقط حوادث بانتظار المتابعة بصمت
-     لمعلم لديه أرشيف كبير */
-  const buildQuery = (from, to) => {
-    let q = sb.from('classroom_incidents')
-      .select('id, incident_date, occurrence_number, current_stage, notes, student_id, incident_type_id, referral_letter_generated, referral_letter_number, referral_receipt_photo_url')
-      .eq('teacher_id', currentUser.id);
-    if(crmIncidentFilter === 'pending'){
-      q = q.eq('current_stage', 'referred').eq('referral_letter_generated', false);
-    } else if(crmIncidentFilter === 'week'){
-      q = q.gte('incident_date', crmWeekStartIso(localIsoDate()));
-    }
-    return q.order('created_at', { ascending: false }).range(from, to);
-  };
+  /* نجلب كل مخالفات المعلم ونصفّي هنا: مراحل البطاقة تحتاج كل مرّات الفصل
+     حتى بفلتر «هذا الأسبوع». (fetchAllRows بلا حد ثابت — الحد القديم كان
+     يُسقط حوادث بانتظار المتابعة بصمت لمعلم لديه أرشيف كبير) */
+  const buildQuery = (from, to) => sb.from('classroom_incidents')
+    .select('id, incident_date, occurrence_number, current_stage, notes, student_id, incident_type_id, semester_label, referral_letter_generated, referral_letter_number, referral_receipt_photo_url')
+    .eq('teacher_id', uid)
+    .order('created_at', { ascending: false }).range(from, to);
 
   refreshCrmIncidentCounts();
   const { data, error } = await fetchAllRows(buildQuery);
+  /* طلب أحدث بدأ، أو تغيّر المستخدم: لا نكتب نتيجة قديمة فوقه */
+  if(seq !== crmIncidentsRenderSeq || !currentUser || currentUser.id !== uid) return;
   if(error){ box.innerHTML = '<div class="empty-state">تعذّر التحميل: ' + escapeHtml(error.message) + '</div>'; return; }
-  crmIncidentsShown = data || [];
+  const all = data || [];
+  const weekStart = crmWeekStartIso(localIsoDate());
+  const rows = filter === 'pending' ? all.filter(i => i.current_stage === 'referred' && !i.referral_letter_generated)
+    : filter === 'week' ? all.filter(i => i.incident_date && i.incident_date >= weekStart)
+    : all;
+  crmIncidentsShown = rows;
 
   const emptyMsg = {
     all: 'لا مخالفات مسجّلة بعد.',
     week: 'لا مخالفات هذا الأسبوع.',
     pending: 'لا مخالفات بانتظار التحويل.'
   };
-  if(!data || !data.length){ box.innerHTML = '<div class="empty-state">' + emptyMsg[crmIncidentFilter] + '</div>'; return; }
+  if(!rows.length){ box.innerHTML = '<div class="empty-state">' + emptyMsg[filter] + '</div>'; return; }
 
-  let filtered = data;
+  let filtered = rows;
   if(searchQuery){
-    filtered = data.filter(inc => {
+    filtered = rows.filter(inc => {
       const student = crmStudents.find(s => s.id === inc.student_id);
       return student && student.full_name.includes(searchQuery);
     });
@@ -2595,6 +2652,10 @@ async function renderCrmRecentIncidents(){
   if(!filtered.length){ box.innerHTML = '<div class="empty-state">لا نتائج مطابقة.</div>'; return; }
 
   const stageLabel = { warning_1: 'تنبيه أول', warning_2: 'تنبيه ثانٍ', referred: 'محال' };
+  const semester = getCrmSemesterLabel();
+  /* عدد مرّات كل (طالب، نوع) هذا الفصل — من كل السجلات لا المعروضة فقط */
+  const semCount = {};
+  all.forEach(i => { if(i.semester_label === semester){ const k = i.student_id + '|' + i.incident_type_id; semCount[k] = (semCount[k] || 0) + 1; } });
 
   const groups = {};
   const order = [];
@@ -2604,7 +2665,7 @@ async function renderCrmRecentIncidents(){
     groups[sid].push(inc);
   });
 
-  /* بطاقة لكل طالب: عدده وآخر مخالفة وحالتها؛ المخالفات تحتها والإجراءات في ⋯ */
+  /* بطاقة لكل طالب: عدده وآخر مخالفة ومراحلها؛ تحتها المخالفات مجمّعة بالنوع والإجراءات في ⋯ */
   box.innerHTML = order.map((sid, gi) => {
     const list = groups[sid];
     const student = crmStudents.find(s => s.id === sid);
@@ -2613,30 +2674,64 @@ async function renderCrmRecentIncidents(){
     const latest = list[0];
     const latestType = crmIncidentTypes.find(t => t.id === latest.incident_type_id);
     const countText = crmIncidentCountText(list.length);
+    const ladder = crmIncidentLadder(latestType, semCount[sid + '|' + latest.incident_type_id] || 0);
 
-    const itemsHtml = list.map(inc => {
-      const type = crmIncidentTypes.find(t => t.id === inc.incident_type_id);
-      const needsLetter = inc.current_stage === 'referred' && !inc.referral_letter_generated;
-      const hasLetter = inc.current_stage === 'referred' && inc.referral_letter_generated;
-      return `<div class="crm-inc-item">
-          <div class="crm-inc-item-main">
-            <b>${type ? escapeHtml(type.problem_name) : '—'}</b>
-            <small>${escapeHtml(inc.incident_date || '')} · المرة ${inc.occurrence_number} · ${stageLabel[inc.current_stage] || escapeHtml(inc.current_stage || '')}${hasLetter && inc.referral_letter_number ? ' · خطاب رقم ' + escapeHtml(inc.referral_letter_number) : ''}</small>
-            ${inc.notes ? `<small class="crm-inc-note">${escapeHtml(inc.notes)}</small>` : ''}
-            ${needsLetter ? `<button type="button" class="btn btn-primary crm-mini-btn crm-inc-letter" onclick="openReferralLetter('${inc.id}')">📄 إصدار خطاب التحويل</button>` : ''}
-          </div>
-          <button type="button" class="crm-lrow-more" aria-label="خيارات المخالفة" onclick="openCrmIncidentActions('${inc.id}')">⋯</button>
-        </div>`;
+    /* المخالفات مجمّعة بالنوع (الأحدث أولًا) */
+    const typeOrder = [];
+    const byType = {};
+    list.forEach(inc => {
+      const k = inc.incident_type_id;
+      if(!byType[k]){ byType[k] = []; typeOrder.push(k); }
+      byType[k].push(inc);
+    });
+    /* «المرة القادمة = تحويل»: نوع وصل تنبيهه الثاني هذا الفصل */
+    const nearRef = typeOrder.map(k => crmIncidentTypes.find(t => t.id === k))
+      .filter(t => t && t.action_sequence !== 'immediate_referral' && semCount[sid + '|' + t.id] === 2);
+    const warnHtml = nearRef.length ? `<div class="crm-inc-warn">⚠ المرة القادمة من ${nearRef.map(t => '«' + escapeHtml(crmSplitTypeName(t.problem_name).title) + '»').join(' أو ')} = تحويل</div>` : '';
+
+    const itemsHtml = typeOrder.map(k => {
+      const incs = byType[k];
+      const type = crmIncidentTypes.find(t => t.id === k);
+      const nm = type ? crmSplitTypeName(type.problem_name) : { title: '—', detail: '' };
+      const occ = incs.map(inc => {
+        const needsLetter = inc.current_stage === 'referred' && !inc.referral_letter_generated;
+        const hasLetter = inc.current_stage === 'referred' && inc.referral_letter_generated;
+        return `<div class="crm-inc-occ">
+            <div class="crm-inc-item-main">
+              <small class="crm-inc-occ-line">${escapeHtml(inc.incident_date || '')} · المرة ${escapeHtml(String(inc.occurrence_number || ''))} · ${stageLabel[inc.current_stage] || escapeHtml(inc.current_stage || '')}${hasLetter && inc.referral_letter_number ? ' · خطاب رقم ' + escapeHtml(inc.referral_letter_number) : ''}</small>
+              ${inc.notes ? `<small class="crm-inc-note">${escapeHtml(inc.notes)}</small>` : ''}
+              ${needsLetter ? `<button type="button" class="btn btn-primary crm-mini-btn crm-inc-letter" onclick="openReferralLetter('${escapeHtml(inc.id)}')">📄 إصدار خطاب التحويل</button>` : ''}
+            </div>
+            <button type="button" class="crm-lrow-more" aria-label="خيارات المخالفة" onclick="openCrmIncidentActions('${escapeHtml(inc.id)}')">⋯</button>
+          </div>`;
+      }).join('');
+      return `<div class="crm-inc-item"><div class="crm-inc-item-main">
+          <b>${escapeHtml(nm.title)}${incs.length > 1 ? ` <span class="crm-inc-x">×${incs.length}</span>` : ''}</b>
+          ${nm.detail ? `<small class="crm-inc-detail">${escapeHtml(nm.detail)}</small>` : ''}
+          ${occ}
+        </div></div>`;
     }).join('');
+
+    /* أزرار سريعة — للطالب الحالي فقط (المنقول خارج المدرسة لا تُسجَّل عليه مخالفة) */
+    const active = !!student;
+    const hasPhone = active && (student.guardian_phone || student.student_phone) && typeof openCrmWaNote === 'function';
+    const sidE = escapeHtml(sid);
+    const actsHtml = active ? `<div class="crm-inc-acts">
+        ${latestType ? `<button type="button" class="tlx-btn is-navy crm-inc-act" onclick="openCrmIncidentRepeat('${sidE}','${escapeHtml(latestType.id)}')">↻ تكرار: ${escapeHtml(crmSplitTypeName(latestType.problem_name).title)}</button>` : ''}
+        <button type="button" class="tlx-btn is-ghost crm-inc-act" onclick="openCrmIncidentRepeat('${sidE}')">＋ مخالفة أخرى</button>
+        ${hasPhone ? `<button type="button" class="tlx-btn is-wa crm-inc-act" onclick="openCrmIncidentWa('${escapeHtml(latest.id)}')">واتساب</button>` : ''}
+      </div>` : '';
 
     return `<div class="crm-inc-card">
         <button type="button" class="crm-inc-card-head" onclick="toggleCrmGroup('${groupId}')">
           <span class="crm-inc-card-main"><b>${student ? escapeHtml(student.full_name) : 'طالب محذوف'}</b>
-            <small>آخرها: ${latestType ? escapeHtml(latestType.problem_name) : '—'} · ${escapeHtml(latest.incident_date || '')}</small></span>
+            <small>آخرها: ${latestType ? escapeHtml(crmSplitTypeName(latestType.problem_name).title) : '—'} · ${escapeHtml(latest.incident_date || '')}</small></span>
           <span class="gs-chip">${countText}</span>${hasPending ? '<span class="gs-chip now">بانتظار التحويل</span>' : ''}
           <span id="${groupId}_arrow" class="crm-inc-arrow">${hasPending ? '▾' : '▸'}</span>
+          ${crmLadderHtml(ladder)}
         </button>
-        <div id="${groupId}" style="display:${hasPending ? 'block' : 'none'};">${itemsHtml}</div>
+        ${warnHtml}
+        <div id="${groupId}" style="display:${hasPending ? 'block' : 'none'};">${actsHtml}${itemsHtml}</div>
       </div>`;
   }).join('');
 }
