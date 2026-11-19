@@ -1948,18 +1948,19 @@ html, body, *{touch-action:manipulation;}
 .crm-inc-detail{color:var(--muted);}
 .crm-inc-occ{display:flex;align-items:flex-start;gap:6px;margin-top:4px;}
 .crm-inc-occ-line{color:var(--ui-body) !important;}
-.crm-ladder{display:flex;align-items:center;gap:4px;flex-basis:100%;margin-top:2px;}
-.crm-inc-card-head:has(.crm-ladder){flex-wrap:wrap;}
+.crm-ladder{display:flex;align-items:center;gap:4px;}
+.crm-inc-state{padding:0 12px 10px;}
+.crm-inc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+.crm-inc-card-head{align-items:flex-start;}
 .crm-ladder-st{flex:1;text-align:center;font-size:10.5px;font-weight:700;padding:2px 0;border-radius:6px;background:var(--ui-track);color:var(--ui-x);white-space:nowrap;}
 .crm-ladder-st.is-done{background:var(--ui-warn-bg);color:var(--ui-warn);}
 .crm-ladder-st.is-next{border:1px dashed var(--ui-warn);color:var(--ui-warn);background:var(--card);}
 .crm-ladder-st.is-next.is-ref{border-color:var(--ui-danger);color:var(--ui-danger);background:var(--ui-danger-bg);}
 .crm-ladder-st.is-done.is-ref{background:var(--ui-danger-bg);color:var(--ui-danger);}
 .crm-ladder-sep{font-style:normal;color:var(--ui-x);font-size:9px;}
-.crm-inc-warn{margin:0 12px 10px;background:var(--ui-danger-bg);color:var(--ui-danger);font-size:12px;font-weight:700;border-radius:9px;padding:6px 10px;line-height:1.6;}
+.crm-inc-warn{margin:8px 0 0;background:var(--ui-danger-bg);color:var(--ui-danger);font-size:12px;font-weight:700;border-radius:9px;padding:6px 10px;line-height:1.6;}
 .crm-inc-acts{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px dashed var(--ui-divider);background:var(--ui-add-bg);}
-.crm-inc-acts .crm-inc-act{width:auto;flex:1 1 auto;min-height:38px;font-size:12.5px;padding:0 10px;}
-.crm-inc-acts .crm-inc-act.is-navy{flex-basis:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:38px;}
+.crm-inc-acts .crm-inc-act{width:auto;flex:1 1 0;min-width:0;min-height:38px;font-size:12.5px;padding:0 8px;white-space:nowrap;}
 .crm-bsheet-overlay{position:fixed;inset:0;z-index:9600;background:rgba(18,30,42,.45);display:flex;align-items:flex-end;justify-content:center;}
 .crm-bsheet{background:#fff;width:100%;max-width:560px;max-height:88vh;max-height:88dvh;display:flex;flex-direction:column;overflow:hidden;border-radius:20px 20px 0 0;padding:10px 16px 0;box-shadow:0 -10px 24px rgba(0,0,0,.18);}
 .crm-bsheet-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:8px;}

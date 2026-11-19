@@ -2717,21 +2717,22 @@ async function renderCrmRecentIncidents(){
     const hasPhone = active && (student.guardian_phone || student.student_phone) && typeof openCrmWaNote === 'function';
     const sidE = escapeHtml(sid);
     const actsHtml = active ? `<div class="crm-inc-acts">
-        ${latestType ? `<button type="button" class="tlx-btn is-navy crm-inc-act" onclick="openCrmIncidentRepeat('${sidE}','${escapeHtml(latestType.id)}')">↻ تكرار: ${escapeHtml(crmSplitTypeName(latestType.problem_name).title)}</button>` : ''}
-        <button type="button" class="tlx-btn is-ghost crm-inc-act" onclick="openCrmIncidentRepeat('${sidE}')">＋ مخالفة أخرى</button>
+        ${latestType ? `<button type="button" class="tlx-btn is-navy crm-inc-act" title="تكرار: ${escapeHtml(crmSplitTypeName(latestType.problem_name).title)}" aria-label="تكرار: ${escapeHtml(crmSplitTypeName(latestType.problem_name).title)}" onclick="openCrmIncidentRepeat('${sidE}','${escapeHtml(latestType.id)}')">↻ تكرار</button>` : ''}
+        <button type="button" class="tlx-btn is-ghost crm-inc-act" aria-label="مخالفة أخرى" onclick="openCrmIncidentRepeat('${sidE}')">＋ أخرى</button>
         ${hasPhone ? `<button type="button" class="tlx-btn is-wa crm-inc-act" onclick="openCrmIncidentWa('${escapeHtml(latest.id)}')">واتساب</button>` : ''}
       </div>` : '';
+    const ladderHtml = crmLadderHtml(ladder);
+    const stateHtml = ladderHtml || warnHtml ? `<div class="crm-inc-state">${ladderHtml}${warnHtml}</div>` : '';
 
+    /* مطويّة دائمًا (حتى بانتظار التحويل — الشارة تكفي): الاسم، آخرها، الشارات. المراحل والأزرار عند الفتح */
     return `<div class="crm-inc-card">
         <button type="button" class="crm-inc-card-head" onclick="toggleCrmGroup('${groupId}')">
           <span class="crm-inc-card-main"><b>${student ? escapeHtml(student.full_name) : 'طالب محذوف'}</b>
-            <small>آخرها: ${latestType ? escapeHtml(crmSplitTypeName(latestType.problem_name).title) : '—'} · ${escapeHtml(latest.incident_date || '')}</small></span>
-          <span class="gs-chip">${countText}</span>${hasPending ? '<span class="gs-chip now">بانتظار التحويل</span>' : ''}
-          <span id="${groupId}_arrow" class="crm-inc-arrow">${hasPending ? '▾' : '▸'}</span>
-          ${crmLadderHtml(ladder)}
+            <small>آخرها: ${latestType ? escapeHtml(crmSplitTypeName(latestType.problem_name).title) : '—'} · ${escapeHtml(latest.incident_date || '')}</small>
+            <span class="crm-inc-chips"><span class="gs-chip">${countText}</span>${hasPending ? '<span class="gs-chip now">بانتظار التحويل</span>' : ''}</span></span>
+          <span id="${groupId}_arrow" class="crm-inc-arrow">▸</span>
         </button>
-        ${warnHtml}
-        <div id="${groupId}" style="display:${hasPending ? 'block' : 'none'};">${actsHtml}${itemsHtml}</div>
+        <div id="${groupId}" style="display:none;">${stateHtml}${actsHtml}${itemsHtml}</div>
       </div>`;
   }).join('');
 }
