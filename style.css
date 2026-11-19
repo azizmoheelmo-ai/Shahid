@@ -1990,6 +1990,12 @@ html, body, *{touch-action:manipulation;}
 .crm-type-rad{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid #B9B3A4;background:#fff;}
 .crm-type-row.is-on{border:2px solid var(--navy);background:#EAF0F5;padding:7px 11px;}
 .crm-type-row.is-on .crm-type-rad{border:5px solid var(--navy);}
+.crm-detail-box{margin:8px 0 2px;padding:10px 12px;border:1px solid var(--ui-divider);border-radius:var(--ui-r-btn);background:var(--ui-add-bg);}
+.crm-detail-k{font-size:12.5px;font-weight:800;color:var(--navy);margin-bottom:7px;}
+.crm-detail-k span{font-weight:600;color:var(--muted);}
+.crm-detail-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.crm-detail-chips .crm-pill{min-height:36px;}
+.crm-detail-hint{font-size:11px;color:var(--muted);margin-top:7px;line-height:1.6;}
 .crm-type-t{flex:1;min-width:0;}
 .crm-type-deg{flex:none;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--muted);}
 .crm-type-row.is-more{color:#0E5F53;border-style:dashed;justify-content:space-between;}

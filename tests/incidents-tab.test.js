@@ -462,3 +462,51 @@ test('3.74: كل البطاقات مطويّة (حتى بانتظار التحو
   assert.match(out, /crm-inc-state"><span class="crm-ladder/);
   assert.match(out, /المرة القادمة من «تأخر» = تحويل/);
 });
+
+/* ============ 3.75: السلوك الدقيق داخل المخالفة ============ */
+test('crmIncidentDetailOptions: يفصل ما بين القوسين، ولا أزرار لخيار واحد أو بلا قوسين', () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  assert.deepEqual(Array.from(app.crmIncidentDetailOptions({ problem_name: LONG })), ['حديث جانبي', 'مقاطعة', 'أكل أثناء الدرس']);
+  assert.equal(app.crmIncidentDetailOptions({ problem_name: 'النوم داخل الفصل' }).length, 0);
+  assert.equal(app.crmIncidentDetailOptions({ problem_name: 'تأخر (بدون عذر)' }).length, 0);
+  assert.equal(app.crmIncidentDetailOptions(null).length, 0);
+});
+
+test('crmComposeDetailNotes: يستبدل اختيار التطبيق السابق ويُبقي ما كتبه المعلم', () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  assert.equal(app.crmComposeDetailNotes('', '', 'مقاطعة'), 'مقاطعة');
+  assert.equal(app.crmComposeDetailNotes('مقاطعة — تكرر مرتين', 'مقاطعة', 'مقاطعة، أكل'), 'مقاطعة، أكل — تكرر مرتين');
+  assert.equal(app.crmComposeDetailNotes('مقاطعة — تكرر', 'مقاطعة', ''), 'تكرر');
+  assert.equal(app.crmComposeDetailNotes('نص المعلم', '', 'مقاطعة'), 'مقاطعة — نص المعلم');
+  assert.equal(app.crmComposeDetailNotes('مقاطعة', 'مقاطعة', ''), '');
+});
+
+test('الأزرار: اختيار/إلغاء يكتب الملاحظة بترتيب اللائحة، وتغيير المخالفة يمسح اختيار السابقة', () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  runInAppContext(app, `crmIncidentTypes = [{ id: 'T', problem_name: '${LONG}' }, { id: 'U', problem_name: 'النوم داخل الفصل' }];
+    document.getElementById('crmIncidentType').value = 'T'; document.getElementById('crmIncidentNotes').value = '';`);
+  app.renderCrmIncidentDetailChips();
+  const box = () => get(app, `document.getElementById('crmIncidentDetailBox')`);
+  assert.equal(box().style.display, 'block');
+  assert.match(box().innerHTML, /حديث جانبي/);
+  app.toggleCrmIncidentDetail(2); app.toggleCrmIncidentDetail(0);
+  const notes = () => get(app, `document.getElementById('crmIncidentNotes').value`);
+  assert.equal(notes(), 'حديث جانبي، أكل أثناء الدرس');
+  runInAppContext(app, `document.getElementById('crmIncidentNotes').value += ' — في آخر الحصة';`);
+  app.toggleCrmIncidentDetail(0);
+  assert.equal(notes(), 'أكل أثناء الدرس — في آخر الحصة');
+  assert.match(box().innerHTML, /aria-pressed="true"[^>]*>أكل أثناء الدرس ✓/);
+  runInAppContext(app, `document.getElementById('crmIncidentType').value = 'U';`);
+  app.renderCrmIncidentDetailChips();
+  assert.equal(notes(), 'في آخر الحصة', 'اختيار المخالفة السابقة لا يبقى');
+  assert.equal(box().style.display, 'none');
+});
+
+test('الأزرار تُهرَّب (اسم النوع من القاعدة)', () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  runInAppContext(app, `crmIncidentTypes = [{ id: 'T', problem_name: 'س (<img src=x>/ب)' }]; document.getElementById('crmIncidentType').value = 'T';`);
+  app.renderCrmIncidentDetailChips();
+  const h = get(app, `document.getElementById('crmIncidentDetailBox').innerHTML`);
+  assert.doesNotMatch(h, /<img/);
+  assert.match(h, /&lt;img/);
+});
