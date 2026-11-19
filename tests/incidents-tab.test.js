@@ -510,3 +510,33 @@ test('الأزرار تُهرَّب (اسم النوع من القاعدة)', ()
   assert.doesNotMatch(h, /<img/);
   assert.match(h, /&lt;img/);
 });
+
+/* ============ 3.76 ============ */
+test('الأزرار تحت المخالفة المختارة مباشرة (لا بعد القائمة كلها فتختفي تحت حافة اللوحة)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'app-04-academic-crm.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function renderCrmIncidentDetailChips'), src.indexOf('function toggleCrmIncidentDetail'));
+  assert.match(fn, /^  placeCrmIncidentDetailBox\(box\);$/m, "يُستدعى عند الرسم");
+  assert.match(src, /querySelector\('\.crm-type-row\.is-on'\)[\s\S]{0,120}row\.after\(box\)/);
+  const rc = src.slice(src.indexOf('async function renderCrmIncidentTypeChips'), src.indexOf('function revealCrmPickedType'));
+  assert.ok(rc.indexOf('parkCrmIncidentDetailBox()') > -1 && rc.indexOf('parkCrmIncidentDetailBox()') < rc.indexOf('box.innerHTML ='), 'يُخرج الصندوق قبل مسح الصفوف');
+  assert.match(rc, /renderCrmIncidentDetailChips\(\);/);
+});
+
+test('«موقف رسمي» (ورقة الحصة/ملف الطالب): نفس أزرار السلوك، متعدد، وتغيير المخالفة يمسح السابق', () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  runInAppContext(app, `crmIncidentTypes = [{ id: 'T', problem_name: '${LONG}' }, { id: 'U', problem_name: 'النوم داخل الفصل' }];
+    document.getElementById('crmQiType').value = 'T'; document.getElementById('crmQiNotes').value = '';`);
+  app.renderCrmQiDetailChips();
+  const box = () => get(app, `document.getElementById('crmQiDetailBox')`);
+  const notes = () => get(app, `document.getElementById('crmQiNotes').value`);
+  assert.equal(box().style.display, 'block');
+  app.toggleCrmQiDetail(1); app.toggleCrmQiDetail(0);
+  assert.equal(notes(), 'حديث جانبي، مقاطعة');
+  runInAppContext(app, `document.getElementById('crmQiType').value = 'U';`);
+  app.renderCrmQiDetailChips();
+  assert.equal(notes(), '');
+  assert.equal(box().style.display, 'none');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'app-15-student-profile.js'), 'utf8');
+  assert.match(src, /id="crmQiType"[^>]*onchange="previewCrmQuickIncident\(\);renderCrmQiDetailChips\(\)"/);
+  assert.match(src, /id="crmQiDetailBox"/);
+});
