@@ -2472,6 +2472,7 @@ function renderCrmIncidentDetailChips(){
   }
   const opts = crmIncidentDetailOptions(crmIncidentTypes.find(t => t.id === typeId));
   if(!opts.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  placeCrmIncidentDetailBox(box);
   box.style.display = 'block';
   box.innerHTML = `<div class="crm-detail-k">ما الذي حدث بالضبط؟ <span>(اختياري)</span></div>
     <div class="crm-detail-chips">${opts.map((o, i) => {
@@ -2479,6 +2480,21 @@ function renderCrmIncidentDetailChips(){
       return `<button type="button" class="crm-pill${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toggleCrmIncidentDetail(${i})">${escapeHtml(o)}${on ? ' ✓' : ''}</button>`;
     }).join('')}</div>
     <div class="crm-detail-hint">المرّات والمراحل تُحسب للمخالفة كلها كما في اللائحة، لا لكل سلوك وحده</div>`;
+  if(typeof box.scrollIntoView === 'function') box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* الأزرار تحت المخالفة المختارة مباشرة — لا بعد القائمة كلها (كانت تقع تحت حافة اللوحة فلا تُرى) */
+function placeCrmIncidentDetailBox(box){
+  const list = document.getElementById('crmIncidentTypeChips');
+  const row = list && typeof list.querySelector === 'function' ? list.querySelector('.crm-type-row.is-on') : null;
+  if(row && typeof row.after === 'function' && row.nextSibling !== box) row.after(box);
+}
+
+/* قبل إعادة رسم الصفوف: نُخرج الصندوق من القائمة حتى لا يُمسح معها */
+function parkCrmIncidentDetailBox(){
+  const box = document.getElementById('crmIncidentDetailBox');
+  const list = document.getElementById('crmIncidentTypeChips');
+  if(box && list && typeof list.contains === 'function' && typeof list.after === 'function' && box.parentNode === list) list.after(box);
 }
 
 function toggleCrmIncidentDetail(i){
@@ -2507,11 +2523,13 @@ async function renderCrmIncidentTypeChips(){
   /* المختار من ورقة البحث وليس من الأكثر استخدامًا: يظهر أول القائمة */
   const picked = cur && !top.some(t => t.id === cur) ? crmIncidentTypes.find(t => t.id === cur) : null;
   const rows = (picked ? [picked] : []).concat(top);
+  parkCrmIncidentDetailBox();
   box.innerHTML = rows.map(t => {
     const on = cur === t.id;
     return `<button type="button" class="crm-type-row${on ? ' is-on' : ''}" role="radio" aria-checked="${on}" data-type="${t.id}" onclick="pickCrmIncidentType('${t.id}')"><span class="crm-type-rad" aria-hidden="true"></span><span class="crm-type-t">${escapeHtml(t.problem_name)}</span>${crmDegreeBadge(t)}</button>`;
   }).join('')
     + `<button type="button" class="crm-type-row is-more" onclick="openCrmTypePicker()"><span>كل المخالفات (${crmIncidentTypes.length}) وبحث</span><span aria-hidden="true">‹</span></button>`;
+  renderCrmIncidentDetailChips(); /* يعود تحت الصف المختار بعد إعادة الرسم */
   revealCrmPickedType();
 }
 

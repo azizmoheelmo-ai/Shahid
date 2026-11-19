@@ -370,15 +370,59 @@ async function openCrmIncidentModal(studentId, incidentDate){
       groups[deg].map(t => `<option value="${t.id}">${escapeHtml(t.problem_name)}</option>`).join('') + '</optgroup>';
   });
   crmQuickIncident = { studentId, incidentDate: incidentDate || localIsoDate(), saving: false };
+  crmQiDetail = { typeId: '', picked: [], prefix: '' };
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">موقف رسمي</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${escapeHtml(student.full_name)} · ${crmQuickIncident.incidentDate}</div>
-      <select class="goal-input" id="crmQiType" style="margin-bottom:8px;" onchange="previewCrmQuickIncident()">${options}</select>
+      <select class="goal-input" id="crmQiType" style="margin-bottom:8px;" onchange="previewCrmQuickIncident();renderCrmQiDetailChips()">${options}</select>
+      <div id="crmQiDetailBox" class="crm-detail-box" style="display:none;margin:0 0 8px;"></div>
       <div id="crmQiPreview" style="font-size:12px;line-height:1.8;margin-bottom:8px;"></div>
       <textarea class="goal-input" id="crmQiNotes" maxlength="2000" rows="2" placeholder="ملاحظة (اختياري)" style="margin-bottom:8px;"></textarea>
       <button class="btn btn-primary" id="crmQiSaveBtn" style="width:100%;justify-content:center;" onclick="saveCrmQuickIncident()">حفظ الموقف</button>
     </div>`, '440px');
+}
+
+/* السلوك الدقيق في «موقف رسمي» — نفس قواعد لوحة «تسجيل مخالفة» (app-04): يُكتب بالملاحظة،
+   اختيار متعدد، وتغيير المخالفة يمسح اختيار السابقة */
+let crmQiDetail = { typeId: '', picked: [], prefix: '' };
+
+function crmQiDetailWrite(picked){
+  const notes = document.getElementById('crmQiNotes');
+  const prefix = picked.join('، ');
+  if(notes) notes.value = crmComposeDetailNotes(notes.value, crmQiDetail.prefix, prefix);
+  crmQiDetail.picked = picked;
+  crmQiDetail.prefix = prefix;
+}
+
+function renderCrmQiDetailChips(){
+  const box = document.getElementById('crmQiDetailBox');
+  const sel = document.getElementById('crmQiType');
+  if(!box || !sel) return;
+  const typeId = sel.value;
+  if(typeId !== crmQiDetail.typeId){
+    if(crmQiDetail.prefix) crmQiDetailWrite([]);
+    crmQiDetail = { typeId, picked: [], prefix: '' };
+  }
+  const opts = crmIncidentDetailOptions(crmIncidentTypes.find(t => t.id === typeId));
+  if(!opts.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = `<div class="crm-detail-k">ما الذي حدث بالضبط؟ <span>(اختياري)</span></div>
+    <div class="crm-detail-chips">${opts.map((o, i) => {
+      const on = crmQiDetail.picked.includes(o);
+      return `<button type="button" class="crm-pill${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="toggleCrmQiDetail(${i})">${escapeHtml(o)}${on ? ' ✓' : ''}</button>`;
+    }).join('')}</div>
+    <div class="crm-detail-hint">المرّات والمراحل تُحسب للمخالفة كلها كما في اللائحة</div>`;
+}
+
+function toggleCrmQiDetail(i){
+  const sel = document.getElementById('crmQiType');
+  const opts = crmIncidentDetailOptions(crmIncidentTypes.find(t => t.id === (sel && sel.value)));
+  const o = opts[i];
+  if(!o) return;
+  const cur = crmQiDetail.picked;
+  crmQiDetailWrite(cur.includes(o) ? cur.filter(x => x !== o) : opts.filter(x => x === o || cur.includes(x)));
+  renderCrmQiDetailChips();
 }
 
 async function previewCrmQuickIncident(){
