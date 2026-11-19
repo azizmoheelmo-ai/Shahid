@@ -44,10 +44,138 @@ test('crmWeekStartIso = الأحد من الأسبوع نفسه، و"غير مو
   app.setCrmIncidentFilter('undocumented');
   assert.equal(get(app, 'crmIncidentFilter'), 'all');
   runInAppContext(app, `window.__r = renderCrmRecentIncidents(); setListFilter = (cfg, m) => { cfg.setValue(m); };`);
+  /* الفلتر يُطبَّق بعد الجلب (المراحل تحتاج كل مرّات الفصل): ما قبل الأحد لا يظهر */
+  const incidents = [
+    { id: 'W1', incident_date: '2026-10-20', occurrence_number: 1, current_stage: 'warning_1', student_id: 'A', incident_type_id: 'T' },
+    { id: 'W0', incident_date: '2026-10-17', occurrence_number: 1, current_stage: 'warning_1', student_id: 'B', incident_type_id: 'T' }
+  ];
+  const app2 = loadApp({ supabaseClient: client({ classroom_incidents: incidents }, log), currentUser: { id: 'u1' } });
+  runInAppContext(app2, `{ const _l = localIsoDate; localIsoDate = d => d ? _l(d) : '2026-10-22'; } setListFilter = (cfg, m) => { cfg.setValue(m); };
+    crmStudents = [{ id: 'A', full_name: 'أحمد' }, { id: 'B', full_name: 'بدر' }]; crmIncidentTypes = [{ id: 'T', problem_name: 'تأخر' }];
+    window.__box = { innerHTML: '' }; const _g = document.getElementById; document.getElementById = id => id === 'crmRecentIncidents' ? window.__box : _g(id);
+    document.getElementById('crmIncidentsSearch').value = '';`);
+  app2.setCrmIncidentFilter('week');
+  await app2.renderCrmRecentIncidents();
+  const out = get(app2, 'window.__box.innerHTML');
+  assert.match(out, /أحمد/);
+  assert.doesNotMatch(out, /بدر/, 'فلتر الأسبوع');
+  assert.ok(log.filter(x => x.table === 'classroom_incidents').every(x => x.eqs.some(([k, v]) => k === 'teacher_id' && v === 'u1')), 'مقيّد بالمعلم');
+});
+
+/* ============ لمسات البطاقة (3.73): المراحل، دمج التكرار، الأزرار السريعة ============ */
+function renderWith(incidents, setup){
+  const log = [];
+  const app = loadApp({ supabaseClient: client({ classroom_incidents: incidents }, log), currentUser: { id: 'u1' } });
+  runInAppContext(app, `getCrmSemesterLabel = () => 'الأول 1448';
+    window.__box = { innerHTML: '' }; const _g = document.getElementById; document.getElementById = id => id === 'crmRecentIncidents' ? window.__box : _g(id);
+    document.getElementById('crmIncidentsSearch').value = ''; ${setup}`);
+  return { app, log, run: async () => { await app.renderCrmRecentIncidents(); return get(app, 'window.__box.innerHTML'); } };
+}
+const LONG = 'إعاقة سير الحصة (حديث جانبي/مقاطعة/أكل أثناء الدرس)';
+
+test('crmSplitTypeName: عنوان قصير + تفصيل، والاسم بلا قوسين يبقى كما هو', () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  const a = app.crmSplitTypeName(LONG);
+  assert.equal(a.title, 'إعاقة سير الحصة');
+  assert.equal(a.detail, 'حديث جانبي/مقاطعة/أكل أثناء الدرس');
+  assert.equal(app.crmSplitTypeName('تأخر').title, 'تأخر');
+  assert.equal(app.crmSplitTypeName('تأخر').detail, '');
+});
+
+test('crmIncidentLadder: يتبع incidentStageFor — لا سلّم للتحويل الفوري ولا بلا مرات', () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  const t = { id: 'T', stage_1_label: 'أ', stage_2_label: 'ب' };
+  assert.equal(app.crmIncidentLadder(t, 0), null);
+  assert.equal(app.crmIncidentLadder({ ...t, action_sequence: 'immediate_referral' }, 1), null);
+  const two = app.crmIncidentLadder(t, 2);
+  assert.deepEqual(Array.from(two.steps, s => s.state), ['done', 'done', 'next']);
+  assert.equal(two.nextStage, 'referred');
+  assert.equal(app.crmIncidentLadder(t, 1).nextStage, 'warning_2');
+});
+
+test('البطاقة: الاسم الطويل مرة واحدة مع ×2، والمراحل والتنبيه من مرّات هذا الفصل فقط', async () => {
+  const incidents = [
+    { id: 'I2', incident_date: '2026-11-09', occurrence_number: 2, current_stage: 'warning_2', student_id: 'A', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'I1', incident_date: '2026-09-30', occurrence_number: 1, current_stage: 'warning_1', notes: 'حديث جانبي', student_id: 'A', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'J1', incident_date: '2026-09-01', occurrence_number: 1, current_stage: 'warning_1', student_id: 'B', incident_type_id: 'T', semester_label: 'الثاني 1447' }
+  ];
+  const { run } = renderWith(incidents, `crmStudents = [{ id: 'A', full_name: 'بشار' }, { id: 'B', full_name: 'حسام' }]; crmIncidentTypes = [{ id: 'T', problem_name: '${LONG}' }];`);
+  const out = await run();
+  const bashar = out.split('class="crm-inc-card"')[1];
+  assert.equal(bashar.split('أكل أثناء الدرس').length - 1, 1, 'الاسم الطويل مرة واحدة لا مع كل مرة');
+  assert.match(out, /×2/);
+  assert.match(out, /تنبيه ثانٍ ✓/);
+  assert.match(out, /crm-ladder-st is-next is-ref/);
+  assert.match(out, /المرة القادمة من «إعاقة سير الحصة» = تحويل/);
+  /* حسام: مخالفته من فصل سابق — لا سلّم ولا تنبيه له */
+  const hossam = out.slice(out.indexOf('حسام'));
+  assert.doesNotMatch(hossam, /crm-ladder|المرة القادمة/);
+  assert.match(out, /onclick="openCrmIncidentActions\('I1'\)"/);
+});
+
+test('المراحل تُحسب من كل السجلات حتى بفلتر «هذا الأسبوع»', async () => {
+  const incidents = [
+    { id: 'I2', incident_date: '2026-10-20', occurrence_number: 2, current_stage: 'warning_2', student_id: 'A', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'I1', incident_date: '2026-09-30', occurrence_number: 1, current_stage: 'warning_1', student_id: 'A', incident_type_id: 'T', semester_label: 'الأول 1448' }
+  ];
+  const { app, run } = renderWith(incidents, `{ const _l = localIsoDate; localIsoDate = d => d ? _l(d) : '2026-10-22'; } setListFilter = (cfg, m) => { cfg.setValue(m); };
+    crmStudents = [{ id: 'A', full_name: 'بشار' }]; crmIncidentTypes = [{ id: 'T', problem_name: 'تأخر' }];`);
   app.setCrmIncidentFilter('week');
-  await app.renderCrmRecentIncidents();
-  const q = log.filter(x => x.table === 'classroom_incidents' && x.gtes.length);
-  assert.ok(q.some(x => x.gtes.some(([k, v]) => k === 'incident_date' && v === '2026-10-18')), 'فلتر الأسبوع');
+  const out = await run();
+  assert.doesNotMatch(out, /2026-09-30/, 'القديمة لا تظهر بالأسبوع');
+  assert.match(out, /المرة القادمة من «تأخر» = تحويل/, 'لكنها تُحسب بالمراحل');
+});
+
+test('الأزرار السريعة: تكرار/أخرى للطالب الحالي، واتساب برقم فقط، ولا شيء للطالب المحذوف', async () => {
+  const incidents = [
+    { id: 'I1', incident_date: '2026-11-09', occurrence_number: 1, current_stage: 'warning_1', student_id: 'A', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'K1', incident_date: '2026-11-08', occurrence_number: 1, current_stage: 'warning_1', student_id: 'B', incident_type_id: 'T', semester_label: 'الأول 1448' },
+    { id: 'Z1', incident_date: '2026-11-07', occurrence_number: 1, current_stage: 'warning_1', student_id: 'GONE', incident_type_id: 'T', semester_label: 'الأول 1448' }
+  ];
+  const { run } = renderWith(incidents, `crmStudents = [{ id: 'A', full_name: 'بشار', guardian_phone: '966500000000' }, { id: 'B', full_name: 'حسام' }]; crmIncidentTypes = [{ id: 'T', problem_name: '${LONG}' }];`);
+  const out = await run();
+  const cards = out.split('class="crm-inc-card"').slice(1);
+  assert.match(cards[0], /openCrmIncidentRepeat\('A','T'\)">↻ تكرار: إعاقة سير الحصة/);
+  assert.match(cards[0], /openCrmIncidentRepeat\('A'\)/);
+  assert.match(cards[0], /openCrmIncidentWa\('I1'\)/);
+  assert.doesNotMatch(cards[1], /openCrmIncidentWa/, 'بلا رقم = بلا واتساب');
+  assert.match(cards[1], /openCrmIncidentRepeat\('B','T'\)/);
+  assert.doesNotMatch(cards[2], /openCrmIncidentRepeat|openCrmIncidentWa/, 'طالب محذوف');
+});
+
+test('openCrmIncidentRepeat: يصفّر النموذج ثم يفتح اللوحة بالطالب والنوع جاهزين', async () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  runInAppContext(app, `crmStudents = [{ id: 'A', full_name: 'بشار' }]; crmIncidentTypes = [{ id: 'T', problem_name: 'تأخر' }];
+    window.__calls = []; resetCrmIncidentForm = () => { window.__calls.push('reset'); document.getElementById('crmIncidentType').value = ''; };
+    openCrmIncidentSheet = async (sid) => { window.__calls.push('open:' + sid + ':' + document.getElementById('crmIncidentType').value); };`);
+  await app.openCrmIncidentRepeat('A', 'T');
+  assert.deepEqual(Array.from(get(app, 'window.__calls')), ['reset', 'open:A:T']);
+  await app.openCrmIncidentRepeat('NOPE', 'T');
+  assert.equal(get(app, 'window.__calls.length'), 2, 'طالب غير موجود: لا شيء');
+});
+
+test('openCrmIncidentWa: نص جاهز لولي الأمر باسم الطالب والمخالفة القصيرة والتاريخ', async () => {
+  const app = loadApp({ supabaseClient: client({}), currentUser: { id: 'u1' } });
+  runInAppContext(app, `crmStudents = [{ id: 'A', full_name: 'بشار', guardian_phone: '966500000000' }]; crmIncidentTypes = [{ id: 'T', problem_name: '${LONG}' }];
+    crmIncidentsShown = [{ id: 'I1', student_id: 'A', incident_type_id: 'T', incident_date: '2026-11-09' }];
+    openCrmWaNote = (sid, who, draft) => { window.__wa = [sid, who, draft]; };`);
+  app.openCrmIncidentWa('I1');
+  const [sid, who, draft] = get(app, 'window.__wa');
+  assert.equal(sid, 'A'); assert.equal(who, 'guardian');
+  assert.match(draft, /بشار/); assert.match(draft, /إعاقة سير الحصة بتاريخ 2026-11-09/);
+  assert.doesNotMatch(draft, /أكل أثناء الدرس/);
+});
+
+test('رسم أحدث فقط: نتيجة طلب أقدم لا تُكتب فوق أحدث', async () => {
+  const { app, run } = renderWith([], `crmStudents = [{ id: 'X', full_name: 'قديم' }]; crmIncidentTypes = [];
+    refreshCrmIncidentCounts = () => {}; window.__gate = new Promise(r => { window.__release = r; });
+    { let n = 0; fetchAllRows = async () => { n++; if(n === 1){ await window.__gate; return { data: [{ id: 'OLD', student_id: 'X', incident_type_id: 'T', incident_date: '2026-01-01' }], error: null }; } return { data: [], error: null }; }; }`);
+  const first = app.renderCrmRecentIncidents();
+  const afterSecond = await run();
+  runInAppContext(app, 'window.__release()');
+  await first;
+  assert.match(afterSecond, /لا مخالفات مسجّلة بعد/);
+  assert.equal(get(app, 'window.__box.innerHTML'), afterSecond, 'الأقدم لا يكتب فوق الأحدث');
 });
 
 test('القائمة: بطاقة لكل طالب، الحذف داخل ⋯ لا سلة ظاهرة، بلا "توثيق التسليم"، والنصوص مهرّبة', async () => {
