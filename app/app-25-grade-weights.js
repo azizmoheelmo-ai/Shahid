@@ -528,7 +528,8 @@ function deleteGradeComponent(key){
     const ok = await showConfirm(`حذف "${comp.name}" من كشوف كل شعبك لهذا الفصل؟` +
       (n ? ` تُحذف معه ${n} درجة مرصودة فيه.` : '') + ` يبقى في «المحذوفات» ${TRASH_DAYS} يومًا.` +
       (kind === 'homework' || kind === 'task' ? ' رصد التسليم/المهام نفسه يبقى، ويعود حسابه إن أرجعته.' : '') +
-      (toolKey ? ` وتُخفى "${CRM_SHEET_MODE_LABELS[kind]}" من ورقة الحصة.` : ''));
+      (toolKey ? ` وتُخفى "${CRM_SHEET_MODE_LABELS[kind]}" من ورقة الحصة.` : '') +
+      (kind === 'task' && typeof improveTaskColumnDeleteNote === 'function' ? await improveTaskColumnDeleteNote([...new Set(cols.map(c => c.section_id))], crmCurrentTerm()) : ''));
     if(!ok || !cols.length) return;
     const uid = currentUser.id;
     const toolWasOn = !!(toolKey && appToolOn(toolKey));
@@ -584,13 +585,21 @@ function deleteGradeTestEverywhere(columnId){
     const name = normalizeGradeColumnName(t.name);
     const cols = await termColumnsMatching(c => c.category === 'tests' && !c.tool_id && normalizeGradeColumnName(c.name) === name && Number(c.max_score) === Number(t.max_score));
     const n = await countScoresOf(cols.map(c => c.id));
-    const ok = await showConfirm(`حذف اختبار "${t.name}" (من ${formatScore(t.max_score)})` + (cols.length > 1 ? ` من ${cols.length} شعب` : '') + '؟' + (n ? ` تُحذف معه ${n} درجة مرصودة.` : '') + ` يبقى في «المحذوفات» ${TRASH_DAYS} يومًا.`);
-    if(!ok || !cols.length) return;
+    const baseMsg = `حذف اختبار "${t.name}" (من ${formatScore(t.max_score)})` + (cols.length > 1 ? ` من ${cols.length} شعب` : '') + '؟' + (n ? ` تُحذف معه ${n} درجة مرصودة.` : '') + ` يبقى في «المحذوفات» ${TRASH_DAYS} يومًا.`;
+    /* تحسين على هذا الاختبار في أي شعبة (app-56): «إعادة» له ← يختار المعلم؛ آخر اختبار في شعبة ← تنبيه بالتوقف المؤقت */
+    const choice = typeof improveConfirmDelete === 'function' && cols.length
+      ? await improveConfirmDelete('tests', cols.map(c => c.id), `اختبار «${t.name}»`, baseMsg)
+      : { ok: await showConfirm(baseMsg), withImps: [], keepIds: [] };
+    if(!choice.ok || !cols.length) return;
     const uid = currentUser.id;
-    const prot = await trashProtect(() => trashCaptureGradeColumns(cols.map(c => c.id), uid, t.name));
+    const prot = await trashProtect(async () => {
+      const cap = await trashCaptureGradeColumns(cols.map(c => c.id), uid, t.name);
+      return choice.withImps.length ? improveCaptureWith(cap, choice.withImps, uid) : cap;
+    });
     if(!prot) return;
     const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).in('id', cols.map(c => c.id));
     if(error){ await trashDiscard(prot.id); throw error; }
+    await improveAfterItemDelete(choice);
     if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged();
     renderCrmGrades();
     trashOfferUndo(`حُذف "${t.name}"`, prot.id, async () => { if(typeof afterCrmGradesChanged === 'function') afterCrmGradesChanged(); if(crmGrades) await renderCrmGrades(); });

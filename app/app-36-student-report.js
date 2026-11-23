@@ -465,6 +465,14 @@ function buildStudentReportHtml2(ctx){
       body += `<div class="sec long"><h2>المهام الأدائية</h2><table><thead><tr><th>المهمة</th><th class="n">الموعد</th><th class="n">النتيجة</th></tr></thead><tbody>${ctx.tasks.map(t =>
         `<tr><td>${e(t.title)}</td><td class="n">${e(t.due || '—')}</td><td class="n">${e(t.result)}</td></tr>`).join('')}</tbody></table></div>`;
     }
+    if(ctx.improve && ctx.improve.items.length){
+      /* تحسين الدرجات (app-56): أنشطة اختيارية شارك فيها الطالب، وما أُضيف فعلًا لكل بند (بسقفه) — م9: لا يظهر لمن لم يشارك */
+      const ip = ctx.improve;
+      const added = [ip.tests > 0 ? `الاختبارات +${srNum(formatScore(ip.tests))}` : '', ip.task > 0 ? `المهام الأدائية +${srNum(formatScore(ip.task))}` : ''].filter(Boolean);
+      body += `<div class="sec long"><h2>أنشطة تحسين الدرجات</h2><table><thead><tr><th>النشاط</th><th>البند</th><th class="n">درجته</th></tr></thead><tbody>${ip.items.map(x =>
+        `<tr><td>${e(x.name)}</td><td>${e(x.targetLabel)}${x.period ? ' · ' + e(x.period) : ''}</td><td class="n">${srNum(formatScore(x.score))} من ${srNum(formatScore(x.max))}</td></tr>`).join('')}</tbody></table>
+        <div class="fn">شارك الطالب اختياريًا لتحسين درجته؛ تُضاف درجة النشاط فوق درجة البند ولا تتجاوز درجته العظمى.${added.length ? ' أُضيف فعلًا: ' + e(added.join('، ')) + '.' : ' لم يُضف شيء (البند بدرجته العظمى).'}${ip.testsEmpty || ip.taskEmpty ? ' لم تكن له درجة في ' + e([ip.testsEmpty ? 'الاختبارات' : '', ip.taskEmpty ? 'المهام الأدائية' : ''].filter(Boolean).join(' ولا ')) + '، فحُسبت درجة التحسين وحدها.' : ''}</div></div>`;
+    }
     if(ctx.rubric && ctx.rubric.length) body += rubricReportHtml(ctx.rubric); /* سلّم التقدير (app-41): تجربة لحساب مفعَّل فقط */
     const at = ctx.attendance;
     if(at && (at.recorded || at.list.length)){
@@ -564,7 +572,7 @@ function srGradeRowsFor(g, studentId, term){
   if(!d || d.pts === null) return { rows: [], overall: {} };
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
   const testsOn = appToolOn('tests');
-  const res = studentGradeResult(g.columns, g.scores, studentId, caps);
+  const res = studentGradeResult(g.columns, g.scores, studentId, caps, gradeImproveTests(g, studentId));
   const adm = new Set(gradeAdministeredColumns(g.columns, g.scores, testsOn).map(c => c.id));
   const meas = new Map(g.columns.map(c => [c.id, c.measures || null]));
   const items = res.performance.parts.map(x => Object.assign({}, x, { category: 'performance' }))
@@ -579,6 +587,25 @@ function srGradeRowsFor(g, studentId, term){
   const rows = srBuildRows(items, studentId, g.breakdown || null, x => periodCfg(term, periodCompKeyOfColumn(x)), classPctOf, srToolTypeOf).rows;
   const overall = { pts: d.pts, max: d.max, pct: d.pct, incomplete: d.incomplete, classPts: d.classPts };
   return { rows, overall };
+}
+
+/* أنشطة تحسين الدرجات للطالب من كشف محمَّل (app-56): ما شارك فيه، وما أُضيف فعلًا لكل بند بعد السقف */
+function srImproveData(g, studentId){
+  const testsOn = appToolOn('tests');
+  const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
+  const res = studentGradeResult(g.columns, g.scores, studentId, caps, gradeImproveTests(g, studentId));
+  /* المتوقف مؤقتًا (لا اختبار/مهمة في الشعبة) لا أثر له فلا يُذكر (م9) */
+  const taskOff = !!(g.improve && g.improve.taskSuspended);
+  const items = (typeof improveStudentItems === 'function' ? improveStudentItems(g, studentId) : [])
+    .filter(x => x.target === 'tests' ? testsOn && !res.tests.suspended : !taskOff);
+  if(!items.length) return null;
+  return {
+    items: items.map(x => Object.assign({}, x, { targetLabel: IMPROVE_TARGET_LABELS[x.target] || '' })),
+    tests: testsOn ? res.tests.bonus : 0,
+    task: gradeImproveTaskApplied(g, studentId),
+    testsEmpty: testsOn && !!res.tests.fromEmpty,
+    taskEmpty: gradeImproveTaskEmpty(g, studentId)
+  };
 }
 
 /* حالات المتابعة الأكاديمية للطالب — فلترة teacher_id صريحة */
@@ -632,6 +659,7 @@ async function srBuildReport(studentId, version, to, opts){
     };
   }
   if(analytic && g) extra.rubric = await rubricReportRows(g, studentId);
+  if(analytic && g) extra.improve = srImproveData(g, studentId);
   const testGroups = typeof tlGroupsOf === 'function' ? tlGroupsOf(typeof appFeatures !== 'undefined' ? appFeatures : null, term) : [];
   const dx = srDiagnose({ rows, rules, homework, lessonsHeld, overall, testGroups });
   await srEnsureFonts();

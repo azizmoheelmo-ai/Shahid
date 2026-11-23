@@ -69,7 +69,7 @@ function gradeAnalysisRows(g, students, key, caps, testsOn){
     const mine = new Map();
     (g.scores || []).forEach(x => { if(!mine.has(x.student_id)) mine.set(x.student_id, new Set()); mine.get(x.student_id).add(x.column_id); });
     const rows = (students || []).map(st => {
-      const t = studentGradeTotal(studentGradeResult(columns, g.scores, st.id, caps), testsOn, caps);
+      const t = studentGradeTotal(studentGradeResult(columns, g.scores, st.id, caps, gradeImproveTests(g, st.id)), testsOn, caps);
       const has = t.points !== null && t.recordedMax > 0;
       const got = mine.get(st.id) || new Set();
       const missing = adm.filter(c => !got.has(c.id)).map(c => c.name);

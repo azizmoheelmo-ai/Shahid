@@ -47,12 +47,36 @@ function taskColumnScoreFor(tasks, rows, studentId, colMax){
 /* الفترات (app-27): كل مهمة في فترتها المحفوظة (grade_period؛ القديمة بموعدها أو يوم إنشائها)، والعمود = معدّل الفترات */
 function taskDateOf(t){ return t.due_date || String(t.created_at || '').slice(0, 10); }
 
-function taskPeriodScores(tasks, rows, studentId, colMax, cfg){
-  return periodSplitScores(tasks, taskDateOf, list => taskColumnScoreFor(list, rows, studentId, colMax), cfg);
+/* imp (اختياري، app-56): { periods: {p: زيادة}, final: زيادة } — زيادة الفترة تُضاف لدرجتها بسقف العمود قبل المعدّل،
+   وزيادة «المجموع» تُضاف بعده بالسقف نفسه. الفارغ (لم يُرصد) + زيادة = الزيادة وحدها (3.78)، والتنبيه في taskImproveApplied. */
+function taskPeriodScores(tasks, rows, studentId, colMax, cfg, imp){
+  const adj = imp && imp.periods && Object.keys(imp.periods).length ? (p, v) => improveAddCapped(v, imp.periods[p], colMax) : null;
+  const out = periodSplitScores(tasks, taskDateOf, list => taskColumnScoreFor(list, rows, studentId, colMax), cfg, adj);
+  if(imp && imp.final) out.final = improveAddCapped(out.final, imp.final, colMax);
+  return out;
 }
 
-function planTaskScoreSync(studentIds, tasks, rows, colMax, existing, cfg){
-  return planComputedScoreSync(studentIds, id => taskPeriodScores(tasks, rows, id, colMax, cfg).final, existing);
+/* impIdx (اختياري): فهرس improveIndex — درجة العمود تشمل زيادة التحسين */
+function planTaskScoreSync(studentIds, tasks, rows, colMax, existing, cfg, impIdx){
+  return planComputedScoreSync(studentIds, id => taskPeriodScores(tasks, rows, id, colMax, cfg, impIdx ? improveTaskOf(impIdx, id) : null).final, existing);
+}
+
+/* ما أضافه التحسين فعلًا لدرجة عمود المهام لكل طالب (بعد السقف): Map(طالب → { add, empty })
+   empty: أُضيفت زيادة على درجة فارغة (المجموع أو الفترة المختارة لم يُرصد فيها شيء) — للتنبيه */
+function taskImproveApplied(studentIds, tasks, rows, colMax, cfg, impIdx){
+  const out = new Map();
+  if(!impIdx || !impIdx.size) return out;
+  (studentIds || []).forEach(id => {
+    const imp = improveTaskOf(impIdx, id);
+    if(!imp) return;
+    const b = taskPeriodScores(tasks, rows, id, colMax, cfg);
+    const w = taskPeriodScores(tasks, rows, id, colMax, cfg, imp);
+    if(w.final === null) return;
+    const add = Math.round(100 * (w.final - (b.final || 0))) / 100;
+    const empty = (b.final === null && imp.final > 0) || Object.keys(imp.periods || {}).some(p => imp.periods[p] > 0 && b['p' + p] === null && w['p' + p] !== null);
+    if(add > 0.001 || empty) out.set(id, { add: Math.max(0, add), empty });
+  });
+  return out;
 }
 
 function taskQuickScores(max){
@@ -206,7 +230,7 @@ async function loadSectionTasks(sectionId, term){
 /* كل مهام الفصل (أي شعبة) لهؤلاء الطلاب — الطالب المنقول يُحسب على مهامه السابقة */
 async function loadTaskScoresForStudents(studentIds, term){
   const uid = currentUser.id;
-  const { data: tasks, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').select('id, max_score, due_date, created_at' + (col ? ', grade_period' : ''))
+  const { data: tasks, error } = await withGradePeriodCol(col => sb.from('classroom_tasks').select('id, section_id, max_score, due_date, created_at' + (col ? ', grade_period' : ''))
     .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester));
   if(error) throw error;
   const inTerm = new Set((tasks || []).map(t => t.id));
@@ -221,18 +245,26 @@ async function loadTaskScoresForStudents(studentIds, term){
 }
 
 /* يكتب درجات عمود "مهام أدائية" المحسوبة. studentIds اختياري (طالب واحد بعد رصد). يرمي عند الفشل. */
-async function syncTaskColumn(column, sectionId, term, studentIds){
-  if(!column) return;
+/* improve (اختياري): { idx } أنشطة تحسين محمّلة مسبقًا (الكشف)؛ وإلا تُحمَّل هنا.
+   ترجع { tasks, rows, applied, suspended } — applied: ما أضافه التحسين فعلًا لكل طالب (لعلامة «↑» في الكشف).
+   suspended: لا مهمة في هذه الشعبة (حُذفت آخر مهمة) — التحسين متوقف مؤقتًا: محفوظ ولا يُحسب حتى تُضاف مهمة (3.79) */
+async function syncTaskColumn(column, sectionId, term, studentIds, improve){
+  if(!column) return null;
   const uid = currentUser.id;
   const ids = studentIds || crmStudentsOfSection(sectionId).map(s => s.id);
-  if(!ids.length) return;
-  const [{ tasks, rows }, scoresRes] = await Promise.all([
+  if(!ids.length) return null;
+  const [{ tasks, rows }, scoresRes, impIdx0] = await Promise.all([
     loadTaskScoresForStudents(ids, term),
-    sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', column.id)
+    sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', column.id),
+    improve ? Promise.resolve(improve.idx) : (typeof loadImprovementsForStudents === 'function'
+      ? loadImprovementsForStudents(ids, term).then(d => improveIndex(d.list, d.scores)) : Promise.resolve(null))
   ]);
   if(scoresRes.error) throw scoresRes.error;
   const existing = new Map((scoresRes.data || []).map(r => [r.student_id, Number(r.score)]));
-  const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing, periodCfg(term, 'kind:task'));
+  const suspended = !!(impIdx0 && impIdx0.size) && !tasks.some(t => t.section_id === sectionId);
+  const impIdx = suspended ? null : impIdx0;
+  const cfg = periodCfg(term, 'kind:task');
+  const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing, cfg, impIdx);
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
@@ -245,6 +277,7 @@ async function syncTaskColumn(column, sectionId, term, studentIds){
     if(dErr) throw dErr;
   }
   if(plan.upserts.length || plan.deletes.length) afterCrmGradesChanged();
+  return { tasks, rows, suspended, applied: taskImproveApplied(ids, tasks, rows, column.max_score, cfg, impIdx) };
 }
 
 /* ============ وضع "مهمة" في ورقة الحصة ============ */
@@ -303,6 +336,7 @@ async function renderCrmTasks(students, selectId){
       </select>
       <button class="btn btn-outline crm-mini-btn" title="تعديل المهمة أو حذفها" onclick="openCrmTaskEditor(crmSheet.task && crmSheet.task.selectedId)">✎ تعديل</button>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmTaskModal()">+ مهمة</button>
+      <button class="btn btn-outline crm-mini-btn" title="مهمة تحسينية اختيارية لمن يريد رفع درجته" onclick="openGradeImprove(crmSheet.sectionId, 'task')">↑ تحسين</button>
     </div>
     ${task.description ? `<div class="crm-task-desc">${escapeHtml(task.description)}</div>` : ''}
     <div id="crmTaskCounts" class="crm-sheet-counts"></div>
@@ -857,18 +891,28 @@ let crmTaskDeleting = false;
 async function deleteCrmTask(id, sectionId){
   if(crmTaskDeleting || !id || !sectionId) return;
   closeCrmModal();
-  const ok = await showConfirm('حذف هذه المهمة؟ تُحذف معها درجات الطلاب فيها، ويُعاد حساب عمود المهام. تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا.');
-  if(!ok || crmTaskDeleting) return;
+  const baseMsg = 'حذف هذه المهمة؟ تُحذف معها درجات الطلاب فيها، ويُعاد حساب عمود المهام. تبقى في «المحذوفات» ' + TRASH_DAYS + ' يومًا.';
+  /* مهمة عليها تحسين (app-56): «إعادة» لها ← يختار المعلم؛ آخر مهمة ← تنبيه بتوقف التحسين مؤقتًا */
+  crmTaskDeleting = true;
+  let choice;
+  try{
+    choice = typeof improveConfirmDelete === 'function' ? await improveConfirmDelete('task', id, 'المهمة', baseMsg) : { ok: await showConfirm(baseMsg), withImps: [], keepIds: [] };
+  } finally { crmTaskDeleting = false; }
+  if(!choice.ok || crmTaskDeleting) return;
   crmTaskDeleting = true;
   try{
     /* درجات قيد الحفظ على هذه المهمة تنتهي أولًا، لا تصطدم بحذفها */
     const s = crmSheet;
     if(s && s.task && s.task.queue) await Promise.all([...s.task.queue.values()]);
     const uid = currentUser.id;
-    const prot = await trashProtect(() => trashCapturePerfTask(id, uid));
+    const prot = await trashProtect(async () => {
+      const cap = await trashCapturePerfTask(id, uid);
+      return choice.withImps.length ? improveCaptureWith(cap, choice.withImps, uid) : cap;
+    });
     if(!prot) return;
     const { data, error } = await sb.from('classroom_tasks').delete().eq('teacher_id', uid).eq('id', id).select('id');
     if(error){ await trashDiscard(prot.id); throw error; }
+    if((data || []).length) await improveAfterItemDelete(choice);
     if((data || []).length) trashOfferUndo('حُذفت المهمة', prot.id, async () => { await afterCrmTaskChanged(sectionId, null); });
     else { await trashDiscard(prot.id); showToast('المهمة محذوفة مسبقًا', 'ok'); }
   } catch(e){

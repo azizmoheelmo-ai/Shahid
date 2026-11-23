@@ -387,13 +387,14 @@ test('حارس: كل .delete() لجدول محمي داخل دالة تستدع�
   const dir = path.join(__dirname, '..', 'app');
   const PROTECTED = ['classroom_students', 'shawahid', 'activity_programs', 'performance_goals', 'tasks', 'academic_cases', 'classroom_incidents',
     'classroom_positive_notes', 'classroom_private_notes', 'classroom_grade_columns', 'classroom_custom_tools', 'classroom_tasks',
-    'classroom_homework', 'classroom_lessons', 'classroom_followups', 'leader_followups'];
+    'classroom_homework', 'classroom_lessons', 'classroom_followups', 'leader_followups', 'classroom_improvements'];
   /* مستثنى عمدًا (الدالة : السبب) */
   const EXEMPT = {
     offerCrmIncidentUndo: 'تراجع عن تسجيل مخالفة أُنشئت قبل ثوانٍ، لا حذف لبيانات قديمة',
     trashDiscard: 'حذف عنصر السلة نفسه',
     rubricDropFreshColumns: 'تراجع عن اختبار أُنشئ للتوّ (فارغ بلا درجات) لو فشل حفظ معاييره، ليعيد المعلم المحاولة نظيفة',
     saveCrmTask: 'تراجع عن مهمة أُنشئت للتوّ لو فشل تكليف طلابها (تُزال ليعيد المعلم المحاولة نظيفة)',
+    improveAfterItemDelete: 'أنشطة التحسين المحذوفة مع اختبار/مهمة دخلت لقطة trashProtect نفسها في deleteCrmGradeColumn/deleteCrmTask (improveCaptureWith)',
   };
   const offenders = [];
   for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {

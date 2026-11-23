@@ -78,6 +78,7 @@ async function renderCrmTestMode(students, selectId){
         ${t.tests.map(x => `<option value="${x.id}"${x.id === t.selectedId ? ' selected' : ''}>${rubricIsColumn(x.id) ? '🎯 ' : ''}${escapeHtml(x.name)} · من ${formatScore(x.max_score)}</option>`).join('')}
       </select>
       <button class="btn btn-outline crm-mini-btn" onclick="openCrmSheetTestModal()">+ اختبار</button>
+      <button class="btn btn-outline crm-mini-btn" title="اختبار تحسيني اختياري لمن يريد رفع درجته" onclick="openGradeImprove(crmSheet.sectionId, 'tests')">↑ تحسين</button>
     </div>`;
   if(s.rubric){
     body.innerHTML = head + pickerHtml + `<div id="rubricSheetBox"></div>`;

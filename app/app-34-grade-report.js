@@ -84,7 +84,7 @@ function gradeReportStudentData(g, studentId){
   const res = gradeAnalysisRows(g, students, 'total', caps, testsOn);
   const row = res.rows.find(x => x.id === studentId);
   const comp = res.rows.filter(x => !x.incomplete && x.points !== null);
-  const r = studentGradeResult(g.columns, g.scores, studentId, caps);
+  const r = studentGradeResult(g.columns, g.scores, studentId, caps, gradeImproveTests(g, studentId));
   const has = row.points !== null;
   const mean = fn => comp.length ? comp.reduce((a, x) => a + fn(x), 0) / comp.length : null;
   const colAvgPct = (id, mx) => {

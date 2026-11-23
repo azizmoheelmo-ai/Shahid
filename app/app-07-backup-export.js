@@ -1398,6 +1398,9 @@ begin
   elsif p_tbl = 'classroom_task_students' then
     select 'kind:task', t.academic_year || '|' || t.semester, coalesce(t.due_date, t.created_at::date), t.grade_period
       into v_key, v_term, v_date, v_per from public.classroom_tasks t where t.id = (r->>'task_id')::uuid;
+  elsif p_tbl = 'classroom_improvement_scores' then
+    select case when i.target = 'task' and i.grade_period is not null then 'kind:task' end, i.academic_year || '|' || i.semester, i.grade_period
+      into v_key, v_term, v_per from public.classroom_improvements i where i.id = (r->>'improvement_id')::uuid;
   elsif p_tbl = 'classroom_tool_marks' then
     if not exists (select 1 from public.classroom_custom_tools ct where ct.id = (r->>'tool_id')::uuid) then return false; end if;
     v_key := 'tool:' || (r->>'tool_id'); v_term := (r->>'academic_year') || '|' || (r->>'semester'); v_date := (r->>'mark_date')::date;
@@ -2714,7 +2717,8 @@ declare
     'classroom_private_notes','classroom_followups','classroom_followup_actions','classroom_grade_columns',
     'classroom_grade_scores','classroom_grade_period_scores','classroom_homework','classroom_homework_status',
     'classroom_tasks','classroom_task_students','classroom_custom_tools','classroom_tool_marks','classroom_lessons',
-    'classroom_rubric_criteria','classroom_rubric_marks','classroom_rubric_notes','leader_followups'];
+    'classroom_rubric_criteria','classroom_rubric_marks','classroom_rubric_notes','leader_followups',
+    'classroom_improvements','classroom_improvement_scores'];
   v_user_owned text[] := array['shawahid','activity_programs','performance_goals','tasks'];
   v_relinks text[] := array['shawahid.program_id','shawahid.goal_id','tasks.linked_goal_id','tasks.linked_program_id'];
   v_spec jsonb; v_rel jsonb; v_tab text; v_owner text; v_rows jsonb; v_c int; v_n int := 0;
@@ -3454,6 +3458,83 @@ $fn$;
 revoke execute on function public.save_leader_draft(text, jsonb) from public, anon, authenticated;
 grant execute on function public.save_leader_draft(text, jsonb) to service_role;
 
+-- ============ تحسين الدرجات (3.xx): نشاط اختياري يرفع درجة بند الاختبارات أو المهام الأدائية ============
+-- النشاط لشعبة وفصل دراسي، مفتوح لكل طلابها: من شارك تُرصد درجته، ومن لم يشارك لا سطر له (لا يتأثر).
+-- القاعدة add: درجة الطالب في النشاط تُضاف فوق درجة البند، بسقف الدرجة العظمى للبند (الحساب في التطبيق، app-56).
+-- mode: إعادة لاختبار/مهمة سابقة (source_name اسمها) أو نشاط جديد. grade_period للمهام فقط: فترة بعينها، أو فارغ = على المجموع.
+-- البند والشعبة والفصل والفترة ثابتة بعد الإنشاء (لا ينتقل رصد لفترة أخرى بصمت). رصد نشاط على فترة مقفلة يرفضه قفل الفترات.
+create table if not exists public.classroom_improvements (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  section_id uuid not null,
+  academic_year text not null,
+  semester smallint not null check (semester in (1, 2)),
+  target text not null check (target in ('tests', 'task')),
+  mode text not null default 'new' check (mode in ('retake', 'new')),
+  source_name text check (source_name is null or char_length(source_name) <= 200),
+  name text not null check (char_length(btrim(name)) between 1 and 100),
+  max_score numeric(5,2) not null check (max_score > 0 and max_score <= 40),
+  rule text not null default 'add' check (rule in ('add')),
+  grade_period smallint check (grade_period is null or grade_period between 1 and 3),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (id, teacher_id),
+  check (target = 'task' or grade_period is null),
+  foreign key (section_id, teacher_id) references public.classroom_sections(id, teacher_id) on update cascade
+);
+create index if not exists classroom_improvements_term_idx on public.classroom_improvements(teacher_id, academic_year, semester, section_id);
+create table if not exists public.classroom_improvement_scores (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  improvement_id uuid not null,
+  student_id uuid not null,
+  score numeric(5,2) not null check (score >= 0),
+  updated_at timestamptz not null default now(),
+  unique (improvement_id, student_id),
+  foreign key (improvement_id, teacher_id) references public.classroom_improvements(id, teacher_id) on update cascade on delete cascade,
+  foreign key (student_id, teacher_id) references public.classroom_students(id, teacher_id) on update cascade on delete cascade
+);
+create index if not exists classroom_improvement_scores_student_idx on public.classroom_improvement_scores(student_id);
+alter table public.classroom_improvements enable row level security;
+alter table public.classroom_improvement_scores enable row level security;
+drop policy if exists "المعلم يدير أنشطة التحسين فقط" on public.classroom_improvements;
+create policy "المعلم يدير أنشطة التحسين فقط" on public.classroom_improvements for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+drop policy if exists "المعلم يدير درجات التحسين فقط" on public.classroom_improvement_scores;
+create policy "المعلم يدير درجات التحسين فقط" on public.classroom_improvement_scores for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+create or replace function public.check_improvement_score() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_max numeric;
+begin
+  select max_score into v_max from public.classroom_improvements where id = new.improvement_id;
+  if v_max is not null and new.score > v_max then
+    raise exception 'improvement_score_above_max' using errcode = 'P0001', hint = v_max::text;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace function public.check_improvement_row() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_over int;
+begin
+  if new.target is distinct from old.target or new.section_id is distinct from old.section_id
+    or new.academic_year is distinct from old.academic_year or new.semester is distinct from old.semester
+    or new.grade_period is distinct from old.grade_period then
+    raise exception 'improvement_fixed' using errcode = 'P0001';
+  end if;
+  if new.max_score < old.max_score then
+    select count(*) into v_over from public.classroom_improvement_scores where improvement_id = new.id and score > new.max_score;
+    if v_over > 0 then
+      raise exception 'improvement_max_below_scores' using errcode = 'P0001', hint = v_over::text;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
+create or replace trigger trg_check_improvement_score before insert or update on public.classroom_improvement_scores for each row execute function public.check_improvement_score();
+create or replace trigger trg_check_improvement_row before update on public.classroom_improvements for each row execute function public.check_improvement_row();
+drop trigger if exists trg_grade_lock on public.classroom_improvement_scores;
+create trigger trg_grade_lock before insert or update or delete on public.classroom_improvement_scores for each row execute function public.grade_lock_guard();
+
 -- ============================================================
 -- النسخة الاحتياطية الشاملة للمسؤول (app-07: exportFullBackup)
 -- سياسات الجداول تمنع المسؤول من قراءة بيانات المعلمين في أغلب جداول إدارة الصف (خصوصية مقصودة للشاشات)،
@@ -3479,7 +3560,7 @@ returns text[] language sql immutable set search_path = '' as $fn$
     'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes',
     'lesson_plans', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students',
     'survey_campaigns', 'survey_campaign_sections', 'survey_invites', 'survey_responses',
-    'leader_followups', 'leader_templates'
+    'leader_followups', 'leader_templates', 'classroom_improvements', 'classroom_improvement_scores'
   ]::text[]
 $fn$;
 
@@ -3559,7 +3640,7 @@ begin
     'classroom_timetable_slots', 'classroom_tool_marks', 'deleted_items', 'lesson_plans', 'performance_goals',
     'personal_access_tokens', 'plan_header', 'portfolio_shares', 'program_sections', 'self_assessment', 'shahid_drafts', 'shawahid',
     'leader_followups', 'leader_templates', 'student_report_shares', 'support_messages', 'survey_campaign_sections', 'survey_campaigns', 'survey_invites',
-    'survey_responses', 'tasks', 'user_app_settings', 'grade_history'
+    'survey_responses', 'tasks', 'user_app_settings', 'grade_history', 'classroom_improvements', 'classroom_improvement_scores'
   ] loop
     if to_regclass(format('public.%I', v_t)) is null then continue; end if;
     execute format('drop policy if exists %I on public.%I', 'block_disabled_accounts', v_t);
@@ -3684,7 +3765,7 @@ async function exportFullBackup(){
 
     /* 1) سحب كل الجداول */
     updateBackupProgress(10, 'جارٍ سحب البيانات من قاعدة البيانات...');
-    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes', 'lesson_plans', 'shahid_drafts', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items', 'survey_campaigns', 'survey_campaign_sections', 'survey_invites', 'survey_responses', 'leader_followups', 'leader_templates'];
+    const tables = ['shawahid', 'performance_goals', 'plan_header', 'self_assessment', 'profiles', 'performance_elements', 'admins', 'audit_log', 'classroom_students', 'classroom_grade_levels', 'classroom_sections', 'classroom_incident_types', 'classroom_incidents', 'classroom_letter_counters', 'academic_cases', 'activity_programs', 'program_sections', 'support_messages', 'academic_calendar_weeks', 'academic_calendar_holidays', 'tasks', 'classroom_timetable_slots', 'classroom_lessons', 'classroom_attendance', 'classroom_positive_notes', 'classroom_private_notes', 'classroom_followups', 'classroom_followup_actions', 'classroom_attention_dismissals', 'classroom_lesson_skips', 'classroom_grade_columns', 'classroom_grade_scores', 'classroom_grade_period_scores', 'classroom_rubric_criteria', 'classroom_rubric_marks', 'classroom_rubric_notes', 'lesson_plans', 'shahid_drafts', 'classroom_homework', 'classroom_homework_status', 'classroom_tasks', 'classroom_task_students', 'user_app_settings', 'classroom_custom_tools', 'classroom_tool_marks', 'deleted_items', 'survey_campaigns', 'survey_campaign_sections', 'survey_invites', 'survey_responses', 'leader_followups', 'leader_templates', 'classroom_improvements', 'classroom_improvement_scores'];
     /* سياسات الجداول تمنع المسؤول من قراءة بيانات المعلمين في أغلب جداول إدارة الصف (خصوصية الشاشات)، فالقراءة
        المباشرة كانت تُرجع بيانات المسؤول وحده في تلك الجداول بصمت. النسخ يمرّ بدالتي المسؤول admin_backup_counts/
        admin_backup_rows (sql-updates-run-in-supabase.sql): كل الجداول كاملة بترتيب المفتاح الأساسي، للمسؤول وحده.
@@ -3819,6 +3900,8 @@ async function exportFullBackup(){
       '     49. survey_responses.csv (لازم بعد survey_campaigns)',
       '     50. leader_followups.csv (طلبات متابعة مؤشرات القيادة — لازم بعد profiles؛ بلا رموز الروابط عمدًا فلا تعود روابط قديمة صالحة)',
       '     51. leader_templates.csv (قوالب مؤشرات المعلم — لازم بعد profiles)',
+      '     52. classroom_improvements.csv (أنشطة تحسين الدرجات — لازم بعد classroom_sections)',
+      '     53. classroom_improvement_scores.csv (لازم بعد classroom_improvements وclassroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',
       '  من Storage ← shawahid-photos ← ارفع محتويات مجلد photos/ (شواهد الأداء، وصور توثيق تحويلات إدارة الصف والمتابعة الأكاديمية ورسائل الدعم معًا)',

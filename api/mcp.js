@@ -534,6 +534,24 @@ function buildServer(userId, supabase, opts){
         }
       }
       result.student_raw_totals = Array.from(totals.values());
+      /* أنشطة تحسين الدرجات (اختيارية): درجة الطالب فيها تُضاف فوق بند الاختبارات أو المهام بسقف البند.
+         عمود المهام المحفوظ يشملها أصلًا؛ محصلة الاختبارات تُحسب في التطبيق. قبل تحديث القاعدة: لا شيء */
+      let imps = [];
+      try{ imps = await fetchAll(supabase, 'classroom_improvements', 'id, section_id, academic_year, semester, target, name, max_score, grade_period', 'teacher_id', userId); }
+      catch(e){ imps = []; }
+      if(section_id) imps = imps.filter(i => i.section_id === section_id);
+      if(semester) imps = imps.filter(i => String(i.semester) === String(semester));
+      if(academic_year) imps = imps.filter(i => i.academic_year === academic_year);
+      if(imps.length){
+        const impById = new Map(imps.map(i => [i.id, i]));
+        const impScores = (await fetchAll(supabase, 'classroom_improvement_scores', 'id, improvement_id, student_id, score', 'teacher_id', userId))
+          .filter(r => impById.has(r.improvement_id) && nameMatches(studentName(roster, r.student_id), student_name));
+        result.improvements = imps.map(i => ({
+          name: i.name, target: i.target === 'tests' ? 'tests' : 'performance_task', max_score: i.max_score,
+          period: i.grade_period || null, section: sectionLabel(roster, i.section_id),
+          scores: impScores.filter(r => r.improvement_id === i.id).map(r => ({ student: studentName(roster, r.student_id), score: r.score }))
+        }));
+      }
     }
     return result;
   }));
