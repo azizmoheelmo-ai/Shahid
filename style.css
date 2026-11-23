@@ -2096,6 +2096,8 @@ html.beta-closed #crmTabsBar{top:4px;}
 .crm-gs-mini i{position:absolute;right:0;top:0;bottom:0;border-radius:3px;}
 .crm-gs-score{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;}
 .crm-gs-part{font-size:10.5px;color:var(--muted);font-weight:400;}
+/* تحسين الدرجات (app-56): الزيادة داخل المجموع */
+.imp-mark{display:inline-block;font-size:10.5px;font-weight:700;line-height:1.6;color:var(--ui-ok);background:var(--ui-ok-bg);border-radius:var(--ui-r-pill);padding:0 6px;margin-inline-start:4px;white-space:nowrap;vertical-align:middle;}
 .crm-gs-item{padding:9px 12px;}
 html.beta-closed #betaNoticeBar,html.beta-closed #betaNoticeSpacer{display:none;}
 
@@ -3087,6 +3089,7 @@ button.bt-cell{cursor:pointer;}
 .tlx-chips{display:flex;flex-wrap:wrap;gap:6px;}
 .tlx-chip{border:1px solid var(--line);background:var(--card);border-radius:var(--ui-r-pill);min-height:36px;padding:0 13px;font-family:inherit;font-size:12.5px;font-weight:600;color:var(--ui-body);cursor:pointer;}
 .tlx-chip.is-on{background:var(--navy);color:var(--ui-on-dark);border-color:var(--navy);}
+.tlx-chip:disabled{opacity:.5;cursor:default;}
 .tlx-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
 .tlx-two .tlx-lbl{margin-top:4px;}
 .tlx-inp{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--ui-r-btn);padding:10px 12px;font-family:inherit;font-size:14px;background:var(--card);color:var(--ink);}

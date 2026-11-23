@@ -238,7 +238,7 @@ test('النسخة الشخصية (app-08): تشمل الجدول بتصفية t
   const src = read('app/app-08-admin.js');
   assert.match(src, /sb\.from\('leader_followups'\)\.select\('\*'\)\.eq\('teacher_id', uid\)/);
   assert.match(src, /leader_followups: \(leaderFollowupsRes\.data \|\| \[\]\)\.map\(r => Object\.assign\(\{\}, r, \{ code: null \}\)\)/);
-  assert.match(src, /leaderFollowupsRes, leaderTemplatesRes \};/, 'ضمن فحص أي جلب فاشل يوقف النسخة');
+  assert.match(src, /const backupFetches = \{[^}]*leaderFollowupsRes, leaderTemplatesRes[,\s}]/, 'ضمن فحص أي جلب فاشل يوقف النسخة');
   assert.match(src, /sb\.from\('leader_templates'\)\.select\('\*'\)\.eq\('teacher_id', uid\)/);
 });
 

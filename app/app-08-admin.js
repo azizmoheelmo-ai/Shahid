@@ -567,6 +567,13 @@ function buildCycleSheetAOA(year, shawahidYear, goalsYear, selfYear){
   return aoa;
 }
 
+/* جدول ميزة أحدث من ملف تحديث القاعدة: «غير موجود» = لا بيانات، وأي خطأ آخر يبقى خطأً يوقف النسخة */
+async function backupOptionalTable(p){
+  const r = await p;
+  if(r && r.error && typeof improveTableMissing === 'function' && improveTableMissing(r.error)) return { data: [], error: null };
+  return r;
+}
+
 async function exportBackup(evt){
   const btn = evt ? evt.target.closest('button') : null;
   /* بلا busyText: الزر "home-btn" له عنوان/وصف كعناصر فرعية، وأصلًا فيه
@@ -585,7 +592,7 @@ async function exportBackup(evt){
        الفلتر يحصل حساب المسؤول على نسخة احتياطية تضم بيانات كل المعلمين
        مختلطة بدل بياناته الشخصية فقط (نفس فئة الخلل الذي عولج في loadPlan). */
     const uid = currentUser.id;
-    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes, leaderTemplatesRes] = await Promise.all([
+    const [shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes, leaderTemplatesRes, improvementsRes, improvementScoresRes] = await Promise.all([
       fetchAllRows((from, to) => sb.from('shawahid').select('*').eq('user_id', uid).order('created_at', { ascending: false }).range(from, to)),
       sb.from('performance_goals').select('*').eq('user_id', uid).order('cycle_year', { ascending: false }),
       sb.from('self_assessment').select('*').eq('user_id', uid),
@@ -631,12 +638,15 @@ async function exportBackup(evt){
       sb.from('classroom_letter_counters').select('*').eq('teacher_id', uid),
       fetchAllRows((from, to) => sb.from('classroom_attention_dismissals').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
       fetchAllRows((from, to) => sb.from('leader_followups').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
-      fetchAllRows((from, to) => sb.from('leader_templates').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))
+      fetchAllRows((from, to) => sb.from('leader_templates').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)),
+      /* تحسين الدرجات (app-56): قبل تشغيل ملف التحديث لا جدول — يُكتب فارغًا بدل أن يوقف النسخة كلها */
+      backupOptionalTable(fetchAllRows((from, to) => sb.from('classroom_improvements').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to))),
+      backupOptionalTable(fetchAllRows((from, to) => sb.from('classroom_improvement_scores').select('*').eq('teacher_id', uid).order('id', { ascending: true }).range(from, to)))
     ]);
 
     /* نسخة ناقصة بصمت أسوأ من نسخة لم تُنشأ: أي جدول تعذّر جلبه (انقطاع شبكة مثلًا) يوقف النسخة بدل أن يُكتب فارغًا،
        فيظن المعلم أن بياناته محفوظة وهي ليست كذلك. */
-    const backupFetches = { shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes, leaderTemplatesRes };
+    const backupFetches = { shRes, goalsRes, selfRes, crmStudentsRes, crmGradesRes, crmSectionsRes, crmIncidentsRes, crmTypesRes, acCasesRes, programsRes, programSectionsRes, supportRes, tasksRes, ttRes, lessonsRes, attendanceRes, positivesRes, privateNotesRes, followupsRes, followupActionsRes, gradeColumnsRes, gradeScoresRes, lessonPlansRes, shahidDraftsRes, homeworkRes, homeworkStatusRes, tasksTblRes, taskStudentsRes, appSettingsRes, customToolsRes, toolMarksRes, periodScoresRes, rubricCriteriaRes, rubricMarksRes, rubricNotesRes, deletedItemsRes, surveyCampaignsRes, surveySectionsRes, surveyInvitesRes, surveyResponsesRes, planHeaderRes, lessonSkipsRes, letterCountersRes, attentionDismissalsRes, leaderFollowupsRes, leaderTemplatesRes, improvementsRes, improvementScoresRes };
     const backupFailed = Object.keys(backupFetches).filter(k => !backupFetches[k] || backupFetches[k].error);
     if(backupFailed.length){
       console.error('backup fetch failed:', backupFailed.join(', '));
@@ -948,6 +958,8 @@ async function exportBackup(evt){
       survey_responses: surveyResponsesRes.data || [],
       plan_header: planHeaderRes.data || [],
       classroom_lesson_skips: lessonSkipsRes.data || [],
+      classroom_improvements: improvementsRes.data || [],
+      classroom_improvement_scores: improvementScoresRes.data || [],
       classroom_letter_counters: letterCountersRes.data || [],
       classroom_attention_dismissals: attentionDismissalsRes.data || [],
       /* روابط الطلبات بلا رمز كروابط الاستبانة: لا تُحيي النسخةُ المستعادة روابطَ قديمة (LEADER-FOLLOWUP.md) */

@@ -149,12 +149,15 @@ function periodAverage(...vals){
 
 /* مكوّن محسوب: درجة كل فترة من عناصرها (بتاريخها)، والنهائية = معدّل الفترات المحسوبة المرصودة.
    cfg: إعداد المكوّن (أو قائمة starts = كل الفترات محسوبة). بلا فترات بدأت = حساب واحد على الكل */
-function periodSplitScores(items, dateOf, scoreOf, cfg){
+function periodSplitScores(items, dateOf, scoreOf, cfg, adjust){
   const c = Array.isArray(cfg) || !cfg ? { n: (cfg || []).length + 1, starts: cfg || [], ended: true } : cfg;
   const starts = c.starts || [];
   const out = { p1: null, p2: null, p3: null, final: null };
   const k = starts.length + 1;
-  for(let p = 1; p <= k; p++) out['p' + p] = scoreOf((items || []).filter(it => itemPeriodFor(it, dateOf, c) === p));
+  for(let p = 1; p <= k; p++){
+    const v = scoreOf((items || []).filter(it => itemPeriodFor(it, dateOf, c) === p));
+    out['p' + p] = adjust ? adjust(p, v) : v; /* adjust: زيادة تحسين على فترة بعينها (app-56) */
+  }
   const counted = countedPeriodsOf(c) || k;
   out.final = periodAverage([out.p1, out.p2, out.p3].slice(0, counted));
   return out;

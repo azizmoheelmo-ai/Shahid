@@ -22,7 +22,7 @@ const TRASH_KIND_LABELS = {
   student: 'طالب', shahid: 'شاهد', program: 'برنامج', goal: 'هدف', task: 'مهمة (مهامّي)',
   academic_case: 'حالة أكاديمية', incident: 'حادثة', positive_note: 'ملاحظة إيجابية', private_note: 'ملاحظة خاصة',
   grade_columns: 'عمود/اختبار درجات', custom_tool: 'أداة مخصصة', perf_task: 'مهمة أدائية', homework: 'واجب', lesson: 'رصد حصة',
-  followup: 'متابعة', leader_followup: 'طلب متابعة مؤشرات', period_scores: 'رصد فترات'
+  followup: 'متابعة', leader_followup: 'طلب متابعة مؤشرات', period_scores: 'رصد فترات', improvement: 'نشاط تحسين'
 };
 
 function trashKindLabel(kind){ return TRASH_KIND_LABELS[kind] || kind || 'عنصر'; }
@@ -91,11 +91,12 @@ async function trashCaptureStudent(studentId, ownerId){
   const stu = await trashRows('classroom_students', [['eq', 'id', studentId], ['eq', 'teacher_id', ownerId]]);
   if(!stu.length) return null;
   const f = [['eq', 'student_id', studentId], ['eq', 'teacher_id', ownerId]];
-  const [incidents, cases, attendance, positives, privates, followups, grades, periods, homework, tasks, marks, rubricMarks, rubricNotes] = await Promise.all([
+  const [incidents, cases, attendance, positives, privates, followups, grades, periods, homework, tasks, marks, rubricMarks, rubricNotes, improveScores] = await Promise.all([
     trashRows('classroom_incidents', f), trashRows('academic_cases', f), trashRows('classroom_attendance', f),
     trashRows('classroom_positive_notes', f), trashRows('classroom_private_notes', f), trashRows('classroom_followups', f),
     trashRows('classroom_grade_scores', f), trashRows('classroom_grade_period_scores', f), trashRows('classroom_homework_status', f),
-    trashRows('classroom_task_students', f), trashRows('classroom_tool_marks', f), trashRowsRubric('classroom_rubric_marks', f), trashRowsRubric('classroom_rubric_notes', f)
+    trashRows('classroom_task_students', f), trashRows('classroom_tool_marks', f), trashRowsRubric('classroom_rubric_marks', f), trashRowsRubric('classroom_rubric_notes', f),
+    trashRowsRubric('classroom_improvement_scores', f)
   ]);
   const actions = followups.length ? await trashRows('classroom_followup_actions', [['eq', 'teacher_id', ownerId], ['in', 'followup_id', trashIds(followups)]]) : [];
   return {
@@ -107,7 +108,8 @@ async function trashCaptureStudent(studentId, ownerId){
       { t: 'classroom_followup_actions', rows: actions }, { t: 'classroom_grade_scores', rows: grades },
       { t: 'classroom_grade_period_scores', rows: periods }, { t: 'classroom_homework_status', rows: homework },
       { t: 'classroom_task_students', rows: tasks }, { t: 'classroom_tool_marks', rows: marks },
-      { t: 'classroom_rubric_marks', rows: rubricMarks }, { t: 'classroom_rubric_notes', rows: rubricNotes }
+      { t: 'classroom_rubric_marks', rows: rubricMarks }, { t: 'classroom_rubric_notes', rows: rubricNotes },
+      { t: 'classroom_improvement_scores', rows: improveScores }
     ]
   };
 }
@@ -221,6 +223,15 @@ async function trashCapturePerfTask(taskId, ownerId){
   const studs = await trashRows('classroom_task_students', [['eq', 'teacher_id', ownerId], ['eq', 'task_id', taskId]]);
   return { kind: 'perf_task', label: task[0].title || 'مهمة أدائية', ownerId, meta: { sectionId: task[0].section_id },
     tables: [{ t: 'classroom_tasks', rows: task }, { t: 'classroom_task_students', rows: studs }] };
+}
+
+/* نشاط تحسين الدرجات (app-56) ودرجات من شارك فيه */
+async function trashCaptureImprovement(impId, ownerId){
+  const imp = await trashRows('classroom_improvements', [['eq', 'id', impId], ['eq', 'teacher_id', ownerId]]);
+  if(!imp.length) return null;
+  const sc = await trashRows('classroom_improvement_scores', [['eq', 'teacher_id', ownerId], ['eq', 'improvement_id', impId]]);
+  return { kind: 'improvement', label: imp[0].name || 'نشاط تحسين', ownerId, meta: { sectionId: imp[0].section_id },
+    tables: [{ t: 'classroom_improvements', rows: imp }, { t: 'classroom_improvement_scores', rows: sc }] };
 }
 
 async function trashCaptureHomework(hwId, ownerId){
