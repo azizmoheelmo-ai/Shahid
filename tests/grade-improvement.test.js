@@ -4,7 +4,8 @@
    ------------------------------------------------------------
    باتفاق مع المعلم:
    - الزيادة = درجة الطالب في النشاط، تُضاف فوق درجة البند بسقف درجته العظمى (16 + 5 من 20 = 20).
-   - من لم يشارك لا يتأثر، ولا زيادة لمن لا درجة له في البند (لا شيء يُحسَّن).
+   - من لم يشارك لا يتأثر. ومن شارك ودرجته في البند فارغة: تُحسب درجة التحسين وحدها مع تنبيه (3.78)؛ الصفر درجة عادية.
+   - لا نشاط تحسين لبند لا اختبار/مهمة فيه بعد: يُمنع الإنشاء مع ذكر السبب (3.78).
    - المهام: «على المجموع» (بعد معدّل الفترات) أو فترة بعينها (قبل المعدّل، بسقف العمود).
    - النشاط لشعبة أو لعدة شعب (نشاط مستقل لكل شعبة).
    والحمايات: فلترة teacher_id صريحة، تهريب النصوص، زر واحد أثناء الحفظ، السلة، النسخ الاحتياطي، القفل.
@@ -67,12 +68,15 @@ function appWith(seed, log, opts) {
 }
 
 /* ============ الحساب ============ */
-test('الزيادة فوق البند بسقف درجته العظمى: 16 + 5 من 20 = 20 (يُضاف 4)، ولا زيادة لمن لا درجة له', () => {
+test('الزيادة فوق البند بسقف درجته العظمى: 16 + 5 من 20 = 20 (يُضاف 4)، والفارغ + زيادة = الزيادة وحدها', () => {
   const app = loadApp({});
   assert.equal(app.improveAddCapped(16, 5, 20), 20);
   assert.equal(app.improveAddCapped(12, 5, 20), 17);
   assert.equal(app.improveAddCapped(12, 0, 20), 12);
-  assert.equal(app.improveAddCapped(null, 5, 20), null, 'لا شيء يُحسَّن');
+  assert.equal(app.improveAddCapped(null, 5, 20), 5, 'فارغة (غائب): درجة التحسين وحدها');
+  assert.equal(app.improveAddCapped(null, 30, 20), 20, 'بسقف البند');
+  assert.equal(app.improveAddCapped(null, 0, 20), null, 'بلا زيادة يبقى فارغًا');
+  assert.equal(app.improveAddCapped(0, 3, 20), 3, 'الصفر درجة عادية');
 });
 
 test('الاختبارات: studentGradeResult يضيف الزيادة فوق المحصلة بسقف وزن الاختبارات، ويحفظ الأصل وما أُضيف', () => {
@@ -89,8 +93,17 @@ test('الاختبارات: studentGradeResult يضيف الزيادة فوق ا
   assert.equal(up.tests.bonus, 4, 'ما أُضيف فعلًا');
   assert.equal(up.total, 28);
   assert.equal(J(app.studentGradeResult(cols, sc, 'a', caps, 2)).tests.points, 18);
-  /* طالب بلا اختبار مرصود: الزيادة لا تصنع درجة */
-  assert.equal(J(app.studentGradeResult(cols, [], 'b', caps, 5)).tests.points, null);
+  assert.equal(up.tests.fromEmpty, false);
+  /* طالب بلا اختبار مرصود (غائب): درجة التحسين وحدها، ومعلَّم «كانت فارغة» للتنبيه */
+  const em = J(app.studentGradeResult(cols, [], 'b', caps, 5));
+  assert.equal(em.tests.points, 5);
+  assert.equal(em.tests.bonus, 5);
+  assert.equal(em.tests.fromEmpty, true);
+  assert.equal(J(app.studentGradeResult(cols, [], 'b', caps)).tests.points, null, 'بلا تحسين يبقى فارغًا');
+  /* الصفر ليس فارغًا */
+  const zero = J(app.studentGradeResult(cols, [{ column_id: 't1', student_id: 'z', score: 0 }], 'z', caps, 3));
+  assert.equal(zero.tests.points, 3);
+  assert.equal(zero.tests.fromEmpty, false);
 });
 
 test('فهرس الزيادات: لكل طالب حسب البند والفترة، ويتجاهل نشاطًا غير معروف', () => {
@@ -120,10 +133,12 @@ test('المهام: زيادة «المجموع» بعد المعدّل، وزي
   assert.deepEqual([per.p1, per.p2, per.final], [16, 16, 16], 'الأولى 12+4 ثم المعدّل');
   const capP = J(app.taskPeriodScores(tasks, rows, 'a', 20, cfg, { periods: { 2: 9 }, final: 0 }));
   assert.equal(capP.p2, 20);
-  /* فترة بلا درجة للطالب: لا زيادة فيها */
+  /* فترة بلا درجة للطالب (فارغة): درجة التحسين وحدها فيها، ثم المعدّل */
   const none = J(app.taskPeriodScores(tasks, [rows[0]], 'a', 20, cfg, { periods: { 2: 5 }, final: 0 }));
-  assert.equal(none.p2, null);
-  assert.equal(none.final, 12);
+  assert.equal(none.p2, 5);
+  assert.equal(none.final, 8.5);
+  /* لا مهام مرصودة أصلًا + زيادة «على المجموع» */
+  assert.equal(J(app.taskPeriodScores(tasks, [], 'a', 20, cfg, { periods: {}, final: 4 })).final, 4);
 });
 
 test('مزامنة عمود المهام: المحفوظ يشمل الزيادة، وما أُضيف فعلًا يُحسب للعلامة', () => {
@@ -135,8 +150,11 @@ test('مزامنة عمود المهام: المحفوظ يشمل الزيادة
   const plan = J(app.planTaskScoreSync(['a', 'b'], tasks, rows, 20, new Map(), [], idx));
   assert.deepEqual(plan.upserts, [{ student_id: 'a', score: 20 }, { student_id: 'b', score: 15 }]);
   const applied = app.taskImproveApplied(['a', 'b'], tasks, rows, 20, [], idx);
-  assert.equal(applied.get('a'), 2, '18 → 20: أُضيف 2 فقط');
-  assert.equal(applied.get('b'), 5);
+  assert.deepEqual(J(applied.get('a')), { add: 2, empty: false }, '18 → 20: أُضيف 2 فقط');
+  assert.deepEqual(J(applied.get('b')), { add: 5, empty: false });
+  /* طالب بلا مهمة مرصودة: معلَّم «كانت فارغة» */
+  const idx2 = app.improveIndex([{ id: 'i', target: 'task', grade_period: null, max_score: 5 }], [{ improvement_id: 'i', student_id: 'c', score: 3 }]);
+  assert.deepEqual(J(app.taskImproveApplied(['c'], tasks, rows, 20, [], idx2).get('c')), { add: 3, empty: true });
 });
 
 /* ============ النموذج ============ */
@@ -316,7 +334,7 @@ test('الشكل: علامة «↑» بمتغيّرات الهوية، والم�
   assert.match(read('index.html'), /<script src="app\/app-56-grade-improvement\.js"><\/script>/);
   const app = loadApp({});
   assert.equal(app.improveMarkHtml(0), '');
-  assert.match(app.improveMarkHtml(2.5), /↑ \+2\.5/);
+  assert.match(app.improveMarkHtml(2.5), /↑ <bdi dir="ltr">\+2\.5<\/bdi>/);
 });
 
 test('انحدار: مقارنة الشعب/الفصل السابق تحسب زيادة الاختبارات للشعب الأخرى كما لشعبتك', async () => {
@@ -331,4 +349,91 @@ test('انحدار: مقارنة الشعب/الفصل السابق تحسب ز�
   runInAppContext(app, `gradeColumnVisible = () => true; appToolOn = () => true;`);
   const total = await runInAppContext(app, `loadGradeSheetsRaw(['S2'], '1448', 1).then(s => gradeAnalysisRows(s[0], [{ id: 'x', full_name: 'س' }], 'total', { performance: 40, tests: 20 }, true).rows[0].points)`);
   assert.equal(total, 14, '10 + 4 تحسين');
+});
+
+/* ============ 3.78: لا تحسين بلا ما يُحسَّن، والفارغ يُنبَّه عليه ============ */
+test('المنع: لا نشاط تحسين لبند بلا اختبار/مهمة في الشعبة، مع السبب', () => {
+  const app = loadApp({});
+  const av = app.improveAvailability(
+    [{ section_id: 'S1', category: 'tests' }, { section_id: 'S1', category: 'performance', kind: 'task' }, { section_id: 'S2', category: 'performance', kind: 'task' },
+     { section_id: 'S3', category: 'performance', kind: 'task', tool_id: 'x' }],
+    [{ section_id: 'S1' }, { section_id: 'S3' }]);
+  assert.equal(app.improveBlockReason(av, 'S1', 'tests'), null);
+  assert.equal(app.improveBlockReason(av, 'S1', 'task'), null);
+  assert.match(app.improveBlockReason(av, 'S2', 'tests'), /لا اختبارات/);
+  assert.match(app.improveBlockReason(av, 'S2', 'task'), /لا مهام أدائية في هذه الشعبة/, 'عمود بلا مهام');
+  assert.match(app.improveBlockReason(av, 'S3', 'task'), /لا عمود «مهام أدائية»/, 'عمود أداة ليس عمود المهام');
+  assert.match(app.improveBlockReason(av, 'S9', 'tests'), /لا اختبارات/, 'شعبة بلا كشف');
+  const d = { target: 'tests', mode: 'new', name: 'ت', max: '5', period: null, sectionIds: ['S1', 'S2'], avail: av };
+  assert.match(app.validateImproveDraft(d), /لا يوجد ما يُحسَّن في إحدى الشعب/);
+  assert.equal(app.validateImproveDraft(Object.assign({}, d, { sectionIds: ['S1'] })), null);
+  assert.match(app.validateImproveDraft(Object.assign({}, d, { avail: null })), /انتظر/, 'لا إنشاء قبل التحقق');
+  assert.match(app.validateImproveDraft(Object.assign({}, d, { avail: 'error' })), /تعذّر التحقق/);
+});
+
+test('المنع: النموذج يعرض «لا يوجد ما يُحسَّن» بلا زر إنشاء، والإنشاء لا يُدرج شيئًا', async () => {
+  const log = [];
+  const app = appWith({ classroom_grade_columns: [], classroom_tasks: [] }, log);
+  runInAppContext(app, `appToolOn = () => true; crmSections = [];
+    improveCtx = { sectionId: 'S1', term: { year: '1448', semester: 1 }, list: [], counts: new Map(), presetTarget: null };`);
+  await runInAppContext(app, 'openImproveForm()');
+  const html = runInAppContext(app, 'window.__modal');
+  assert.match(html, /لا يوجد ما يُحسَّن بعد/);
+  assert.match(html, /لا اختبارات في هذه الشعبة بعد/);
+  assert.doesNotMatch(html, /id="impSaveBtn"/);
+  runInAppContext(app, `readImproveInputs = () => {}; improveDraft.name = 'ت';`);
+  await runInAppContext(app, 'saveImproveForm()');
+  assert.equal(log.filter(l => l.op === 'insert').length, 0);
+});
+
+test('المنع: البند المتاح فقط يُختار، والشعبة التي لا يوجد فيها البند معطّلة', async () => {
+  const log = [];
+  const seed = {
+    classroom_grade_columns: [{ id: 'k', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'performance', kind: 'task', name: 'مهام' }],
+    classroom_tasks: [{ id: 't', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, title: 'بحث' }]
+  };
+  const app = appWith(seed, log);
+  runInAppContext(app, `appToolOn = () => true; gradeColumnVisible = () => true; periodCfg = () => ({ n: 1, starts: [] });
+    crmSections = [{ id: 'S1' }, { id: 'S2' }]; crmSectionOptionLabel = s => 'شعبة ' + s.id;
+    improveCtx = { sectionId: 'S1', term: { year: '1448', semester: 1 }, list: [], counts: new Map(), presetTarget: null };`);
+  await runInAppContext(app, `openImproveForm({ target: 'tests' })`);
+  assert.equal(runInAppContext(app, 'improveDraft.target'), 'task', 'لا اختبارات: ينتقل للمهام');
+  const html = runInAppContext(app, 'window.__modal');
+  assert.match(html, /disabled title="لا اختبارات في هذه الشعبة بعد">الاختبارات/);
+  assert.match(html, /disabled title="لا عمود «مهام أدائية» في كشف هذه الشعبة">شعبة S2 — لا يوجد ما يُحسَّن/);
+  runInAppContext(app, `toggleImproveSection('S2')`);
+  assert.deepEqual(J(runInAppContext(app, 'improveDraft.sectionIds')), ['S1'], 'لا تُضاف شعبة بلا بند');
+  runInAppContext(app, `setImproveDraft('target', 'tests')`);
+  assert.equal(runInAppContext(app, 'improveDraft.target'), 'task', 'لا يُختار بند ممنوع');
+});
+
+test('الفارغ: ورقة الرصد تنبّه بجانب من درجته فارغة (والصفر ليس فارغًا)', async () => {
+  const log = [];
+  const seed = {
+    classroom_grade_columns: [{ id: 'T', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'tests', name: 'أول' }],
+    classroom_grade_scores: [{ id: 'g1', teacher_id: 'u1', column_id: 'T', student_id: 's1', score: 0 }]
+  };
+  const app = appWith(seed, log);
+  runInAppContext(app, `gradeColumnVisible = () => true;`);
+  const empty = await runInAppContext(app, `improveEmptyBase({ target: 'tests', section_id: 'S1' }, ['s1', 's2'], { year: '1448', semester: 1 }).then(s => [...s])`);
+  assert.deepEqual(J(empty), ['s2'], 's1 درجته صفر (ليست فارغة)، s2 فارغة');
+  const q = log.filter(l => l.op === 'select' && (l.table === 'classroom_grade_columns' || l.table === 'classroom_grade_scores'));
+  assert.ok(q.length && q.every(l => l.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1')), 'فلتر teacher_id');
+  runInAppContext(app, `improveSheet = { id: 'I', imp: { id: 'I', section_id: 'S1', target: 'tests', name: 'ت', max_score: 5, mode: 'new' },
+    term: { year: '1448', semester: 1 }, values: new Map(), empty: new Set(['s2']), saving: false }; paintImproveSheet();`);
+  const html = runInAppContext(app, 'window.__modal');
+  assert.equal((html.match(/imp-empty-note/g) || []).length, 1);
+  assert.match(html, /ريان<small class="imp-empty-note">لا درجة له في الاختبارات \(فارغة\)/);
+});
+
+test('الفارغ: علامة «كانت فارغة» في الكشف تختلف عن العلامة العادية', () => {
+  const app = loadApp({});
+  assert.match(app.improveMarkHtml(5, true), /imp-mark is-empty[^>]*>↑ <bdi dir="ltr">\+5<\/bdi> · كانت فارغة/);
+  assert.doesNotMatch(app.improveMarkHtml(2, false), /is-empty|فارغة/);
+  assert.match(app.improveTestsMarkHtml({ bonus: 5, fromEmpty: true }), /كانت فارغة/);
+  const g = { improve: { taskApplied: new Map([['a', { add: 3, empty: true }], ['b', { add: 2, empty: false }]]) } };
+  assert.match(app.improveTaskMarkHtml(g, 'a'), /كانت فارغة/);
+  assert.match(app.improveTaskMarkHtml(g, 'b'), /↑ <bdi dir="ltr">\+2<\/bdi><\//);
+  assert.equal(app.improveTaskMarkHtml(g, 'z'), '');
+  assert.equal(app.gradeImproveTaskApplied(g, 'a'), 3);
 });

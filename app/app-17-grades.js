@@ -116,11 +116,12 @@ function studentGradeResult(columns, scores, studentId, caps, testsBonus){
     points: pRec.length ? r2(pRec.reduce((a, x) => a + x.score, 0)) : null
   };
   const tBase = possible ? r2(Math.min(1, earned / possible) * Number(caps.tests)) : null;
-  const tPoints = tBase === null || !(Number(testsBonus) > 0) ? tBase : r2(Math.min(Number(caps.tests), tBase + Number(testsBonus)));
+  const tPoints = !(Number(testsBonus) > 0) ? tBase : r2(Math.min(Number(caps.tests), (tBase || 0) + Number(testsBonus)));
   const t = {
     list: tests, count: tRec.length, earned: r2(earned), possible: r2(possible), max: Number(caps.tests),
     pct: possible ? (tPoints !== tBase && Number(caps.tests) > 0 ? Math.round(100 * tPoints / Number(caps.tests)) : Math.round(100 * Math.min(1, earned / possible))) : null,
-    points: tPoints, base: tBase, bonus: tBase === null ? 0 : r2(tPoints - tBase)
+    points: tPoints, base: tBase, bonus: tPoints === null ? 0 : r2(tPoints - (tBase || 0)),
+    fromEmpty: tBase === null && tPoints !== null /* لا اختبار مرصود له: الدرجة من التحسين وحده */
   };
   return { performance: perf, tests: t, total: (perf.points === null && t.points === null) ? null : r2((perf.points || 0) + (t.points || 0)) };
 }
@@ -401,7 +402,8 @@ function crmGradeSimpleHtml(g){
     const t = studentGradeTotal(studentGradeResult(g.columns, g.scores, st.id, caps, gradeImproveTests(g, st.id)), testsOn, caps);
     const r0 = studentGradeResult(g.columns, g.scores, st.id, caps, gradeImproveTests(g, st.id));
     const imp = (testsOn ? r0.tests.bonus : 0) + gradeImproveTaskApplied(g, st.id);
-    return { id: st.id, name: st.full_name, points: t.points, recordedMax: t.recordedMax, tone: gradeTone(t.points, t.recordedMax), imp };
+    const impEmpty = (testsOn && r0.tests.fromEmpty) || gradeImproveTaskEmpty(g, st.id);
+    return { id: st.id, name: st.full_name, points: t.points, recordedMax: t.recordedMax, tone: gradeTone(t.points, t.recordedMax), imp, impEmpty };
   });
   const sum = gradeListSummary(rows);
   /* الشريط نفسه زر «تحليل الدرجات» (app-29): لا زر إضافي بالشاشة */
@@ -424,7 +426,7 @@ function crmGradeSimpleHtml(g){
     const pct = r.points === null || !(totalMax > 0) ? 0 : Math.max(0, Math.min(100, Math.round(100 * r.points / totalMax)));
     html += `<button type="button" class="crm-gs-item" id="crmGsRow_${r.id}" onclick="openCrmGradeStudentDetail('${r.id}')">
       <span class="crm-gs-iname">${escapeHtml(r.name)}<span class="crm-gs-mini"><i class="gs-bg-${r.tone}" style="width:${pct}%"></i></span></span>
-      <span class="crm-gs-itot">${r.points === null ? '<span class="crm-gs-none">— لم يُرصد</span>' : `<span class="crm-gs-score"><b class="gs-tone-${r.tone}">${formatScore(r.points)}</b>${improveMarkHtml(r.imp)}${partial ? `<small class="crm-gs-part">رُصد من ${formatScore(r.recordedMax)} فقط</small>` : ''}</span>`}<span class="crm-gs-chev" aria-hidden="true">‹</span></span>
+      <span class="crm-gs-itot">${r.points === null ? '<span class="crm-gs-none">— لم يُرصد</span>' : `<span class="crm-gs-score"><b class="gs-tone-${r.tone}">${formatScore(r.points)}</b>${improveMarkHtml(r.imp, r.impEmpty)}${partial ? `<small class="crm-gs-part">رُصد من ${formatScore(r.recordedMax)} فقط</small>` : ''}</span>`}<span class="crm-gs-chev" aria-hidden="true">‹</span></span>
     </button>`;
   });
   html += '</div>';
@@ -555,10 +557,11 @@ function crmGradeStudentPageHtml(g, studentId){
   const canEdit = r.performance.parts.concat(testsOn ? r.tests.list : []).some(x => editOf(x.id));
   const prev = students[idx - 1], next = students[idx + 1];
   const perf = `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الأداء</b><span>${r.performance.points === null ? '—' : formatScore(r.performance.points)} <small>من ${formatScore(r.performance.max)}</small></span></div>
-    ${r.performance.parts.map(x => crmGradePeriodPartHtml(g, x, studentId) || row(x.name, x.score, x.max, x.kind === 'task' && !x.tool_id ? improveMarkHtml(gradeImproveTaskApplied(g, studentId)) : '', x.id)).join('') || '<div class="crm-today-empty">لا مكوّنات أداء.</div>'}</div>`;
+    ${r.performance.parts.map(x => crmGradePeriodPartHtml(g, x, studentId) || row(x.name, x.score, x.max, x.kind === 'task' && !x.tool_id ? improveTaskMarkHtml(g, studentId) : '', x.id)).join('') || '<div class="crm-today-empty">لا مكوّنات أداء.</div>'}</div>`;
   const rec = r.tests.list.filter(x => x.score !== null);
-  const tests = testsOn ? `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الاختبارات</b><span>${r.tests.points === null ? '—' : formatScore(r.tests.points)} <small>من ${formatScore(caps.tests)}</small>${improveMarkHtml(r.tests.bonus)}</span></div>
+  const tests = testsOn ? `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الاختبارات</b><span>${r.tests.points === null ? '—' : formatScore(r.tests.points)} <small>من ${formatScore(caps.tests)}</small>${improveTestsMarkHtml(r.tests)}</span></div>
     ${r.tests.list.map(x => row(x.name, x.score, x.max, x.score === null ? '' : ` · ${Math.round(100 * x.score / x.max)}%`, x.id)).join('') || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
+    ${r.tests.fromEmpty ? `<p class="crm-gs-note">لا اختبار مرصود له: الدرجة من نشاط التحسين وحده (${formatScore(r.tests.points)} من ${formatScore(caps.tests)}).</p>` : ''}
     ${rec.length ? (r.tests.bonus > 0
       ? `<p class="crm-gs-note">المحصلة: ${formatScore(r.tests.earned)} من ${formatScore(r.tests.possible)} × ${formatScore(caps.tests)} = ${formatScore(r.tests.base)}، + تحسين ${formatScore(r.tests.bonus)} = <b>${formatScore(r.tests.points)}</b> (بحد ${formatScore(caps.tests)})</p>`
       : `<p class="crm-gs-note">المحصلة: ${formatScore(r.tests.earned)} من ${formatScore(r.tests.possible)} = ${r.tests.pct}% × ${formatScore(caps.tests)} = <b>${formatScore(r.tests.points)}</b></p>`) : ''}</div>` : '';
@@ -610,7 +613,7 @@ function crmGradePeriodPartHtml(g, x, studentId){
     : rec.length ? `الدرجة الآن = ${PERIOD_NAMES[only]}${pending || ' (ما لم يُرصد لا يُحسب)'}` : '';
   const ed = col && crmGradeColumnEditable(col);
   return `<div class="crm-gs-prow crm-gs-per${ed ? ' is-edit' : ''}"${ed ? ` role="button" tabindex="0" onclick="openCrmGradeCell('${col.id}', '${studentId}')" onkeydown="if(event.key==='Enter')this.click()"` : ''}>
-      <div class="crm-gs-plabel"><span>${escapeHtml(x.name)}</span><span>${x.score === null ? none('لم يُرصد بعد') : `${formatScore(x.score)} من ${formatScore(x.max)}${x.kind === 'task' && !x.tool_id ? improveMarkHtml(gradeImproveTaskApplied(g, studentId)) : ''}`}${ed ? '<span class="crm-gs-pen" aria-hidden="true">✎</span>' : ''}</span></div>
+      <div class="crm-gs-plabel"><span>${escapeHtml(x.name)}</span><span>${x.score === null ? none('لم يُرصد بعد') : `${formatScore(x.score)} من ${formatScore(x.max)}${x.kind === 'task' && !x.tool_id ? improveTaskMarkHtml(g, studentId) : ''}`}${ed ? '<span class="crm-gs-pen" aria-hidden="true">✎</span>' : ''}</span></div>
       ${[1, 2, 3].slice(0, cfg.n).map(sub).join('')}
       ${calc ? `<div class="crm-gs-calc">${calc}</div>` : ''}</div>`;
 }
@@ -763,11 +766,11 @@ function crmGradeDetailHtml(g){
       const perTxt = pv.filter(v => v !== null && v !== undefined).length > 1 ? `<small class="crm-grade-per">${pv.map(v => v === null || v === undefined ? '—' : formatScore(v)).join(' · ')}</small>` : '';
       const has = scoreOf.has(k);
       const edit = crmGradeColumnEditable(c) ? ` data-edit="1" onclick="openCrmGradeCell('${c.id}', '${s.id}')"` : '';
-      const mk = has && c.kind === 'task' && !c.tool_id ? improveMarkHtml(gradeImproveTaskApplied(g, s.id)) : '';
+      const mk = has && c.kind === 'task' && !c.tool_id ? improveTaskMarkHtml(g, s.id) : '';
       html += `<td class="crm-grade-cell${has ? ' gc-' + gradeTone(scoreOf.get(k), c.max_score) : ''}"${edit}>${has ? formatScore(scoreOf.get(k)) + mk + perTxt : '<span class="crm-grade-empty">—</span>'}</td>`;
     });
     html += `<td class="crm-grade-total">${r.sum.performance.count ? formatScore(r.sum.performance.sum) : ''}</td>
-      <td class="crm-grade-total">${r.res.tests.points === null ? '' : formatScore(r.res.tests.points) + improveMarkHtml(r.res.tests.bonus)}</td></tr>`;
+      <td class="crm-grade-total">${r.res.tests.points === null ? '' : formatScore(r.res.tests.points) + improveTestsMarkHtml(r.res.tests)}</td></tr>`;
   });
   html += `</tbody><tfoot><tr class="crm-grade-avg"><td class="crm-grade-name">متوسط الشعبة</td><td class="crm-grade-gt">${avgAll === null ? '—' : formatScore(avgAll)}</td>`;
   g.columns.forEach(c => { const a = gradeColumnStats(c.id, g.scores, ids).avg; html += `<td>${a === null ? '—' : formatScore(a)}</td>`; });

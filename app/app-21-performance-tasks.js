@@ -48,7 +48,7 @@ function taskColumnScoreFor(tasks, rows, studentId, colMax){
 function taskDateOf(t){ return t.due_date || String(t.created_at || '').slice(0, 10); }
 
 /* imp (اختياري، app-56): { periods: {p: زيادة}, final: زيادة } — زيادة الفترة تُضاف لدرجتها بسقف العمود قبل المعدّل،
-   وزيادة «المجموع» تُضاف بعده بالسقف نفسه. لا زيادة لمن لا درجة له (في الفترة أو في المجموع). */
+   وزيادة «المجموع» تُضاف بعده بالسقف نفسه. الفارغ (لم يُرصد) + زيادة = الزيادة وحدها (3.78)، والتنبيه في taskImproveApplied. */
 function taskPeriodScores(tasks, rows, studentId, colMax, cfg, imp){
   const adj = imp && imp.periods && Object.keys(imp.periods).length ? (p, v) => improveAddCapped(v, imp.periods[p], colMax) : null;
   const out = periodSplitScores(tasks, taskDateOf, list => taskColumnScoreFor(list, rows, studentId, colMax), cfg, adj);
@@ -61,16 +61,20 @@ function planTaskScoreSync(studentIds, tasks, rows, colMax, existing, cfg, impId
   return planComputedScoreSync(studentIds, id => taskPeriodScores(tasks, rows, id, colMax, cfg, impIdx ? improveTaskOf(impIdx, id) : null).final, existing);
 }
 
-/* ما أضافه التحسين فعلًا لدرجة عمود المهام لكل طالب (بعد السقف): Map(طالب → زيادة > 0) */
+/* ما أضافه التحسين فعلًا لدرجة عمود المهام لكل طالب (بعد السقف): Map(طالب → { add, empty })
+   empty: أُضيفت زيادة على درجة فارغة (المجموع أو الفترة المختارة لم يُرصد فيها شيء) — للتنبيه */
 function taskImproveApplied(studentIds, tasks, rows, colMax, cfg, impIdx){
   const out = new Map();
   if(!impIdx || !impIdx.size) return out;
   (studentIds || []).forEach(id => {
     const imp = improveTaskOf(impIdx, id);
     if(!imp) return;
-    const base = taskPeriodScores(tasks, rows, id, colMax, cfg).final;
-    const withImp = taskPeriodScores(tasks, rows, id, colMax, cfg, imp).final;
-    if(base !== null && withImp !== null && withImp - base > 0.001) out.set(id, Math.round(100 * (withImp - base)) / 100);
+    const b = taskPeriodScores(tasks, rows, id, colMax, cfg);
+    const w = taskPeriodScores(tasks, rows, id, colMax, cfg, imp);
+    if(w.final === null) return;
+    const add = Math.round(100 * (w.final - (b.final || 0))) / 100;
+    const empty = (b.final === null && imp.final > 0) || Object.keys(imp.periods || {}).some(p => imp.periods[p] > 0 && b['p' + p] === null && w['p' + p] !== null);
+    if(add > 0.001 || empty) out.set(id, { add: Math.max(0, add), empty });
   });
   return out;
 }

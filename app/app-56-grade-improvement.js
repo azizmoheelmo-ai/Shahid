@@ -8,7 +8,9 @@
      مثال: بند من 20 درجته 16 وأخذ 5 في النشاط ← 20 (يُضاف 4 والزائد يسقط).
    - الاختبارات بلا فترات: الزيادة على محصلة الاختبارات. المهام: المعلم يختار «على المجموع» (بعد معدّل
      الفترات) أو فترة بعينها (تُضاف لدرجة تلك الفترة بسقفها، ثم يُحسب المعدّل).
-   - لا زيادة لمن لا درجة له في البند (أو في الفترة المختارة): لا شيء يُحسَّن.
+   - لا نشاط تحسين لبند لم يُنشئ فيه المعلم اختبارًا/مهمة بعد (يُمنع الإنشاء مع ذكر السبب) — 3.78.
+   - من درجته في البند فارغة (غائب، لم يُرصد): تُحسب درجة التحسين وحدها، مع تنبيه في ورقة الرصد وعلامة
+     «كانت فارغة» في الكشف والتقرير. الصفر درجة عادية تُضاف فوقها — 3.78.
    - النشاط لشعبة أو لعدة شعب دفعة واحدة (نشاط مستقل لكل شعبة، ورصد كل شعبة وحدها).
    - تظهر الزيادة داخل المجموع بعلامة «↑ +n»، وفي تقرير الطالب التحليلي.
 
@@ -33,12 +35,13 @@ let improveBusy = false;
 /* ============ دوال صرفة ============ */
 const improveR2 = n => Math.round(Number(n) * 100) / 100;
 
-/* درجة البند بعد الزيادة: base فارغ = لا شيء يُحسَّن */
+/* درجة البند بعد الزيادة بسقفه. base فارغ (لم يُرصد: غائب مثلًا) + زيادة = الزيادة وحدها (قرار المستخدم 3.78)،
+   ويُنبَّه المعلم بأن الأصل كان فارغًا. بلا زيادة: الفارغ يبقى فارغًا */
 function improveAddCapped(base, bonus, cap){
-  if(base === null || base === undefined) return null;
   const b = Number(bonus) || 0;
-  if(!(b > 0)) return base;
-  return improveR2(Math.min(Number(cap), Number(base) + b));
+  const empty = base === null || base === undefined;
+  if(!(b > 0)) return empty ? null : base;
+  return improveR2(Math.min(Number(cap), (empty ? 0 : Number(base)) + b));
 }
 
 /* فهرس الزيادات الخام لكل طالب: { tests, taskFinal, taskPeriods: {1,2,3}, items: [{ imp, score }] } */
@@ -85,7 +88,28 @@ function parseImproveMax(text){
   return { value: v };
 }
 
-/* خطأ نصي أو null. draft = { target, mode, sourceName, name, max, period, sectionIds } */
+/* ما يمكن تحسينه في كل شعبة (قرار المستخدم 3.78: لا نشاط تحسين بلا اختبار/مهمة أنشأها المعلم):
+   Map(شعبة → { tests, taskCol, taskAny }). cols = أعمدة الكشف الظاهرة، tasks = مهام الفصل */
+function improveAvailability(cols, tasks){
+  const out = new Map();
+  const at = id => { if(!out.has(id)) out.set(id, { tests: false, taskCol: false, taskAny: false }); return out.get(id); };
+  (cols || []).forEach(c => {
+    if(c.category === 'tests') at(c.section_id).tests = true;
+    if(c.kind === 'task' && !c.tool_id) at(c.section_id).taskCol = true;
+  });
+  (tasks || []).forEach(t => { at(t.section_id).taskAny = true; });
+  return out;
+}
+
+/* لماذا لا يمكن تحسين هذا البند في هذه الشعبة؟ نص أو null (ممكن) */
+function improveBlockReason(avail, sectionId, target){
+  const a = (avail && avail.get(sectionId)) || { tests: false, taskCol: false, taskAny: false };
+  if(target === 'tests') return a.tests ? null : 'لا اختبارات في هذه الشعبة بعد';
+  if(!a.taskCol) return 'لا عمود «مهام أدائية» في كشف هذه الشعبة';
+  return a.taskAny ? null : 'لا مهام أدائية في هذه الشعبة بعد';
+}
+
+/* خطأ نصي أو null. draft = { target, mode, sourceName, name, max, period, sectionIds, avail? } */
 function validateImproveDraft(d){
   if(!d || !IMPROVE_TARGET_LABELS[d.target]) return 'اختر البند';
   if(!IMPROVE_MODE_LABELS[d.mode]) return 'اختر النوع';
@@ -97,6 +121,13 @@ function validateImproveDraft(d){
   if(m.error) return m.error;
   if(d.period !== null && d.period !== undefined && (d.target !== 'task' || ![1, 2, 3].includes(Number(d.period)))) return 'الفترة للمهام فقط';
   if(!(d.sectionIds || []).length) return 'اختر شعبة واحدة على الأقل';
+  /* avail: null = لم يُتحقق بعد، 'error' = تعذّر التحقق، Map = ما يمكن تحسينه (undefined = بلا فحص، للاختبار الصرف) */
+  if(d.avail === null) return 'انتظر حتى يكتمل التحقق من الاختبارات والمهام';
+  if(d.avail === 'error') return 'تعذّر التحقق من الاختبارات والمهام — أغلق النموذج وأعد فتحه';
+  if(d.avail instanceof Map){
+    const blocked = d.sectionIds.find(id => improveBlockReason(d.avail, id, d.target));
+    if(blocked) return 'لا يوجد ما يُحسَّن في إحدى الشعب المختارة: ' + improveBlockReason(d.avail, blocked, d.target);
+  }
   return null;
 }
 
@@ -138,11 +169,22 @@ function improveDbErrorMessage(error){
   return msg || 'خطأ غير معروف';
 }
 
-/* علامة الدرجة المحسّنة داخل المجموع */
-function improveMarkHtml(applied){
+/* علامة الدرجة المحسّنة داخل المجموع. empty: الأصل كان فارغًا (لم يُرصد) فالدرجة من التحسين وحده — تنبيه بلون مختلف */
+function improveMarkHtml(applied, empty){
   const n = Number(applied) || 0;
+  if(empty) return ` <span class="imp-mark is-empty" title="لم تكن له درجة في هذا البند (فارغة)، فحُسبت درجة التحسين وحدها">↑ <bdi dir="ltr">+${formatScore(n)}</bdi> · كانت فارغة</span>`;
   if(!(n > 0)) return '';
-  return ` <span class="imp-mark" title="منها ${formatScore(n)} من نشاط تحسين">↑ +${formatScore(n)}</span>`;
+  return ` <span class="imp-mark" title="منها ${formatScore(n)} من نشاط تحسين">↑ <bdi dir="ltr">+${formatScore(n)}</bdi></span>`;
+}
+
+/* علامة بند الاختبارات من نتيجة studentGradeResult */
+function improveTestsMarkHtml(t){
+  return t ? improveMarkHtml(t.bonus, t.fromEmpty) : '';
+}
+
+/* علامة عمود المهام لطالب في كشف محمّل */
+function improveTaskMarkHtml(g, studentId){
+  return improveMarkHtml(gradeImproveTaskApplied(g, studentId), gradeImproveTaskEmpty(g, studentId));
 }
 
 function improvePeriodLabel(imp){
@@ -181,7 +223,14 @@ function gradeImproveTests(g, studentId){
 
 /* ما أُضيف فعلًا لعمود المهام (بعد السقف) */
 function gradeImproveTaskApplied(g, studentId){
-  return g && g.improve && g.improve.taskApplied ? (g.improve.taskApplied.get(studentId) || 0) : 0;
+  const x = g && g.improve && g.improve.taskApplied ? g.improve.taskApplied.get(studentId) : null;
+  return x ? x.add : 0;
+}
+
+/* هل أُضيفت زيادة المهام على درجة فارغة (لم يُرصد له شيء في المجموع أو في الفترة المختارة) */
+function gradeImproveTaskEmpty(g, studentId){
+  const x = g && g.improve && g.improve.taskApplied ? g.improve.taskApplied.get(studentId) : null;
+  return !!(x && x.empty);
 }
 
 /* ============ الشاشة: قائمة أنشطة الشعبة ============ */
@@ -253,28 +302,44 @@ async function openImproveForm(preset){
   const testsOn = appToolOn('tests');
   const target = IMPROVE_TARGET_LABELS[preset.target] && (preset.target !== 'tests' || testsOn) ? preset.target : (testsOn ? 'tests' : 'task');
   improveDraft = { target, mode: 'new', sourceName: '', name: '', max: String(IMPROVE_DEFAULT_MAX), period: null,
-    sectionIds: [sectionId], sources: { tests: [], task: [] }, saving: false, nameTouched: false, ctx: improveCtx };
+    sectionIds: [sectionId], sources: { tests: [], task: [] }, saving: false, nameTouched: false, ctx: improveCtx, avail: null };
   const d = improveDraft;
   paintImproveForm();
-  /* ما يُعاد: اختبارات الشعبة ومهامها (للعرض فقط؛ لا يمسّها النشاط) */
+  /* ما يمكن تحسينه في كل شعب الفصل (الإنشاء ممنوع حتى يكتمل)، وما يُعاد في هذه الشعبة */
   try{
     const uid = currentUser.id;
     const [cols, tasks] = await Promise.all([
-      sb.from('classroom_grade_columns').select('name, category, tool_id').eq('teacher_id', uid).eq('section_id', sectionId)
-        .eq('academic_year', term.year).eq('semester', term.semester).eq('category', 'tests'),
-      sb.from('classroom_tasks').select('title').eq('teacher_id', uid).eq('section_id', sectionId)
+      sb.from('classroom_grade_columns').select('id, section_id, name, category, kind, tool_id').eq('teacher_id', uid)
+        .eq('academic_year', term.year).eq('semester', term.semester),
+      sb.from('classroom_tasks').select('id, section_id, title').eq('teacher_id', uid)
         .eq('academic_year', term.year).eq('semester', term.semester)]);
+    if(cols.error) throw cols.error;
+    if(tasks.error) throw tasks.error;
     if(improveDraft !== d) return;
-    d.sources.tests = (cols.data || []).filter(c => !c.tool_id).map(c => c.name);
-    d.sources.task = (tasks.data || []).map(t => t.title);
-    if(d.mode === 'retake') paintImproveForm();
-  } catch(e){ /* المصادر اختيارية للعرض */ }
+    const visible = (cols.data || []).filter(c => typeof gradeColumnVisible !== 'function' || gradeColumnVisible(c));
+    d.avail = improveAvailability(visible, tasks.data || []);
+    d.sources.tests = visible.filter(c => c.section_id === sectionId && c.category === 'tests' && !c.tool_id).map(c => c.name);
+    d.sources.task = (tasks.data || []).filter(t => t.section_id === sectionId).map(t => t.title);
+    /* البند المقترح غير ممكن هنا والآخر ممكن: ينتقل إليه */
+    const other = d.target === 'tests' ? 'task' : 'tests';
+    if(improveBlockReason(d.avail, sectionId, d.target) && (other !== 'tests' || testsOn) && !improveBlockReason(d.avail, sectionId, other)) d.target = other;
+  } catch(e){
+    if(improveDraft !== d) return;
+    d.avail = 'error';
+  }
+  readImproveInputs();
+  paintImproveForm();
 }
 
 function setImproveDraft(field, value){
   const d = improveDraft;
   if(!d || d.saving) return;
-  if(field === 'target'){ d.target = value; d.sourceName = ''; d.period = null; }
+  if(field === 'target'){
+    if(d.avail instanceof Map && improveBlockReason(d.avail, d.ctx.sectionId, value)) return;
+    d.target = value; d.sourceName = ''; d.period = null;
+    /* الشعب التي لا يوجد فيها هذا البند تُستبعد (الحالية تبقى) */
+    if(d.avail instanceof Map) d.sectionIds = d.sectionIds.filter(id => id === d.ctx.sectionId || !improveBlockReason(d.avail, id, value));
+  }
   else if(field === 'mode'){ d.mode = value; if(value === 'new') d.sourceName = ''; }
   else if(field === 'period') d.period = value ? Number(value) : null;
   else if(field === 'source'){ d.sourceName = value; if(!d.nameTouched) d.name = value ? 'تحسين: ' + value : ''; }
@@ -286,7 +351,7 @@ function toggleImproveSection(id){
   if(!d || d.saving) return;
   const i = d.sectionIds.indexOf(id);
   if(i > -1){ if(d.sectionIds.length > 1) d.sectionIds.splice(i, 1); }
-  else d.sectionIds.push(id);
+  else if(!(d.avail instanceof Map) || !improveBlockReason(d.avail, id, d.target)) d.sectionIds.push(id);
   paintImproveForm();
 }
 
@@ -305,8 +370,25 @@ function paintImproveForm(){
   readImproveInputs();
   const term = d.ctx.term;
   const testsOn = appToolOn('tests');
+  const crumb = `<button type="button" class="tlx-crumb" style="border:0;background:none;padding:0;cursor:pointer;font-family:inherit;" onclick="openGradeImprove()">› تحسين الدرجات</button>
+    <h3 style="margin:4px 0 2px;font-size:16px;color:var(--navy);">نشاط تحسين جديد</h3>`;
+  /* لا إنشاء قبل التحقق، ولا نشاط تحسين بلا اختبار/مهمة أنشأها المعلم (قرار المستخدم 3.78) */
+  if(d.avail === null){ showInfoModal(`<div style="text-align:right;">${crumb}<div class="loading-state">جارٍ التحقق من اختبارات الشعبة ومهامها...</div></div>`, '460px'); return; }
+  if(d.avail === 'error'){ showInfoModal(`<div style="text-align:right;">${crumb}<p class="tlx-note">تعذّر التحقق من اختبارات الشعبة ومهامها — أعد المحاولة.</p>
+    <button type="button" class="tlx-btn is-ghost" onclick="openImproveForm({ target: '${d.target}' })">إعادة المحاولة</button></div>`, '460px'); return; }
+  const allTargets = testsOn ? ['tests', 'task'] : ['task'];
+  const reasons = allTargets.map(t => [t, improveBlockReason(d.avail, d.ctx.sectionId, t)]);
+  if(reasons.every(([, r]) => r)){
+    showInfoModal(`<div style="text-align:right;">${crumb}
+      <div class="tlx-box tlx-empty" style="padding:14px;text-align:center;margin:10px 0;"><b>لا يوجد ما يُحسَّن بعد</b>
+        <small style="display:block;color:var(--ui-body);margin-top:6px;line-height:1.8;">${reasons.map(([t, r]) => `${escapeHtml(IMPROVE_TARGET_LABELS[t])}: ${escapeHtml(r)}`).join('<br>')}</small></div>
+      <p class="tlx-note">التحسين يُضاف على درجة قائمة: أنشئ اختبارًا أو مهمة أدائية أولًا، ثم أنشئ نشاط التحسين عليها.</p></div>`, '460px');
+    return;
+  }
   const chip = (on, label, onclick, extra) => `<button type="button" class="tlx-chip${on ? ' is-on' : ''}" aria-pressed="${on}" onclick="${onclick}"${extra || ''}>${escapeHtml(label)}</button>`;
-  const targets = (testsOn ? ['tests', 'task'] : ['task']).map(t => chip(d.target === t, IMPROVE_TARGET_LABELS[t], `readImproveInputs();setImproveDraft('target','${t}')`)).join('');
+  const offChip = (label, why) => `<button type="button" class="tlx-chip" disabled title="${escapeHtml(why)}">${escapeHtml(label)}</button>`;
+  const targets = reasons.map(([t, r]) => r ? offChip(IMPROVE_TARGET_LABELS[t], r) : chip(d.target === t, IMPROVE_TARGET_LABELS[t], `readImproveInputs();setImproveDraft('target','${t}')`)).join('');
+  const targetWhy = reasons.filter(([, r]) => r).map(([t, r]) => `${escapeHtml(IMPROVE_TARGET_LABELS[t])}: ${escapeHtml(r)}`).join(' · ');
   const modes = ['new', 'retake'].map(m => chip(d.mode === m, m === 'new' ? 'نشاط جديد' : (d.target === 'tests' ? 'إعادة اختبار سابق' : 'إعادة مهمة سابقة'), `readImproveInputs();setImproveDraft('mode','${m}')`)).join('');
   const srcList = d.sources[d.target] || [];
   const srcHtml = d.mode === 'retake' ? `<div class="tlx-lbl">ما يُعاد</div>${srcList.length
@@ -330,11 +412,12 @@ function paintImproveForm(){
   const secs = (typeof crmSections !== 'undefined' ? crmSections : []).slice()
     .sort((a, b) => crmSectionOptionLabel(a).localeCompare(crmSectionOptionLabel(b), 'ar'));
   const secHtml = secs.length > 1 ? `<div class="tlx-lbl">الشعب <small>نشاط مستقل لكل شعبة</small></div><div class="tlx-chips">${secs.map(s =>
-    chip(d.sectionIds.includes(s.id), crmSectionOptionLabel(s), `readImproveInputs();toggleImproveSection('${escapeHtml(s.id)}')`)).join('')}</div>` : '';
+    improveBlockReason(d.avail, s.id, d.target) ? offChip(crmSectionOptionLabel(s) + ' — لا يوجد ما يُحسَّن', improveBlockReason(d.avail, s.id, d.target))
+      : chip(d.sectionIds.includes(s.id), crmSectionOptionLabel(s), `readImproveInputs();toggleImproveSection('${escapeHtml(s.id)}')`)).join('')}</div>` : '';
   const body = `<div style="text-align:right;">
-    <button type="button" class="tlx-crumb" style="border:0;background:none;padding:0;cursor:pointer;font-family:inherit;" onclick="openGradeImprove()">› تحسين الدرجات</button>
-    <h3 style="margin:4px 0 2px;font-size:16px;color:var(--navy);">نشاط تحسين جديد</h3>
+    ${crumb}
     <div class="tlx-lbl">البند الذي يُحسَّن</div><div class="tlx-chips">${targets}</div>
+    ${targetWhy ? `<small style="display:block;color:var(--muted);font-size:12px;margin-top:4px;">${targetWhy}</small>` : ''}
     <div class="tlx-lbl">النوع</div><div class="tlx-chips">${modes}</div>
     ${srcHtml}
     <div class="tlx-two"><div><div class="tlx-lbl">اسم النشاط</div><input class="tlx-inp" id="impName" maxlength="${IMPROVE_NAME_MAX}" value="${escapeHtml(d.name)}" placeholder="مثال: اختبار تحسيني"></div>
@@ -395,6 +478,10 @@ async function openImproveSheet(id){
     sh.imp = impRes.data;
     sh.term = { year: sh.imp.academic_year, semester: Number(sh.imp.semester) };
     (scRes.data || []).forEach(r => sh.values.set(r.student_id, Number(r.score)));
+    /* من لا درجة له في البند (فارغة): تنبيه بجانب اسمه — فشل الفحص لا يمنع الرصد */
+    try{ sh.empty = await improveEmptyBase(sh.imp, crmStudentsOfSection(sh.imp.section_id).map(st => st.id), sh.term); }
+    catch(e){ sh.empty = null; }
+    if(improveSheet !== sh) return;
   } catch(e){
     if(improveSheet !== sh) return;
     showInfoModal(`<div style="text-align:right;"><p class="tlx-note">${escapeHtml('تعذّر التحميل: ' + improveDbErrorMessage(e))}</p>
@@ -402,6 +489,41 @@ async function openImproveSheet(id){
     return;
   }
   paintImproveSheet();
+}
+
+/* طلاب درجتهم في البند فارغة (لم يُرصد لهم شيء؛ الصفر ليس فارغًا): Set. للمهام بفترة: الفارغ في تلك الفترة */
+async function improveEmptyBase(imp, studentIds, term){
+  const out = new Set();
+  if(!imp || !(studentIds || []).length) return out;
+  const uid = currentUser.id;
+  if(imp.target === 'tests'){
+    const { data: cols, error } = await sb.from('classroom_grade_columns').select('id, category, tool_id, kind, name')
+      .eq('teacher_id', uid).eq('section_id', imp.section_id).eq('academic_year', term.year).eq('semester', term.semester).eq('category', 'tests');
+    if(error) throw error;
+    const ids = (cols || []).filter(c => typeof gradeColumnVisible !== 'function' || gradeColumnVisible(c)).map(c => c.id);
+    const has = new Set();
+    if(ids.length){
+      const res = await fetchAllRows((a, b) => sb.from('classroom_grade_scores').select('id, student_id')
+        .eq('teacher_id', uid).in('column_id', ids).order('id', { ascending: true }).range(a, b));
+      if(res.error) throw res.error;
+      (res.data || []).forEach(r => has.add(r.student_id));
+    }
+    studentIds.forEach(id => { if(!has.has(id)) out.add(id); });
+    return out;
+  }
+  const { tasks, rows } = await loadTaskScoresForStudents(studentIds, term);
+  const cfg = periodCfg(term, 'kind:task');
+  studentIds.forEach(id => {
+    const ps = taskPeriodScores(tasks, rows, id, 1, cfg);
+    const v = imp.grade_period ? ps['p' + imp.grade_period] : ps.final;
+    if(v === null || v === undefined) out.add(id);
+  });
+  return out;
+}
+
+function improveEmptyNote(imp){
+  const where = imp.target === 'tests' ? 'الاختبارات' : (imp.grade_period ? 'المهام في ' + improvePeriodLabel(imp) : 'المهام الأدائية');
+  return `لا درجة له في ${where} (فارغة) — إن رُصد تُحسب درجة التحسين وحدها`;
 }
 
 function improveSheetLocked(sh){
@@ -419,7 +541,7 @@ function paintImproveSheet(){
   const per = improvePeriodLabel(i);
   const n = students.filter(st => sh.values.has(st.id)).length;
   const rows = students.length ? students.map((st, k) => `<label class="crm-grade-entry-row">
-      <span>${escapeHtml(st.full_name)}</span>
+      <span>${escapeHtml(st.full_name)}${sh.empty && sh.empty.has(st.id) ? `<small class="imp-empty-note">${escapeHtml(improveEmptyNote(i))}</small>` : ''}</span>
       <input class="goal-input crm-grade-input imp-input" inputmode="decimal" autocomplete="off" data-student="${escapeHtml(st.id)}" data-index="${k}"
         value="${sh.values.has(st.id) ? formatScore(sh.values.get(st.id)) : ''}"${locked ? ' disabled' : ''} onkeydown="onImproveInputKey(event, ${k})" oninput="this.classList.remove('is-invalid')">
     </label>`).join('') : '<div class="crm-today-empty">لا طلاب مربوطون بهذه الشعبة.</div>';
@@ -486,7 +608,8 @@ async function saveImproveSheet(){
     if(errEl){ errEl.textContent = 'تعذّر الحفظ: ' + improveDbErrorMessage(failed); errEl.style.display = 'block'; }
     return;
   }
-  showToast('حُفظت درجات التحسين ✓', 'ok');
+  const fromEmpty = sh.empty ? plan.upserts.filter(u => sh.empty.has(u.student_id)).length : 0;
+  showToast(fromEmpty ? `حُفظت ✓ — تنبيه: ${fromEmpty} ${fromEmpty === 1 ? 'طالب درجته فارغة في البند فحُسبت له' : 'طلاب درجاتهم فارغة في البند فحُسبت لهم'} درجة التحسين وحدها` : 'حُفظت درجات التحسين ✓', fromEmpty ? 'error' : 'ok');
   paintImproveSheet();
 }
 

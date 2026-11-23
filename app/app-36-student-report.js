@@ -471,7 +471,7 @@ function buildStudentReportHtml2(ctx){
       const added = [ip.tests > 0 ? `الاختبارات +${srNum(formatScore(ip.tests))}` : '', ip.task > 0 ? `المهام الأدائية +${srNum(formatScore(ip.task))}` : ''].filter(Boolean);
       body += `<div class="sec long"><h2>أنشطة تحسين الدرجات</h2><table><thead><tr><th>النشاط</th><th>البند</th><th class="n">درجته</th></tr></thead><tbody>${ip.items.map(x =>
         `<tr><td>${e(x.name)}</td><td>${e(x.targetLabel)}${x.period ? ' · ' + e(x.period) : ''}</td><td class="n">${srNum(formatScore(x.score))} من ${srNum(formatScore(x.max))}</td></tr>`).join('')}</tbody></table>
-        <div class="fn">شارك الطالب اختياريًا لتحسين درجته؛ تُضاف درجة النشاط فوق درجة البند ولا تتجاوز درجته العظمى.${added.length ? ' أُضيف فعلًا: ' + e(added.join('، ')) + '.' : ' لم يُضف شيء (البند بدرجته العظمى أو بلا درجة).'}</div></div>`;
+        <div class="fn">شارك الطالب اختياريًا لتحسين درجته؛ تُضاف درجة النشاط فوق درجة البند ولا تتجاوز درجته العظمى.${added.length ? ' أُضيف فعلًا: ' + e(added.join('، ')) + '.' : ' لم يُضف شيء (البند بدرجته العظمى).'}${ip.testsEmpty || ip.taskEmpty ? ' لم تكن له درجة في ' + e([ip.testsEmpty ? 'الاختبارات' : '', ip.taskEmpty ? 'المهام الأدائية' : ''].filter(Boolean).join(' ولا ')) + '، فحُسبت درجة التحسين وحدها.' : ''}</div></div>`;
     }
     if(ctx.rubric && ctx.rubric.length) body += rubricReportHtml(ctx.rubric); /* سلّم التقدير (app-41): تجربة لحساب مفعَّل فقط */
     const at = ctx.attendance;
@@ -599,7 +599,9 @@ function srImproveData(g, studentId){
   return {
     items: items.filter(x => x.target !== 'tests' || testsOn).map(x => Object.assign({}, x, { targetLabel: IMPROVE_TARGET_LABELS[x.target] || '' })),
     tests: testsOn ? res.tests.bonus : 0,
-    task: gradeImproveTaskApplied(g, studentId)
+    task: gradeImproveTaskApplied(g, studentId),
+    testsEmpty: testsOn && !!res.tests.fromEmpty,
+    taskEmpty: gradeImproveTaskEmpty(g, studentId)
   };
 }
 
