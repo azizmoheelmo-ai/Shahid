@@ -258,6 +258,7 @@ async function openGradeImprove(sectionIdArg, target){
         .eq('teacher_id', uid).in('improvement_id', ctx.list.map(i => i.id)).order('id', { ascending: true }).range(a, b));
       if(res.error) throw res.error;
       (res.data || []).forEach(r => ctx.counts.set(r.improvement_id, (ctx.counts.get(r.improvement_id) || 0) + 1));
+      ctx.avail = await improveSectionAvail(sectionId, term);
     }
   } catch(e){
     if(improveCtx !== ctx) return;
@@ -266,6 +267,26 @@ async function openGradeImprove(sectionIdArg, target){
   }
   if(improveCtx !== ctx) return; /* فُتحت شعبة أخرى أثناء التحميل */
   showInfoModal(`<div style="text-align:right;">${head}${improveListHtml(ctx)}</div>`, '460px');
+}
+
+/* ما يمكن تحسينه في شعبة واحدة (لشارة «متوقف مؤقتًا»). فشل الفحص = null (بلا شارة) */
+async function improveSectionAvail(sectionId, term){
+  try{
+    const uid = currentUser.id;
+    const [cols, tasks] = await Promise.all([
+      sb.from('classroom_grade_columns').select('id, section_id, category, kind, tool_id').eq('teacher_id', uid).eq('section_id', sectionId)
+        .eq('academic_year', term.year).eq('semester', term.semester),
+      sb.from('classroom_tasks').select('id, section_id').eq('teacher_id', uid).eq('section_id', sectionId)
+        .eq('academic_year', term.year).eq('semester', term.semester)]);
+    if(cols.error || tasks.error) return null;
+    return improveAvailability((cols.data || []).filter(c => typeof gradeColumnVisible !== 'function' || gradeColumnVisible(c)), tasks.data || []);
+  } catch(e){ return null; }
+}
+
+/* سبب توقف النشاط مؤقتًا (لا اختبار/مهمة/عمود مهام في شعبته)، أو null */
+function improveSuspendReason(avail, imp){
+  if(!(avail instanceof Map) || !imp) return null;
+  return improveBlockReason(avail, imp.section_id, imp.target);
 }
 
 function improveHeadHtml(sectionId, term){
@@ -284,9 +305,10 @@ function improveListHtml(ctx){
     const n = ctx.counts.get(i.id) || 0;
     const per = improvePeriodLabel(i);
     const src = i.mode === 'retake' && i.source_name ? ` · إعادة: ${escapeHtml(i.source_name)}` : '';
+    const off = improveSuspendReason(ctx.avail, i);
     return `<button type="button" class="tlx-row" onclick="openImproveSheet('${escapeHtml(i.id)}')">
-      <span class="tlx-row-main"><b>${escapeHtml(i.name)}</b><small>${escapeHtml(IMPROVE_TARGET_LABELS[i.target] || '')}${per ? ' · ' + escapeHtml(per) : ''} · من ${formatScore(i.max_score)}${src}</small></span>
-      <span class="tlx-pill ${n ? 'is-ok' : 'is-gold'}">${n ? 'شارك ' + n : 'لم يُرصد'}</span><span class="tlx-chev" aria-hidden="true">‹</span></button>`;
+      <span class="tlx-row-main"><b>${escapeHtml(i.name)}</b><small>${escapeHtml(IMPROVE_TARGET_LABELS[i.target] || '')}${per ? ' · ' + escapeHtml(per) : ''} · من ${formatScore(i.max_score)}${src}${off ? ' · ' + escapeHtml(off) : ''}</small></span>
+      ${off ? '<span class="tlx-pill is-gold">متوقف مؤقتًا</span>' : `<span class="tlx-pill ${n ? 'is-ok' : 'is-gold'}">${n ? 'شارك ' + n : 'لم يُرصد'}</span>`}<span class="tlx-chev" aria-hidden="true">‹</span></button>`;
   }).join('');
   return intro + `<div class="tlx-sec" style="margin-top:0;">الأنشطة (${ctx.list.length})</div><div class="tlx-box" style="margin-bottom:10px;">${rows}</div>` + add;
 }
@@ -481,6 +503,7 @@ async function openImproveSheet(id){
     /* من لا درجة له في البند (فارغة): تنبيه بجانب اسمه — فشل الفحص لا يمنع الرصد */
     try{ sh.empty = await improveEmptyBase(sh.imp, crmStudentsOfSection(sh.imp.section_id).map(st => st.id), sh.term); }
     catch(e){ sh.empty = null; }
+    sh.avail = await improveSectionAvail(sh.imp.section_id, sh.term);
     if(improveSheet !== sh) return;
   } catch(e){
     if(improveSheet !== sh) return;
@@ -541,7 +564,7 @@ function paintImproveSheet(){
   const per = improvePeriodLabel(i);
   const n = students.filter(st => sh.values.has(st.id)).length;
   const rows = students.length ? students.map((st, k) => `<label class="crm-grade-entry-row">
-      <span>${escapeHtml(st.full_name)}${sh.empty && sh.empty.has(st.id) ? `<small class="imp-empty-note">${escapeHtml(improveEmptyNote(i))}</small>` : ''}</span>
+      <span>${escapeHtml(st.full_name)}${sh.empty && !improveSuspendReason(sh.avail, i) && sh.empty.has(st.id) ? `<small class="imp-empty-note">${escapeHtml(improveEmptyNote(i))}</small>` : ''}</span>
       <input class="goal-input crm-grade-input imp-input" inputmode="decimal" autocomplete="off" data-student="${escapeHtml(st.id)}" data-index="${k}"
         value="${sh.values.has(st.id) ? formatScore(sh.values.get(st.id)) : ''}"${locked ? ' disabled' : ''} onkeydown="onImproveInputKey(event, ${k})" oninput="this.classList.remove('is-invalid')">
     </label>`).join('') : '<div class="crm-today-empty">لا طلاب مربوطون بهذه الشعبة.</div>';
@@ -550,6 +573,7 @@ function paintImproveSheet(){
     <button type="button" class="tlx-crumb" style="border:0;background:none;padding:0;cursor:pointer;font-family:inherit;" onclick="openGradeImprove('${escapeHtml(i.section_id)}')">› تحسين الدرجات</button>
     <h3 style="margin:4px 0 2px;font-size:16px;color:var(--navy);">${escapeHtml(i.name)}</h3>
     <div class="crm-gs-sub" style="margin-bottom:8px;">${escapeHtml(crmSectionLabel(i.section_id))} · ${escapeHtml(IMPROVE_TARGET_LABELS[i.target] || '')}${per ? ' · ' + escapeHtml(per) : ''} · من ${formatScore(i.max_score)}${src} · شارك ${n}</div>
+    ${improveSuspendReason(sh.avail, i) ? `<p class="tlx-note" style="margin:0 0 8px;color:var(--ui-warn);"><b>متوقف مؤقتًا:</b> ${escapeHtml(improveSuspendReason(sh.avail, i))}. الدرجات هنا محفوظة ولا تُحسب حتى ${i.target === 'tests' ? 'تضيف اختبارًا' : 'تضيف مهمة أدائية'}.</p>` : ''}
     ${locked ? '<p class="tlx-note">الفترة مقفلة — للعرض فقط. افتحها للتعديل من نافذة الفترات.</p>' : `<p class="tlx-note" style="margin:0 0 8px;">اكتب درجة من شارك فقط (من ${formatScore(i.max_score)}). اترك من لم يشارك فارغًا فلا يتأثر. تُضاف درجته فوق درجة ${escapeHtml(IMPROVE_TARGET_LABELS[i.target] || 'البند')} بحد الدرجة العظمى.</p>`}
     <div class="crm-grade-entry">${rows}</div>
     <p id="impSheetErr" class="tlx-note" style="display:none;color:var(--ui-danger);"></p>
@@ -701,6 +725,144 @@ async function deleteImprovement(id){
     await improveAfterChange(imp.section_id, term, imp.target);
     await openGradeImprove(imp.section_id);
   });
+}
+
+/* ============ حذف اختبار/مهمة عليها تحسين (3.79، قرار المستخدم) ============ */
+/* - حذف اختبار/مهمة هو مصدر نشاط «إعادة»: يختار المعلم — احذفهما معًا (عبر السلة، والتراجع يعيدهما)،
+     أو احذف الاختبار وأبقِ التحسين على البند عامة (يصير «نشاط جديد»).
+   - حذف آخر اختبار/مهمة في الشعبة: التحسين يتوقف مؤقتًا (محفوظ، لا يُحسب حتى يُضاف غيره) — تنبيه في التأكيد.
+   - غير ذلك: لا تنبيه (الزيادة تُعاد على المحصلة الجديدة تلقائيًا). */
+
+function improveNameKey(t){ return String(t || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+
+/* أنشطة البند في شعبة واحدة مصنّفة لحذف عنصر اسمه name: { retake, others, isLast } (دالة صرفة) */
+function improveDeleteLinks(list, target, name, remainingCount){
+  const mine = (list || []).filter(i => i.target === target);
+  const key = improveNameKey(name);
+  const retake = mine.filter(i => i.mode === 'retake' && improveNameKey(i.source_name) === key);
+  return { retake, others: mine.filter(i => !retake.includes(i)), isLast: remainingCount === 0 };
+}
+
+/* target: 'tests' (أعمدة) أو 'task' (مهام)؛ itemIds: عنصر أو أكثر (حذف اختبار من كل الشعب). يقرأ العناصر وما بقي
+   وأنشطة شعبها من القاعدة (teacher_id صريح). يرجع { retake, suspend } — suspend: أنشطة شعب لا يبقى فيها شيء.
+   null = لا أنشطة أو تعذّر الفحص (الحذف يسير كما كان) */
+async function improveLinksForDelete(target, itemIds){
+  const ids = [].concat(itemIds || []).filter(Boolean);
+  if(!currentUser || !ids.length) return null;
+  const uid = currentUser.id;
+  const tbl = target === 'tests' ? 'classroom_grade_columns' : 'classroom_tasks';
+  const nameCol = target === 'tests' ? 'name' : 'title';
+  try{
+    const { data: items, error } = await sb.from(tbl).select(`id, section_id, academic_year, semester, ${nameCol}`).eq('teacher_id', uid).in('id', ids);
+    if(error || !(items || []).length) return null;
+    const term = { year: items[0].academic_year, semester: Number(items[0].semester) };
+    const secs = [...new Set(items.map(i => i.section_id))];
+    const { data: list, error: lErr } = await sb.from('classroom_improvements').select('id, section_id, target, mode, source_name, name, grade_period')
+      .eq('teacher_id', uid).eq('academic_year', term.year).eq('semester', term.semester).eq('target', target).in('section_id', secs);
+    if(lErr || !(list || []).length) return null;
+    let q = sb.from(tbl).select('id, section_id' + (target === 'tests' ? ', category, tool_id, kind' : '')).eq('teacher_id', uid)
+      .eq('academic_year', term.year).eq('semester', term.semester).in('section_id', secs);
+    if(target === 'tests') q = q.eq('category', 'tests');
+    const { data: rest, error: rErr } = await q;
+    if(rErr) return null;
+    const gone = new Set(ids);
+    const out = { retake: [], suspend: [], lastFor: new Set() };
+    secs.forEach(sid => {
+      const remaining = (rest || []).filter(r => r.section_id === sid && !gone.has(r.id) && (target !== 'tests' || typeof gradeColumnVisible !== 'function' || gradeColumnVisible(r))).length;
+      const secList = list.filter(i => i.section_id === sid);
+      const names = items.filter(i => i.section_id === sid).map(i => i[nameCol]);
+      const retake = secList.filter(i => names.some(n => improveDeleteLinks([i], target, n, remaining).retake.length));
+      out.retake = out.retake.concat(retake);
+      if(remaining === 0){ out.suspend = out.suspend.concat(secList.filter(i => !retake.includes(i))); out.lastFor.add(sid); }
+    });
+    return out.retake.length || out.suspend.length ? out : null;
+  } catch(e){ return null; }
+}
+
+function improveSuspendText(target, list){
+  const what = target === 'tests' ? 'اختبارًا' : 'مهمة أدائية';
+  const names = list.map(i => '«' + i.name + '»').join('، ');
+  return `لا ${target === 'tests' ? 'اختبار' : 'مهمة'} يبقى في الشعبة بعد الحذف، فنشاط التحسين ${names} سيتوقف مؤقتًا: درجات الطلاب فيه محفوظة، ولا تُحسب حتى تضيف ${what} جديدًا.`;
+}
+
+/* نافذة اختيار بأزرار: ترجع مفتاح الزر أو null (إغلاق) */
+let improveChoiceResolver = null;
+function improveAskChoice(bodyHtml, choices){
+  return new Promise(resolve => {
+    if(improveChoiceResolver) improveChoiceResolver(null);
+    improveChoiceResolver = resolve;
+    showInfoModal(`<div style="text-align:right;">${bodyHtml}${choices.map(c =>
+      `<button type="button" class="tlx-btn ${c.cls || 'is-ghost'}" style="margin-top:8px;" onclick="improveChoiceResolve('${c.key}')">${escapeHtml(c.label)}</button>`).join('')}</div>`, '440px');
+    const cancel = document.getElementById('confirmCancelBtn');
+    if(cancel && cancel.addEventListener){
+      const h = () => { cancel.removeEventListener('click', h); if(improveChoiceResolver === resolve) improveChoiceResolve(null); };
+      cancel.addEventListener('click', h);
+    }
+  });
+}
+function improveChoiceResolve(key){
+  const r = improveChoiceResolver;
+  improveChoiceResolver = null;
+  if(key !== null && typeof closeCrmModal === 'function') closeCrmModal();
+  if(r) r(key);
+}
+
+/* القرار قبل حذف اختبار/مهمة: { ok, withImps: [ids تُحذف معه], keepIds: [ids تصير عامة] } أو { ok: false }.
+   baseMsg = نص التأكيد المعتاد (الحذف والسلة) */
+async function improveConfirmDelete(target, itemIds, label, baseMsg){
+  const links = await improveLinksForDelete(target, itemIds);
+  if(!links) return { ok: await showConfirm(baseMsg), withImps: [], keepIds: [] };
+  if(links.retake.length){
+    const names = links.retake.map(i => '«' + i.name + '»').join('، ');
+    const what = target === 'tests' ? 'الاختبار' : 'المهمة';
+    const later = links.suspend.length ? `<p class="tlx-note" style="margin:8px 0 0;">${escapeHtml(improveSuspendText(target, links.suspend))}</p>` : '';
+    /* «أبقِ» حيث لا يبقى اختبار/مهمة: يتوقف مؤقتًا أيضًا — يُذكر في الملاحظة لا في الزر */
+    const keepLast = links.lastFor && links.retake.some(i => links.lastFor.has(i.section_id));
+    const ch = await improveAskChoice(`<h3 style="margin:0 0 6px;font-size:15px;color:var(--navy);">حذف ${escapeHtml(label)}</h3>
+      <p style="font-size:13px;line-height:1.9;margin:0;">${escapeHtml(baseMsg)}</p>
+      <p class="tlx-note" style="margin:8px 0 0;">عليه نشاط تحسين يعيده: ${escapeHtml(names)}. ماذا تريد؟${keepLast ? ' (إن أبقيته يتوقف مؤقتًا حتى تضيف ' + (target === 'tests' ? 'اختبارًا' : 'مهمة') + ' جديدة)' : ''}</p>${later}`, [
+      { key: 'both', label: `احذف ${what} ونشاط التحسين معًا`, cls: 'is-navy' },
+      { key: 'keep', label: `احذف ${what} وأبقِ التحسين عامًا` }
+    ]);
+    if(!ch) return { ok: false, withImps: [], keepIds: [] };
+    return { ok: true, withImps: ch === 'both' ? links.retake.map(i => i.id) : [], keepIds: ch === 'keep' ? links.retake.map(i => i.id) : [] };
+  }
+  const msg = links.suspend.length ? baseMsg + '\n\n' + improveSuspendText(target, links.suspend) : baseMsg;
+  return { ok: await showConfirm(msg), withImps: [], keepIds: [] };
+}
+
+/* حذف مكوّن «مهام أدائية» من الكشف: نص تنبيه إن كان على المهام تحسين في هذه الشعب (يتوقف مؤقتًا حتى يعود العمود)، وإلا '' */
+async function improveTaskColumnDeleteNote(sectionIds, term){
+  if(!currentUser || !(sectionIds || []).length) return '';
+  try{
+    const { data, error } = await sb.from('classroom_improvements').select('id, name').eq('teacher_id', currentUser.id)
+      .eq('academic_year', term.year).eq('semester', term.semester).eq('target', 'task').in('section_id', sectionIds);
+    if(error || !(data || []).length) return '';
+    return ' ونشاط التحسين ' + data.map(i => '«' + i.name + '»').join('، ') + ' على المهام يتوقف مؤقتًا: درجاته محفوظة، ويعود حسابه إن أرجعت عمود المهام.';
+  } catch(e){ return ''; }
+}
+
+/* يضيف أنشطة التحسين ودرجاتها للقطة السلة نفسها (فالتراجع يعيد الاختبار وتحسينه معًا) */
+async function improveCaptureWith(cap, impIds, ownerId){
+  if(!cap || !(impIds || []).length) return cap;
+  const imps = await trashRows('classroom_improvements', [['eq', 'teacher_id', ownerId], ['in', 'id', impIds]]);
+  const sc = imps.length ? await trashRows('classroom_improvement_scores', [['eq', 'teacher_id', ownerId], ['in', 'improvement_id', trashIds(imps)]]) : [];
+  cap.tables = cap.tables.concat([{ t: 'classroom_improvements', rows: imps }, { t: 'classroom_improvement_scores', rows: sc }]);
+  return cap;
+}
+
+/* بعد الحذف: حذف الأنشطة المختارة معه، أو تحويل «الإعادة» إلى نشاط عام. الفشل يُذكر ولا يُعيد الحذف */
+async function improveAfterItemDelete(choice){
+  if(!choice || !currentUser) return;
+  const uid = currentUser.id;
+  if(choice.withImps.length){
+    const { error } = await sb.from('classroom_improvements').delete().eq('teacher_id', uid).in('id', choice.withImps);
+    if(error) showToast('حُذف العنصر وتعذّر حذف نشاط التحسين معه: ' + improveDbErrorMessage(error), 'error');
+  }
+  if(choice.keepIds.length){
+    const { error } = await sb.from('classroom_improvements').update({ mode: 'new', source_name: null }).eq('teacher_id', uid).in('id', choice.keepIds);
+    if(error) showToast('حُذف العنصر وتعذّر تحويل نشاط التحسين لعام: ' + improveDbErrorMessage(error), 'error');
+  }
 }
 
 /* ============ تقرير الطالب التحليلي ============ */

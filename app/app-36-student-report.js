@@ -591,13 +591,16 @@ function srGradeRowsFor(g, studentId, term){
 
 /* أنشطة تحسين الدرجات للطالب من كشف محمَّل (app-56): ما شارك فيه، وما أُضيف فعلًا لكل بند بعد السقف */
 function srImproveData(g, studentId){
-  const items = typeof improveStudentItems === 'function' ? improveStudentItems(g, studentId) : [];
-  if(!items.length) return null;
   const testsOn = appToolOn('tests');
   const caps = { performance: gradeCap('performance'), tests: gradeCap('tests') };
   const res = studentGradeResult(g.columns, g.scores, studentId, caps, gradeImproveTests(g, studentId));
+  /* المتوقف مؤقتًا (لا اختبار/مهمة في الشعبة) لا أثر له فلا يُذكر (م9) */
+  const taskOff = !!(g.improve && g.improve.taskSuspended);
+  const items = (typeof improveStudentItems === 'function' ? improveStudentItems(g, studentId) : [])
+    .filter(x => x.target === 'tests' ? testsOn && !res.tests.suspended : !taskOff);
+  if(!items.length) return null;
   return {
-    items: items.filter(x => x.target !== 'tests' || testsOn).map(x => Object.assign({}, x, { targetLabel: IMPROVE_TARGET_LABELS[x.target] || '' })),
+    items: items.map(x => Object.assign({}, x, { targetLabel: IMPROVE_TARGET_LABELS[x.target] || '' })),
     tests: testsOn ? res.tests.bonus : 0,
     task: gradeImproveTaskApplied(g, studentId),
     testsEmpty: testsOn && !!res.tests.fromEmpty,

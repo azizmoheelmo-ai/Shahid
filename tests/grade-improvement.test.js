@@ -437,3 +437,114 @@ test('الفارغ: علامة «كانت فارغة» في الكشف تختل�
   assert.equal(app.improveTaskMarkHtml(g, 'z'), '');
   assert.equal(app.gradeImproveTaskApplied(g, 'a'), 3);
 });
+
+/* ============ 3.79: حذف اختبار/مهمة عليها تحسين ============ */
+test('آخر اختبار حُذف: زيادة الاختبارات تتوقف مؤقتًا (لا تُحسب)، وتعود متى وُجد اختبار', () => {
+  const app = loadApp({});
+  const caps = { performance: 40, tests: 20 };
+  const perf = [{ id: 'p', category: 'performance', name: 'مشاركة', max_score: 10, kind: 'participation' }];
+  const off = J(app.studentGradeResult(perf, [], 'a', caps, 5));
+  assert.equal(off.tests.points, null, 'لا تُحسب');
+  assert.equal(off.tests.suspended, true);
+  assert.equal(off.tests.bonus, 0);
+  const on = J(app.studentGradeResult(perf.concat([{ id: 't', category: 'tests', name: 'جديد', max_score: 20 }]), [], 'a', caps, 5));
+  assert.equal(on.tests.points, 5, 'عاد يُحسب (الطالب فارغ في الجديد)');
+  assert.equal(on.tests.suspended, false);
+});
+
+test('آخر مهمة حُذفت: عمود المهام لا يأخذ زيادة التحسين (متوقف)، والمهمة في شعبة أخرى لا تكفي', async () => {
+  const log = [];
+  const seed = {
+    classroom_tasks: [{ id: 'k9', teacher_id: 'u1', section_id: 'S2', academic_year: '1448', semester: 1, max_score: 10, created_at: '2026-09-01' }],
+    classroom_task_students: [],
+    classroom_grade_scores: [],
+    classroom_improvements: [{ id: 'I', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'task', grade_period: null, max_score: 5 }],
+    classroom_improvement_scores: [{ id: 'r', teacher_id: 'u1', improvement_id: 'I', student_id: 's1', score: 4 }]
+  };
+  const app = appWith(seed, log);
+  runInAppContext(app, `periodCfg = () => ({ n: 1, starts: [] }); withGradePeriodCol = (fn) => fn(true);`);
+  const res = await runInAppContext(app, `syncTaskColumn({ id: 'C', max_score: 20 }, 'S1', { year: '1448', semester: 1 }, ['s1'])`);
+  assert.equal(res.suspended, true);
+  assert.equal(log.filter(l => l.op === 'upsert').length, 0, 'لا درجة تُكتب من التحسين وحده');
+  /* بوجود مهمة في الشعبة نفسها: يعود الحساب */
+  seed.classroom_tasks.push({ id: 'k1', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, max_score: 10, created_at: '2026-09-01' });
+  const res2 = await runInAppContext(app, `syncTaskColumn({ id: 'C', max_score: 20 }, 'S1', { year: '1448', semester: 1 }, ['s1'])`);
+  assert.equal(res2.suspended, false);
+  assert.deepEqual(J(log.filter(l => l.op === 'upsert').pop().rows), [{ teacher_id: 'u1', column_id: 'C', student_id: 's1', score: 4 }]);
+});
+
+test('فحص الحذف: يميّز «الإعادة» لهذا الاختبار، ويُنبّه بتوقف الباقي حين لا يبقى اختبار في الشعبة', async () => {
+  const base = {
+    classroom_grade_columns: [{ id: 'T1', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'tests', name: 'الوحدة الأولى' }],
+    classroom_improvements: [
+      { id: 'R', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'tests', mode: 'retake', source_name: 'الوحدة  الأولى', name: 'إعادة الأولى' },
+      { id: 'N', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'tests', mode: 'new', source_name: null, name: 'تحسيني عام' }]
+  };
+  const log = [];
+  const app = appWith(base, log);
+  runInAppContext(app, `gradeColumnVisible = () => true;`);
+  const last = J(await runInAppContext(app, `improveLinksForDelete('tests', 'T1')`));
+  assert.deepEqual(last.retake.map(i => i.id), ['R'], 'الإعادة بالاسم (مسافات مطبّعة)');
+  assert.deepEqual(last.suspend.map(i => i.id), ['N'], 'آخر اختبار: العام يتوقف');
+  assert.ok(log.filter(l => l.op === 'select').every(l => l.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1')), 'فلتر teacher_id');
+  /* يبقى اختبار آخر: لا توقف */
+  base.classroom_grade_columns.push({ id: 'T2', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'tests', name: 'الثانية' });
+  const notLast = J(await runInAppContext(app, `improveLinksForDelete('tests', 'T1')`));
+  assert.deepEqual(notLast.retake.map(i => i.id), ['R']);
+  assert.deepEqual(notLast.suspend, []);
+  /* حذف اختبار ليس مصدرًا لإعادة وبقي غيره: لا شيء يُذكر */
+  assert.equal(await runInAppContext(app, `improveLinksForDelete('tests', 'T2')`), null);
+});
+
+test('حذف اختبار عليه «إعادة»: «معًا» = اللقطة نفسها تشمل التحسين ثم يُحذف؛ «أبقِ» = يصير نشاطًا عامًا', async () => {
+  const seed = {
+    classroom_grade_columns: [{ id: 'T1', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'tests', name: 'أ', max_score: 20 }],
+    classroom_grade_scores: [],
+    classroom_improvements: [{ id: 'R', teacher_id: 'u1', section_id: 'S1', target: 'tests', mode: 'retake', source_name: 'أ', name: 'إعادة أ' }],
+    classroom_improvement_scores: [{ id: 'x', teacher_id: 'u1', improvement_id: 'R', student_id: 's1', score: 3 }]
+  };
+  for (const ch of ['both', 'keep']) {
+    const log = [];
+    const app = appWith(seed, log);
+    runInAppContext(app, `
+      crmGrades = { sectionId: 'S1', columns: [{ id: 'T1', category: 'tests', name: 'أ', max_score: 20 }], scores: [] };
+      renderCrmGrades = async () => {}; trashOfferUndo = () => {}; trashDiscard = async () => {};
+      improveConfirmDelete = async () => ({ ok: true, withImps: '${ch}' === 'both' ? ['R'] : [], keepIds: '${ch}' === 'keep' ? ['R'] : [] });
+      window.__cap = null; trashProtect = async (fn) => { window.__cap = await fn(); return { id: 'TR' }; };`);
+    await runInAppContext(app, `deleteCrmGradeColumn('T1')`);
+    const tables = J(runInAppContext(app, 'window.__cap.tables.map(t => t.t + ":" + t.rows.length)'));
+    const impDel = log.filter(l => l.table === 'classroom_improvements' && l.op === 'delete');
+    const impUpd = log.filter(l => l.table === 'classroom_improvements' && l.op === 'update');
+    if (ch === 'both') {
+      assert.ok(tables.includes('classroom_improvements:1') && tables.includes('classroom_improvement_scores:1'), 'التراجع يعيدهما معًا');
+      assert.equal(impDel.length, 1);
+      assert.ok(impDel[0].filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'));
+    } else {
+      assert.ok(!tables.some(t => t.startsWith('classroom_improvement')));
+      assert.equal(impDel.length, 0);
+      assert.equal(impUpd.length, 1, 'يصير عامًا');
+    }
+    assert.equal(log.filter(l => l.table === 'classroom_grade_columns' && l.op === 'delete').length, 1);
+  }
+});
+
+test('حذف اختبار: الإغلاق دون اختيار = لا حذف', async () => {
+  const log = [];
+  const app = appWith({}, log);
+  runInAppContext(app, `crmGrades = { sectionId: 'S1', columns: [{ id: 'T1', category: 'tests', name: 'أ', max_score: 20 }], scores: [] };
+    improveConfirmDelete = async () => ({ ok: false, withImps: [], keepIds: [] });`);
+  await runInAppContext(app, `deleteCrmGradeColumn('T1')`);
+  assert.equal(log.filter(l => l.op === 'delete').length, 0);
+});
+
+test('المتوقف مؤقتًا: شارة في القائمة، ولا يُذكر في التقرير التحليلي (لا أثر له)', () => {
+  const app = appWith({}, []);
+  const html = runInAppContext(app, `improveListHtml({ sectionId: 'S1', counts: new Map([['i1', 4]]), presetTarget: null,
+    avail: improveAvailability([], []), list: [{ id: 'i1', section_id: 'S1', target: 'tests', mode: 'new', name: 'ت', max_score: 5 }] })`);
+  assert.match(html, /متوقف مؤقتًا/);
+  assert.match(html, /لا اختبارات في هذه الشعبة بعد/);
+  runInAppContext(app, `appToolOn = () => true;`);
+  const g = `({ columns: [{ id: 'p', category: 'performance', name: 'م', max_score: 10 }], scores: [],
+    improve: { idx: improveIndex([{ id: 'i1', target: 'tests', name: 'ت', max_score: 5 }], [{ improvement_id: 'i1', student_id: 'a', score: 4 }]), taskApplied: new Map(), taskSuspended: false } })`;
+  assert.equal(runInAppContext(app, `srImproveData(${g}, 'a')`), null);
+});

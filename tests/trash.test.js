@@ -394,6 +394,7 @@ test('حارس: كل .delete() لجدول محمي داخل دالة تستدع�
     trashDiscard: 'حذف عنصر السلة نفسه',
     rubricDropFreshColumns: 'تراجع عن اختبار أُنشئ للتوّ (فارغ بلا درجات) لو فشل حفظ معاييره، ليعيد المعلم المحاولة نظيفة',
     saveCrmTask: 'تراجع عن مهمة أُنشئت للتوّ لو فشل تكليف طلابها (تُزال ليعيد المعلم المحاولة نظيفة)',
+    improveAfterItemDelete: 'أنشطة التحسين المحذوفة مع اختبار/مهمة دخلت لقطة trashProtect نفسها في deleteCrmGradeColumn/deleteCrmTask (improveCaptureWith)',
   };
   const offenders = [];
   for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {

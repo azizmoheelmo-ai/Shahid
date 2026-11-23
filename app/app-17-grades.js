@@ -116,12 +116,15 @@ function studentGradeResult(columns, scores, studentId, caps, testsBonus){
     points: pRec.length ? r2(pRec.reduce((a, x) => a + x.score, 0)) : null
   };
   const tBase = possible ? r2(Math.min(1, earned / possible) * Number(caps.tests)) : null;
-  const tPoints = !(Number(testsBonus) > 0) ? tBase : r2(Math.min(Number(caps.tests), (tBase || 0) + Number(testsBonus)));
+  /* لا اختبار في الكشف أصلًا (حُذف آخر اختبار): التحسين متوقف مؤقتًا — درجاته محفوظة ولا تُحسب حتى يُضاف اختبار (3.79) */
+  const tSuspended = !tests.length && Number(testsBonus) > 0;
+  const tPoints = !(Number(testsBonus) > 0) || tSuspended ? tBase : r2(Math.min(Number(caps.tests), (tBase || 0) + Number(testsBonus)));
   const t = {
     list: tests, count: tRec.length, earned: r2(earned), possible: r2(possible), max: Number(caps.tests),
     pct: possible ? (tPoints !== tBase && Number(caps.tests) > 0 ? Math.round(100 * tPoints / Number(caps.tests)) : Math.round(100 * Math.min(1, earned / possible))) : null,
     points: tPoints, base: tBase, bonus: tPoints === null ? 0 : r2(tPoints - (tBase || 0)),
-    fromEmpty: tBase === null && tPoints !== null /* لا اختبار مرصود له: الدرجة من التحسين وحده */
+    fromEmpty: tBase === null && tPoints !== null, /* لا اختبار مرصود له: الدرجة من التحسين وحده */
+    suspended: tSuspended
   };
   return { performance: perf, tests: t, total: (perf.points === null && t.points === null) ? null : r2((perf.points || 0) + (t.points || 0)) };
 }
@@ -255,7 +258,7 @@ async function loadCrmGradeSheet(sectionId){
   const improveP = (typeof loadImprovementsForStudents === 'function' && ids.length
     ? loadImprovementsForStudents(ids, term).then(d => ({ list: d.list, scores: d.scores, idx: improveIndex(d.list, d.scores) })) : Promise.resolve(null))
     .catch(() => null);
-  let taskApplied = new Map();
+  let taskApplied = new Map(), taskSuspended = false;
   /* كل مكوّن مستقل عن غيره: تُحدَّث كلها معًا (لا واحدًا بعد الآخر — كان الكشف ينتظر ~10 رحلات متتالية).
      كلٌّ يكتب عموده فقط، وفشل أحدها لا يمنع عرض الكشف بآخر قيم محفوظة. معايير سلّم التقدير تُحمَّل معها. */
   const jobs = [];
@@ -277,10 +280,11 @@ async function loadCrmGradeSheet(sectionId){
       const imp = await improveP;
       const synced = await syncTaskColumn(taskCol, sectionId, term, null, imp || { idx: null });
       if(synced && synced.applied) taskApplied = synced.applied;
+      if(synced && synced.suspended) taskSuspended = true;
       if(multi(taskCol) && ids.length){
         const { tasks, rows } = synced || await loadTaskScoresForStudents(ids, term);
         const pc = periodCfg(term, 'kind:task');
-        breakdown.set(taskCol.id, new Map(ids.map(id => [id, taskPeriodScores(tasks, rows, id, taskCol.max_score, pc, imp ? improveTaskOf(imp.idx, id) : null)])));
+        breakdown.set(taskCol.id, new Map(ids.map(id => [id, taskPeriodScores(tasks, rows, id, taskCol.max_score, pc, imp && !taskSuspended ? improveTaskOf(imp.idx, id) : null)])));
       }
     } catch(e){}
   })());
@@ -329,7 +333,7 @@ async function loadCrmGradeSheet(sectionId){
   const imp = await improveP;
   return {
     sectionId, year, semester, scores, breakdown, rubric,
-    improve: imp ? { list: imp.list, scores: imp.scores, idx: imp.idx, taskApplied } : null,
+    improve: imp ? { list: imp.list, scores: imp.scores, idx: imp.idx, taskApplied, taskSuspended } : null,
     columns: sortGradeColumns(visible),
     allColumns: sortGradeColumns(columns || []), /* لسقف الفئة وفحص التكرار: القاعدة تعدّ المخفي أيضًا */
     hiddenColumns: sortGradeColumns((columns || []).filter(c => !gradeColumnVisible(c)))
@@ -1153,13 +1157,25 @@ async function deleteCrmGradeColumn(columnId){
   const c = crmGrades.columns.find(x => x.id === columnId);
   if(!c) return;
   const recorded = crmGrades.scores.filter(s => s.column_id === columnId).length;
-  const ok = await showConfirm(`حذف عمود "${c.name}"؟` + (recorded ? ` ستُحذف معه ${recorded} درجة مرصودة.` : '') + ` يبقى في «المحذوفات» ${TRASH_DAYS} يومًا.`);
-  if(!ok) return;
+  const baseMsg = `حذف عمود "${c.name}"؟` + (recorded ? ` ستُحذف معه ${recorded} درجة مرصودة.` : '') + ` يبقى في «المحذوفات» ${TRASH_DAYS} يومًا.`;
+  /* اختبار عليه تحسين (app-56): «إعادة» له ← يختار المعلم؛ آخر اختبار ← تنبيه بتوقف التحسين مؤقتًا */
+  crmGradeBusy = true;
+  let choice;
+  try{
+    choice = c.category === 'tests' && typeof improveConfirmDelete === 'function'
+      ? await improveConfirmDelete('tests', columnId, `«${c.name}»`, baseMsg)
+      : { ok: await showConfirm(baseMsg), withImps: [], keepIds: [] };
+  } finally { crmGradeBusy = false; }
+  if(!choice.ok) return;
   crmGradeBusy = true;
   const uid = currentUser.id;
-  const prot = await trashProtect(() => trashCaptureGradeColumns([columnId], uid, c.name));
+  const prot = await trashProtect(async () => {
+    const cap = await trashCaptureGradeColumns([columnId], uid, c.name);
+    return choice.withImps.length ? improveCaptureWith(cap, choice.withImps, uid) : cap;
+  });
   if(!prot){ crmGradeBusy = false; return; }
   const { error } = await sb.from('classroom_grade_columns').delete().eq('teacher_id', uid).eq('id', columnId);
+  if(!error) await improveAfterItemDelete(choice);
   crmGradeBusy = false;
   if(error){ await trashDiscard(prot.id); showToast('تعذّر الحذف: ' + gradeDbErrorMessage(error), 'error'); return; }
   afterCrmGradesChanged();
