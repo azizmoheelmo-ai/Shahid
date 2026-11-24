@@ -102,9 +102,11 @@ function studentGradeSummary(columns, scores, studentId){
    testsBonus (اختياري): زيادة أنشطة التحسين (app-56) فوق المحصلة بسقف وزن الاختبارات؛ tests.base قبلها و tests.bonus ما أُضيف فعلًا. */
 function studentGradeResult(columns, scores, studentId, caps, testsBonus){
   caps = caps || { performance: gradeCap('performance'), tests: gradeCap('tests') };
-  const mine = new Map((scores || []).filter(s => s.student_id === studentId).map(s => [s.column_id, Number(s.score)]));
+  const rows = new Map((scores || []).filter(s => s.student_id === studentId).map(s => [s.column_id, s]));
+  const mine = new Map([...rows].map(([k, s]) => [k, Number(s.score)]));
   const r2 = n => Math.round(n * 100) / 100;
-  const item = c => ({ id: c.id, name: c.name, max: Number(c.max_score), kind: c.kind || 'manual', tool_id: c.tool_id || null, score: mine.has(c.id) ? mine.get(c.id) : null });
+  /* imp: إعادة/زيادة على هذا الاختبار (app-56) — للعرض فقط، والدرجة نفسها فعلية */
+  const item = c => ({ id: c.id, name: c.name, max: Number(c.max_score), kind: c.kind || 'manual', tool_id: c.tool_id || null, score: mine.has(c.id) ? mine.get(c.id) : null, imp: (rows.get(c.id) || {}).imp || null });
   const parts = (columns || []).filter(c => c.category === 'performance').map(item);
   const tests = (columns || []).filter(c => c.category === 'tests').map(item);
   const pRec = parts.filter(x => x.score !== null);
@@ -278,7 +280,7 @@ async function loadCrmGradeSheet(sectionId){
   if(taskCol && typeof syncTaskColumn === 'function') jobs.push((async () => {
     try{
       const imp = await improveP;
-      const synced = await syncTaskColumn(taskCol, sectionId, term, null, imp || { idx: null });
+      const synced = await syncTaskColumn(taskCol, sectionId, term, null, imp || { idx: null, list: [], scores: [] });
       if(synced && synced.applied) taskApplied = synced.applied;
       if(synced && synced.suspended) taskSuspended = true;
       if(multi(taskCol) && ids.length){
@@ -331,8 +333,11 @@ async function loadCrmGradeSheet(sectionId){
   }
   const rubric = await rubricP;
   const imp = await improveP;
+  /* scores = الدرجات الفعلية (بعد الإعادة والزيادة على اختبار معيّن — app-56) لكل عرض وحساب وتقرير وتصدير؛
+     rawScores = كما رصدها المعلم، لمسارات التعديل والاستيراد وحدها (لا تُكتب درجة الإعادة مكان الأصلية) */
   return {
-    sectionId, year, semester, scores, breakdown, rubric,
+    sectionId, year, semester, breakdown, rubric, rawScores: scores,
+    scores: imp && typeof improveEffectiveScores === 'function' ? improveEffectiveScores(visible, scores, imp.list, imp.scores) : scores,
     improve: imp ? { list: imp.list, scores: imp.scores, idx: imp.idx, taskApplied, taskSuspended } : null,
     columns: sortGradeColumns(visible),
     allColumns: sortGradeColumns(columns || []), /* لسقف الفئة وفحص التكرار: القاعدة تعدّ المخفي أيضًا */
@@ -564,7 +569,7 @@ function crmGradeStudentPageHtml(g, studentId){
     ${r.performance.parts.map(x => crmGradePeriodPartHtml(g, x, studentId) || row(x.name, x.score, x.max, x.kind === 'task' && !x.tool_id ? improveTaskMarkHtml(g, studentId) : '', x.id)).join('') || '<div class="crm-today-empty">لا مكوّنات أداء.</div>'}</div>`;
   const rec = r.tests.list.filter(x => x.score !== null);
   const tests = testsOn ? `<div class="crm-gs-pcard"><div class="crm-gs-phead"><b>الاختبارات</b><span>${r.tests.points === null ? '—' : formatScore(r.tests.points)} <small>من ${formatScore(caps.tests)}</small>${improveTestsMarkHtml(r.tests)}</span></div>
-    ${r.tests.list.map(x => row(x.name, x.score, x.max, x.score === null ? '' : ` · ${Math.round(100 * x.score / x.max)}%`, x.id)).join('') || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
+    ${r.tests.list.map(x => row(x.name, x.score, x.max, x.score === null ? '' : ` · ${Math.round(100 * x.score / x.max)}%${improveCellNoteHtml(x.imp)}`, x.id)).join('') || '<div class="crm-today-empty">لا اختبارات بعد.</div>'}
     ${r.tests.fromEmpty ? `<p class="crm-gs-note">لا اختبار مرصود له: الدرجة من نشاط التحسين وحده (${formatScore(r.tests.points)} من ${formatScore(caps.tests)}).</p>` : ''}
     ${rec.length ? (r.tests.bonus > 0
       ? `<p class="crm-gs-note">المحصلة: ${formatScore(r.tests.earned)} من ${formatScore(r.tests.possible)} × ${formatScore(caps.tests)} = ${formatScore(r.tests.base)}، + تحسين ${formatScore(r.tests.bonus)} = <b>${formatScore(r.tests.points)}</b> (بحد ${formatScore(caps.tests)})</p>`
@@ -714,6 +719,7 @@ function crmGradeDetailHtml(g){
   const students = crmStudentsOfSection(g.sectionId);
   const ids = students.map(s => s.id);
   const scoreOf = new Map(g.scores.map(s => [s.column_id + '|' + s.student_id, Number(s.score)]));
+  const impOf = new Map(g.scores.filter(s => s.imp).map(s => [s.column_id + '|' + s.student_id, s.imp])); /* إعادة/زيادة على اختبار (app-56) */
 
   let html = crmGradesModeBarHtml();
   {
@@ -770,7 +776,7 @@ function crmGradeDetailHtml(g){
       const perTxt = pv.filter(v => v !== null && v !== undefined).length > 1 ? `<small class="crm-grade-per">${pv.map(v => v === null || v === undefined ? '—' : formatScore(v)).join(' · ')}</small>` : '';
       const has = scoreOf.has(k);
       const edit = crmGradeColumnEditable(c) ? ` data-edit="1" onclick="openCrmGradeCell('${c.id}', '${s.id}')"` : '';
-      const mk = has && c.kind === 'task' && !c.tool_id ? improveTaskMarkHtml(g, s.id) : '';
+      const mk = !has ? '' : c.kind === 'task' && !c.tool_id ? improveTaskMarkHtml(g, s.id) : improveCellNoteHtml(impOf.get(k));
       html += `<td class="crm-grade-cell${has ? ' gc-' + gradeTone(scoreOf.get(k), c.max_score) : ''}"${edit}>${has ? formatScore(scoreOf.get(k)) + mk + perTxt : '<span class="crm-grade-empty">—</span>'}</td>`;
     });
     html += `<td class="crm-grade-total">${r.sum.performance.count ? formatScore(r.sum.performance.sum) : ''}</td>
@@ -923,10 +929,14 @@ async function saveCrmGradeCell(step){
       if(crmGrades !== g) return;
       if(!fresh.error){ crmGrades = fresh; cell.sheet = fresh; }
     } else {
-      const i = g.scores.findIndex(s => s.column_id === c.id && s.student_id === studentId);
-      if(parsed.value === null){ if(i >= 0) g.scores.splice(i, 1); }
-      else if(i >= 0) g.scores[i].score = parsed.value;
-      else g.scores.push({ id: null, column_id: c.id, student_id: studentId, score: parsed.value });
+      /* يُعدَّل الخام، ثم تُعاد الدرجات الفعلية منه (الإعادة/الزيادة على هذا الاختبار تبقى مطبّقة) */
+      const raw = g.rawScores || g.scores;
+      const i = raw.findIndex(s => s.column_id === c.id && s.student_id === studentId);
+      if(parsed.value === null){ if(i >= 0) raw.splice(i, 1); }
+      else if(i >= 0) raw[i] = Object.assign({}, raw[i], { score: parsed.value });
+      else raw.push({ id: null, column_id: c.id, student_id: studentId, score: parsed.value });
+      g.rawScores = raw;
+      g.scores = g.improve && typeof improveEffectiveScores === 'function' ? improveEffectiveScores(g.columns, raw, g.improve.list, g.improve.scores) : raw;
     }
     repaintCrmGradesKeepScroll();
   }
@@ -973,7 +983,7 @@ async function createCrmGradeSheet(){
 function openCrmGradeColumnMenu(columnId){
   const c = crmGrades && crmGrades.columns.find(x => x.id === columnId);
   if(!c) return;
-  const recorded = crmGrades.scores.filter(s => s.column_id === columnId).length;
+  const recorded = (crmGrades.rawScores || crmGrades.scores).filter(s => s.column_id === columnId).length;
   showInfoModal(`
     <div style="text-align:right;">
       <h3 style="margin:0 0 4px;font-size:15px;color:var(--navy);">${escapeHtml(c.name)} · من ${formatScore(c.max_score)}</h3>
@@ -1100,7 +1110,7 @@ async function saveCrmGradeColumn(){
   const before = d.id ? crmGrades.columns.find(c => c.id === d.id) : null;
   /* المحسوب يُعاد حسابه بعد الحفظ، فدرجاته القديمة لا تمنع خفض الحد */
   const computed = isComputedGradeKind(kind) || isComputedGradeColumn(before);
-  const err = validateGradeColumn(allCols, draft, computed ? [] : crmGrades.scores);
+  const err = validateGradeColumn(allCols, draft, computed ? [] : (crmGrades.rawScores || crmGrades.scores));
   if(err){ errBox.textContent = err; errBox.style.display = 'block'; return; }
   const rubricBuild = (!d.id && d.category === 'tests') ? rubricDraftRows(Number(draft.max_score)) : null; /* اختبار بسلّم تقدير */
   if(rubricBuild && rubricBuild.error){ errBox.textContent = rubricBuild.error; errBox.style.display = 'block'; return; }
@@ -1156,7 +1166,7 @@ async function deleteCrmGradeColumn(columnId){
   if(crmGradeBusy || !crmGrades) return;
   const c = crmGrades.columns.find(x => x.id === columnId);
   if(!c) return;
-  const recorded = crmGrades.scores.filter(s => s.column_id === columnId).length;
+  const recorded = (crmGrades.rawScores || crmGrades.scores).filter(s => s.column_id === columnId).length;
   const baseMsg = `حذف عمود "${c.name}"؟` + (recorded ? ` ستُحذف معه ${recorded} درجة مرصودة.` : '') + ` يبقى في «المحذوفات» ${TRASH_DAYS} يومًا.`;
   /* اختبار عليه تحسين (app-56): «إعادة» له ← يختار المعلم؛ آخر اختبار ← تنبيه بتوقف التحسين مؤقتًا */
   crmGradeBusy = true;
@@ -1243,7 +1253,7 @@ function crmGradeEntryPeriod(g, c){
 }
 
 function crmGradeEntryScores(g, c, period){
-  if(!period) return new Map(g.scores.filter(s => s.column_id === c.id).map(s => [s.student_id, Number(s.score)]));
+  if(!period) return new Map((g.rawScores || g.scores).filter(s => s.column_id === c.id).map(s => [s.student_id, Number(s.score)]));
   const out = new Map();
   g.breakdown.get(c.id).forEach((b, id) => { const v = b['p' + period]; if(v !== null && v !== undefined) out.set(id, Number(v)); });
   return out;
@@ -1616,9 +1626,10 @@ function crmGradeImportPlan(){
 /* المقارن به عند الاستيراد: درجة الكشف، وللعمود المرصود مباشرة درجة فترته الجارية (الاستيراد يكتب فيها) */
 function crmGradeImportExisting(g){
   const direct = g.columns.filter(c => crmGradeEntryPeriod(g, c));
-  if(!direct.length) return g.scores;
+  const raw = g.rawScores || g.scores; /* المقارنة بما رصده المعلم، لا بدرجة الإعادة */
+  if(!direct.length) return raw;
   const ids = new Set(direct.map(c => c.id));
-  const rest = g.scores.filter(x => !ids.has(x.column_id));
+  const rest = raw.filter(x => !ids.has(x.column_id));
   direct.forEach(c => crmGradeEntryScores(g, c, crmGradeEntryPeriod(g, c)).forEach((score, id) => rest.push({ column_id: c.id, student_id: id, score })));
   return rest;
 }

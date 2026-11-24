@@ -404,7 +404,7 @@ async function rubricReportRows(g, studentId){
     const out = [];
     tests.forEach(c => {
       const mine = new Map((data || []).filter(r => r.column_id === c.id).map(r => [r.criterion_id, Number(r.level)]));
-      const sc = (g.scores || []).find(s => s.column_id === c.id && s.student_id === studentId);
+      const sc = (g.rawScores || g.scores || []).find(s => s.column_id === c.id && s.student_id === studentId); /* درجة السلّم كما رُصدت */
       if(!sc || !mine.size) return;
       out.push({ name: c.name, max: Number(c.max_score), score: Number(sc.score),
         items: rubricCriteriaOf(c.id).filter(k => mine.has(k.id)).map(k => ({ name: k.name, points: k.points, level: mine.get(k.id) })) });

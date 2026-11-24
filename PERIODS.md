@@ -17,7 +17,7 @@
    | الواجبات | **ثابتة منذ الإنشاء** | `classroom_homework.grade_period` |
    | المهام الأدائية | **ثابتة منذ الإنشاء** | `classroom_tasks.grade_period` |
    | أداة الحالة/الدرجة | يوم الحصة (ثابت) | `classroom_tool_marks.mark_date` |
-   | نشاط تحسين المهام (app-56) | **ثابتة منذ الإنشاء** (أو فارغ = «على المجموع» بعد المعدّل) | `classroom_improvements.grade_period` — رصده يقفله `grade_lock_guard` وتغييرها يرفضه `improvement_fixed` |
+   | نشاط تحسين المهام (app-56) | **ثابتة منذ الإنشاء** (أو فارغ = «على المجموع» بعد المعدّل)؛ والمربوط بمهمة معيّنة (3.80) يأخذ فترة مهمته | `classroom_improvements.grade_period` — رصده يقفله `grade_lock_guard` وتغييرها يرفضه `improvement_fixed` |
 
    - الواجب/المهمة القديم (`grade_period` فارغ) فترته من تاريخه (`itemPeriodFor`)، **ويُثبَّت عليها قبل بدء أي فترة جديدة**
      (`freezeItemPeriods`). فإن فشل التثبيت لا تبدأ الفترة الجديدة.

@@ -537,8 +537,12 @@ function buildServer(userId, supabase, opts){
       /* أنشطة تحسين الدرجات (اختيارية): درجة الطالب فيها تُضاف فوق بند الاختبارات أو المهام بسقف البند.
          عمود المهام المحفوظ يشملها أصلًا؛ محصلة الاختبارات تُحسب في التطبيق. قبل تحديث القاعدة: لا شيء */
       let imps = [];
-      try{ imps = await fetchAll(supabase, 'classroom_improvements', 'id, section_id, academic_year, semester, target, name, max_score, grade_period', 'teacher_id', userId); }
-      catch(e){ imps = []; }
+      try{ imps = await fetchAll(supabase, 'classroom_improvements', 'id, section_id, academic_year, semester, target, name, max_score, grade_period, retake, source_name, column_id, task_id', 'teacher_id', userId); }
+      catch(e){
+        /* قبل تحديث القاعدة 3.80 (لا حقول الإعادة/الربط): كلها زيادات على المجموع */
+        try{ imps = await fetchAll(supabase, 'classroom_improvements', 'id, section_id, academic_year, semester, target, name, max_score, grade_period', 'teacher_id', userId); }
+        catch(e2){ imps = []; }
+      }
       if(section_id) imps = imps.filter(i => i.section_id === section_id);
       if(semester) imps = imps.filter(i => String(i.semester) === String(semester));
       if(academic_year) imps = imps.filter(i => i.academic_year === academic_year);
@@ -548,6 +552,8 @@ function buildServer(userId, supabase, opts){
           .filter(r => impById.has(r.improvement_id) && nameMatches(studentName(roster, r.student_id), student_name));
         result.improvements = imps.map(i => ({
           name: i.name, target: i.target === 'tests' ? 'tests' : 'performance_task', max_score: i.max_score,
+          /* type: add_total = زيادة على مجموع البند، add_item = زيادة على اختبار/مهمة item، retake_max/retake_replace = إعادة كاملة (الأعلى / تحلّ محلها) */
+          type: i.retake ? 'retake_' + i.retake : (i.column_id || i.task_id ? 'add_item' : 'add_total'), item: i.column_id || i.task_id ? i.source_name : null,
           period: i.grade_period || null, section: sectionLabel(roster, i.section_id),
           scores: impScores.filter(r => r.improvement_id === i.id).map(r => ({ student: studentName(roster, r.student_id), score: r.score }))
         }));
