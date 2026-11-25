@@ -750,8 +750,10 @@ begin
     select 'kind:task', t.academic_year || '|' || t.semester, coalesce(t.due_date, t.created_at::date), t.grade_period
       into v_key, v_term, v_date, v_per from public.classroom_tasks t where t.id = (r->>'task_id')::uuid;
   elsif p_tbl = 'classroom_improvement_scores' then
-    select case when i.target = 'task' and i.grade_period is not null then 'kind:task' end, i.academic_year || '|' || i.semester, i.grade_period
-      into v_key, v_term, v_per from public.classroom_improvements i where i.id = (r->>'improvement_id')::uuid;
+    select case when i.target = 'task' and (i.grade_period is not null or t.id is not null) then 'kind:task' end, i.academic_year || '|' || i.semester,
+           coalesce(i.grade_period, t.grade_period), case when t.id is not null then coalesce(t.due_date, t.created_at::date) end
+      into v_key, v_term, v_per, v_date from public.classroom_improvements i left join public.classroom_tasks t on t.id = i.task_id
+      where i.id = (r->>'improvement_id')::uuid;
   elsif p_tbl = 'classroom_tool_marks' then
     if not exists (select 1 from public.classroom_custom_tools ct where ct.id = (r->>'tool_id')::uuid) then return false; end if;
     v_key := 'tool:' || (r->>'tool_id'); v_term := (r->>'academic_year') || '|' || (r->>'semester'); v_date := (r->>'mark_date')::date;
@@ -1620,6 +1622,54 @@ create or replace trigger trg_check_improvement_score before insert or update on
 create or replace trigger trg_check_improvement_row before update on public.classroom_improvements for each row execute function public.check_improvement_row();
 drop trigger if exists trg_grade_lock on public.classroom_improvement_scores;
 create trigger trg_grade_lock before insert or update or delete on public.classroom_improvement_scores for each row execute function public.grade_lock_guard();
+
+-- ============ تحسين الدرجات (3.80): زيادة على المجموع أو على اختبار/مهمة معيّنة، أو إعادة كاملة ============
+-- retake: فارغ = زيادة (درجة مستقلة تُضاف بسقف)، replace = إعادة كاملة تحلّ محل الأصلية أيًّا كانت، max = إعادة يُعتمد الأعلى منهما.
+-- column_id/task_id: الاختبار أو المهمة المعيّنة (فارغ = على مجموع البند). حذف الأصل يفرّغ الربط فقط (on delete set null)،
+-- والتطبيق يسأل المعلم قبل حذف أصل عليه تحسين. البند والنوع ثابتان، والربط لا يتغيّر إلا إلى فارغ. (rule يبقى 'add' — لا يُغيَّر قيده)
+alter table public.classroom_improvements add column if not exists column_id uuid;
+alter table public.classroom_improvements add column if not exists task_id uuid;
+alter table public.classroom_improvements add column if not exists retake text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'classroom_improvements_retake_chk' and conrelid = 'public.classroom_improvements'::regclass) then
+    alter table public.classroom_improvements add constraint classroom_improvements_retake_chk check (retake is null or retake in ('replace', 'max'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'classroom_improvements_column_fk' and conrelid = 'public.classroom_improvements'::regclass) then
+    alter table public.classroom_improvements add constraint classroom_improvements_column_fk foreign key (column_id, teacher_id)
+      references public.classroom_grade_columns(id, teacher_id) on update cascade on delete set null (column_id);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'classroom_improvements_task_fk' and conrelid = 'public.classroom_improvements'::regclass) then
+    alter table public.classroom_improvements add constraint classroom_improvements_task_fk foreign key (task_id, teacher_id)
+      references public.classroom_tasks(id, teacher_id) on update cascade on delete set null (task_id);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'classroom_improvements_item_chk' and conrelid = 'public.classroom_improvements'::regclass) then
+    alter table public.classroom_improvements add constraint classroom_improvements_item_chk check (
+      (column_id is null or target = 'tests') and (task_id is null or target = 'task')
+      and (grade_period is null or (retake is null and task_id is null)));
+  end if;
+end $$;
+create index if not exists classroom_improvements_column_idx on public.classroom_improvements(column_id);
+create index if not exists classroom_improvements_task_idx on public.classroom_improvements(task_id);
+create or replace function public.check_improvement_row() returns trigger
+language plpgsql set search_path = '' as $b$
+declare v_over int;
+begin
+  if new.target is distinct from old.target or new.section_id is distinct from old.section_id
+    or new.academic_year is distinct from old.academic_year or new.semester is distinct from old.semester
+    or new.grade_period is distinct from old.grade_period or new.retake is distinct from old.retake
+    or (new.column_id is distinct from old.column_id and new.column_id is not null)
+    or (new.task_id is distinct from old.task_id and new.task_id is not null) then
+    raise exception 'improvement_fixed' using errcode = 'P0001';
+  end if;
+  if new.max_score < old.max_score then
+    select count(*) into v_over from public.classroom_improvement_scores where improvement_id = new.id and score > new.max_score;
+    if v_over > 0 then
+      raise exception 'improvement_max_below_scores' using errcode = 'P0001', hint = v_over::text;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $b$;
 
 -- ============================================================
 -- النسخة الاحتياطية الشاملة للمسؤول (app-07: exportFullBackup)

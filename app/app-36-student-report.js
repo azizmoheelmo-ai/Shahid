@@ -469,9 +469,9 @@ function buildStudentReportHtml2(ctx){
       /* تحسين الدرجات (app-56): أنشطة اختيارية شارك فيها الطالب، وما أُضيف فعلًا لكل بند (بسقفه) — م9: لا يظهر لمن لم يشارك */
       const ip = ctx.improve;
       const added = [ip.tests > 0 ? `الاختبارات +${srNum(formatScore(ip.tests))}` : '', ip.task > 0 ? `المهام الأدائية +${srNum(formatScore(ip.task))}` : ''].filter(Boolean);
-      body += `<div class="sec long"><h2>أنشطة تحسين الدرجات</h2><table><thead><tr><th>النشاط</th><th>البند</th><th class="n">درجته</th></tr></thead><tbody>${ip.items.map(x =>
-        `<tr><td>${e(x.name)}</td><td>${e(x.targetLabel)}${x.period ? ' · ' + e(x.period) : ''}</td><td class="n">${srNum(formatScore(x.score))} من ${srNum(formatScore(x.max))}</td></tr>`).join('')}</tbody></table>
-        <div class="fn">شارك الطالب اختياريًا لتحسين درجته؛ تُضاف درجة النشاط فوق درجة البند ولا تتجاوز درجته العظمى.${added.length ? ' أُضيف فعلًا: ' + e(added.join('، ')) + '.' : ' لم يُضف شيء (البند بدرجته العظمى).'}${ip.testsEmpty || ip.taskEmpty ? ' لم تكن له درجة في ' + e([ip.testsEmpty ? 'الاختبارات' : '', ip.taskEmpty ? 'المهام الأدائية' : ''].filter(Boolean).join(' ولا ')) + '، فحُسبت درجة التحسين وحدها.' : ''}</div></div>`;
+      body += `<div class="sec long"><h2>أنشطة تحسين الدرجات</h2><table><thead><tr><th>النشاط</th><th>نوعه</th><th class="n">درجته</th></tr></thead><tbody>${ip.items.map(x =>
+        `<tr><td>${e(x.name)}</td><td>${e(x.type || x.targetLabel)}</td><td class="n">${srNum(formatScore(x.score))} من ${srNum(formatScore(x.max))}</td></tr>`).join('')}</tbody></table>
+        <div class="fn">شارك الطالب اختياريًا لتحسين درجته: الزيادة تُضاف فوق الدرجة ولا تتجاوز درجتها العظمى، والإعادة تُحتسب كما اختار المعلم (الأعلى أو تحلّ محلها) وتظهر في درجة الاختبار نفسه.${added.length ? ' أُضيف فعلًا: ' + e(added.join('، ')) + '.' : ' لم يُضف شيء (البند بدرجته العظمى).'}${ip.testsEmpty || ip.taskEmpty ? ' لم تكن له درجة في ' + e([ip.testsEmpty ? 'الاختبارات' : '', ip.taskEmpty ? 'المهام الأدائية' : ''].filter(Boolean).join(' ولا ')) + '، فحُسبت درجة التحسين وحدها.' : ''}</div></div>`;
     }
     if(ctx.rubric && ctx.rubric.length) body += rubricReportHtml(ctx.rubric); /* سلّم التقدير (app-41): تجربة لحساب مفعَّل فقط */
     const at = ctx.attendance;
@@ -597,7 +597,7 @@ function srImproveData(g, studentId){
   /* المتوقف مؤقتًا (لا اختبار/مهمة في الشعبة) لا أثر له فلا يُذكر (م9) */
   const taskOff = !!(g.improve && g.improve.taskSuspended);
   const items = (typeof improveStudentItems === 'function' ? improveStudentItems(g, studentId) : [])
-    .filter(x => x.target === 'tests' ? testsOn && !res.tests.suspended : !taskOff);
+    .filter(x => !x.suspended && (x.target === 'tests' ? testsOn && !res.tests.suspended : !taskOff));
   if(!items.length) return null;
   return {
     items: items.map(x => Object.assign({}, x, { targetLabel: IMPROVE_TARGET_LABELS[x.target] || '' })),

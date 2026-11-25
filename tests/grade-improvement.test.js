@@ -149,32 +149,42 @@ test('مزامنة عمود المهام: المحفوظ يشمل الزيادة
     [{ improvement_id: 'i', student_id: 'a', score: 5 }, { improvement_id: 'i', student_id: 'b', score: 5 }]);
   const plan = J(app.planTaskScoreSync(['a', 'b'], tasks, rows, 20, new Map(), [], idx));
   assert.deepEqual(plan.upserts, [{ student_id: 'a', score: 20 }, { student_id: 'b', score: 15 }]);
-  const applied = app.taskImproveApplied(['a', 'b'], tasks, rows, 20, [], idx);
+  const applied = app.taskImproveApplied(['a', 'b'], tasks, rows, rows, 20, [], idx);
   assert.deepEqual(J(applied.get('a')), { add: 2, empty: false }, '18 → 20: أُضيف 2 فقط');
   assert.deepEqual(J(applied.get('b')), { add: 5, empty: false });
   /* طالب بلا مهمة مرصودة: معلَّم «كانت فارغة» */
   const idx2 = app.improveIndex([{ id: 'i', target: 'task', grade_period: null, max_score: 5 }], [{ improvement_id: 'i', student_id: 'c', score: 3 }]);
-  assert.deepEqual(J(app.taskImproveApplied(['c'], tasks, rows, 20, [], idx2).get('c')), { add: 3, empty: true });
+  assert.deepEqual(J(app.taskImproveApplied(['c'], tasks, rows, rows, 20, [], idx2).get('c')), { add: 3, empty: true });
 });
 
 /* ============ النموذج ============ */
-test('التحقق من النموذج، ونشاط مستقل لكل شعبة، والفترة للمهام فقط', () => {
+test('التحقق من النموذج: زيادة/إعادة، الفترة لزيادة مجموع المهام فقط، ونشاط مستقل لكل شعبة مربوط بعنصرها', () => {
   const app = loadApp({});
-  const ok = { target: 'task', mode: 'new', name: 'تحسيني', max: '5', period: 2, sectionIds: ['S1', 'S2'] };
+  const ok = { target: 'task', kind: 'add', itemKey: '', retake: 'max', name: 'تحسيني', max: '5', period: 2, sectionIds: ['S1', 'S2'] };
   assert.equal(app.validateImproveDraft(ok), null);
   assert.match(app.validateImproveDraft(Object.assign({}, ok, { name: ' ' })), /اسم/);
   assert.match(app.validateImproveDraft(Object.assign({}, ok, { max: '0' })), /أكبر من صفر/);
   assert.match(app.validateImproveDraft(Object.assign({}, ok, { max: '41' })), /40/);
   assert.match(app.validateImproveDraft(Object.assign({}, ok, { sectionIds: [] })), /شعبة/);
   assert.match(app.validateImproveDraft(Object.assign({}, ok, { target: 'tests' })), /للمهام فقط/);
-  assert.match(app.validateImproveDraft(Object.assign({}, ok, { mode: 'retake', sourceName: '' })), /ما يُعاد/);
+  assert.match(app.validateImproveDraft(Object.assign({}, ok, { kind: 'retake', period: null })), /الذي يُعاد/);
+  assert.match(app.validateImproveDraft(Object.assign({}, ok, { kind: 'retake', itemKey: 'x|20', period: null, retake: 'zz' })), /طريقة/);
+  assert.match(app.validateImproveDraft(Object.assign({}, ok, { itemKey: 'x|20' })), /مجموع المهام فقط/, 'لا فترة لزيادة على مهمة معيّنة');
   const rows = J(app.improveInsertRows(Object.assign({}, ok, { max: '٥' }), { year: '1448', semester: 1 }, 'u1'));
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows.map(r => r.section_id), ['S1', 'S2']);
-  assert.ok(rows.every(r => r.teacher_id === 'u1' && r.max_score === 5 && r.grade_period === 2 && r.rule === 'add' && r.source_name === null));
-  const t = J(app.improveInsertRows({ target: 'tests', mode: 'retake', sourceName: 'الأول', name: 'x', max: '5', period: 3, sectionIds: ['S1'] }, { year: '1448', semester: 1 }, 'u1'))[0];
-  assert.equal(t.grade_period, null, 'الاختبارات بلا فترة');
-  assert.equal(t.source_name, 'الأول');
+  assert.ok(rows.every(r => r.teacher_id === 'u1' && r.max_score === 5 && r.grade_period === 2 && r.rule === 'add' && r.retake === null && r.task_id === null));
+  /* إعادة اختبار لشعبتين: كل شعبة مربوطة باختبارها (الاسم والدرجة)، والكاملة كالأصل، بلا فترة */
+  const items = { tests: [{ id: 'A1', section_id: 'S1', name: 'الأول', max: 20 }, { id: 'B1', section_id: 'S2', name: 'الأول ', max: 20 }, { id: 'B2', section_id: 'S2', name: 'الأول', max: 10 }], task: [] };
+  const rd = { target: 'tests', kind: 'retake', itemKey: app.improveItemKey('الأول', 20), retake: 'replace', name: 'إعادة', max: '5', period: null, sectionIds: ['S1', 'S2'], items };
+  assert.equal(app.validateImproveDraft(rd), null);
+  const rr = J(app.improveInsertRows(rd, { year: '1448', semester: 1 }, 'u1'));
+  assert.deepEqual(rr.map(r => r.column_id), ['A1', 'B1'], 'بالاسم المطبّع والدرجة نفسها');
+  assert.ok(rr.every(r => r.retake === 'replace' && r.max_score === 20 && r.mode === 'retake' && r.grade_period === null && r.source_name.startsWith('الأول')));
+  /* شعبة بلا الاختبار نفسه: ممنوعة */
+  assert.match(app.validateImproveDraft(Object.assign({}, rd, { items: { tests: [items.tests[0], items.tests[2]], task: [] } })), /غير موجود/);
+  /* زيادة على اختبار معيّن: الكاملة مستقلة */
+  const ad = J(app.improveInsertRows(Object.assign({}, rd, { kind: 'add', sectionIds: ['S1'] }), { year: '1448', semester: 1 }, 'u1'))[0];
+  assert.deepEqual([ad.column_id, ad.retake, ad.max_score, ad.mode], ['A1', null, 5, 'new']);
 });
 
 test('ورقة الرصد: الفارغ = لم يشارك (يُحذف فقط إن كان مرصودًا)، والأكبر من الكاملة خطأ', () => {
@@ -218,7 +228,7 @@ test('إنشاء النشاط: نقرة مزدوجة = إدراج واحد، ب�
   const app = appWith({}, log, { delay: (t, op) => op === 'insert' ? new Promise(r => setTimeout(r, 20)) : null });
   runInAppContext(app, `readImproveInputs = () => {}; openImproveSheet = async () => {};
     improveCtx = { sectionId: 'S1', term: { year: '1448', semester: 1 }, list: [], counts: new Map() };
-    improveDraft = { target: 'tests', mode: 'new', sourceName: '', name: 'تحسيني', max: '5', period: null, sectionIds: ['S1', 'S2'], sources: { tests: [], task: [] }, saving: false, ctx: improveCtx };`);
+    improveDraft = { target: 'tests', kind: 'add', itemKey: '', retake: 'max', name: 'تحسيني', max: '5', period: null, sectionIds: ['S1', 'S2'], items: { tests: [], task: [] }, saving: false, ctx: improveCtx };`);
   await Promise.all([runInAppContext(app, 'saveImproveForm()'), runInAppContext(app, 'saveImproveForm()')]);
   const ins = log.filter(l => l.table === 'classroom_improvements' && l.op === 'insert');
   assert.equal(ins.length, 1);
@@ -364,7 +374,7 @@ test('المنع: لا نشاط تحسين لبند بلا اختبار/مهمة
   assert.match(app.improveBlockReason(av, 'S2', 'task'), /لا مهام أدائية في هذه الشعبة/, 'عمود بلا مهام');
   assert.match(app.improveBlockReason(av, 'S3', 'task'), /لا عمود «مهام أدائية»/, 'عمود أداة ليس عمود المهام');
   assert.match(app.improveBlockReason(av, 'S9', 'tests'), /لا اختبارات/, 'شعبة بلا كشف');
-  const d = { target: 'tests', mode: 'new', name: 'ت', max: '5', period: null, sectionIds: ['S1', 'S2'], avail: av };
+  const d = { target: 'tests', kind: 'add', itemKey: '', retake: 'max', name: 'ت', max: '5', period: null, sectionIds: ['S1', 'S2'], avail: av };
   assert.match(app.validateImproveDraft(d), /لا يوجد ما يُحسَّن في إحدى الشعب/);
   assert.equal(app.validateImproveDraft(Object.assign({}, d, { sectionIds: ['S1'] })), null);
   assert.match(app.validateImproveDraft(Object.assign({}, d, { avail: null })), /انتظر/, 'لا إنشاء قبل التحقق');
@@ -473,34 +483,33 @@ test('آخر مهمة حُذفت: عمود المهام لا يأخذ زيادة
   assert.deepEqual(J(log.filter(l => l.op === 'upsert').pop().rows), [{ teacher_id: 'u1', column_id: 'C', student_id: 's1', score: 4 }]);
 });
 
-test('فحص الحذف: يميّز «الإعادة» لهذا الاختبار، ويُنبّه بتوقف الباقي حين لا يبقى اختبار في الشعبة', async () => {
+test('فحص الحذف: يربط بالمعرّف ما عليه (إعادة أو زيادة على هذا الاختبار)، وينبّه بتوقف أنشطة المجموع حين لا يبقى اختبار', async () => {
   const base = {
     classroom_grade_columns: [{ id: 'T1', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'tests', name: 'الوحدة الأولى' }],
     classroom_improvements: [
-      { id: 'R', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'tests', mode: 'retake', source_name: 'الوحدة  الأولى', name: 'إعادة الأولى' },
-      { id: 'N', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'tests', mode: 'new', source_name: null, name: 'تحسيني عام' }]
+      { id: 'R', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'tests', retake: 'max', column_id: 'T1', source_name: 'الوحدة الأولى', name: 'إعادة الأولى' },
+      { id: 'L', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'tests', mode: 'retake', retake: null, column_id: null, source_name: 'الوحدة الأولى', name: 'قديم بالاسم' },
+      { id: 'N', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, target: 'tests', retake: null, column_id: null, source_name: null, name: 'تحسيني عام' }]
   };
   const log = [];
   const app = appWith(base, log);
   runInAppContext(app, `gradeColumnVisible = () => true;`);
   const last = J(await runInAppContext(app, `improveLinksForDelete('tests', 'T1')`));
-  assert.deepEqual(last.retake.map(i => i.id), ['R'], 'الإعادة بالاسم (مسافات مطبّعة)');
-  assert.deepEqual(last.suspend.map(i => i.id), ['N'], 'آخر اختبار: العام يتوقف');
+  assert.deepEqual(last.linked.map(i => i.id), ['R'], 'بالمعرّف لا بالاسم (القديم بالاسم زيادة على المجموع)');
+  assert.deepEqual(last.suspend.map(i => i.id).sort(), ['L', 'N'], 'آخر اختبار: أنشطة المجموع تتوقف');
   assert.ok(log.filter(l => l.op === 'select').every(l => l.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1')), 'فلتر teacher_id');
-  /* يبقى اختبار آخر: لا توقف */
   base.classroom_grade_columns.push({ id: 'T2', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'tests', name: 'الثانية' });
   const notLast = J(await runInAppContext(app, `improveLinksForDelete('tests', 'T1')`));
-  assert.deepEqual(notLast.retake.map(i => i.id), ['R']);
+  assert.deepEqual(notLast.linked.map(i => i.id), ['R']);
   assert.deepEqual(notLast.suspend, []);
-  /* حذف اختبار ليس مصدرًا لإعادة وبقي غيره: لا شيء يُذكر */
-  assert.equal(await runInAppContext(app, `improveLinksForDelete('tests', 'T2')`), null);
+  assert.equal(await runInAppContext(app, `improveLinksForDelete('tests', 'T2')`), null, 'لا شيء عليه وبقي غيره');
 });
 
 test('حذف اختبار عليه «إعادة»: «معًا» = اللقطة نفسها تشمل التحسين ثم يُحذف؛ «أبقِ» = يصير نشاطًا عامًا', async () => {
   const seed = {
     classroom_grade_columns: [{ id: 'T1', teacher_id: 'u1', section_id: 'S1', academic_year: '1448', semester: 1, category: 'tests', name: 'أ', max_score: 20 }],
     classroom_grade_scores: [],
-    classroom_improvements: [{ id: 'R', teacher_id: 'u1', section_id: 'S1', target: 'tests', mode: 'retake', source_name: 'أ', name: 'إعادة أ' }],
+    classroom_improvements: [{ id: 'R', teacher_id: 'u1', section_id: 'S1', target: 'tests', retake: null, column_id: 'T1', source_name: 'أ', name: 'زيادة على أ' }],
     classroom_improvement_scores: [{ id: 'x', teacher_id: 'u1', improvement_id: 'R', student_id: 's1', score: 3 }]
   };
   for (const ch of ['both', 'keep']) {
@@ -547,4 +556,117 @@ test('المتوقف مؤقتًا: شارة في القائمة، ولا يُذ�
   const g = `({ columns: [{ id: 'p', category: 'performance', name: 'م', max_score: 10 }], scores: [],
     improve: { idx: improveIndex([{ id: 'i1', target: 'tests', name: 'ت', max_score: 5 }], [{ improvement_id: 'i1', student_id: 'a', score: 4 }]), taskApplied: new Map(), taskSuspended: false } })`;
   assert.equal(runInAppContext(app, `srImproveData(${g}, 'a')`), null);
+});
+
+/* ============ 3.80: زيادة على اختبار/مهمة معيّنة، وإعادة كاملة (تحلّ محلها / الأعلى) ============ */
+const IMP = (o) => Object.assign({ target: 'tests', rule: 'add', retake: null, column_id: null, task_id: null, grade_period: null, created_at: '2026-11-01' }, o);
+
+test('الإعادة: «الأعلى» لا تُنزل الدرجة، و«تحلّ محلها» تحلّ أيًّا كانت، والفارغ يأخذ الإعادة', () => {
+  const app = loadApp({});
+  const mx = { imp: IMP({ retake: 'max', max_score: 20 }), score: 18 };
+  const rp = { imp: IMP({ retake: 'replace', max_score: 20 }), score: 9 };
+  assert.deepEqual(J(app.improveApplyItem(12, [mx], 20)), { score: 18, orig: 12, retake: 'max', add: 0, empty: false });
+  assert.equal(app.improveApplyItem(19, [mx], 20).score, 19, 'الأعلى: الأصلية أعلى فتبقى');
+  assert.equal(app.improveApplyItem(12, [rp], 20).score, 9, 'تحلّ محلها ولو أقل');
+  const em = J(app.improveApplyItem(null, [mx], 20));
+  assert.equal(em.score, 18);
+  assert.equal(em.empty, true);
+  /* تغيّرت الكاملة للأصل من 20 إلى 10 بعد الإعادة: تُحوَّل بالنسبة */
+  assert.equal(app.improveApplyItem(5, [mx], 10).score, 9);
+  /* زيادة على الاختبار نفسه بعد الإعادة، بسقفه */
+  assert.deepEqual(J(app.improveApplyItem(12, [mx, { imp: IMP({ max_score: 5, created_at: '2026-10-01' }), score: 5 }], 20)), { score: 20, orig: 12, retake: 'max', add: 2, empty: false });
+});
+
+test('درجات الاختبارات الفعلية: الإعادة والزيادة على اختبار معيّن تغيّران ذلك الاختبار فقط، والخام لا يُمس', () => {
+  const app = loadApp({});
+  const cols = [{ id: 't1', category: 'tests', name: 'أ', max_score: 20 }, { id: 't2', category: 'tests', name: 'ب', max_score: 20 }, { id: 'p', category: 'performance', name: 'م', max_score: 10 }];
+  const raw = [{ column_id: 't1', student_id: 'a', score: 10 }, { column_id: 't2', student_id: 'a', score: 16 }, { column_id: 't1', student_id: 'b', score: 14 }];
+  const list = [IMP({ id: 'R', retake: 'max', column_id: 't1', max_score: 20 }), IMP({ id: 'Z', column_id: 't2', max_score: 5 }), IMP({ id: 'T', max_score: 5 })];
+  const sc = [{ improvement_id: 'R', student_id: 'a', score: 15 }, { improvement_id: 'R', student_id: 'b', score: 11 },
+    { improvement_id: 'Z', student_id: 'a', score: 5 }, { improvement_id: 'R', student_id: 'c', score: 12 }];
+  const rawCopy = J(raw);
+  const eff = app.improveEffectiveScores(cols, raw, list, sc);
+  assert.deepEqual(J(raw), rawCopy, 'الخام كما هو');
+  const get = (c, s) => J(eff.find(x => x.column_id === c && x.student_id === s));
+  assert.equal(get('t1', 'a').score, 15);
+  assert.deepEqual(get('t1', 'a').imp, { orig: 10, retake: 'max', add: 0 });
+  assert.equal(get('t1', 'b').score, 14, 'الأعلى: الأصلية 14 > 11');
+  assert.deepEqual(get('t2', 'a').imp, { orig: 16, retake: null, add: 4 }, 'زيادة 5 بسقف 20');
+  assert.equal(get('t1', 'c').score, 12, 'غاب عن الأصلي: الإعادة درجته');
+  /* المحصلة: (15 + 20) من 40 × 20 = 17.5 — والزيادة على المجموع T لا تمسّ اختبارًا بعينه */
+  const r = J(app.studentGradeResult(cols, eff, 'a', { performance: 40, tests: 20 }, app.improveTestsOf(app.improveIndex(list, sc), 'a')));
+  assert.equal(r.tests.points, 17.5);
+  assert.equal(r.tests.list[0].imp.retake, 'max', 'العلامة تصل لصفحة الطالب');
+  assert.equal(app.improveTestsOf(app.improveIndex(list, sc), 'a'), 0, 'المجموع لا يحسب ما رُبط بعنصر');
+});
+
+test('المهام: إعادة مهمة معيّنة («تحلّ محلها») تنزل عمود المهام، وتظهر بعلامة ↓', () => {
+  const app = loadApp({});
+  const tasks = [{ id: 'k1', max_score: 10, grade_period: 1, created_at: '2026-09-01' }, { id: 'k2', max_score: 10, grade_period: 1, created_at: '2026-09-02' }];
+  const rows = [{ task_id: 'k1', student_id: 'a', score: 8 }, { task_id: 'k2', student_id: 'a', score: 6 }];
+  const list = [IMP({ id: 'R', target: 'task', retake: 'replace', task_id: 'k1', max_score: 10 })];
+  const eff = app.improveEffectiveTaskRows(tasks, rows, list, [{ improvement_id: 'R', student_id: 'a', score: 4 }]);
+  assert.equal(eff.find(r => r.task_id === 'k1').score, 4);
+  assert.equal(rows.find(r => r.task_id === 'k1').score, 8, 'الخام لا يُمس');
+  const plan = J(app.planTaskScoreSync(['a'], tasks, eff, 20, new Map(), [], null));
+  assert.deepEqual(plan.upserts, [{ student_id: 'a', score: 10 }], '(4 + 6) من 20 × 20');
+  const applied = J(app.taskImproveApplied(['a'], tasks, rows, eff, 20, [], null).get('a'));
+  assert.deepEqual(applied, { add: -4, empty: false });
+  assert.match(app.improveMarkHtml(-4), /is-down[^>]*>↓ <bdi dir="ltr">-4<\/bdi>/);
+  /* غير مكلَّف بالمهمة وشارك في إعادتها: تُحسب له */
+  const eff2 = app.improveEffectiveTaskRows(tasks, rows, list, [{ improvement_id: 'R', student_id: 'b', score: 7 }]);
+  assert.deepEqual(J(eff2.find(r => r.student_id === 'b')), { task_id: 'k1', student_id: 'b', score: 7, imp: { orig: null, retake: 'replace', add: 0 } });
+});
+
+test('الكشف: الخانة تعرض «إعادة، كانت 12» والتعديل يكتب الخام لا درجة الإعادة', async () => {
+  const log = [];
+  const app = appWith({}, log);
+  assert.match(runInAppContext(app, `improveCellNoteHtml({ orig: 12, retake: 'max', add: 0 })`), /إعادة، كانت 12/);
+  assert.match(runInAppContext(app, `improveCellNoteHtml({ orig: null, retake: 'replace', add: 0 })`), /إعادة، كانت فارغة/);
+  assert.match(runInAppContext(app, `improveCellNoteHtml({ orig: 16, retake: null, add: 4 })`), /↑ <bdi dir="ltr">\+4/);
+  /* مدخل التعديل يبدأ من الخام (12) لا من الفعلية (18) */
+  const v = runInAppContext(app, `(() => { const g = { rawScores: [{ column_id: 't1', student_id: 'a', score: 12 }], scores: [{ column_id: 't1', student_id: 'a', score: 18, imp: { orig: 12, retake: 'max', add: 0 } }] };
+    return crmGradeEntryScores(g, { id: 't1' }, null).get('a'); })()`);
+  assert.equal(v, 12);
+  const ex = J(runInAppContext(app, `crmGradeImportExisting({ columns: [], rawScores: [{ column_id: 't1', student_id: 'a', score: 12 }], scores: [{ column_id: 't1', student_id: 'a', score: 18 }] })`));
+  assert.equal(ex[0].score, 12, 'الاستيراد يقارن بالخام');
+});
+
+test('حذف اختبار عليه إعادة كاملة: لا خيار «أبقِ» (الإعادة لا تبقى بلا أصلها)؛ وعليه زيادة: «أبقِ» على المجموع', async () => {
+  const app = appWith({}, []);
+  runInAppContext(app, `window.__choices = null; improveAskChoice = async (h, c) => { window.__choices = c.map(x => x.key); return 'both'; };`);
+  runInAppContext(app, `improveLinksForDelete = async () => ({ linked: [{ id: 'R', name: 'إعادة', retake: 'max', column_id: 'T1', target: 'tests', section_id: 'S1' }], suspend: [], lastFor: new Set() });`);
+  const c1 = J(await runInAppContext(app, `improveConfirmDelete('tests', 'T1', 'أ', 'حذف؟')`));
+  assert.deepEqual(J(runInAppContext(app, 'window.__choices')), ['both']);
+  assert.deepEqual(c1.withImps, ['R']);
+  runInAppContext(app, `improveLinksForDelete = async () => ({ linked: [{ id: 'Z', name: 'زيادة', retake: null, column_id: 'T1', target: 'tests', section_id: 'S1' }], suspend: [], lastFor: new Set() });`);
+  await runInAppContext(app, `improveConfirmDelete('tests', 'T1', 'أ', 'حذف؟')`);
+  assert.deepEqual(J(runInAppContext(app, 'window.__choices')), ['both', 'keep']);
+});
+
+test('«أبقِ الزيادة على المجموع»: يفرّغ الربط بفلتر teacher_id', async () => {
+  const log = [];
+  const app = appWith({}, log);
+  await runInAppContext(app, `improveAfterItemDelete({ withImps: [], keepIds: ['Z'] })`);
+  const u = log.find(l => l.table === 'classroom_improvements' && l.op === 'update');
+  assert.ok(u && u.filters.some(([c, v]) => c === 'teacher_id' && v === 'u1'));
+});
+
+test('SQL 3.80: حقول الربط والإعادة إضافية فقط، والحرّاس والقفل بالمهمة المعيّنة، في الملفين', () => {
+  const upd = read('sql-updates-run-in-supabase.sql');
+  const schema = runInAppContext(loadApp({}), 'buildSchemaSql()');
+  for (const sql of [upd, schema]) {
+    assert.match(sql, /add column if not exists column_id uuid/);
+    assert.match(sql, /add column if not exists task_id uuid/);
+    assert.match(sql, /add column if not exists retake text/);
+    assert.match(sql, /check \(retake is null or retake in \('replace', 'max'\)\)/);
+    assert.match(sql, /on delete set null \(column_id\)/);
+    assert.match(sql, /on delete set null \(task_id\)/);
+    assert.match(sql, /new\.retake is distinct from old\.retake/);
+    assert.match(sql, /\(new\.column_id is distinct from old\.column_id and new\.column_id is not null\)/, 'الربط لا يتغيّر إلا إلى فارغ');
+    assert.match(sql, /left join public\.classroom_tasks t on t\.id = i\.task_id/, 'قفل فترة المهمة المعيّنة');
+  }
+  const blk = upd.slice(upd.indexOf('-- ============ تحسين الدرجات (3.80)'), upd.indexOf('-- النسخة الاحتياطية الشاملة للمسؤول'));
+  assert.doesNotMatch(blk.replace(/--[^\n]*/g, ''), /drop constraint|drop column|drop table/i);
+  assert.doesNotMatch(blk, /`|\$\{|\\/);
 });

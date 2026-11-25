@@ -136,17 +136,20 @@ async function loadGradeSheetsRaw(sectionIds, year, semester){
   }
   /* زيادات تحسين الاختبارات (app-56) كما في كشف الشعبة نفسها، وإلا قورنت شعبة بزياداتها بأخرى بدونها.
      عمود المهام المحفوظ يشمل زيادته أصلًا. فشل التحميل = بلا زيادات (لا يمنع المقارنة) */
-  let impIdx = null;
+  let imp = null;
   if(typeof loadImprovementsForStudents === 'function' && scores.length){
     try{
       const d = await loadImprovementsForStudents([...new Set(scores.map(s => s.student_id))], { year, semester });
-      impIdx = improveIndex(d.list, d.scores);
-    } catch(e){ impIdx = null; }
+      imp = { list: d.list, scores: d.scores, idx: improveIndex(d.list, d.scores) };
+    } catch(e){ imp = null; }
   }
   return sectionIds.map(id => {
     const columns = sortGradeColumns(visible.filter(c => c.section_id === id));
     const set = new Set(columns.map(c => c.id));
-    return { id, columns, scores: scores.filter(s => set.has(s.column_id)), improve: impIdx ? { idx: impIdx, taskApplied: new Map() } : null };
+    const own = scores.filter(s => set.has(s.column_id));
+    /* الإعادة والزيادة على اختبار معيّن أيضًا (كما في كشف الشعبة نفسها) */
+    return { id, columns, rawScores: own, scores: imp ? improveEffectiveScores(columns, own, imp.list, imp.scores) : own,
+      improve: imp ? { list: imp.list, scores: imp.scores, idx: imp.idx, taskApplied: new Map() } : null };
   });
 }
 

@@ -190,6 +190,14 @@ async function loadCrmStudentProfileData(student){
         .eq('teacher_id', uid).in('column_id', cols.map(c => c.id));
       if(gErr) throw gErr;
       grades = { columns: sortGradeColumns(cols), scores: sc || [] };
+      /* إعادة الاختبار والزيادة على اختبار معيّن (app-56): يظهر في الملف ما يظهر في الكشف. فشلها لا يمنع الملف */
+      if(typeof loadImprovementsForStudents === 'function'){
+        try{
+          const ids = [...new Set((sc || []).map(r => r.student_id).concat([student.id]))];
+          const d = await loadImprovementsForStudents(ids, { year, semester });
+          if(d.list.length) grades.scores = improveEffectiveScores(grades.columns, grades.scores, d.list, d.scores);
+        } catch(e){}
+      }
     }
   }
   /* المهام الأدائية المكلَّف بها في الفصل المعروض */

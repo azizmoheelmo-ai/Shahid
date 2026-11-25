@@ -61,20 +61,21 @@ function planTaskScoreSync(studentIds, tasks, rows, colMax, existing, cfg, impId
   return planComputedScoreSync(studentIds, id => taskPeriodScores(tasks, rows, id, colMax, cfg, impIdx ? improveTaskOf(impIdx, id) : null).final, existing);
 }
 
-/* ما أضافه التحسين فعلًا لدرجة عمود المهام لكل طالب (بعد السقف): Map(طالب → { add, empty })
-   empty: أُضيفت زيادة على درجة فارغة (المجموع أو الفترة المختارة لم يُرصد فيها شيء) — للتنبيه */
-function taskImproveApplied(studentIds, tasks, rows, colMax, cfg, impIdx){
+/* ما غيّره التحسين فعلًا في درجة عمود المهام لكل طالب: Map(طالب → { add, empty }).
+   rawRows: صفوف المهام كما رُصدت، effRows: بعد الإعادة/الزيادة على مهمة معيّنة (app-56). add قد يكون سالبًا
+   (إعادة «تحلّ محلها» أقل من الأصلية). empty: الأصل كان فارغًا (المجموع أو الفترة المختارة) — للتنبيه */
+function taskImproveApplied(studentIds, tasks, rawRows, effRows, colMax, cfg, impIdx){
   const out = new Map();
-  if(!impIdx || !impIdx.size) return out;
+  const itemsChanged = effRows && effRows !== rawRows;
+  if(!itemsChanged && !(impIdx && impIdx.size)) return out;
   (studentIds || []).forEach(id => {
-    const imp = improveTaskOf(impIdx, id);
-    if(!imp) return;
-    const b = taskPeriodScores(tasks, rows, id, colMax, cfg);
-    const w = taskPeriodScores(tasks, rows, id, colMax, cfg, imp);
+    const imp = impIdx ? improveTaskOf(impIdx, id) : null;
+    const b = taskPeriodScores(tasks, rawRows, id, colMax, cfg);
+    const w = taskPeriodScores(tasks, effRows || rawRows, id, colMax, cfg, imp);
     if(w.final === null) return;
     const add = Math.round(100 * (w.final - (b.final || 0))) / 100;
-    const empty = (b.final === null && imp.final > 0) || Object.keys(imp.periods || {}).some(p => imp.periods[p] > 0 && b['p' + p] === null && w['p' + p] !== null);
-    if(add > 0.001 || empty) out.set(id, { add: Math.max(0, add), empty });
+    const empty = b.final === null || (!!imp && Object.keys(imp.periods || {}).some(p => imp.periods[p] > 0 && b['p' + p] === null && w['p' + p] !== null));
+    if(Math.abs(add) > 0.001 || (empty && b.final === null)) out.set(id, { add, empty });
   });
   return out;
 }
@@ -245,7 +246,7 @@ async function loadTaskScoresForStudents(studentIds, term){
 }
 
 /* يكتب درجات عمود "مهام أدائية" المحسوبة. studentIds اختياري (طالب واحد بعد رصد). يرمي عند الفشل. */
-/* improve (اختياري): { idx } أنشطة تحسين محمّلة مسبقًا (الكشف)؛ وإلا تُحمَّل هنا.
+/* improve (اختياري): { idx, list, scores } أنشطة تحسين محمّلة مسبقًا (الكشف)؛ وإلا تُحمَّل هنا.
    ترجع { tasks, rows, applied, suspended } — applied: ما أضافه التحسين فعلًا لكل طالب (لعلامة «↑» في الكشف).
    suspended: لا مهمة في هذه الشعبة (حُذفت آخر مهمة) — التحسين متوقف مؤقتًا: محفوظ ولا يُحسب حتى تُضاف مهمة (3.79) */
 async function syncTaskColumn(column, sectionId, term, studentIds, improve){
@@ -253,18 +254,21 @@ async function syncTaskColumn(column, sectionId, term, studentIds, improve){
   const uid = currentUser.id;
   const ids = studentIds || crmStudentsOfSection(sectionId).map(s => s.id);
   if(!ids.length) return null;
-  const [{ tasks, rows }, scoresRes, impIdx0] = await Promise.all([
+  const [{ tasks, rows }, scoresRes, imp0] = await Promise.all([
     loadTaskScoresForStudents(ids, term),
     sb.from('classroom_grade_scores').select('student_id, score').eq('teacher_id', uid).eq('column_id', column.id),
-    improve ? Promise.resolve(improve.idx) : (typeof loadImprovementsForStudents === 'function'
-      ? loadImprovementsForStudents(ids, term).then(d => improveIndex(d.list, d.scores)) : Promise.resolve(null))
+    improve ? Promise.resolve(improve) : (typeof loadImprovementsForStudents === 'function'
+      ? loadImprovementsForStudents(ids, term).then(d => ({ list: d.list, scores: d.scores, idx: improveIndex(d.list, d.scores) })) : Promise.resolve(null))
   ]);
   if(scoresRes.error) throw scoresRes.error;
   const existing = new Map((scoresRes.data || []).map(r => [r.student_id, Number(r.score)]));
-  const suspended = !!(impIdx0 && impIdx0.size) && !tasks.some(t => t.section_id === sectionId);
-  const impIdx = suspended ? null : impIdx0;
+  const has = !!(imp0 && (imp0.list || []).some(i => i.target === 'task'));
+  const suspended = has && !tasks.some(t => t.section_id === sectionId);
+  const impIdx = suspended || !imp0 ? null : imp0.idx;
+  /* الإعادة والزيادة على مهمة معيّنة تُطبَّق على صفوفها قبل كل حساب (الفترات والمعدّل كما هي) */
+  const effRows = !suspended && has && typeof improveEffectiveTaskRows === 'function' ? improveEffectiveTaskRows(tasks, rows, imp0.list, imp0.scores) : rows;
   const cfg = periodCfg(term, 'kind:task');
-  const plan = planTaskScoreSync(ids, tasks, rows, column.max_score, existing, cfg, impIdx);
+  const plan = planTaskScoreSync(ids, tasks, effRows, column.max_score, existing, cfg, impIdx);
   if(plan.upserts.length){
     const { error: uErr } = await sb.from('classroom_grade_scores').upsert(
       plan.upserts.map(u => ({ teacher_id: uid, column_id: column.id, student_id: u.student_id, score: u.score })),
@@ -277,7 +281,7 @@ async function syncTaskColumn(column, sectionId, term, studentIds, improve){
     if(dErr) throw dErr;
   }
   if(plan.upserts.length || plan.deletes.length) afterCrmGradesChanged();
-  return { tasks, rows, suspended, applied: taskImproveApplied(ids, tasks, rows, column.max_score, cfg, impIdx) };
+  return { tasks, rows: effRows, rawRows: rows, suspended, applied: taskImproveApplied(ids, tasks, rows, effRows, column.max_score, cfg, impIdx) };
 }
 
 /* ============ وضع "مهمة" في ورقة الحصة ============ */
