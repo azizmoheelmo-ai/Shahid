@@ -631,7 +631,8 @@ describe('المرحلة 2: أدوات التعديل — رمز خاص، معا
     return { client, server };
   }
   const call = async (client, name, args) => JSON.parse((await client.callTool({ name, arguments: args || {} })).content[0].text);
-  const WRITE_TOOLS = ['record_attendance', 'set_grades', 'set_homework_status', 'set_class_task_scores', 'add_positive_note', 'add_personal_task', 'update_personal_task'];
+  const WRITE_TOOLS = ['record_attendance', 'set_grades', 'set_homework_status', 'set_class_task_scores', 'add_positive_note', 'add_personal_task', 'update_personal_task',
+    'create_improvement', 'update_improvement', 'set_improvement_scores'];
 
   const seed = () => ({
     classroom_grade_levels: [{ id: 'gl1', teacher_id: 'u1', name: 'الأول' }, { id: 'gl2', teacher_id: 'u2', name: 'غريب' }],
@@ -850,6 +851,98 @@ describe('المرحلة 2: أدوات التعديل — رمز خاص، معا
     await call(client, 'update_personal_task', { ...args, save: true, confirm_token: p.confirm_token });
     assert.equal(db.tasks.find(t => t.user_id === 'u1').done, true);
     assert.equal(db.tasks.find(t => t.user_id === 'u2').done, false);
+    await client.close(); await server.close();
+  });
+
+  /* ============ تحسين الدرجات (app-56): الموصل ينشئ ويعدّل ويرصد ويقرأ بقواعد التطبيق نفسها ============ */
+  const impSeed = () => {
+    const db = seed();
+    db.classroom_sections[0].academic_year = '1448';
+    db.classroom_grade_columns.push({ id: 'T1', teacher_id: 'u1', section_id: 's1', academic_year: '1448', semester: '1', name: 'اختبار الوحدة الأولى', category: 'tests', kind: 'manual', max_score: 20 },
+      { id: 'K', teacher_id: 'u1', section_id: 's1', academic_year: '1448', semester: '1', name: 'مهام أدائية', category: 'performance', kind: 'task', max_score: 20 },
+      { id: 'T9', teacher_id: 'u2', section_id: 's2', academic_year: '1448', semester: '1', name: 'اختبار الوحدة الأولى', category: 'tests', kind: 'manual', max_score: 20 });
+    db.classroom_tasks[0] = Object.assign(db.classroom_tasks[0], { academic_year: '1448', semester: '1', grade_period: 1 });
+    db.classroom_improvements = [{ id: 'X9', teacher_id: 'u2', section_id: 's2', academic_year: '1448', semester: '1', target: 'tests', name: 'تحسين غريب', max_score: 5 }];
+    db.classroom_improvement_scores = [{ id: 'xs9', teacher_id: 'u2', improvement_id: 'X9', student_id: 'st9', score: 4 }];
+    db.user_app_settings = [];
+    return db;
+  };
+  const runSave = async (client, name, args) => { const p = await call(client, name, args); assert.ok(p.confirm_token, name + ': ' + JSON.stringify(p)); return call(client, name, { ...args, save: true, confirm_token: p.confirm_token }); };
+
+  test('تحسين: إنشاء زيادة على المجموع وعلى اختبار، وإعادة كاملة بدرجة الأصل — بالمعاينة أولًا ومُلك المعلم', async () => {
+    const db = impSeed(); const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const base = { section_id: 's1', semester: '1', target: 'tests' };
+    const prev = await call(client, 'create_improvement', { ...base, kind: 'add', name: 'تحسيني عام', max_score: 5 });
+    assert.equal(prev.preview, true); assert.equal(db.classroom_improvements.length, 1, 'المعاينة لا تكتب');
+    assert.equal((await runSave(client, 'create_improvement', { ...base, kind: 'add', name: 'تحسيني عام', max_score: 5 })).saved, true);
+    const tot = db.classroom_improvements.find(i => i.name === 'تحسيني عام');
+    assert.deepEqual([tot.teacher_id, tot.academic_year, tot.semester, tot.target, tot.max_score, tot.column_id || null, tot.retake || null], ['u1', '1448', 1, 'tests', 5, null, null]);
+    await runSave(client, 'create_improvement', { ...base, kind: 'add', name: 'زيادة الأولى', item_name: 'الوحدة الأولى', max_score: 3 });
+    assert.equal(db.classroom_improvements.find(i => i.name === 'زيادة الأولى').column_id, 'T1', 'مربوط باختبار هذا المعلم لا اختبار الآخر بالاسم نفسه');
+    await runSave(client, 'create_improvement', { ...base, kind: 'retake', name: 'إعادة الأولى', item_name: 'اختبار الوحدة الأولى', retake_rule: 'max' });
+    const rt = db.classroom_improvements.find(i => i.name === 'إعادة الأولى');
+    assert.deepEqual([rt.retake, rt.column_id, rt.max_score, rt.mode, rt.source_name], ['max', 'T1', 20, 'retake', 'اختبار الوحدة الأولى']);
+    assert.match((await call(client, 'create_improvement', { ...base, kind: 'retake', name: 'خطأ', item_name: 'اختبار الوحدة الأولى', retake_rule: 'max', max_score: 5 })).error, /كدرجة الأصل/);
+    assert.match((await call(client, 'create_improvement', { ...base, kind: 'retake', name: 'خطأ', item_name: 'اختبار الوحدة الأولى' })).error, /retake_rule/);
+    assert.match((await call(client, 'create_improvement', { ...base, kind: 'add', name: 'خطأ', max_score: 0 })).error, /أكبر من 0/);
+    assert.match((await call(client, 'create_improvement', { ...base, kind: 'add', name: 'خطأ', max_score: 3, period: 1 })).error, /مجموع المهام فقط/);
+    assert.equal((await call(client, 'create_improvement', { ...base, kind: 'add', name: 'تحسيني عام', max_score: 5 })).changes_count, 0, 'لا تكرار بالاسم');
+    await client.close(); await server.close();
+  });
+
+  test('تحسين: لا نشاط بلا ما يُحسَّن، والفترة المقفلة ممنوعة، وشعبة معلم آخر مرفوضة', async () => {
+    const db = impSeed();
+    db.classroom_grade_columns = db.classroom_grade_columns.filter(c => c.id !== 'T1');
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    assert.match((await call(client, 'create_improvement', { section_id: 's1', semester: '1', target: 'tests', kind: 'add', name: 'ت', max_score: 5 })).error, /لا اختبارات في هذه الشعبة/);
+    assert.match((await call(client, 'create_improvement', { section_id: 's2', semester: '1', target: 'tests', kind: 'add', name: 'ت', max_score: 5 })).error, /غير موجودة لدى هذا المعلم/);
+    db.user_app_settings = [{ user_id: 'u1', period_locks: { '1448|1': { 'kind:task': { periods: { '1': { from: null, before: '2026-10-01' } } } } } }];
+    assert.match((await call(client, 'create_improvement', { section_id: 's1', semester: '1', target: 'task', kind: 'add', name: 'ت', max_score: 5, period: 1 })).error, /مقفلة/);
+    assert.equal((await call(client, 'create_improvement', { section_id: 's1', semester: '1', target: 'task', kind: 'add', name: 'ت', max_score: 5, period: 2 })).preview, true);
+    db.classroom_tasks = [];
+    assert.match((await call(client, 'create_improvement', { section_id: 's1', semester: '1', target: 'task', kind: 'add', name: 'ت', max_score: 5 })).error, /لا مهام أدائية/);
+    await client.close(); await server.close();
+  });
+
+  test('تحسين: رصد درجات المشاركين وتعديلها، ورفض ما فوق الكاملة وطالب شعبة أخرى، وتعديل الاسم والكاملة', async () => {
+    const db = impSeed();
+    db.classroom_improvements.push({ id: 'I1', teacher_id: 'u1', section_id: 's1', academic_year: '1448', semester: '1', target: 'tests', name: 'تحسيني', max_score: 5, retake: null, column_id: null, task_id: null });
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(db), true);
+    const r1 = await runSave(client, 'set_improvement_scores', { section_id: 's1', improvement_name: 'تحسيني', entries: [{ student_name: 'أحمد علي', score: 4 }, { student_name: 'خالد', score: 3 }] });
+    assert.equal(r1.applied_count, 2);
+    assert.ok(db.classroom_improvement_scores.filter(r => r.improvement_id === 'I1').every(r => r.teacher_id === 'u1'));
+    const r2 = await runSave(client, 'set_improvement_scores', { section_id: 's1', improvement_name: 'تحسيني', entries: [{ student_name: 'أحمد علي', score: 5 }] });
+    assert.equal(r2.applied_count, 1);
+    assert.equal(db.classroom_improvement_scores.find(r => r.improvement_id === 'I1' && r.student_id === 'st1').score, 5);
+    assert.match((await call(client, 'set_improvement_scores', { section_id: 's1', improvement_name: 'تحسيني', entries: [{ student_name: 'أحمد علي', score: 6 }] })).error, /أكبر/);
+    assert.match((await call(client, 'set_improvement_scores', { section_id: 's1', improvement_name: 'تحسيني', entries: [{ student_name: 'طالب غريب', score: 1 }] })).error, /لا طالب/);
+    assert.match((await call(client, 'set_improvement_scores', { section_id: 's1', improvement_name: 'تحسين غريب', entries: [{ student_name: 'أحمد علي', score: 1 }] })).error, /لا نشاط تحسين/, 'نشاط معلم آخر غير مرئي');
+    assert.match((await call(client, 'update_improvement', { section_id: 's1', improvement_name: 'تحسيني', max_score: 4 })).error, /أعلى منها/);
+    assert.equal((await runSave(client, 'update_improvement', { section_id: 's1', improvement_name: 'تحسيني', new_name: 'تحسين نهائي', max_score: 10 })).saved, true);
+    const i1 = db.classroom_improvements.find(i => i.id === 'I1');
+    assert.deepEqual([i1.name, i1.max_score], ['تحسين نهائي', 10]);
+    assert.equal(db.classroom_improvements.find(i => i.id === 'X9').name, 'تحسين غريب', 'نشاط المعلم الآخر لم يُمس');
+    /* الإعادة: الكاملة لا تُعدَّل، والمتوقفة (أصلها محذوف) لا تُرصد */
+    db.classroom_improvements.push({ id: 'R1', teacher_id: 'u1', section_id: 's1', academic_year: '1448', semester: '1', target: 'tests', name: 'إعادة', max_score: 20, retake: 'replace', column_id: null, task_id: null });
+    assert.match((await call(client, 'update_improvement', { section_id: 's1', improvement_name: 'إعادة', max_score: 10 })).error, /كدرجة الأصل/);
+    assert.match((await call(client, 'set_improvement_scores', { section_id: 's1', improvement_name: 'إعادة', entries: [{ student_name: 'أحمد علي', score: 10 }] })).error, /متوقف/);
+    /* زيادة على مهمة في فترة مقفلة: الرصد مرفوض */
+    db.classroom_improvements.push({ id: 'K1', teacher_id: 'u1', section_id: 's1', academic_year: '1448', semester: '1', target: 'task', name: 'زيادة المهمة', max_score: 5, retake: null, column_id: null, task_id: 't1' });
+    db.user_app_settings = [{ user_id: 'u1', period_locks: { '1448|1': { 'kind:task': { periods: { '1': { from: null, before: '2026-10-01' } } } } } }];
+    assert.match((await call(client, 'set_improvement_scores', { section_id: 's1', improvement_name: 'زيادة المهمة', entries: [{ student_name: 'أحمد علي', score: 2 }] })).error, /مقفلة/);
+    assert.ok(db.audit_log.filter(a => a.action === 'mcp_write').length >= 3, 'كل حفظ في سجل التدقيق');
+    await client.close(); await server.close();
+  });
+
+  test('تحسين: القراءة متاحة لرمز القراءة أيضًا، بنوع كل نشاط ودرجاته، ومعزولة لكل معلم', async () => {
+    const db = impSeed();
+    db.classroom_improvements.push({ id: 'R1', teacher_id: 'u1', section_id: 's1', academic_year: '1448', semester: '1', target: 'tests', name: 'إعادة الأولى', max_score: 20, retake: 'max', column_id: 'T1', task_id: null, source_name: 'اختبار الوحدة الأولى', created_at: '2026-11-01' });
+    db.classroom_improvement_scores.push({ id: 's1r', teacher_id: 'u1', improvement_id: 'R1', student_id: 'st1', score: 17 });
+    const { client, server } = await connectedClient('u1', makeFakeSupabase(db), false);
+    const d = await call(client, 'list_my_improvements', {});
+    assert.equal(d.total, 1, 'نشاط المعلم الآخر غير ظاهر');
+    assert.deepEqual([d.improvements[0].type, d.improvements[0].item, d.improvements[0].participants], ['retake_max', 'اختبار الوحدة الأولى', 1]);
+    assert.deepEqual(d.improvements[0].scores, [{ student: 'أحمد علي', score: 17 }]);
     await client.close(); await server.close();
   });
 

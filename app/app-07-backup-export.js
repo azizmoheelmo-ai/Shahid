@@ -3950,7 +3950,7 @@ async function exportFullBackup(){
       '     49. survey_responses.csv (لازم بعد survey_campaigns)',
       '     50. leader_followups.csv (طلبات متابعة مؤشرات القيادة — لازم بعد profiles؛ بلا رموز الروابط عمدًا فلا تعود روابط قديمة صالحة)',
       '     51. leader_templates.csv (قوالب مؤشرات المعلم — لازم بعد profiles)',
-      '     52. classroom_improvements.csv (أنشطة تحسين الدرجات — لازم بعد classroom_sections)',
+      '     52. classroom_improvements.csv (أنشطة تحسين الدرجات — لازم بعد classroom_sections وclassroom_grade_columns وclassroom_tasks: الإعادة/الزيادة مربوطة باختبار أو مهمة)',
       '     53. classroom_improvement_scores.csv (لازم بعد classroom_improvements وclassroom_students)',
       '',
       '── الخطوة 6: استعادة الصور ──',

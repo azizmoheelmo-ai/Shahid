@@ -16,7 +16,10 @@
    5. كل قراءة/كتابة مقيّدة صراحة بـteacher_id/user_id صاحب الرمز؛ الطالب/الشعبة/
       العمود يُحلّ دائمًا من قوائم هذا المعلم فقط.
    6. لا يُعدَّل أي عمود درجات محسوب (واجبات/مهام/أدوات/فترات) — يُحسب
-      تلقائيًا من مصدره ويُرفض تعديله هنا. */
+      تلقائيًا من مصدره ويُرفض تعديله هنا.
+   7. تحسين الدرجات (app-56): إنشاء نشاط وتعديل اسمه/درجته الكاملة ورصد درجات المشاركين بالقواعد نفسها
+      التي يفرضها التطبيق (لا نشاط بلا اختبار/مهمة قائمة، الإعادة بدرجة الأصل، الفترة لزيادة مجموع المهام فقط،
+      لا رصد في فترة مقفلة). لا حذف نشاط ولا مسح درجة (من التطبيق عبر السلة). */
 
 const crypto = require('crypto');
 
@@ -56,6 +59,7 @@ const fail = msg => { throw new PlanError(msg); };
 
 function registerWriteTools(server, ctx){
   const { userId, supabase, z, textResult, fetchAll, loadRoster, normalizeAr, sectionLabel, signKey } = ctx;
+  const fetchImprovements = ctx.fetchImprovements || (async () => []);
   const key = signKey || PROCESS_SECRET;
 
   /* ---------- حلّ الأسماء إلى معرّفات، من قوائم هذا المعلم فقط ---------- */
@@ -312,6 +316,180 @@ function registerWriteTools(server, ctx){
       changes.push({ what, op: 'update', before: cur.score == null ? null : Number(cur.score), after: e.score,
         apply: async () => {
           const { error } = await supabase.from('classroom_task_students').update({ score: e.score, updated_at: new Date().toISOString() }).eq('teacher_id', userId).eq('id', cur.id);
+          if(error) throw new Error(error.message);
+        } });
+    }
+    return changes;
+  }));
+
+  /* ============ 4ب) تحسين الدرجات (app-56): إنشاء، تعديل، رصد ============ */
+  const IMP_TARGET_AR = { tests: 'الاختبارات', task: 'المهام الأدائية' };
+  const scoreOk = n => Number.isFinite(n) && n > 0 && n <= 40 && Math.round(n * 100) === n * 100;
+
+  /* عناصر الشعبة لهذا الفصل: الاختبارات الظاهرة، وعمود المهام، والمهام — من قوائم هذا المعلم فقط */
+  async function improveSectionItems(sectionId, year, semester){
+    const sameTerm = r => r.section_id === sectionId && String(r.semester) === String(semester) && (!year || !r.academic_year || r.academic_year === year);
+    const [cols, tools, tasks] = await Promise.all([
+      fetchAll(supabase, 'classroom_grade_columns', 'id, section_id, academic_year, semester, name, category, kind, tool_id, max_score', 'teacher_id', userId),
+      fetchAll(supabase, 'classroom_custom_tools', 'id, hidden', 'teacher_id', userId).catch(() => []),
+      fetchAll(supabase, 'classroom_tasks', 'id, section_id, academic_year, semester, title, max_score, grade_period, due_date, created_at', 'teacher_id', userId)
+    ]);
+    const hidden = new Set(tools.filter(t => t.hidden).map(t => t.id));
+    const mine = cols.filter(c => sameTerm(c) && !(c.tool_id && hidden.has(c.tool_id)));
+    return {
+      tests: mine.filter(c => c.category === 'tests').map(c => ({ id: c.id, name: c.name, max: Number(c.max_score) })),
+      taskCol: mine.some(c => c.kind === 'task' && !c.tool_id),
+      tasks: tasks.filter(sameTerm).map(t => ({ id: t.id, name: t.title, max: Number(t.max_score), grade_period: t.grade_period, date: t.due_date || String(t.created_at || '').slice(0, 10) }))
+    };
+  }
+
+  /* هل الفترة p لمكوّن المهام مقفلة لهذا الفصل؟ (user_app_settings.period_locks، الشكلان الجديد والقديم) */
+  async function taskPeriodLocked(year, semester, p){
+    if(!p) return false;
+    const { data } = await supabase.from('user_app_settings').select('period_locks').eq('user_id', userId).maybeSingle();
+    const l = data && data.period_locks && data.period_locks[year + '|' + semester] && data.period_locks[year + '|' + semester]['kind:task'];
+    if(!l || typeof l !== 'object') return false;
+    if(l.periods && typeof l.periods === 'object') return Object.prototype.hasOwnProperty.call(l.periods, String(p));
+    return Number(l.p) >= Number(p);
+  }
+
+  async function resolveImprovement(sectionId, name, semester){
+    let imps = (await fetchImprovements(supabase, userId)).filter(i => i.section_id === sectionId);
+    if(semester) imps = imps.filter(i => String(i.semester) === String(semester));
+    return pickUnique(imps, 'name', name, 'نشاط تحسين');
+  }
+
+  server.registerTool('create_improvement', {
+    title: 'إنشاء نشاط تحسين درجات',
+    description: 'ينشئ نشاط تحسين اختياريًا لشعبة: kind=add زيادة بدرجة مستقلة (max_score) تُضاف على مجموع البند أو على اختبار/مهمة item_name بسقفها؛ kind=retake إعادة الاختبار/المهمة item_name بالكامل بدرجته الكاملة نفسها، وretake_rule: max (يُعتمد الأعلى) أو replace (تحلّ محل القديمة ولو أقل). يُرفض إن لم يكن في الشعبة اختبار (أو عمود مهام ومهمة) بعد. period (1-3) لزيادة على مجموع المهام فقط. ثم ارصد الدرجات بـset_improvement_scores.' + WRITE_NOTE,
+    inputSchema: {
+      section_id: z.string().describe('معرّف الشعبة من list_my_sections'),
+      semester: z.enum(['1', '2']).describe('الفصل الدراسي'),
+      target: z.enum(['tests', 'task']).describe('tests = الاختبارات، task = المهام الأدائية'),
+      kind: z.enum(['add', 'retake']).describe('add = زيادة، retake = إعادة كاملة'),
+      name: z.string().min(1).max(100).describe('اسم النشاط'),
+      item_name: z.string().min(1).max(200).optional().describe('اسم الاختبار/المهمة (إلزامي للإعادة، واختياري للزيادة — بدونه تُضاف على المجموع)'),
+      retake_rule: z.enum(['max', 'replace']).optional().describe('للإعادة: max الأعلى منهما، replace تحلّ محل القديمة'),
+      max_score: z.number().optional().describe('للزيادة: الدرجة الكاملة للنشاط (أكبر من 0 حتى 40). الإعادة تأخذ درجة الأصل'),
+      period: z.number().int().min(1).max(3).optional().describe('لزيادة على مجموع المهام: فترة بعينها (بدونه = على المجموع)'),
+      ...saveFields
+    }
+  }, args => runWrite('create_improvement', args, async ({ section_id, semester, target, kind, name, item_name, retake_rule, max_score, period }) => {
+    const roster = await loadRoster(supabase, userId);
+    const sec = resolveSection(roster, section_id);
+    const year = sec.academic_year || null;
+    const items = await improveSectionItems(section_id, year, semester);
+    const what = target === 'tests' ? 'اختبار' : 'مهمة';
+    if(target === 'tests' && !items.tests.length) fail('لا اختبارات في هذه الشعبة بعد — التحسين يُضاف على درجة قائمة، أنشئ اختبارًا أولًا');
+    if(target === 'task' && !items.taskCol) fail('لا عمود «مهام أدائية» في كشف هذه الشعبة');
+    if(target === 'task' && !items.tasks.length) fail('لا مهام أدائية في هذه الشعبة بعد — أنشئ مهمة أولًا');
+    if(kind === 'retake' && !item_name) fail('الإعادة تحتاج item_name: ال' + what + ' الذي يُعاد');
+    if(kind === 'retake' && !retake_rule) fail('حدّد retake_rule: max (الأعلى منهما) أو replace (تحلّ محل القديمة)');
+    if(kind === 'add' && retake_rule) fail('retake_rule للإعادة فقط');
+    const item = item_name ? pickUnique(target === 'tests' ? items.tests : items.tasks, 'name', item_name, what) : null;
+    let max;
+    if(kind === 'retake'){
+      if(max_score !== undefined && Number(max_score) !== item.max) fail('درجة الإعادة الكاملة كدرجة الأصل (' + item.max + ') — لا تُحدَّد');
+      max = item.max;
+    } else {
+      if(!scoreOk(Number(max_score))) fail('max_score للزيادة: رقم أكبر من 0 حتى 40 بمنزلتين عشريتين كحد أقصى');
+      max = Number(max_score);
+    }
+    if(period !== undefined){
+      if(target !== 'task' || kind !== 'add' || item) fail('period لزيادة على مجموع المهام فقط');
+      if(await taskPeriodLocked(year, semester, period)) fail('الفترة ' + period + ' مقفلة — افتحها من التطبيق أولًا');
+    }
+    const dup = (await fetchImprovements(supabase, userId)).find(i => i.section_id === section_id && String(i.semester) === String(semester) && normalizeAr(i.name) === normalizeAr(name));
+    const after = { name, section: sectionLabel(roster, section_id), target: IMP_TARGET_AR[target],
+      type: kind === 'retake' ? 'إعادة «' + item.name + '» — ' + (retake_rule === 'max' ? 'الأعلى منهما' : 'تحلّ محل القديمة') : (item ? 'زيادة على «' + item.name + '»' : 'زيادة على المجموع' + (period ? ' (الفترة ' + period + ')' : '')),
+      max_score: max };
+    const label = 'نشاط تحسين «' + name + '»';
+    if(dup) return [{ what: label, op: 'insert', before: 'نشاط بالاسم نفسه موجود في الشعبة', after, noop: true }];
+    return [{ what: label, op: 'insert', before: null, after,
+      apply: async () => {
+        const row = { teacher_id: userId, section_id, academic_year: year, semester: Number(semester), target, mode: kind === 'retake' ? 'retake' : 'new',
+          rule: 'add', name: name.trim(), max_score: max, source_name: item ? String(item.name).slice(0, 200) : null,
+          grade_period: period && target === 'task' && kind === 'add' && !item ? period : null };
+        if(kind === 'retake') row.retake = retake_rule;
+        if(item) row[target === 'tests' ? 'column_id' : 'task_id'] = item.id;
+        const { error } = await supabase.from('classroom_improvements').insert(row);
+        if(error) throw new Error(error.message);
+      } }];
+  }));
+
+  server.registerTool('update_improvement', {
+    title: 'تعديل نشاط تحسين',
+    description: 'يعدّل اسم نشاط تحسين أو درجته الكاملة (للزيادة فقط — الإعادة بدرجة الأصل). لا تُخفَض الدرجة الكاملة تحت درجة مرصودة. البند والنوع والربط ثابتة. لا يحذف.' + WRITE_NOTE,
+    inputSchema: {
+      section_id: z.string().describe('معرّف الشعبة'),
+      improvement_name: z.string().min(1).max(100).describe('اسم النشاط كما في list_my_improvements'),
+      semester: z.enum(['1', '2']).optional().describe('يلزم لو تكرّر الاسم في الفصلين'),
+      new_name: z.string().min(1).max(100).optional(),
+      max_score: z.number().optional(),
+      ...saveFields
+    }
+  }, args => runWrite('update_improvement', args, async ({ section_id, improvement_name, semester, new_name, max_score }) => {
+    const roster = await loadRoster(supabase, userId);
+    resolveSection(roster, section_id);
+    if(new_name === undefined && max_score === undefined) fail('حدّد ما تريد تعديله: new_name أو max_score');
+    const imp = await resolveImprovement(section_id, improvement_name, semester);
+    const patch = {}, before = {}, after = {};
+    if(new_name !== undefined && new_name.trim() !== imp.name){ patch.name = new_name.trim(); before.name = imp.name; after.name = patch.name; }
+    if(max_score !== undefined && Number(max_score) !== Number(imp.max_score)){
+      if(imp.retake) fail('درجة الإعادة الكاملة كدرجة الأصل — لا تُعدَّل');
+      if(!scoreOk(Number(max_score))) fail('max_score: رقم أكبر من 0 حتى 40 بمنزلتين عشريتين كحد أقصى');
+      const over = (await fetchAll(supabase, 'classroom_improvement_scores', 'id, improvement_id, score', 'teacher_id', userId)).filter(r => r.improvement_id === imp.id && Number(r.score) > Number(max_score)).length;
+      if(over) fail('لا يمكن خفضها إلى ' + max_score + ': ' + over + ' درجة مرصودة أعلى منها — عدّلها أولًا');
+      patch.max_score = Number(max_score); before.max_score = Number(imp.max_score); after.max_score = patch.max_score;
+    }
+    const what = 'نشاط تحسين «' + imp.name + '»';
+    if(!Object.keys(patch).length) return [{ what, op: 'update', before, after, noop: true }];
+    return [{ what, op: 'update', before, after,
+      apply: async () => {
+        const { error } = await supabase.from('classroom_improvements').update(patch).eq('teacher_id', userId).eq('id', imp.id);
+        if(error) throw new Error(error.message);
+      } }];
+  }));
+
+  server.registerTool('set_improvement_scores', {
+    title: 'رصد درجات نشاط تحسين',
+    description: 'يرصد أو يعدّل درجات من شارك في نشاط تحسين (من لم يشارك يُترك ولا يتأثر). الدرجة بين 0 ودرجة النشاط الكاملة. يرفض الرصد في فترة مقفلة. لا مسح لدرجة من هنا. أثر الزيادة/الإعادة: الاختبارات تُحسب فورًا، وعمود المهام يُحدَّث عند فتح كشف الشعبة في التطبيق.' + WRITE_NOTE,
+    inputSchema: {
+      section_id: z.string().describe('معرّف الشعبة'),
+      improvement_name: z.string().min(1).max(100).describe('اسم النشاط كما في list_my_improvements'),
+      semester: z.enum(['1', '2']).optional().describe('يلزم لو تكرّر الاسم في الفصلين'),
+      entries: z.array(z.object({ student_name: z.string().min(1).max(120), score: z.number().min(0) })).min(1).max(MAX_ENTRIES),
+      ...saveFields
+    }
+  }, args => runWrite('set_improvement_scores', args, async ({ section_id, improvement_name, semester, entries }) => {
+    const roster = await loadRoster(supabase, userId);
+    resolveSection(roster, section_id);
+    checkDuplicates(entries);
+    const imp = await resolveImprovement(section_id, improvement_name, semester);
+    if(imp.retake && !imp.column_id && !imp.task_id) fail('النشاط «' + imp.name + '» متوقف: ' + (imp.target === 'tests' ? 'الاختبار' : 'المهمة') + ' المُعاد محذوف');
+    /* قفل الفترات: زيادة على فترة بعينها، أو على مهمة معيّنة (فترتها) */
+    if(imp.target === 'task'){
+      let p = imp.grade_period || null;
+      if(!p && imp.task_id){
+        const t = (await fetchAll(supabase, 'classroom_tasks', 'id, grade_period', 'teacher_id', userId)).find(x => x.id === imp.task_id);
+        p = t && t.grade_period;
+      }
+      if(p && await taskPeriodLocked(imp.academic_year, imp.semester, p)) fail('الفترة ' + p + ' مقفلة — افتحها من التطبيق أولًا');
+    }
+    const max = Number(imp.max_score);
+    const rows = (await fetchAll(supabase, 'classroom_improvement_scores', 'id, improvement_id, student_id, score', 'teacher_id', userId)).filter(r => r.improvement_id === imp.id);
+    const changes = [];
+    for(const e of entries){
+      const st = resolveStudent(roster, e.student_name, section_id);
+      if(e.score > max) fail('درجة ' + st.full_name + ' (' + e.score + ') أكبر من درجة النشاط الكاملة (' + max + ')');
+      const cur = rows.find(r => r.student_id === st.id);
+      const what = 'درجة ' + st.full_name + ' في نشاط التحسين «' + imp.name + '»';
+      if(cur && Number(cur.score) === e.score){ changes.push({ what, op: 'update', before: Number(cur.score), after: e.score, noop: true }); continue; }
+      changes.push({ what, op: cur ? 'update' : 'insert', before: cur ? Number(cur.score) : 'لم يشارك', after: e.score,
+        apply: async () => {
+          const { error } = cur
+            ? await supabase.from('classroom_improvement_scores').update({ score: e.score, updated_at: new Date().toISOString() }).eq('teacher_id', userId).eq('id', cur.id)
+            : await supabase.from('classroom_improvement_scores').insert({ teacher_id: userId, improvement_id: imp.id, student_id: st.id, score: e.score });
           if(error) throw new Error(error.message);
         } });
     }
