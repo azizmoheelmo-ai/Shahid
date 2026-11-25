@@ -1100,7 +1100,7 @@ async function generateConnectorToken(kind){
   const otherBtn = document.getElementById(isWrite ? 'genTokenBtn' : 'genWriteTokenBtn');
   if(btn.disabled) return;
   if(isWrite){
-    const okWrite = await showConfirm('رابط "القراءة والتعديل" يسمح للمساعد بتعديل الحضور والغياب والدرجات وتسليم الواجبات وإضافة ملاحظات ومهام — على بيانات طلاب قاصرين. كل تعديل يُعرض عليك للموافقة قبل حفظه ويُسجَّل في سجل التدقيق، ولا يمكنه الحذف. ينتهي الرابط بعد ' + WRITE_TOKEN_DAYS + ' يومًا. هل تريد المتابعة؟');
+    const okWrite = await showConfirm('رابط "القراءة والتعديل" يسمح للمساعد بتعديل الحضور والغياب والدرجات وتسليم الواجبات وأنشطة تحسين الدرجات وإضافة ملاحظات ومهام — على بيانات طلاب قاصرين. كل تعديل يُعرض عليك للموافقة قبل حفظه ويُسجَّل في سجل التدقيق، ولا يمكنه الحذف. ينتهي الرابط بعد ' + WRITE_TOKEN_DAYS + ' يومًا. هل تريد المتابعة؟');
     if(!okWrite) return;
   }
   btn.disabled = true;
@@ -1135,7 +1135,7 @@ async function generateConnectorToken(kind){
     showInfoModal(`
       <div style="text-align:right;">
         <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">${isWrite ? 'رابط الموصل الخاص بك (قراءة وتعديل)' : 'رابط الموصل الخاص بك'}</h3>
-        ${isWrite ? `<p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;font-weight:700;">هذا الرابط يستطيع التعديل: الحضور والغياب، الدرجات اليدوية، تسليم الواجبات، درجات المهام الأدائية، الملاحظات الإيجابية، ومهامك الشخصية. كل تعديل يُعرض عليك قبل الحفظ ويُسجَّل، ولا حذف إطلاقًا. ينتهي بعد ${WRITE_TOKEN_DAYS} يومًا.</p>` : ''}
+        ${isWrite ? `<p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;font-weight:700;">هذا الرابط يستطيع التعديل: الحضور والغياب، الدرجات اليدوية، تسليم الواجبات، درجات المهام الأدائية، أنشطة تحسين الدرجات ودرجاتها، الملاحظات الإيجابية، ومهامك الشخصية. كل تعديل يُعرض عليك قبل الحفظ ويُسجَّل، ولا حذف إطلاقًا. ينتهي بعد ${WRITE_TOKEN_DAYS} يومًا.</p>` : ''}
         <p style="font-size:12px;color:#B23A3A;line-height:1.8;margin:0 0 10px;">
           ⚠ يظهر مرة واحدة فقط. من يملك الرابط يقرأ بيانات حسابك التالية (أسماء الطلاب ودرجاتهم وحضورهم)، فلا ترسله لأحد. تستطيع إلغاءه في أي وقت من هذه الشاشة.
         </p>

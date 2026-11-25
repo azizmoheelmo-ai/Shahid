@@ -670,3 +670,15 @@ test('SQL 3.80: حقول الربط والإعادة إضافية فقط، وا�
   assert.doesNotMatch(blk.replace(/--[^\n]*/g, ''), /drop constraint|drop column|drop table/i);
   assert.doesNotMatch(blk, /`|\$\{|\\/);
 });
+
+test('النسخ الاحتياطي 3.80: الجدولان كاملا الأعمدة (select *)، ودليل الاستعادة بعد الاختبارات والمهام التي يُربط بها', () => {
+  const a07 = read('app/app-07-backup-export.js');
+  const num = f => Number((a07.match(new RegExp("'\\s+(\\d+)\\. " + f.replace('.', '\\.'))) || [])[1]);
+  const imp = num('classroom_improvements.csv');
+  assert.ok(imp > num('classroom_grade_columns.csv') && imp > num('classroom_tasks.csv') && imp > num('classroom_sections.csv'), 'بعد ما يُشار إليه');
+  assert.ok(num('classroom_improvement_scores.csv') > imp);
+  const a08 = read('app/app-08-admin.js');
+  assert.match(a08, /sb\.from\('classroom_improvements'\)\.select\('\*'\)/, 'كل الأعمدة (column_id/task_id/retake) في النسخة الشخصية');
+  /* النسخة الشاملة: admin_backup_rows يقرأ select * لكل جدول في القائمة البيضاء */
+  assert.match(read('sql-updates-run-in-supabase.sql'), /from \(select \* from public\.%I t order by %s offset \$1 limit \$2\)/);
+});

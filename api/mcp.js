@@ -227,6 +227,19 @@ function normalizeAr(str){
 }
 const nameMatches = (full, query) => !query || normalizeAr(full).includes(normalizeAr(query));
 
+/* أنشطة تحسين الدرجات (app-56) لهذا المعلم. قبل تحديث القاعدة 3.80 (لا retake/column_id/task_id): كلها زيادات على المجموع.
+   قبل إنشاء الجدول أصلًا: []. type: add_total | add_item | retake_max | retake_replace */
+const IMPROVE_COLS_MCP = 'id, section_id, academic_year, semester, target, mode, name, max_score, grade_period, retake, source_name, column_id, task_id, created_at';
+async function fetchImprovements(supabase, userId){
+  try{ return await fetchAll(supabase, 'classroom_improvements', IMPROVE_COLS_MCP, 'teacher_id', userId); }
+  catch(e){
+    try{ return await fetchAll(supabase, 'classroom_improvements', 'id, section_id, academic_year, semester, target, mode, name, max_score, grade_period, created_at', 'teacher_id', userId); }
+    catch(e2){ return []; }
+  }
+}
+function improvementType(i){ return i.retake ? 'retake_' + i.retake : (i.column_id || i.task_id ? 'add_item' : 'add_total'); }
+const IMPROVE_TYPE_AR = { add_total: 'زيادة على مجموع البند', add_item: 'زيادة على اختبار/مهمة معيّنة', retake_max: 'إعادة كاملة — يُعتمد الأعلى', retake_replace: 'إعادة كاملة — تحلّ محل القديمة' };
+
 function buildServer(userId, supabase, opts){
   const canWrite = !!(opts && opts.canWrite);
   const server = new McpServer({ name: 'shahid-connector', version: '1.1.0' });
@@ -536,13 +549,7 @@ function buildServer(userId, supabase, opts){
       result.student_raw_totals = Array.from(totals.values());
       /* أنشطة تحسين الدرجات (اختيارية): درجة الطالب فيها تُضاف فوق بند الاختبارات أو المهام بسقف البند.
          عمود المهام المحفوظ يشملها أصلًا؛ محصلة الاختبارات تُحسب في التطبيق. قبل تحديث القاعدة: لا شيء */
-      let imps = [];
-      try{ imps = await fetchAll(supabase, 'classroom_improvements', 'id, section_id, academic_year, semester, target, name, max_score, grade_period, retake, source_name, column_id, task_id', 'teacher_id', userId); }
-      catch(e){
-        /* قبل تحديث القاعدة 3.80 (لا حقول الإعادة/الربط): كلها زيادات على المجموع */
-        try{ imps = await fetchAll(supabase, 'classroom_improvements', 'id, section_id, academic_year, semester, target, name, max_score, grade_period', 'teacher_id', userId); }
-        catch(e2){ imps = []; }
-      }
+      let imps = await fetchImprovements(supabase, userId);
       if(section_id) imps = imps.filter(i => i.section_id === section_id);
       if(semester) imps = imps.filter(i => String(i.semester) === String(semester));
       if(academic_year) imps = imps.filter(i => i.academic_year === academic_year);
@@ -553,13 +560,48 @@ function buildServer(userId, supabase, opts){
         result.improvements = imps.map(i => ({
           name: i.name, target: i.target === 'tests' ? 'tests' : 'performance_task', max_score: i.max_score,
           /* type: add_total = زيادة على مجموع البند، add_item = زيادة على اختبار/مهمة item، retake_max/retake_replace = إعادة كاملة (الأعلى / تحلّ محلها) */
-          type: i.retake ? 'retake_' + i.retake : (i.column_id || i.task_id ? 'add_item' : 'add_total'), item: i.column_id || i.task_id ? i.source_name : null,
+          type: improvementType(i), item: i.column_id || i.task_id ? i.source_name : null,
           period: i.grade_period || null, section: sectionLabel(roster, i.section_id),
           scores: impScores.filter(r => r.improvement_id === i.id).map(r => ({ student: studentName(roster, r.student_id), score: r.score }))
         }));
       }
     }
     return result;
+  }));
+
+  server.registerTool('list_my_improvements', {
+    title: 'أنشطة تحسين الدرجات',
+    description: 'يعرض أنشطة تحسين الدرجات (اختيارية لمن يريد رفع درجته) ودرجات من شارك فيها. type: add_total = زيادة تُضاف فوق مجموع البند (الاختبارات أو المهام) بسقفه؛ add_item = زيادة على اختبار/مهمة معيّنة (item) بسقفها؛ retake_max / retake_replace = إعادة الاختبار/المهمة item بالكامل بدرجته الكاملة، ويُعتمد الأعلى أو تحلّ محل القديمة. من لم يشارك لا سطر له ولا يتأثر. suspended = لا يُحسب الآن (الأصل محذوف).' + SENSITIVE,
+    inputSchema: {
+      section_id: z.string().optional().describe('معرّف الشعبة من list_my_sections (اختياري)'),
+      semester: z.string().optional().describe('الفصل الدراسي 1 أو 2 (اختياري)'),
+      academic_year: z.string().optional().describe('العام الدراسي (اختياري)'),
+      student_name: z.string().optional().describe('درجات طالب بعينه فقط (اختياري)')
+    }
+  }, safeTool(async ({ section_id, semester, academic_year, student_name }) => {
+    const roster = await loadRoster(supabase, userId);
+    let imps = await fetchImprovements(supabase, userId);
+    if(section_id) imps = imps.filter(i => i.section_id === section_id);
+    if(semester) imps = imps.filter(i => String(i.semester) === String(semester));
+    if(academic_year) imps = imps.filter(i => i.academic_year === academic_year);
+    const ids = new Set(imps.map(i => i.id));
+    const scores = ids.size ? (await fetchAll(supabase, 'classroom_improvement_scores', 'id, improvement_id, student_id, score', 'teacher_id', userId)).filter(r => ids.has(r.improvement_id)) : [];
+    imps.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+    return {
+      total: imps.length,
+      improvements: imps.map(i => {
+        const type = improvementType(i);
+        const mine = scores.filter(r => r.improvement_id === i.id && nameMatches(studentName(roster, r.student_id), student_name));
+        return {
+          name: i.name, section: sectionLabel(roster, i.section_id), section_id: i.section_id, academic_year: i.academic_year, semester: i.semester,
+          target: i.target === 'tests' ? 'tests' : 'performance_task', type, type_label: IMPROVE_TYPE_AR[type],
+          item: i.column_id || i.task_id ? i.source_name : null, max_score: i.max_score, period: i.grade_period || null,
+          suspended: !!i.retake && !i.column_id && !i.task_id,
+          participants: scores.filter(r => r.improvement_id === i.id).length,
+          scores: mine.map(r => ({ student: studentName(roster, r.student_id), score: r.score }))
+        };
+      })
+    };
   }));
 
   server.registerTool('list_my_attendance', {
@@ -769,7 +811,7 @@ function buildServer(userId, supabase, opts){
 
   /* المرحلة 2: أدوات التعديل — تُسجَّل فقط لرمز "قراءة وتعديل" (shahid_rw_) */
   if(canWrite){
-    registerWriteTools(server, { userId, supabase, z, textResult, fetchAll, loadRoster, normalizeAr, sectionLabel, signKey: SERVICE_ROLE_KEY });
+    registerWriteTools(server, { userId, supabase, z, textResult, fetchAll, loadRoster, normalizeAr, sectionLabel, fetchImprovements, signKey: SERVICE_ROLE_KEY });
   }
 
   return server;
