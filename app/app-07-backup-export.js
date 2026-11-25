@@ -3751,7 +3751,11 @@ create trigger trg_item_period_guard before update of grade_period on public.cla
 -- insert into public.admins (user_id) values ('ضع-UID-حسابك-هنا');
 `;
   if(schema === 'public') return sql;
+  /* التخزين (storage.buckets وسياسات storage.objects) مشترك بين كل الـschemas كتريجرات auth.users: يبقى كما أعدّه
+     ملف public. إعادة تشغيله من ملف staging كانت تعيد سياسة «منع الحسابات المعطّلة» على صور الإنتاج مربوطةً بـ
+     staging.am_disabled() فيُفلت معلم الإنتاج المعطَّل من المنع. فتُستبعد كل جملة تمسّه (اكتُشف قبل تشغيل staging، 2026-11-25) */
   return sql
+    .replace(/^(?:drop policy if exists|create policy|insert into|update)\b[^;]*?\bstorage\.(?:objects|buckets)\b[^;]*;[^\n]*\n?/gm, '')
     .replace(/-- @@STAGING_SKIP_START@@[\s\S]*?-- @@STAGING_SKIP_END@@\n?/, '-- (تريجرات مزامنة auth.users مُستبعدة عمدًا لبيئات staging — راجع تعليق buildSchemaSql)\n')
     .replace(/table_schema='public'/g, `table_schema='${schema}'`)
     .replace(/\bpublic\./g, schema + '.');
