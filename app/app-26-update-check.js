@@ -10,7 +10,7 @@
    - "لاحقًا" يؤجلها ساعة لنفس الإصدار.
    APP_VERSION يُرفع مع version.json في كل تحديث (اختبار يتحقق من تطابقهما).
    ============================================================ */
-const APP_VERSION = '3.83';
+const APP_VERSION = '3.84';
 const UPDATE_CHECK_EVERY_MS = 30 * 60 * 1000;
 const UPDATE_SNOOZE_MS = 60 * 60 * 1000;
 const UPDATE_SNOOZE_KEY = 'shahid_update_snooze';
@@ -124,10 +124,23 @@ async function applyUpdate(){
   }
 }
 
+/* فحص عند الرجوع للتطبيق، بحد أدنى دقيقتين بين الفحوص (focus يتكرر مع كل نقرة على النافذة) */
+const UPDATE_FOCUS_GAP_MS = 2 * 60 * 1000;
+let lastFocusUpdateCheck = 0;
+function checkForUpdateOnReturn(){
+  const now = Date.now();
+  if(now - lastFocusUpdateCheck < UPDATE_FOCUS_GAP_MS) return null;
+  lastFocusUpdateCheck = now;
+  return checkForUpdate();
+}
+
 function initUpdateChecks(){
   setTimeout(checkForUpdate, 3000);
   setInterval(checkForUpdate, UPDATE_CHECK_EVERY_MS);
-  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') checkForUpdate(); });
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') checkForUpdateOnReturn(); });
+  /* على الكمبيوتر: نافذة بجانب نافذة أخرى لا تصير "مخفية" أبدًا، فلا visibilitychange —
+     كان التحديث ينتظر حتى 30 دقيقة. التركيز على النافذة هو «الرجوع» هناك. */
+  window.addEventListener('focus', checkForUpdateOnReturn);
 }
 /* في المتصفح فقط (بيئة الاختبار لا تطلق DOMContentLoaded فلا مؤقّتات تبقى معلّقة) */
 document.addEventListener('DOMContentLoaded', initUpdateChecks);

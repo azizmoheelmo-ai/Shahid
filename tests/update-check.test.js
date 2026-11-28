@@ -112,3 +112,17 @@ test('Service Worker لا يخزّن version.json ولا يخدمه من الك�
   handler({ request: { method: 'GET', url: 'https://x/style.css' }, respondWith(){ responded = true; } });
   assert.equal(responded, true);
 });
+
+/* على الكمبيوتر نافذة بجانب أخرى لا تصير مخفية فلا visibilitychange — التحديث كان ينتظر
+   حتى 30 دقيقة («باقي ما وصل»). الفحص عند التركيز على النافذة، بحد أدنى دقيقتين. */
+test('الرجوع لنافذة الكمبيوتر (focus) يفحص التحديث، مرة كل دقيقتين على الأكثر', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app/app-26-update-check.js'), 'utf8');
+  assert.match(src, /window\.addEventListener\('focus', checkForUpdateOnReturn\)/);
+  const app = appWith({ version: CURRENT, notes: ['x'] });
+  await app.checkForUpdateOnReturn();
+  await app.checkForUpdateOnReturn();   /* نقرة ثانية فورًا: لا طلب جديد */
+  assert.equal(get(app, 'window.__fetched.length'), 1);
+  runInAppContext(app, 'lastFocusUpdateCheck = Date.now() - 2 * 60 * 1000 - 1;');
+  await app.checkForUpdateOnReturn();
+  assert.equal(get(app, 'window.__fetched.length'), 2);
+});
