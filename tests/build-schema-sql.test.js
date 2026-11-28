@@ -170,3 +170,29 @@ test('staging: لا جملة تمسّ التخزين المشترك (storage.buc
   /* لم تُحذف جملة تتبع جملة تخزين (الحذف لا يتجاوز الفاصلة المنقوطة) */
   assert.match(stg, /create table if not exists staging\.student_report_shares/);
 });
+
+/* بند أمني (CLAUDE.md بند 11): وُجدت دالتا عدّاد الدخول في الإنتاج فارغتين (2026-11-28). النسخة الحقيقية في الملفين،
+   ولا تُمنحان للزائر أبدًا: منحه record_login_attempt يسمح بحجب أي معلم بمحاولات فاشلة وهمية */
+test('عدّاد الدخول في ملف التحديث ومرآة buildSchemaSql: غير فارغ، ومسحوب من كل عميل (anon وauthenticated)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { loadApp } = require('./load-app');
+  const upd = fs.readFileSync(path.join(__dirname, '..', 'sql-updates-run-in-supabase.sql'), 'utf8');
+  const schema = loadApp().buildSchemaSql();
+  for (const sql of [upd, schema]) {
+    assert.match(sql, /create table if not exists public\.login_attempts \(/);
+    assert.match(sql, /alter table public\.login_attempts enable row level security;/);
+    const chk = sql.slice(sql.indexOf('create or replace function public.check_login_allowed'), sql.indexOf('create or replace function public.record_login_attempt'));
+    assert.match(chk, /from public\.login_attempts/);
+    assert.match(chk, /created_at > now\(\) - interval '15 minutes'/);
+    assert.match(chk, /return recent_failures < 5;/);
+    assert.doesNotMatch(chk, /as \$\$\s*select true/i, 'لا دالة فارغة');
+    const rec = sql.slice(sql.indexOf('create or replace function public.record_login_attempt'));
+    assert.match(rec.slice(0, 600), /insert into public\.login_attempts \(email, success\)/);
+    assert.match(sql, /revoke execute on function public\.check_login_allowed\(text\) from public, anon, authenticated;/);
+    assert.match(sql, /revoke execute on function public\.record_login_attempt\(text, boolean\) from public, anon, authenticated;/);
+    assert.doesNotMatch(sql, /grant execute on function public\.(check_login_allowed|record_login_attempt)[^;]*\b(anon|authenticated)\b/);
+  }
+  /* لا سياسة على الجدول: الوصول عبر الدالتين وحدهما */
+  assert.doesNotMatch(upd, /create policy [^\n]* on public\.login_attempts/);
+});
