@@ -136,6 +136,10 @@ begin
   delete from public.login_attempts where created_at < now() - interval '1 hour';
 end;
 $$;
+-- لا تُمنح لأي عميل (anon/authenticated): record_login_attempt يستدعيها العميل بنفسه، فمنحها يسمح بحجب حساب أي معلم
+-- بتسجيل محاولات فاشلة وهمية (CLAUDE.md بند 11). الحماية الفعلية من التخمين: حدود طلبات Supabase Auth.
+revoke execute on function public.check_login_allowed(text) from public, anon, authenticated;
+revoke execute on function public.record_login_attempt(text, boolean) from public, anon, authenticated;
 
 create or replace function public.record_login()
 returns void
