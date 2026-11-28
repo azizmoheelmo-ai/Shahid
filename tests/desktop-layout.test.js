@@ -30,3 +30,31 @@ test('البيان لا يقفل الاتجاه عموديًا (يكسر ناف�
   const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
   assert.notStrictEqual(m.orientation, 'portrait');
 });
+
+/* اختصارات أيقونة التطبيق المثبّت: كل رابط بـmanifest يجب أن يفهمه التطبيق (readLaunchGo)
+   وإلا يفتح الاختصار الرئيسية بصمت. وlaunch_handler يمنع نافذة ثانية على نفس البيانات. */
+test('اختصارات manifest كلها مفهومة للتطبيق، ونافذة واحدة فقط', () => {
+  const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+  const { loadApp } = require('./load-app');
+  const app = loadApp();
+  assert.ok(Array.isArray(m.shortcuts) && m.shortcuts.length >= 3);
+  for(const s of m.shortcuts){
+    assert.ok(app.readLaunchGo(new URL(s.url, 'https://x.test/').search), 'اختصار غير مفهوم: ' + s.url);
+  }
+  assert.strictEqual(app.readLaunchGo('?go=__proto__'), null);
+  assert.strictEqual(app.readLaunchGo('?go=toString'), null);
+  assert.strictEqual(app.readLaunchGo(''), null);
+  assert.deepStrictEqual(m.launch_handler && m.launch_handler.client_mode, ['focus-existing', 'auto']);
+});
+
+test('صور نافذة التثبيت موجودة وبالمقاس المذكور (عريضة للكمبيوتر وضيقة للجوال)', () => {
+  const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+  const ff = new Set();
+  for(const s of m.screenshots || []){
+    const buf = fs.readFileSync(path.join(root, s.src));
+    const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20); /* رأس PNG */
+    assert.strictEqual(`${w}x${h}`, s.sizes, s.src);
+    ff.add(s.form_factor);
+  }
+  assert.ok(ff.has('wide') && ff.has('narrow'));
+});
