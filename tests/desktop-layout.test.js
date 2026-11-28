@@ -1,5 +1,5 @@
 'use strict';
-/* طبقة الكمبيوتر (≥1024px): الشريط السفلي يصير قائمة جانبية بالـCSS وحده.
+/* طبقة الكمبيوتر (≥700px شريط نحيف، ≥1100px قائمة كاملة): الشريط السفلي يصير قائمة جانبية بالـCSS وحده.
    هذا يعمل فقط لأن تنسيقات الشريط في style.css لا inline بـindex.html —
    inline يغلب أي media query فيرجع الشريط ممدودًا أسفل شاشة الكمبيوتر. */
 const test = require('node:test');
@@ -19,11 +19,24 @@ test('شريط التبويبات وأزراره بلا تنسيق inline (وإ�
 });
 
 test('طبقة الكمبيوتر للشاشة فقط (لا تمسّ الطباعة) وتحوّل الشريط لقائمة جانبية', () => {
-  const i = css.indexOf('@media screen and (min-width:1024px)');
+  const i = css.indexOf('@media screen and (min-width:700px) and (min-height:500px)');
   assert.ok(i > 0, 'طبقة الكمبيوتر مفقودة');
   const block = css.slice(i);
   assert.match(block, /\.btab-bar\{[^}]*flex-direction:column/);
   assert.match(block, /#appView\.wrap\{[^}]*padding-right:var\(--side-w\)/);
+  assert.ok(css.indexOf('@media screen and (min-width:1100px) and (min-height:500px)') > i, 'درجة القائمة الكاملة');
+});
+
+/* كان الحد 1024 فنافذة بنصف شاشة 1920 (~960) أخذت شكل الجوال: شريط سفلي ممدود بأزرار 238px
+   ونص 10px. أي حد يحوّل الشريط لجانبي يجب أن يشمل نافذة نصف الشاشة، ويستثني الجوال طوليًا. */
+test('نافذة بنصف الشاشة (960) تأخذ الشريط الجانبي، والجوال يبقى على السفلي', () => {
+  const re = /@media screen and \(min-width:(\d+)px\)(?: and \(min-height:(\d+)px\))?\{[^@]*?\.btab-bar\{[^}]*flex-direction:column/g;
+  const tiers = [...css.matchAll(re)].map(m => ({ w: +m[1], h: m[2] ? +m[2] : 0 }));
+  assert.ok(tiers.length, 'لا درجة تحوّل الشريط لجانبي');
+  const minW = Math.min(...tiers.map(t => t.w));
+  assert.ok(minW <= 900, 'الحد ' + minW + ' يترك نافذة نصف الشاشة بشكل الجوال');
+  assert.ok(minW > 480, 'الحد ' + minW + ' يمسّ الجوال طوليًا');
+  assert.ok(tiers.every(t => t.h >= 450), 'بلا شرط ارتفاع: الجوال المقلوب أفقيًا يفقد شريطه السفلي');
 });
 
 test('البيان لا يقفل الاتجاه عموديًا (يكسر نافذة التطبيق المثبّت على الكمبيوتر)', () => {
