@@ -4,6 +4,55 @@
 -- (آمن التكرار — لو شُغّل أكثر من مرة بالخطأ لن يكسر شيئًا)
 -- ============================================================
 
+-- ============ عدّاد محاولات الدخول (داخل التطبيق فقط) — بند أمني (CLAUDE.md بند 11، BACKLOG.md) ============
+-- **ليس حماية من التخمين:** المهاجم يطلب خدمة الحسابات (Supabase Auth) مباشرة فيتجاوز هذا الفحص كله. الحماية
+-- الفعلية: حدود الطلبات في إعدادات Supabase Auth (Authentication ← Rate Limits) وCAPTCHA.
+-- **لا تُمنح هاتان الدالتان لأي عميل (anon ولا authenticated):** record_login_attempt يستدعيها العميل بنفسه بأي بريد،
+-- فمنحها يسمح بتسجيل 5 «محاولات فاشلة» لبريد أي معلم وحجبه عن الدخول 15 دقيقة متى شاء. سحب الصلاحية أدناه مقصود.
+-- (وُجدتا فارغتين في الإنتاج 2026-11-28 وأُعيدتا لنسخة الملف؛ لم تكونا في هذا الملف أصلًا.) آمن التكرار.
+create table if not exists public.login_attempts (
+  id bigint generated always as identity primary key,
+  email text not null,
+  success boolean not null default false,
+  created_at timestamptz not null default now()
+);
+-- RLS مفعَّلة بلا أي سياسة عمدًا: لا عميل (anon/authenticated) يقرأ أو يكتب
+-- بهذا الجدول مباشرة أبدًا — الوصول الوحيد عبر الدوال الثلاث أدناه
+-- (security definer، تتجاوز RLS بصلاحية مالك الدالة) فقط.
+alter table public.login_attempts enable row level security;
+
+create or replace function public.check_login_allowed(p_email text)
+returns boolean
+language plpgsql security definer
+set search_path to 'public'
+as $$
+declare
+  recent_failures int;
+begin
+  select count(*) into recent_failures
+    from public.login_attempts
+    where email = lower(trim(p_email))
+      and success = false
+      and created_at > now() - interval '15 minutes';
+  return recent_failures < 5;
+end;
+$$;
+
+create or replace function public.record_login_attempt(p_email text, p_success boolean)
+returns void
+language plpgsql security definer
+set search_path to 'public'
+as $$
+begin
+  insert into public.login_attempts (email, success)
+  values (lower(trim(p_email)), p_success);
+  -- تنظيف تلقائي للسجلات الأقدم من ساعة لتفادي تضخم الجدول
+  delete from public.login_attempts where created_at < now() - interval '1 hour';
+end;
+$$;
+revoke execute on function public.check_login_allowed(text) from public, anon, authenticated;
+revoke execute on function public.record_login_attempt(text, boolean) from public, anon, authenticated;
+
 -- 1) تحصين إضافي: يمنع أي قيمة تعسّفية بحقل photo_urls بجدول shawahid
 --    (حتى لو تم تجاوز واجهة التطبيق نفسها عبر نداء مباشر لواجهة Supabase)
 -- ملاحظة: PostgreSQL لا يسمح بـ subquery داخل CHECK مباشرة، فنلفّ الشرط بدالة
