@@ -3359,29 +3359,29 @@ select.tlx-inp{min-height:44px;}
 .csc-fill-n{font-size:11.5px;color:var(--ui-body);margin-top:6px;}
 
 /* ================================================================
-   طبقة الكمبيوتر (شاشة ≥1024px) — الجوال لا يتغيّر إطلاقًا.
-   التطبيق صُمّم للجوال: عمود 850px وشريط تبويبات سفلي ممدود بعرض الشاشة،
-   ونوافذ تنزلق من الأسفل. هنا: الشريط يصير قائمة جانبية يمينًا، والمحتوى
-   يتوسّط المساحة الباقية، والنوافذ السفلية تصير نوافذ وسط الشاشة، وكل ما
-   كان مرفوعًا فوق الشريط السفلي (تنبيهات، أزرار عائمة، أشرطة حفظ) ينزل.
+   طبقة الكمبيوتر — الجوال لا يتغيّر إطلاقًا. درجتان:
+   - ≥700px (وارتفاع ≥500 كي يبقى الجوال المقلوب أفقيًا على شريطه السفلي):
+     شريط جانبي نحيف (أيقونة فوق الاسم) — نافذة بنصف الشاشة (~960) والآيباد طوليًا.
+   - ≥1100px: قائمة جانبية كاملة (الأيقونة بجانب الاسم + اسم التطبيق).
+   كان حدًا واحدًا عند 1024 فنافذة نصف الشاشة على 1920 تأخذ شكل الجوال: شريط سفلي
+   ممدود بأزرار 238px ونص 10px. التطبيق صُمّم للجوال: هنا الشريط يصير جانبيًا، المحتوى
+   يتوسّط الباقي، النوافذ السفلية وسط الشاشة، وما كان مرفوعًا فوق الشريط السفلي ينزل.
    screen فقط: الطباعة لا تتأثر. :has لتطبيقها بعد الدخول فقط (شاشة الدخول كما هي).
    ================================================================ */
-@media screen and (min-width:1024px){
-  :root{--side-w:236px;}
+@media screen and (min-width:700px) and (min-height:500px){
+  :root{--side-w:88px;}
   html:has(#appView[style*="block"]) body{padding-bottom:24px;}
   html:has(#appView[style*="block"]) #betaNoticeBar{right:var(--side-w) !important;} /* inline right:0 بـindex.html */
   #appView.wrap{max-width:calc(960px + var(--side-w));padding-right:var(--side-w);padding-bottom:24px;}
 
-  /* القائمة الجانبية */
-  .btab-bar{top:0;bottom:0;left:auto;width:var(--side-w);flex-direction:column;justify-content:flex-start;align-items:stretch;gap:4px;padding:18px 12px;border-top:0;border-left:1px solid var(--line);box-shadow:none;overflow-y:auto;}
-  .btab-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;margin-bottom:8px;border-bottom:1px solid var(--ui-divider);font-size:14.5px;font-weight:800;color:var(--navy);line-height:1.4;}
-  .btab-brand img{width:36px;height:36px;border-radius:10px;flex:none;}
-  .btab-bar .bottom-tab-btn{flex:none;flex-direction:row;font-family:inherit;justify-content:flex-start;gap:12px;padding:11px 14px;border-radius:var(--ui-r-btn);}
+  /* الشريط الجانبي النحيف */
+  .btab-bar{top:0;bottom:0;left:auto;width:var(--side-w);flex-direction:column;justify-content:flex-start;align-items:stretch;gap:6px;padding:16px 8px;border-top:0;border-left:1px solid var(--line);box-shadow:none;overflow-y:auto;}
+  .btab-bar .bottom-tab-btn{flex:none;font-family:inherit;gap:4px;padding:10px 4px;border-radius:var(--ui-r-btn);}
   .btab-bar .bottom-tab-btn:hover{background:var(--ui-hover);color:var(--navy);}
   .btab-bar .bottom-tab-btn.active{background:var(--ui-track);color:var(--navy);box-shadow:inset -3px 0 0 var(--gold);}
-  .btab-ic{font-size:18px;width:24px;text-align:center;}
-  .btab-lb{font-size:14px;font-weight:700;}
-  .btab-badge{position:static;margin-right:auto;border-radius:10px;min-width:20px;height:20px;line-height:20px;font-size:10.5px;padding:0 6px;}
+  .btab-ic{font-size:20px;}
+  .btab-lb{font-size:12px;font-weight:700;line-height:1.3;text-align:center;}
+  .btab-badge{top:4px;left:10px;}
 
   /* ما كان مرفوعًا فوق الشريط السفلي */
   .toast-container{bottom:24px;right:var(--side-w);}
@@ -3405,4 +3405,16 @@ select.tlx-inp{min-height:44px;}
   ::-webkit-scrollbar{width:10px;height:10px;}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;border:2px solid var(--paper);}
   ::-webkit-scrollbar-track{background:transparent;}
+}
+
+/* القائمة الجانبية الكاملة */
+@media screen and (min-width:1100px) and (min-height:500px){
+  :root{--side-w:236px;}
+  .btab-bar{gap:4px;padding:18px 12px;}
+  .btab-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;margin-bottom:8px;border-bottom:1px solid var(--ui-divider);font-size:14.5px;font-weight:800;color:var(--navy);line-height:1.4;}
+  .btab-brand img{width:36px;height:36px;border-radius:10px;flex:none;}
+  .btab-bar .bottom-tab-btn{flex-direction:row;justify-content:flex-start;gap:12px;padding:11px 14px;}
+  .btab-ic{font-size:18px;width:24px;text-align:center;}
+  .btab-lb{font-size:14px;}
+  .btab-badge{position:static;margin-right:auto;border-radius:10px;min-width:20px;height:20px;line-height:20px;font-size:10.5px;padding:0 6px;}
 }
