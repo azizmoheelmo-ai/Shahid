@@ -44,10 +44,10 @@ test('buildSchemaSql', async (t) => {
     assert.match(sql, /staging\.is_admin\(auth\.uid\(\)\)/);
     // لا يجب أن يبقى أي مرجع public.X لجداول/دوال التطبيق نفسه
     assert.doesNotMatch(sql, /\bpublic\.(shawahid|profiles|admins|classroom_\w+|academic_cases|performance_\w+|self_assessment|audit_log|plan_header|activity_programs|support_messages|personal_access_tokens|check_mcp_rate_limit|is_admin|sync_profile_from_auth|set_duty_type|set_plan_updated_at|set_shahid_ref_number|set_shahid_updated_at|set_activity_program_updated_at|set_student_activity_flag|log_shahid_delete|valid_shawahid_photo_urls|shawahid_ref_seq)\b/);
-    // auth/storage schemas عالمية — تبقى بلا أي تغيير
+    // auth/storage schemas عالمية — لا تُستبدل بـstaging. أبدًا. (التخزين نفسه يُستبعد كليًا من ملف staging منذ 2026-11-25
+    // لأنه مشترك مع الإنتاج — راجع اختبار «staging: لا جملة تمسّ التخزين المشترك» أدناه)
     assert.match(sql, /auth\.uid\(\)/);
-    assert.match(sql, /storage\.objects/);
-    assert.match(sql, /storage\.buckets/);
+    assert.doesNotMatch(sql, /staging\.(objects|buckets|foldername)\b/);
     // فحوصات توافق الترحيل القديمة يجب أن تشير لـstaging أيضًا لا public
     assert.match(sql, /table_schema='staging'/);
     assert.doesNotMatch(sql, /table_schema='public'/);
@@ -150,4 +150,23 @@ test('buildSchemaSql', async (t) => {
     assert.ok(createSectionsIdx > -1 && addColumnIdx > -1);
     assert.ok(createSectionsIdx < addColumnIdx, 'عمود program_section_id (مرجع FK لـclassroom_sections) يجب أن يُضاف بعد إنشاء الجدول لا قبله');
   });
+});
+
+/* انحدار (2026-11-25، اكتُشف قبل أول تشغيل لـstaging): التخزين مشترك بين الـschemas؛ ملف staging كان يعيد سياسة
+   block_disabled_accounts على storage.objects مربوطة بـstaging.am_disabled() فيُفلت معلم الإنتاج المعطَّل من منع الرفع */
+test('staging: لا جملة تمسّ التخزين المشترك (storage.buckets / سياسات storage.objects)، وملف public كما هو', () => {
+  const { loadApp } = require('./load-app');
+  const app = loadApp();
+  const pub = app.buildSchemaSql();
+  const stg = app.buildSchemaSql('staging');
+  const code = s => s.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.doesNotMatch(code(stg), /\bstorage\.(objects|buckets)\b/, 'لا أمر على التخزين المشترك');
+  assert.doesNotMatch(stg, /staging\.am_disabled\(\)\)\s*\n?\s*with check \(bucket_id/);
+  assert.match(pub, /create policy "block_disabled_accounts" on storage\.objects/);
+  assert.match(pub, /insert into storage\.buckets/);
+  /* ما عدا التخزين باقٍ: الجداول والدوال وسياسات الجداول */
+  assert.match(stg, /create table if not exists staging\.classroom_improvements \(/);
+  assert.match(stg, /create policy "المعلم يدير أنشطة التحسين فقط" on staging\.classroom_improvements/);
+  /* لم تُحذف جملة تتبع جملة تخزين (الحذف لا يتجاوز الفاصلة المنقوطة) */
+  assert.match(stg, /create table if not exists staging\.student_report_shares/);
 });
