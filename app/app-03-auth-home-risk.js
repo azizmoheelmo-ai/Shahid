@@ -574,6 +574,35 @@ if(typeof document.addEventListener === 'function'){
     const m = document.getElementById('acctMenu');
     if(m && m.style.display !== 'none' && !(e.target && e.target.closest && e.target.closest('.tb-acct'))) closeAcctMenu();
   });
+  document.addEventListener('keydown', onAppShortcutKey);
+}
+
+/* اختصارات لوحة المفاتيح (للكمبيوتر): Alt+1..4 تنقل بين الأقسام الأربعة بنفس زر الشريط
+   (فيسري ما يسري على النقرة: قسم مخفي بالتخصيص لا يُفتح)، وEsc تغلق قائمة الحساب.
+   e.code لا e.key: يعمل مع لوحة المفاتيح العربية. لا تعمل والتطبيق غير ظاهر أو نافذة
+   مفتوحة فوقه — الانتقال حينها يترك النافذة معلّقة فوق شاشة أخرى. */
+const APP_SHORTCUT_TABS = { Digit1: 'home', Digit2: 'shahid', Digit3: 'work', Digit4: 'classroom' };
+function appOverlayOpen(){
+  const list = document.querySelectorAll('.confirm-overlay, .crm-bsheet-overlay, .bt-sheet-wrap, .sv-back, .upd-wrap, [role="dialog"][aria-modal="true"]');
+  for(const el of list){ if(el.getClientRects().length) return true; }
+  return false;
+}
+function onAppShortcutKey(e){
+  if(e.key === 'Escape'){
+    const m = document.getElementById('acctMenu');
+    if(m && m.style.display !== 'none'){ closeAcctMenu(); const b = document.getElementById('acctBtn'); if(b) b.focus(); }
+    return;
+  }
+  if(!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat) return;
+  const tab = APP_SHORTCUT_TABS[e.code];
+  if(!tab) return;
+  const app = document.getElementById('appView');
+  if(!app || app.style.display !== 'block' || appOverlayOpen()) return;
+  const btn = document.querySelector(`#bottomTabBar .bottom-tab-btn[data-tab="${tab}"]`);
+  if(!btn || !btn.getClientRects().length) return;
+  e.preventDefault();
+  closeAcctMenu();
+  btn.click();
 }
 
 /* الخروج آخر القائمة وبتأكيد — لا يُخرج بضغطة خاطئة */

@@ -572,6 +572,13 @@
      النص بدل فوقه). هذه القاعدة هي ما يبقى بعد ذلك المسح. */
   .bottom-tab-btn{display:flex;flex-direction:column;align-items:center;color:var(--muted);transition:background .15s, color .15s;}
   .bottom-tab-btn.active{background:#F0EEE6;color:var(--navy);font-weight:700;}
+  /* شريط التبويبات (كان inline بـindex.html — نُقل هنا كما هو حتى تقدر طبقة الكمبيوتر تحت أن تعيد ترتيبه) */
+  .btab-bar{position:fixed;bottom:0;right:0;left:0;z-index:9000;background:#fff;border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:center;padding:6px 4px calc(6px + env(safe-area-inset-bottom, 0px));box-shadow:0 -2px 8px rgba(0,0,0,.05);}
+  .btab-bar .bottom-tab-btn{position:relative;background:none;border:none;gap:2px;padding:6px 10px;border-radius:10px;cursor:pointer;flex:1;}
+  .btab-ic{font-size:19px;}
+  .btab-lb{font-size:10px;}
+  .btab-badge{position:absolute;top:2px;left:14px;background:#C0392B;color:#fff;border-radius:50%;min-width:15px;height:15px;padding:0 3px;font-size:9px;font-weight:800;line-height:15px;text-align:center;}
+  .btab-brand{display:none;}
   .fab-btn{
     position:fixed;
     bottom:78px;
@@ -3350,3 +3357,52 @@ select.tlx-inp{min-height:44px;}
 .csc-fill{border:1px solid var(--line);border-radius:var(--ui-r-card);padding:10px 12px;margin:0 0 10px;background:var(--card);box-shadow:0 8px 20px var(--ui-shadow-lift);}
 .csc-fill-t{font-weight:800;color:var(--navy);font-size:14px;margin-bottom:8px;}
 .csc-fill-n{font-size:11.5px;color:var(--ui-body);margin-top:6px;}
+
+/* ================================================================
+   طبقة الكمبيوتر (شاشة ≥1024px) — الجوال لا يتغيّر إطلاقًا.
+   التطبيق صُمّم للجوال: عمود 850px وشريط تبويبات سفلي ممدود بعرض الشاشة،
+   ونوافذ تنزلق من الأسفل. هنا: الشريط يصير قائمة جانبية يمينًا، والمحتوى
+   يتوسّط المساحة الباقية، والنوافذ السفلية تصير نوافذ وسط الشاشة، وكل ما
+   كان مرفوعًا فوق الشريط السفلي (تنبيهات، أزرار عائمة، أشرطة حفظ) ينزل.
+   screen فقط: الطباعة لا تتأثر. :has لتطبيقها بعد الدخول فقط (شاشة الدخول كما هي).
+   ================================================================ */
+@media screen and (min-width:1024px){
+  :root{--side-w:236px;}
+  html:has(#appView[style*="block"]) body{padding-bottom:24px;}
+  html:has(#appView[style*="block"]) #betaNoticeBar{right:var(--side-w) !important;} /* inline right:0 بـindex.html */
+  #appView.wrap{max-width:calc(960px + var(--side-w));padding-right:var(--side-w);padding-bottom:24px;}
+
+  /* القائمة الجانبية */
+  .btab-bar{top:0;bottom:0;left:auto;width:var(--side-w);flex-direction:column;justify-content:flex-start;align-items:stretch;gap:4px;padding:18px 12px;border-top:0;border-left:1px solid var(--line);box-shadow:none;overflow-y:auto;}
+  .btab-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;margin-bottom:8px;border-bottom:1px solid var(--ui-divider);font-size:14.5px;font-weight:800;color:var(--navy);line-height:1.4;}
+  .btab-brand img{width:36px;height:36px;border-radius:10px;flex:none;}
+  .btab-bar .bottom-tab-btn{flex:none;flex-direction:row;font-family:inherit;justify-content:flex-start;gap:12px;padding:11px 14px;border-radius:var(--ui-r-btn);}
+  .btab-bar .bottom-tab-btn:hover{background:var(--ui-hover);color:var(--navy);}
+  .btab-bar .bottom-tab-btn.active{background:var(--ui-track);color:var(--navy);box-shadow:inset -3px 0 0 var(--gold);}
+  .btab-ic{font-size:18px;width:24px;text-align:center;}
+  .btab-lb{font-size:14px;font-weight:700;}
+  .btab-badge{position:static;margin-right:auto;border-radius:10px;min-width:20px;height:20px;line-height:20px;font-size:10.5px;padding:0 6px;}
+
+  /* ما كان مرفوعًا فوق الشريط السفلي */
+  .toast-container{bottom:24px;right:var(--side-w);}
+  .fab-btn{bottom:28px;left:28px;}
+  .sh-fab-wrap{bottom:16px;}
+  .crm-sheet-bar,.crm-grade-entry-bar{bottom:0;}
+  .sh-fab{max-width:420px;margin-right:auto;margin-left:auto;}
+
+  /* النوافذ السفلية → نوافذ وسط الشاشة */
+  .crm-bsheet-overlay{align-items:center;padding:24px;}
+  .crm-bsheet{border-radius:var(--ui-r-card);max-height:84vh;box-shadow:0 18px 48px rgba(0,0,0,.25);}
+  .crm-picker .crm-bsheet{height:84vh;}
+  .crm-bsheet-grab,.bt-grip{display:none;}
+  .crm-bsheet-foot{padding-bottom:14px;}
+  .bt-sheet{top:50%;bottom:auto;transform:translateY(-50%);border-radius:var(--ui-r-card);max-height:84vh;padding-bottom:14px;}
+  .upd-sheet{top:50%;bottom:auto;transform:translateY(-50%);border-radius:var(--ui-r-card);padding-bottom:18px;animation:none;}
+
+  /* لمسات الفأرة ولوحة المفاتيح */
+  button,[role="button"],.tlx-row,.home-btn{cursor:pointer;}
+  :focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;border:2px solid var(--paper);}
+  ::-webkit-scrollbar-track{background:transparent;}
+}
