@@ -319,22 +319,42 @@ window.addEventListener('appinstalled', () => {
   setInstallBtnVisible(false);
   showToast('تم تثبيت التطبيق ✓', 'ok');
 });
+/* الزر ظاهر دائمًا ما لم يكن التطبيق مثبّتًا: حدث beforeinstallprompt لا يصل أبدًا في
+   سفاري الماك وفايرفوكس، ولا يصل في كروم/إيدج الكمبيوتر فترةً بعد إغلاق عرض التثبيت مرة —
+   فكان الزر يختفي ولا يعرف المعلم كيف يثبّت على الكمبيوتر رغم أن التطبيق قابل للتثبيت. */
 document.addEventListener('DOMContentLoaded', () => {
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  if(isIOS && !isStandaloneApp()) setInstallBtnVisible(true);
+  setInstallBtnVisible(!isStandaloneApp());
 });
+/* خطوات التثبيت اليدوي حسب المتصفح والجهاز (دالة صرفة للاختبار) */
+function installHelpText(ua, touchPoints){
+  ua = String(ua || '');
+  const ios = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1); /* آيباد يتنكّر كماك */
+  if(ios) return { title: 'التثبيت على الآيفون/الآيباد', steps: ['افتح الموقع من متصفح سفاري', 'اضغط زر المشاركة (المربع والسهم)', 'اختر «إضافة إلى الشاشة الرئيسية»'] };
+  if(/Android/i.test(ua)) return { title: 'التثبيت على أندرويد', steps: ['اضغط قائمة المتصفح ⋮ أعلى الشاشة', 'اختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية»'] };
+  if(/Edg\//.test(ua)) return { title: 'التثبيت من متصفح Edge', steps: ['اضغط أيقونة التثبيت في شريط العنوان (يمين الرابط)', 'أو: القائمة ⋯ ← التطبيقات ← «تثبيت هذا الموقع كتطبيق»'] };
+  if(/Firefox\//.test(ua)) return { title: 'متصفح Firefox لا يدعم التثبيت', steps: ['افتح الموقع نفسه من Google Chrome أو Microsoft Edge', 'ثم اضغط «تثبيت التطبيق على جهازك» من قائمة الحساب'] };
+  if(/OPR\/|SamsungBrowser/.test(ua)) return { title: 'التثبيت', steps: ['افتح الموقع من Google Chrome أو Microsoft Edge لأسهل تثبيت', 'ثم اضغط «تثبيت التطبيق على جهازك» من قائمة الحساب'] };
+  if(/Chrome\//.test(ua)) return { title: 'التثبيت من Google Chrome', steps: ['اضغط أيقونة التثبيت (شاشة صغيرة بسهم) في شريط العنوان يمين الرابط', 'أو: القائمة ⋮ ← «الإرسال والحفظ والمشاركة» ← «تثبيت الصفحة كتطبيق»'] };
+  if(/Macintosh/.test(ua) && /Safari\//.test(ua)) return { title: 'التثبيت من سفاري على الماك', steps: ['من قائمة «ملف» أعلى الشاشة', 'اختر «إضافة إلى Dock» (يحتاج macOS Sonoma أو أحدث)', 'أو افتح الموقع من Google Chrome وثبّته من هناك'] };
+  return { title: 'التثبيت', steps: ['افتح الموقع من Google Chrome أو Microsoft Edge', 'ثم اضغط «تثبيت التطبيق على جهازك» من قائمة الحساب'] };
+}
 async function installApp(){
   if(deferredInstallPrompt){
     const p = deferredInstallPrompt;
     deferredInstallPrompt = null;
-    setInstallBtnVisible(false);
     try{
       p.prompt();
-      await p.userChoice;
+      const choice = await p.userChoice;
+      if(choice && choice.outcome === 'accepted') setInstallBtnVisible(false);
     }catch(e){ /* تجاهل — المتصفح يتعامل مع الرفض */ }
     return;
   }
-  showToast('من متصفح سفاري: اضغط زر المشاركة ثم «إضافة إلى الشاشة الرئيسية».', 'ok');
+  const h = installHelpText(navigator.userAgent, navigator.maxTouchPoints || 0);
+  showInfoModal(`<div style="text-align:right;">
+    <h3 style="margin:0 0 10px;font-size:15px;color:var(--navy);">📲 ${h.title}</h3>
+    <ol style="margin:0;padding-right:20px;font-size:13px;line-height:2;">${h.steps.map(x => `<li>${x}</li>`).join('')}</ol>
+    <p style="margin:10px 0 0;font-size:12px;color:var(--muted);line-height:1.8;">بعد التثبيت يفتح التطبيق في نافذة مستقلة ويتحدّث تلقائيًا.</p>
+  </div>`);
 }
 
 /* ============================================

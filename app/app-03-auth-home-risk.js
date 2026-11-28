@@ -392,12 +392,15 @@ async function onLoggedIn(user){
     if(needsCustomizeWizard(user)){
       /* حساب جديد: يختار المعلم ما يريد أولًا (الرئيسية خلفها، وجولة التعريف بعدها) */
       custWizard = { pending: true };
+      pendingLaunchGo = null; clearLaunchGoFromUrl(); /* المعالج أولًا، لا اختصار فوقه */
       await showHome();
       openCustomizeWizard();
     } else {
       await openAppLanding(); /* قسم واحد مفعّل = يفتح عليه مباشرة */
     }
-  }
+  } else { pendingLaunchGo = null; clearLaunchGoFromUrl(); } /* انتقل بنفسه — لا نسحبه */
+  appLandingDone = true;
+  runLaunchGo();
 }
 
 /* وكيل/مدير المدرسة (STANDALONE_ROLES) دور وظيفي مختلف كليًا عن المعلم — لا
@@ -574,6 +577,84 @@ if(typeof document.addEventListener === 'function'){
     const m = document.getElementById('acctMenu');
     if(m && m.style.display !== 'none' && !(e.target && e.target.closest && e.target.closest('.tb-acct'))) closeAcctMenu();
   });
+  document.addEventListener('keydown', onAppShortcutKey);
+}
+
+/* اختصارات لوحة المفاتيح (للكمبيوتر): Alt+1..4 تنقل بين الأقسام الأربعة بنفس زر الشريط
+   (فيسري ما يسري على النقرة: قسم مخفي بالتخصيص لا يُفتح)، وEsc تغلق قائمة الحساب.
+   e.code لا e.key: يعمل مع لوحة المفاتيح العربية. لا تعمل والتطبيق غير ظاهر أو نافذة
+   مفتوحة فوقه — الانتقال حينها يترك النافذة معلّقة فوق شاشة أخرى. */
+/* اختصارات أيقونة التطبيق المثبّت (shortcuts بـmanifest.json): index.html?go=new|work|classroom.
+   تُنفَّذ مرة واحدة بعد اكتمال الدخول والشاشة الأولى، بزر الشريط نفسه (قسم مخفي بالتخصيص
+   لا يُفتح). مع launch_handler «focus-existing» يصل الطلب للنافذة المفتوحة عبر launchQueue
+   بدل فتح نافذة ثانية — وحينها لا نقاطع نموذجًا مفتوحًا أو نافذة حوار (قد تضيع كتابة). */
+const LAUNCH_GO = { new: 'shahid', work: 'work', classroom: 'classroom' };
+function readLaunchGo(search){
+  try{ const g = new URLSearchParams(search || '').get('go'); return Object.prototype.hasOwnProperty.call(LAUNCH_GO, g) ? g : null; }
+  catch(e){ return null; }
+}
+let pendingLaunchGo = (typeof location !== 'undefined') ? readLaunchGo(location.search) : null;
+let appLandingDone = false;
+function clearLaunchGoFromUrl(){
+  try{
+    if(!/[?&]go=/.test(location.search)) return;
+    const p = new URLSearchParams(location.search); p.delete('go');
+    const q = p.toString();
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
+  } catch(e){}
+}
+function runLaunchGo(){
+  const go = pendingLaunchGo;
+  pendingLaunchGo = null;
+  clearLaunchGoFromUrl();
+  if(!go || !currentUser) return false;
+  const form = document.getElementById('formView');
+  if(appOverlayOpen() || (form && form.style.display === 'block')) return false;
+  const btn = document.querySelector(`#bottomTabBar .bottom-tab-btn[data-tab="${LAUNCH_GO[go]}"]`);
+  if(!btn || !btn.getClientRects().length) return false;
+  closeAcctMenu();
+  if(go === 'new') startNewShahid(); else btn.click();
+  return true;
+}
+if(typeof window !== 'undefined' && window.launchQueue && typeof window.launchQueue.setConsumer === 'function'){
+  window.launchQueue.setConsumer(params => {
+    if(!params || !params.targetURL) return;
+    let go = null, u = null;
+    try{ u = new URL(params.targetURL); go = readLaunchGo(u.search); } catch(e){}
+    if(!go){
+      /* رابط آخر وصل للنافذة المفتوحة (من فعّل «فتح الروابط في التطبيق»): رابط استعادة كلمة
+         المرور أو عودة Google يحمل رموزه بـ#/?، فتجاهله يُضيعها — نفتحه كما هو. فتح الأيقونة
+         العادي (بلا # ولا ?) لا يُعيد التحميل. */
+      if(u && u.origin === location.origin && (u.hash || u.search) && u.href !== location.href) location.assign(u.href);
+      return;
+    }
+    pendingLaunchGo = go;
+    if(appLandingDone) runLaunchGo(); /* وإلا يُنفَّذ بعد اكتمال الدخول */
+  });
+}
+
+const APP_SHORTCUT_TABS = { Digit1: 'home', Digit2: 'shahid', Digit3: 'work', Digit4: 'classroom' };
+function appOverlayOpen(){
+  const list = document.querySelectorAll('.confirm-overlay, .crm-bsheet-overlay, .bt-sheet-wrap, .sv-back, .upd-wrap, [role="dialog"][aria-modal="true"]');
+  for(const el of list){ if(el.getClientRects().length) return true; }
+  return false;
+}
+function onAppShortcutKey(e){
+  if(e.key === 'Escape'){
+    const m = document.getElementById('acctMenu');
+    if(m && m.style.display !== 'none'){ closeAcctMenu(); const b = document.getElementById('acctBtn'); if(b) b.focus(); }
+    return;
+  }
+  if(!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat) return;
+  const tab = APP_SHORTCUT_TABS[e.code];
+  if(!tab) return;
+  const app = document.getElementById('appView');
+  if(!app || app.style.display !== 'block' || appOverlayOpen()) return;
+  const btn = document.querySelector(`#bottomTabBar .bottom-tab-btn[data-tab="${tab}"]`);
+  if(!btn || !btn.getClientRects().length) return;
+  e.preventDefault();
+  closeAcctMenu();
+  btn.click();
 }
 
 /* الخروج آخر القائمة وبتأكيد — لا يُخرج بضغطة خاطئة */
@@ -584,6 +665,7 @@ async function confirmLogout(){
 async function handleLogout(){
   await sb.auth.signOut();
   currentUser = null;
+  appLandingDone = false;
   document.getElementById('appView').style.display = 'none';
   document.getElementById('authView').style.display = 'block';
   document.getElementById('authEmail').value = '';
